@@ -1,0 +1,27 @@
+{
+  "name": "@codegraph/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@codegraph/graph": "workspace:*",
+    "@codegraph/parser": "workspace:*",
+    "@codegraph/types": "workspace:*",
+    "@hono/node-server": "^1.19.8",
+    "hono": "^4.11.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.0"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "codegraph",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Visual Codebase Knowledge Graph",
+  "type": "module",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "dev:api": "turbo run dev --filter=@codegraph/api",
+    "dev:web": "turbo run dev --filter=@codegraph/web",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:db": "docker-compose up -d falkordb",
+    "docker:logs": "docker-compose logs -f",
+    "docker:reset": "docker-compose down -v && docker-compose up -d falkordb",
+    "start": "docker-compose up -d falkordb && turbo run dev",
+    "stop": "docker-compose down",
+    "typecheck": "turbo run build --filter=@codegraph/types"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "prettier": "^3.4.2",
+    "turbo": "^2.7.4",
+    "typescript": "^5.7.3"
+  },
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
