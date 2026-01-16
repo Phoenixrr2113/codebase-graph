@@ -4,19 +4,22 @@
  */
 
 import { serve } from '@hono/node-server';
+import { createLogger } from '@codegraph/logger';
 import { app } from './app.js';
 import { setupWebSocket, injectWebSocketToServer, subscribeToWatchEvents } from './websocket.js';
 import { startWatching } from './services/index.js';
+
+const logger = createLogger({ namespace: 'API:Server' });
 
 const port = parseInt(process.env['API_PORT'] ?? '3001', 10);
 const host = process.env['API_HOST'] ?? '0.0.0.0';
 const watchPath = process.env['PROJECT_PATH'] ?? process.env['WATCH_PATH'];
 
-console.log(`Starting CodeGraph API server...`);
-console.log(`  Port: ${port}`);
-console.log(`  Host: ${host}`);
+logger.info(`Starting CodeGraph API server...`);
+logger.info(`  Port: ${port}`);
+logger.info(`  Host: ${host}`);
 if (watchPath) {
-  console.log(`  Watch path: ${watchPath}`);
+  logger.info(`  Watch path: ${watchPath}`);
 }
 
 // Setup WebSocket support
@@ -29,9 +32,9 @@ const server = serve(
     hostname: host,
   },
   async (info) => {
-    console.log(`CodeGraph API is running at http://${info.address}:${info.port}`);
-    console.log(`Health check: http://localhost:${info.port}/health`);
-    console.log(`WebSocket: ws://localhost:${info.port}/ws`);
+    logger.info(`CodeGraph API is running at http://${info.address}:${info.port}`);
+    logger.info(`Health check: http://localhost:${info.port}/health`);
+    logger.info(`WebSocket: ws://localhost:${info.port}/ws`);
 
     // Inject WebSocket into the server
     injectWebSocketToServer(server);
@@ -41,9 +44,9 @@ const server = serve(
       try {
         await startWatching({ projectPath: watchPath });
         subscribeToWatchEvents();
-        console.log(`[Watcher] Watching project: ${watchPath}`);
+        logger.info(`Watching project: ${watchPath}`);
       } catch (error) {
-        console.error('[Watcher] Failed to start:', error);
+        logger.error('Failed to start watcher:', error);
       }
     }
   }

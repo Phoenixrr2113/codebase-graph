@@ -7,6 +7,9 @@ import TreeSitter from 'tree-sitter';
 import TypeScript from 'tree-sitter-typescript';
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
+import { withTrace, createLogger } from '@codegraph/logger';
+
+const logger = createLogger({ namespace: 'Parser' });
 
 // ============================================================================
 // Types
@@ -66,12 +69,15 @@ let initialized = false;
  * Safe to call multiple times.
  */
 export async function initParser(): Promise<void> {
-  if (initialized) {
-    return;
-  }
-  
-  // Native parser is ready immediately
-  initialized = true;
+  return withTrace('initParser', async () => {
+    if (initialized) {
+      return;
+    }
+
+    // Native parser is ready immediately
+    initialized = true;
+    logger.debug('Parser initialized');
+  });
 }
 
 /**
@@ -135,23 +141,25 @@ export function parseCode(code: string, language: LanguageType): SyntaxTree {
  * @throws Error if file cannot be read, extension not supported, or parsing fails
  */
 export async function parseFile(filePath: string): Promise<SyntaxTree> {
-  if (!initialized) {
-    await initParser();
-  }
+  return withTrace('parseFile', async () => {
+    if (!initialized) {
+      await initParser();
+    }
 
-  const ext = extname(filePath);
-  const language = getLanguageForExtension(ext);
+    const ext = extname(filePath);
+    const language = getLanguageForExtension(ext);
 
-  if (!language) {
-    throw new Error(`Unsupported file extension: ${ext}. Supported: ${Object.keys(EXTENSION_MAP).join(', ')}`);
-  }
+    if (!language) {
+      throw new Error(`Unsupported file extension: ${ext}. Supported: ${Object.keys(EXTENSION_MAP).join(', ')}`);
+    }
 
-  const code = await readFile(filePath, 'utf-8');
-  
-  const syntaxTree = parseCode(code, language);
-  syntaxTree.filePath = filePath;
-  
-  return syntaxTree;
+    const code = await readFile(filePath, 'utf-8');
+
+    const syntaxTree = parseCode(code, language);
+    syntaxTree.filePath = filePath;
+
+    return syntaxTree;
+  });
 }
 
 /**
@@ -163,25 +171,28 @@ export async function parseFile(filePath: string): Promise<SyntaxTree> {
 export async function parseFiles(
   filePaths: string[]
 ): Promise<Array<{ filePath: string; tree?: SyntaxTree; error?: string }>> {
-  if (!initialized) {
-    await initParser();
-  }
-
-  const results: Array<{ filePath: string; tree?: SyntaxTree; error?: string }> = [];
-
-  for (const filePath of filePaths) {
-    try {
-      const tree = await parseFile(filePath);
-      results.push({ filePath, tree });
-    } catch (error) {
-      results.push({
-        filePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
+  return withTrace('parseFiles', async () => {
+    if (!initialized) {
+      await initParser();
     }
-  }
 
-  return results;
+    logger.info(`Parsing ${filePaths.length} files`);
+    const results: Array<{ filePath: string; tree?: SyntaxTree; error?: string }> = [];
+
+    for (const filePath of filePaths) {
+      try {
+        const tree = await parseFile(filePath);
+        results.push({ filePath, tree });
+      } catch (error) {
+        results.push({
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return results;
+  });
 }
 
 /**

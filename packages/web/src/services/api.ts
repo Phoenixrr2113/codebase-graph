@@ -5,7 +5,7 @@
 
 import type { GraphData, GraphStats, ParseResult, SearchResult } from '@codegraph/types';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 interface FetchOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
@@ -14,6 +14,7 @@ interface FetchOptions extends RequestInit {
 async function fetchAPI<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
   const { params, ...init } = options;
   
+  // Use relative URLs to work with Next.js proxy
   let url = `${API_BASE}${endpoint}`;
   
   if (params) {

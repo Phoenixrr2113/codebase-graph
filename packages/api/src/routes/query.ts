@@ -6,6 +6,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { createClient } from '@codegraph/graph';
 import { HttpError } from '../middleware/errorHandler.js';
 
 const query = new Hono();
@@ -34,16 +35,16 @@ query.post(
     }
   }),
   async (c) => {
-    const body = c.req.valid('json');
-    void body; // Will be used when graph client is available
+    const { query: cypherQuery, params } = c.req.valid('json');
 
-    // TODO: Execute Cypher query when graph package exports are updated
-    // const client = await createClient();
-    // const result = await client.roQuery(body.query, { params: body.params });
+    const client = await createClient();
+    const result = await client.roQuery(cypherQuery, {
+      params: params as Record<string, string | number | boolean | null | unknown[]>
+    });
 
     return c.json({
-      results: [],
-      message: 'Graph client not yet available - waiting for graph package exports',
+      results: result.data ?? [],
+      metadata: result.metadata ?? null,
     });
   }
 );
@@ -60,22 +61,25 @@ query.post(
     }
   }),
   async (c) => {
-    const { stream } = c.req.valid('json');
+    const { question, stream } = c.req.valid('json');
 
-    // TODO: Implement NL → Cypher conversion using Vercel AI SDK (API-004)
-    // This requires AI SDK dependencies and nlQueryService implementation
+    // Natural language query conversion requires AI SDK setup
+    // For now, return guidance on using Cypher directly
 
     if (stream) {
-      // TODO: Return SSE stream for streaming responses
+      // SSE streaming would require AI SDK streamText
       return c.json({
-        error: 'Streaming not yet implemented - API-004 pending',
+        error: 'Streaming not yet implemented - requires AI SDK integration',
+        suggestion: 'Use POST /api/query/cypher with a manual Cypher query',
       }, 501);
     }
 
     return c.json({
+      question,
       cypher: null,
       results: [],
-      explanation: 'Natural language queries not yet implemented - API-004 pending',
+      explanation: 'Natural language → Cypher conversion requires AI SDK setup. Use POST /api/query/cypher with manual Cypher queries for now.',
+      exampleCypher: "MATCH (f:Function) WHERE f.name CONTAINS 'search' RETURN f.name, f.filePath LIMIT 10",
     });
   }
 );

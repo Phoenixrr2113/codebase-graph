@@ -55,6 +55,9 @@ export interface UseCytoscapeReturn {
 // ============================================================================
 
 function graphDataToElements(data: GraphData): ElementDefinition[] {
+  // Build set of valid node IDs to filter edges
+  const nodeIds = new Set(data.nodes.map((node) => node.id));
+
   const nodes: ElementDefinition[] = data.nodes.map((node) => ({
     group: 'nodes' as const,
     data: {
@@ -65,7 +68,12 @@ function graphDataToElements(data: GraphData): ElementDefinition[] {
     },
   }));
 
-  const edges: ElementDefinition[] = data.edges.map((edge) => ({
+  // Only include edges where both source and target nodes exist
+  const validEdges = data.edges.filter(
+    (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)
+  );
+
+  const edges: ElementDefinition[] = validEdges.map((edge) => ({
     group: 'edges' as const,
     data: {
       id: edge.id,

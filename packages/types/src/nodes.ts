@@ -170,6 +170,8 @@ export interface ImportEntity {
   namespaceAlias?: string;
   /** Default import alias */
   defaultAlias?: string;
+  /** Resolved absolute path to the imported file (for relative imports) */
+  resolvedPath?: string;
 }
 
 // ============================================================================

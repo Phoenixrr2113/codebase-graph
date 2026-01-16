@@ -2,22 +2,49 @@
 
 /**
  * AppShell Component
- * Main layout with three resizable panels
+ * Main layout with three resizable panels using Shadcn resizable
  */
 
+import { useEffect } from 'react';
 import {
-  Group,
-  Panel,
-  Separator,
-} from 'react-resizable-panels';
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from '@/components/ui/resizable';
 import { useUIStore, useGraphStore } from '@/stores';
 import { GraphCanvas, GraphLegend } from '@/components/graph';
 import { EntityDetail } from '@/components/panels/EntityDetail';
 import { SearchPanel } from '@/components/panels/SearchPanel';
+import { getFullGraph } from '@/services/api';
 
 export function AppShell() {
   const { leftPanel, rightPanel, legendCollapsed, toggleLegend } = useUIStore();
-  const { nodes, edges, selectedNode, selectNode, loading, error } = useGraphStore();
+  const { nodes, edges, selectedNode, selectNode, loading, error, setGraphData, setLoading, setError } = useGraphStore();
+
+  // Fetch graph data on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadGraph() {
+      setLoading(true);
+      try {
+        const data = await getFullGraph();
+        if (!cancelled) {
+          setGraphData(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load graph');
+        }
+      }
+    }
+
+    loadGraph();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setGraphData, setLoading, setError]);
 
   const graphData = { nodes, edges };
 
@@ -49,24 +76,24 @@ export function AppShell() {
       </header>
 
       {/* Main content */}
-      <Group orientation="horizontal" className="flex-1">
+      <ResizablePanelGroup direction="horizontal" className="flex-1">
         {/* Left panel - Search/FileTree */}
         {leftPanel.visible && (
           <>
-            <Panel
+            <ResizablePanel
               defaultSize={leftPanel.size}
               minSize={15}
               maxSize={35}
               className="bg-slate-900/30"
             >
               <SearchPanel />
-            </Panel>
-            <Separator className="w-1 bg-slate-800 hover:bg-indigo-500 transition-colors" />
+            </ResizablePanel>
+            <ResizableHandle className="w-1 bg-slate-800 hover:bg-indigo-500 transition-colors" />
           </>
         )}
 
         {/* Center panel - Graph */}
-        <Panel minSize={30} className="relative">
+        <ResizablePanel minSize={30} className="relative">
           <GraphCanvas
             data={graphData}
             onNodeSelect={selectNode}
@@ -79,23 +106,23 @@ export function AppShell() {
               onToggle={toggleLegend}
             />
           </div>
-        </Panel>
+        </ResizablePanel>
 
         {/* Right panel - Entity Detail */}
         {rightPanel.visible && (
           <>
-            <Separator className="w-1 bg-slate-800 hover:bg-indigo-500 transition-colors" />
-            <Panel
+            <ResizableHandle className="w-1 bg-slate-800 hover:bg-indigo-500 transition-colors" />
+            <ResizablePanel
               defaultSize={rightPanel.size}
               minSize={20}
               maxSize={45}
               className="bg-slate-900/30"
             >
               <EntityDetail node={selectedNode} />
-            </Panel>
+            </ResizablePanel>
           </>
         )}
-      </Group>
+      </ResizablePanelGroup>
     </div>
   );
 }

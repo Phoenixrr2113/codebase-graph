@@ -11,6 +11,7 @@
     "clean": "rm -rf .next"
   },
   "dependencies": {
+    "@codegraph/logger": "workspace:*",
     "@codegraph/types": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-scroll-area": "^1.2.10",
@@ -27,12 +28,13 @@
     "next": "^16.1.2",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "react-resizable-panels": "^4.4.1",
+    "react-resizable-panels": "2.1.9",
     "shiki": "^3.21.0",
     "tailwind-merge": "^3.4.0",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
     "@types/cytoscape": "^3.21.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",

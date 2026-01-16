@@ -5,6 +5,7 @@
  */
 
 import type { GraphClient } from './client.js';
+import { trace } from '@codegraph/logger';
 import type {
   GraphData,
   GraphNode,
@@ -119,16 +120,41 @@ function getLabelFromLabels(labels: string[]): NodeLabel {
   return (found as NodeLabel) ?? 'File';
 }
 
+/**
+ * Extract node properties from FalkorDB result
+ * FalkorDB returns nodes as { id, labels, properties: {...} }
+ */
+function extractNodeProps(node: Record<string, unknown>): Record<string, unknown> {
+  // If node has a 'properties' object, use that; otherwise assume flat structure
+  if (node['properties'] && typeof node['properties'] === 'object') {
+    return node['properties'] as Record<string, unknown>;
+  }
+  return node;
+}
+
+/**
+ * Extract labels from FalkorDB node
+ */
+function extractLabels(node: Record<string, unknown>, providedLabels: string[]): string[] {
+  // FalkorDB returns labels in the node object
+  if (node['labels'] && Array.isArray(node['labels'])) {
+    return node['labels'] as string[];
+  }
+  return providedLabels;
+}
+
 function nodeToGraphNode(node: Record<string, unknown>, labels: string[]): GraphNode {
-  const label = getLabelFromLabels(labels);
-  const id = generateNodeIdFromProps(label, node);
+  const actualLabels = extractLabels(node, labels);
+  const props = extractNodeProps(node);
+  const label = getLabelFromLabels(actualLabels);
+  const id = generateNodeIdFromProps(label, props);
 
   return {
     id,
     label,
-    displayName: (node['name'] as string) ?? (node['path'] as string) ?? 'unknown',
-    filePath: (node['filePath'] as string) ?? (node['path'] as string),
-    data: node,
+    displayName: (props['name'] as string) ?? (props['path'] as string) ?? 'unknown',
+    filePath: (props['filePath'] as string) ?? (props['path'] as string),
+    data: props,
   } as unknown as GraphNode;
 }
 
@@ -141,6 +167,7 @@ function generateNodeIdFromProps(label: NodeLabel, node: Record<string, unknown>
   const line = node['startLine'] ?? node['line'] ?? 0;
   return `${label}:${filePath}:${name}:${line}`;
 }
+
 
 function edgeToGraphEdge(
   fromNode: Record<string, unknown>,
@@ -213,6 +240,7 @@ export interface GraphQueries {
 class GraphQueriesImpl implements GraphQueries {
   constructor(private readonly client: GraphClient) {}
 
+  @trace()
   async getFullGraph(limit = 1000): Promise<GraphData> {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
@@ -241,30 +269,34 @@ class GraphQueriesImpl implements GraphQueries {
     }>(CYPHER.GET_FULL_GRAPH_EDGES, { params: { limit } });
 
     for (const row of edgesResult.data ?? []) {
+      // Extract properties from FalkorDB node format
+      const fromProps = extractNodeProps(row.a);
+      const toProps = extractNodeProps(row.b);
+      const fromLabels = extractLabels(row.a, []);
+      const toLabels = extractLabels(row.b, []);
+
       // Get labels from nodes
       const fromNode = nodes.find((n) => {
-        const props = row.a;
         return (
-          n.filePath === props['path'] ||
-          (n.displayName === props['name'] && n.filePath === props['filePath'])
+          n.filePath === fromProps['path'] ||
+          (n.displayName === fromProps['name'] && n.filePath === fromProps['filePath'])
         );
       });
       const toNode = nodes.find((n) => {
-        const props = row.b;
         return (
-          n.filePath === props['path'] ||
-          (n.displayName === props['name'] && n.filePath === props['filePath'])
+          n.filePath === toProps['path'] ||
+          (n.displayName === toProps['name'] && n.filePath === toProps['filePath'])
         );
       });
 
       if (fromNode && toNode) {
         const edge = edgeToGraphEdge(
-          row.a,
-          row.b,
+          fromProps,
+          toProps,
           row.edgeType,
           row.r,
-          [fromNode.label],
-          [toNode.label]
+          fromLabels.length > 0 ? fromLabels : [fromNode.label],
+          toLabels.length > 0 ? toLabels : [toNode.label]
         );
         edges.push(edge);
       }
@@ -273,6 +305,7 @@ class GraphQueriesImpl implements GraphQueries {
     return { nodes, edges };
   }
 
+  @trace()
   async getFileSubgraph(filePath: string): Promise<SubgraphData> {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
@@ -348,6 +381,7 @@ class GraphQueriesImpl implements GraphQueries {
     return { nodes, edges };
   }
 
+  @trace()
   async getFunctionCallers(funcName: string): Promise<FunctionEntity[]> {
     const result = await this.client.roQuery<{
       caller: Record<string, unknown>;
@@ -377,6 +411,7 @@ class GraphQueriesImpl implements GraphQueries {
     });
   }
 
+  @trace()
   async getDependencyTree(filePath: string, depth = 5): Promise<GraphData> {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
@@ -425,6 +460,7 @@ class GraphQueriesImpl implements GraphQueries {
     return { nodes, edges };
   }
 
+  @trace()
   async getStats(): Promise<GraphStats> {
     // Get node counts by type
     const nodesResult = await this.client.roQuery<{
@@ -517,6 +553,7 @@ class GraphQueriesImpl implements GraphQueries {
     };
   }
 
+  @trace()
   async search(term: string, types?: NodeLabel[], limit = 50): Promise<SearchResult[]> {
     // Use simple name matching (fulltext search may not be available on all indexes)
     const result = await this.client.roQuery<{

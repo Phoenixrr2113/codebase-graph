@@ -9,7 +9,10 @@ import type { WSContext } from 'hono/ws';
 import { createNodeWebSocket } from '@hono/node-ws';
 import type { ServerType } from '@hono/node-server';
 import type { Hono } from 'hono';
+import { createLogger } from '@codegraph/logger';
 import { getActiveWatcher, type FileChangeEvent } from './services/index.js';
+
+const logger = createLogger({ namespace: 'API:WS' });
 
 // ============================================================================
 // Types
@@ -62,7 +65,7 @@ export function setupWebSocket(app: Hono): void {
     '/ws',
     upgradeWebSocket((_c) => ({
       onOpen: (_event, ws) => {
-        console.log('[WebSocket] Client connected');
+        logger.info('Client connected');
         clients.add(ws);
 
         // Send welcome message
@@ -90,18 +93,18 @@ export function setupWebSocket(app: Hono): void {
       },
 
       onClose: (_event, ws) => {
-        console.log('[WebSocket] Client disconnected');
+        logger.info('Client disconnected');
         clients.delete(ws);
       },
 
       onError: (error, ws) => {
-        console.error('[WebSocket] Error:', error);
+        logger.error('Error:', error);
         clients.delete(ws);
       },
     }))
   );
 
-  console.log('[WebSocket] WebSocket route registered at /ws');
+  logger.info('WebSocket route registered at /ws');
 }
 
 /**
@@ -110,9 +113,9 @@ export function setupWebSocket(app: Hono): void {
 export function injectWebSocketToServer(server: ServerType): void {
   if (injectWebSocket) {
     injectWebSocket(server);
-    console.log('[WebSocket] WebSocket injected into server');
+    logger.info('WebSocket injected into server');
   } else {
-    console.warn('[WebSocket] Cannot inject - setupWebSocket not called');
+    logger.warn('Cannot inject - setupWebSocket not called');
   }
 }
 
@@ -122,7 +125,7 @@ export function injectWebSocketToServer(server: ServerType): void {
 export function subscribeToWatchEvents(): void {
   const watcher = getActiveWatcher();
   if (!watcher) {
-    console.warn('[WebSocket] No active watcher to subscribe to');
+    logger.warn('No active watcher to subscribe to');
     return;
   }
 
@@ -150,7 +153,7 @@ export function subscribeToWatchEvents(): void {
     });
   });
 
-  console.log('[WebSocket] Subscribed to watch events');
+  logger.info('Subscribed to watch events');
 }
 
 /**
@@ -160,7 +163,7 @@ function sendToClient(ws: WSContext, message: WSMessage): void {
   try {
     ws.send(JSON.stringify(message));
   } catch (error) {
-    console.error('[WebSocket] Failed to send message:', error);
+    logger.error('Failed to send message:', error);
   }
 }
 
@@ -181,7 +184,7 @@ export function broadcast(message: WSMessage): void {
   }
 
   if (failedCount > 0) {
-    console.log(`[WebSocket] Removed ${failedCount} failed clients`);
+    logger.debug(`Removed ${failedCount} failed clients`);
   }
 }
 

@@ -2,10 +2,16 @@
  * Parse service - orchestrates parsing and graph persistence
  */
 
-import type { ParseResult, ParseStats } from '@codegraph/types';
-import { initParser, parseFile, parseFiles } from '@codegraph/parser';
+import type { ParseResult, ParseStats, FileEntity } from '@codegraph/types';
+import { initParser, parseFile, parseFiles, extractAllEntities, type ExtractedEntities } from '@codegraph/parser';
+import { createClient, createOperations, type ParsedFileEntities, type GraphOperations } from '@codegraph/graph';
+import { createLogger } from '@codegraph/logger';
 import fastGlob from 'fast-glob';
-import { stat } from 'node:fs/promises';
+import { stat, readFile } from 'node:fs/promises';
+import { basename, extname } from 'node:path';
+import { createHash } from 'node:crypto';
+
+const logger = createLogger({ namespace: 'API:Parse' });
 
 /** Default glob patterns to ignore during parsing */
 const DEFAULT_IGNORE_PATTERNS = [
@@ -26,6 +32,116 @@ const DEFAULT_IGNORE_PATTERNS = [
 
 /** Supported file extensions */
 const SUPPORTED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'];
+
+/** Singleton graph operations instance */
+let graphOps: GraphOperations | null = null;
+
+/**
+ * Get or create graph operations instance
+ */
+async function getGraphOps(): Promise<GraphOperations> {
+  if (!graphOps) {
+    const client = await createClient();
+    graphOps = createOperations(client);
+  }
+  return graphOps;
+}
+
+/**
+ * Create a FileEntity from file metadata
+ */
+async function createFileEntity(filePath: string): Promise<FileEntity> {
+  const fileStat = await stat(filePath);
+  const content = await readFile(filePath, 'utf-8');
+  const loc = content.split('\n').length;
+  const hash = createHash('sha256').update(content).digest('hex').slice(0, 16);
+
+  return {
+    path: filePath,
+    name: basename(filePath),
+    extension: extname(filePath).slice(1), // Remove leading dot
+    loc,
+    lastModified: fileStat.mtime.toISOString(),
+    hash,
+  };
+}
+
+/**
+ * Build ParsedFileEntities from extracted entities
+ */
+function buildParsedFileEntities(
+  file: FileEntity,
+  extracted: ExtractedEntities
+): ParsedFileEntities {
+  // Build import edges from import entities
+  const importsEdges = extracted.imports
+    .filter((imp) => imp.resolvedPath)
+    .map((imp) => ({
+      fromFilePath: file.path,
+      toFilePath: imp.resolvedPath!,
+      specifiers: imp.specifiers.map((s) => s.name),
+    }));
+
+  // Build extends edges from classes
+  const extendsEdges = extracted.classes
+    .filter((cls) => cls.extends)
+    .map((cls) => ({
+      childId: `Class:${cls.filePath}:${cls.name}:${cls.startLine}`,
+      parentId: `Class:${cls.extends}`, // Parent may not have full path
+    }));
+
+  // Build implements edges from classes
+  const implementsEdges = extracted.classes.flatMap((cls) =>
+    (cls.implements ?? []).map((ifaceName) => ({
+      classId: `Class:${cls.filePath}:${cls.name}:${cls.startLine}`,
+      interfaceId: `Interface:${ifaceName}`,
+    }))
+  );
+
+  return {
+    file,
+    functions: extracted.functions,
+    classes: extracted.classes,
+    interfaces: extracted.interfaces,
+    variables: extracted.variables,
+    types: extracted.types,
+    components: extracted.components,
+    imports: extracted.imports,
+    callEdges: [], // Call analysis requires cross-file resolution - future enhancement
+    importsEdges,
+    extendsEdges,
+    implementsEdges,
+    rendersEdges: [], // Render analysis requires JSX traversal - future enhancement
+  };
+}
+
+/**
+ * Count total entities in extracted result
+ */
+function countEntities(extracted: ExtractedEntities): number {
+  return (
+    extracted.imports.length +
+    extracted.functions.length +
+    extracted.classes.length +
+    extracted.variables.length +
+    extracted.types.length +
+    extracted.interfaces.length +
+    extracted.components.length
+  );
+}
+
+/**
+ * Count total edges in parsed file entities
+ */
+function countEdges(parsed: ParsedFileEntities): number {
+  return (
+    parsed.callEdges.length +
+    parsed.importsEdges.length +
+    parsed.extendsEdges.length +
+    parsed.implementsEdges.length +
+    parsed.rendersEdges.length
+  );
+}
 
 /**
  * Parse a project directory
@@ -79,26 +195,50 @@ export async function parseProject(
     const successCount = results.filter(r => r.tree).length;
     const errorCount = results.filter(r => r.error).length;
 
-    // TODO: Once graph package exports are updated, persist to FalkorDB
-    // For now, we just return parsing stats
-    // const graphClient = await createClient();
-    // const ops = createOperations(graphClient);
-    // for (const result of results) {
-    //   if (result.tree) {
-    //     await ops.batchUpsert(extractEntities(result.tree));
-    //   }
-    // }
+    // Get graph operations
+    const ops = await getGraphOps();
+
+    // Track totals
+    let totalEntities = 0;
+    let totalEdges = 0;
+
+    // Process each successfully parsed file
+    for (const result of results) {
+      if (result.tree) {
+        try {
+          // Extract entities from syntax tree
+          const extracted = extractAllEntities(result.tree.rootNode, result.filePath);
+
+          // Create file entity
+          const fileEntity = await createFileEntity(result.filePath);
+
+          // Build full parsed file structure
+          const parsed = buildParsedFileEntities(fileEntity, extracted);
+
+          // Persist to graph database
+          await ops.batchUpsert(parsed);
+
+          // Update counts (add 1 for the file entity itself)
+          totalEntities += 1 + countEntities(extracted);
+          totalEdges += countEdges(parsed) + countEntities(extracted); // CONTAINS edges
+        } catch (err) {
+          logger.error(`Failed to persist ${result.filePath}:`, err);
+        }
+      }
+    }
 
     const stats: ParseStats = {
       files: successCount,
-      entities: 0, // Will be populated when graph integration is complete
-      edges: 0,
+      entities: totalEntities,
+      edges: totalEdges,
       durationMs: Date.now() - startTime,
     };
 
     if (errorCount > 0) {
-      console.warn(`[Parse] ${errorCount} files failed to parse`);
+      logger.warn(`${errorCount} files failed to parse`);
     }
+
+    logger.info(`Completed: ${successCount} files, ${totalEntities} entities, ${totalEdges} edges in ${stats.durationMs}ms`);
 
     return {
       status: 'complete',
@@ -123,18 +263,31 @@ export async function parseSingleFile(filePath: string): Promise<{
 }> {
   try {
     await initParser();
-    await parseFile(filePath);
+    const tree = await parseFile(filePath);
 
-    // TODO: Extract entities and persist to graph
-    // const entities = extractEntities(tree);
-    // const graphClient = await createClient();
-    // const ops = createOperations(graphClient);
-    // await ops.batchUpsert({ filePath, entities });
+    // Extract entities from syntax tree
+    const extracted = extractAllEntities(tree.rootNode, filePath);
+
+    // Create file entity
+    const fileEntity = await createFileEntity(filePath);
+
+    // Build full parsed file structure
+    const parsed = buildParsedFileEntities(fileEntity, extracted);
+
+    // Get graph operations and persist
+    const ops = await getGraphOps();
+    await ops.batchUpsert(parsed);
+
+    // Calculate counts
+    const entityCount = 1 + countEntities(extracted); // +1 for file
+    const edgeCount = countEdges(parsed) + countEntities(extracted); // CONTAINS edges
+
+    logger.debug(`File ${filePath}: ${entityCount} entities, ${edgeCount} edges`);
 
     return {
       success: true,
-      entities: 0, // Will be populated when extractors are complete
-      edges: 0,
+      entities: entityCount,
+      edges: edgeCount,
     };
   } catch (error) {
     return {
@@ -147,15 +300,15 @@ export async function parseSingleFile(filePath: string): Promise<{
 /**
  * Remove a file and its entities from the graph
  */
-export async function removeFileFromGraph(_filePath: string): Promise<{
+export async function removeFileFromGraph(filePath: string): Promise<{
   success: boolean;
   error?: string;
 }> {
   try {
-    // TODO: Delete from graph once exports are available
-    // const graphClient = await createClient();
-    // const ops = createOperations(graphClient);
-    // await ops.deleteFileEntities(filePath);
+    const ops = await getGraphOps();
+    await ops.deleteFileEntities(filePath);
+
+    logger.debug(`Removed file from graph: ${filePath}`);
 
     return { success: true };
   } catch (error) {

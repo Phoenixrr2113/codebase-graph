@@ -5,6 +5,7 @@
  */
 
 import type { GraphClient, QueryParams } from './client.js';
+import { trace } from '@codegraph/logger';
 import {
   fileToNodeProps,
   functionToNodeProps,
@@ -245,41 +246,49 @@ function toParams<T extends object>(props: T): QueryParams {
 class GraphOperationsImpl implements GraphOperations {
   constructor(private readonly client: GraphClient) {}
 
+  @trace()
   async upsertFile(file: FileEntity): Promise<void> {
     const props = fileToNodeProps(file);
     await this.client.query(CYPHER.UPSERT_FILE, { params: toParams(props) });
   }
 
+  @trace()
   async upsertFunction(fn: FunctionEntity): Promise<void> {
     const props = functionToNodeProps(fn);
     await this.client.query(CYPHER.UPSERT_FUNCTION, { params: toParams(props) });
   }
 
+  @trace()
   async upsertClass(cls: ClassEntity): Promise<void> {
     const props = classToNodeProps(cls);
     await this.client.query(CYPHER.UPSERT_CLASS, { params: toParams(props) });
   }
 
+  @trace()
   async upsertInterface(iface: InterfaceEntity): Promise<void> {
     const props = interfaceToNodeProps(iface);
     await this.client.query(CYPHER.UPSERT_INTERFACE, { params: toParams(props) });
   }
 
+  @trace()
   async upsertVariable(variable: VariableEntity): Promise<void> {
     const props = variableToNodeProps(variable);
     await this.client.query(CYPHER.UPSERT_VARIABLE, { params: toParams(props) });
   }
 
+  @trace()
   async upsertType(type: TypeEntity): Promise<void> {
     const props = typeToNodeProps(type);
     await this.client.query(CYPHER.UPSERT_TYPE, { params: toParams(props) });
   }
 
+  @trace()
   async upsertComponent(component: ComponentEntity): Promise<void> {
     const props = componentToNodeProps(component);
     await this.client.query(CYPHER.UPSERT_COMPONENT, { params: toParams(props) });
   }
 
+  @trace()
   async createCallEdge(
     callerName: string,
     callerFile: string,
@@ -292,6 +301,7 @@ class GraphOperationsImpl implements GraphOperations {
     });
   }
 
+  @trace()
   async createImportsEdge(
     fromPath: string,
     toPath: string,
@@ -302,6 +312,7 @@ class GraphOperationsImpl implements GraphOperations {
     });
   }
 
+  @trace()
   async createExtendsEdge(
     childName: string,
     childFile: string,
@@ -312,6 +323,7 @@ class GraphOperationsImpl implements GraphOperations {
     });
   }
 
+  @trace()
   async createImplementsEdge(
     className: string,
     classFile: string,
@@ -322,6 +334,7 @@ class GraphOperationsImpl implements GraphOperations {
     });
   }
 
+  @trace()
   async createRendersEdge(
     parentName: string,
     parentFile: string,
@@ -333,12 +346,14 @@ class GraphOperationsImpl implements GraphOperations {
     });
   }
 
+  @trace()
   async deleteFileEntities(filePath: string): Promise<void> {
     await this.client.query(CYPHER.DELETE_FILE_ENTITIES, {
       params: { path: filePath },
     });
   }
 
+  @trace()
   async batchUpsert(entities: ParsedFileEntities): Promise<void> {
     // Upsert file first (parent node for CONTAINS edges)
     await this.upsertFile(entities.file);

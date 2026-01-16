@@ -3,6 +3,9 @@
  */
 
 import type { Context, Next } from 'hono';
+import { createLogger } from '@codegraph/logger';
+
+const logger = createLogger({ namespace: 'API:HTTP' });
 
 /** Logger configuration */
 export interface LoggerConfig {
@@ -32,14 +35,15 @@ export function requestLogger(config: LoggerConfig = defaultConfig) {
     const duration = Date.now() - start;
     const status = c.res.status;
 
-    const logLine = `[${new Date().toISOString()}] ${method} ${path} ${status} ${duration}ms`;
+    const logMsg = `${method} ${path} ${status} ${duration}ms`;
     
     if (status >= 500) {
-      console.error(logLine);
+      logger.error(logMsg);
     } else if (status >= 400) {
-      console.warn(logLine);
+      logger.warn(logMsg);
     } else {
-      console.log(logLine);
+      logger.info(logMsg);
     }
   };
 }
+

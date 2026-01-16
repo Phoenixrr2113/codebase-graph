@@ -6,6 +6,9 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { createLogger } from '@codegraph/logger';
+
+const logger = createLogger({ namespace: 'Web:WS' });
 
 // ============================================================================
 // Types
@@ -155,7 +158,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       switch (message.type) {
         case 'connected':
-          console.log('[WS] Connected to server');
+          logger.info('Connected to server');
           break;
 
         case 'graph-updated':
@@ -196,10 +199,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           break;
 
         default:
-          console.log('[WS] Unhandled message type:', message.type);
+          logger.debug('Unhandled message type:', message.type);
       }
     } catch {
-      console.error('[WS] Failed to parse message:', event.data);
+      logger.error('Failed to parse message:', event.data);
     }
   }, []);
 
@@ -220,7 +223,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       ws.onopen = () => {
         setState('connected');
-        console.log('[WS] Connected');
+        logger.info('Connected');
         callbacksRef.current.onConnected?.();
 
         // Start ping timer
@@ -237,24 +240,24 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       ws.onclose = () => {
         setState('disconnected');
-        console.log('[WS] Disconnected');
+        logger.info('Disconnected');
         callbacksRef.current.onDisconnected?.();
         clearTimers();
 
         // Auto-reconnect
         if (autoReconnect && shouldReconnectRef.current) {
-          console.log(`[WS] Reconnecting in ${reconnectInterval}ms...`);
+          logger.info(`Reconnecting in ${reconnectInterval}ms...`);
           reconnectTimerRef.current = setTimeout(connect, reconnectInterval);
         }
       };
 
       ws.onerror = (error) => {
-        console.error('[WS] Error:', error);
+        logger.error('Error:', error);
         setState('error');
         setLastError('WebSocket connection error');
       };
     } catch (error) {
-      console.error('[WS] Failed to create WebSocket:', error);
+      logger.error('Failed to create WebSocket:', error);
       setState('error');
       setLastError(error instanceof Error ? error.message : 'Failed to connect');
     }
@@ -277,7 +280,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     } else {
-      console.warn('[WS] Cannot send - not connected');
+      logger.warn('Cannot send - not connected');
     }
   }, []);
 

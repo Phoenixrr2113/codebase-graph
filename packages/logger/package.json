@@ -1,5 +1,5 @@
 {
-  "name": "@codegraph/parser",
+  "name": "@codegraph/logger",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,15 +16,6 @@
     "dev": "tsc --watch",
     "test": "vitest",
     "clean": "rm -rf dist"
-  },
-  "dependencies": {
-    "@codegraph/logger": "workspace:*",
-    "@codegraph/types": "workspace:*",
-    "tree-sitter": "^0.21.1",
-    "tree-sitter-javascript": "^0.25.0",
-    "tree-sitter-typescript": "^0.23.2",
-    "tree-sitter-wasms": "^0.1.13",
-    "web-tree-sitter": "^0.26.3"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

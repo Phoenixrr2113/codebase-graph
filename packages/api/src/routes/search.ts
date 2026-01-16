@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono';
-import type { SearchResult } from '@codegraph/types';
+import { createClient, createQueries, type SearchResult, type NodeLabel } from '@codegraph/graph';
 
 const search = new Hono();
 
@@ -16,22 +16,29 @@ search.get('/', async (c) => {
   const q = c.req.query('q') ?? '';
   const typesParam = c.req.query('types');
   const limitParam = c.req.query('limit');
-  void typesParam; // Will be used when graph search is available
-  void limitParam;
 
-  // TODO: Execute fulltext search when graph package supports it
-  // const client = await createClient();
-  // const types = typesParam ? typesParam.split(',') : undefined;
-  // const limit = limitParam ? parseInt(limitParam, 10) : 50;
-  // const results = await searchEntities(client, { q, types, limit });
+  if (!q.trim()) {
+    return c.json({
+      query: q,
+      results: [] as SearchResult[],
+      count: 0,
+    });
+  }
 
-  const results: SearchResult[] = [];
+  const types = typesParam
+    ? (typesParam.split(',') as NodeLabel[])
+    : undefined;
+  const limit = limitParam ? parseInt(limitParam, 10) : 50;
+
+  const client = await createClient();
+  const queries = createQueries(client);
+
+  const results = await queries.search(q, types, limit);
 
   return c.json({
     query: q,
     results,
     count: results.length,
-    message: 'Search not yet available - waiting for GRAPH-004',
   });
 });
 

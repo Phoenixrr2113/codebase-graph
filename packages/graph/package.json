@@ -18,6 +18,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@codegraph/logger": "workspace:*",
     "@codegraph/types": "workspace:*",
     "falkordb": "^6.4.1"
   },

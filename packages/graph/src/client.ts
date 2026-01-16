@@ -5,6 +5,7 @@
 
 import { FalkorDB, type Graph, type FalkorDBOptions } from 'falkordb';
 import type { QueryOptions as FalkorQueryOptions } from 'falkordb/dist/src/commands/index.js';
+import { trace } from '@codegraph/logger';
 
 /**
  * FalkorDB connection configuration
@@ -102,6 +103,7 @@ class GraphClientImpl implements GraphClient {
     this.graph = db.selectGraph(config.graphName);
   }
 
+  @trace()
   async query<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
     try {
       const queryOptions = options?.params 
@@ -120,6 +122,7 @@ class GraphClientImpl implements GraphClient {
     }
   }
 
+  @trace()
   async roQuery<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
     try {
       const queryOptions = options?.params 
@@ -138,6 +141,7 @@ class GraphClientImpl implements GraphClient {
     }
   }
 
+  @trace()
   async ensureIndexes(): Promise<void> {
     if (this.indexesCreated) {
       return;
@@ -168,6 +172,7 @@ class GraphClientImpl implements GraphClient {
     }
   }
 
+  @trace()
   async close(): Promise<void> {
     await this.db.close();
   }

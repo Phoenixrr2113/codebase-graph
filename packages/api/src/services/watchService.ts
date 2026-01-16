@@ -8,7 +8,10 @@
 import { watch, type FSWatcher } from 'chokidar';
 import fastGlob from 'fast-glob';
 import { EventEmitter } from 'node:events';
+import { createLogger } from '@codegraph/logger';
 import { parseSingleFile, removeFileFromGraph } from './parseService.js';
+
+const logger = createLogger({ namespace: 'API:Watch' });
 
 /** Supported file extensions for watching */
 const SUPPORTED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'];
@@ -77,11 +80,11 @@ export class WatchService extends EventEmitter {
    */
   async start(): Promise<void> {
     if (this.isRunning) {
-      console.warn('[WatchService] Already running');
+      logger.warn('Already running');
       return;
     }
 
-    console.log(`[WatchService] Starting file watcher for: ${this.projectPath}`);
+    logger.info(`Starting file watcher for: ${this.projectPath}`);
 
     // Discover initial files using fast-glob
     const patterns = SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
@@ -92,7 +95,7 @@ export class WatchService extends EventEmitter {
       onlyFiles: true,
     });
 
-    console.log(`[WatchService] Found ${files.length} source files`);
+    logger.info(`Found ${files.length} source files`);
 
     // Create chokidar watcher with explicit file paths
     // (chokidar 5.x doesn't support glob patterns)
@@ -113,12 +116,12 @@ export class WatchService extends EventEmitter {
     this.watcher.on('change', (path) => this.handleFileEvent('change', path));
     this.watcher.on('unlink', (path) => this.handleFileEvent('unlink', path));
     this.watcher.on('error', (error) => {
-      console.error('[WatchService] Error:', error);
+      logger.error('Error:', error);
       this.emit('error', error);
     });
 
     this.isRunning = true;
-    console.log('[WatchService] File watcher started');
+    logger.info('File watcher started');
     this.emit('started');
   }
 
@@ -130,7 +133,7 @@ export class WatchService extends EventEmitter {
       return;
     }
 
-    console.log('[WatchService] Stopping file watcher...');
+    logger.info('Stopping file watcher...');
 
     // Clear all pending debounce timers
     for (const timer of this.debounceTimers.values()) {
@@ -143,7 +146,7 @@ export class WatchService extends EventEmitter {
     this.watcher = null;
     this.isRunning = false;
 
-    console.log('[WatchService] File watcher stopped');
+    logger.info('File watcher stopped');
     this.emit('stopped');
   }
 
@@ -190,7 +193,7 @@ export class WatchService extends EventEmitter {
    * Process a file event after debouncing
    */
   private async processFileEvent(type: FileEventType, filePath: string): Promise<void> {
-    console.log(`[WatchService] ${type.toUpperCase()}: ${filePath}`);
+    logger.info(`${type.toUpperCase()}: ${filePath}`);
 
     const event: FileChangeEvent = {
       type,
@@ -208,7 +211,7 @@ export class WatchService extends EventEmitter {
             this.emit('file-changed', event);
             this.emit('graph-updated', { type, filePath });
           } else {
-            console.error(`[WatchService] Parse failed for ${filePath}:`, result.error);
+            logger.error(`Parse failed for ${filePath}:`, result.error);
             this.emit('parse-error', { filePath, error: result.error });
           }
           break;
@@ -220,12 +223,12 @@ export class WatchService extends EventEmitter {
             this.emit('file-removed', event);
             this.emit('graph-updated', { type, filePath });
           } else {
-            console.error(`[WatchService] Remove failed for ${filePath}:`, removeResult.error);
+            logger.error(`Remove failed for ${filePath}:`, removeResult.error);
           }
           break;
       }
     } catch (error) {
-      console.error(`[WatchService] Error processing ${type} event:`, error);
+      logger.error(`Error processing ${type} event:`, error);
       this.emit('error', error);
     }
   }

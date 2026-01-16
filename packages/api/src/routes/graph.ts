@@ -4,12 +4,10 @@
  */
 
 import { Hono } from 'hono';
+import { createClient, createQueries } from '@codegraph/graph';
 import { HttpError } from '../middleware/errorHandler.js';
 
 const graph = new Hono();
-
-// Note: Full implementation requires @codegraph/graph queries module (GRAPH-004)
-// Currently returns placeholder responses until graph package exports are updated
 
 /**
  * GET /api/graph/full
@@ -17,18 +15,22 @@ const graph = new Hono();
  */
 graph.get('/full', async (c) => {
   const limitParam = c.req.query('limit');
-  void limitParam; // Will be used when graph queries are available
+  const limit = limitParam ? parseInt(limitParam, 10) : 1000;
 
-  // TODO: Call graph queries when available
-  // const client = await createClient();
-  // const limit = limitParam ? parseInt(limitParam, 10) : 1000;
-  // const data = await getFullGraph(client, limit);
+  try {
+    const client = await createClient();
+    const queries = createQueries(client);
+    const data = await queries.getFullGraph(limit);
 
-  return c.json({
-    nodes: [],
-    edges: [],
-    message: 'Graph queries not yet available - waiting for GRAPH-004',
-  });
+    return c.json(data);
+  } catch (error) {
+    console.error('[Graph] Failed to get full graph:', error);
+    return c.json({
+      nodes: [],
+      edges: [],
+      error: 'Failed to fetch graph data',
+    });
+  }
 });
 
 /**
@@ -42,16 +44,24 @@ graph.get('/file/:path{.*}', async (c) => {
     throw new HttpError(400, 'VALIDATION_ERROR', 'File path is required');
   }
 
-  // TODO: Call graph queries when available
-  // const client = await createClient();
-  // const data = await getFileSubgraph(client, filePath);
+  try {
+    const client = await createClient();
+    const queries = createQueries(client);
+    const data = await queries.getFileSubgraph(filePath);
 
-  return c.json({
-    nodes: [],
-    edges: [],
-    filePath,
-    message: 'Graph queries not yet available - waiting for GRAPH-004',
-  });
+    return c.json({
+      ...data,
+      filePath,
+    });
+  } catch (error) {
+    console.error('[Graph] Failed to get file subgraph:', error);
+    return c.json({
+      nodes: [],
+      edges: [],
+      filePath,
+      error: 'Failed to fetch file subgraph',
+    });
+  }
 });
 
 export { graph };
