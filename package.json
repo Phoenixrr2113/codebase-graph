@@ -11,6 +11,9 @@
     "dev:web": "turbo run dev --filter=@codegraph/web",
     "lint": "turbo run lint",
     "test": "turbo run test",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "docker:up": "docker-compose up -d",
@@ -23,6 +26,7 @@
     "typecheck": "turbo run build --filter=@codegraph/types"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@types/node": "^22.0.0",
     "prettier": "^3.4.2",
     "turbo": "^2.7.4",
