@@ -1,0 +1,59 @@
+/**
+ * @codegraph/api
+ * Hono API application configuration
+ */
+
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { errorHandler, notFoundHandler, requestLogger } from './middleware/index.js';
+import {
+  health,
+  parse,
+  graph,
+  entity,
+  neighbors,
+  stats,
+  query,
+  search,
+} from './routes/index.js';
+
+/** Create and configure the Hono application */
+export function createApp(): Hono {
+  const app = new Hono();
+
+  // Request logging
+  app.use('*', requestLogger({ enabled: true }));
+
+  // CORS for frontend
+  app.use('/*', cors({
+    origin: [
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+    ],
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    exposeHeaders: ['X-Request-Id'],
+    maxAge: 86400,
+  }));
+
+  // Error handling
+  app.use('*', errorHandler);
+
+  // Mount routes
+  app.route('/health', health);
+  app.route('/api/parse', parse);
+  app.route('/api/graph', graph);
+  app.route('/api/entity', entity);
+  app.route('/api/neighbors', neighbors);
+  app.route('/api/stats', stats);
+  app.route('/api/query', query);
+  app.route('/api/search', search);
+
+  // 404 handler for unmatched routes
+  app.notFound(notFoundHandler);
+
+  return app;
+}
+
+/** Default app instance */
+export const app = createApp();

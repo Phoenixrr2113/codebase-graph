@@ -17,7 +17,10 @@
     "@codegraph/parser": "workspace:*",
     "@codegraph/types": "workspace:*",
     "@hono/node-server": "^1.19.8",
-    "hono": "^4.11.4"
+    "@hono/zod-validator": "^0.7.6",
+    "fast-glob": "^3.3.3",
+    "hono": "^4.11.4",
+    "zod": "^4.3.5"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

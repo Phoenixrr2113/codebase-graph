@@ -1,32 +1,25 @@
 /**
  * @codegraph/api
- * Hono API server for CodeGraph
+ * Server entry point
  */
 
 import { serve } from '@hono/node-server';
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-
-const app = new Hono();
-
-// CORS for frontend
-app.use('/*', cors({
-  origin: ['http://localhost:3000'],
-}));
-
-// Health check
-app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
-
-// Placeholder routes - Agent C will implement
-app.get('/api/graph/stats', (c) => c.json({ message: 'Not implemented yet' }));
+import { app } from './app.js';
 
 const port = parseInt(process.env['API_PORT'] ?? '3001', 10);
+const host = process.env['API_HOST'] ?? '0.0.0.0';
 
-console.log(`Starting CodeGraph API on port ${port}`);
+console.log(`Starting CodeGraph API server...`);
+console.log(`  Port: ${port}`);
+console.log(`  Host: ${host}`);
 
 serve({
   fetch: app.fetch,
   port,
+  hostname: host,
+}, (info) => {
+  console.log(`CodeGraph API is running at http://${info.address}:${info.port}`);
+  console.log(`Health check: http://localhost:${info.port}/health`);
 });
 
 export { app };
