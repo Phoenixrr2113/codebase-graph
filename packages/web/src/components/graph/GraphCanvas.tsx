@@ -11,7 +11,7 @@ import { useCytoscape, type UseCytoscapeReturn } from '@/hooks/useCytoscape';
 import { cn } from '@/lib/utils';
 
 export interface GraphCanvasProps {
-  data?: GraphData;
+  data?: GraphData | undefined;
   onNodeSelect?: (node: GraphNode | null) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
   className?: string;

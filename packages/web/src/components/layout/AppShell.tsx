@@ -5,7 +5,6 @@
  * Main layout with three resizable panels using Shadcn resizable
  */
 
-import { useEffect } from 'react';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -15,38 +14,17 @@ import { useUIStore, useGraphStore } from '@/stores';
 import { GraphCanvas, GraphLegend } from '@/components/graph';
 import { EntityDetail } from '@/components/panels/EntityDetail';
 import { SearchPanel } from '@/components/panels/SearchPanel';
-import { getFullGraph } from '@/services/api';
+import { useGraphData } from '@/hooks/useGraphData';
 
 export function AppShell() {
   const { leftPanel, rightPanel, legendCollapsed, toggleLegend } = useUIStore();
-  const { nodes, edges, selectedNode, selectNode, loading, error, setGraphData, setLoading, setError } = useGraphStore();
+  const { selectedNode, selectNode } = useGraphStore();
 
-  // Fetch graph data on mount
-  useEffect(() => {
-    let cancelled = false;
+  // Fetch graph data via TanStack Query - stable, cached, no unnecessary refetches
+  const { data: graphData, isLoading: loading, error } = useGraphData();
 
-    async function loadGraph() {
-      setLoading(true);
-      try {
-        const data = await getFullGraph();
-        if (!cancelled) {
-          setGraphData(data);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load graph');
-        }
-      }
-    }
-
-    loadGraph();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [setGraphData, setLoading, setError]);
-
-  const graphData = { nodes, edges };
+  const nodes = graphData?.nodes ?? [];
+  const edges = graphData?.edges ?? [];
 
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-950">
@@ -64,7 +42,7 @@ export function AppShell() {
           )}
           {error && (
             <div className="text-sm text-red-400">
-              Error: {error}
+              Error: {error instanceof Error ? error.message : 'Failed to load graph'}
             </div>
           )}
         </div>
@@ -153,3 +131,4 @@ function LoadingSpinner() {
 }
 
 export default AppShell;
+

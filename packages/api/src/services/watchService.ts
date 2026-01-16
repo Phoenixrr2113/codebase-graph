@@ -8,7 +8,7 @@
 import { watch, type FSWatcher } from 'chokidar';
 import fastGlob from 'fast-glob';
 import { EventEmitter } from 'node:events';
-import { createLogger } from '@codegraph/logger';
+import { createLogger, traced } from '@codegraph/logger';
 import { parseSingleFile, removeFileFromGraph } from './parseService.js';
 
 const logger = createLogger({ namespace: 'API:Watch' });
@@ -256,7 +256,7 @@ let activeWatchService: WatchService | null = null;
 /**
  * Start watching a project
  */
-export async function startWatching(config: WatchServiceConfig): Promise<WatchService> {
+export const startWatching = traced('startWatching', async function startWatching(config: WatchServiceConfig): Promise<WatchService> {
   // Stop any existing watcher
   if (activeWatchService) {
     await activeWatchService.stop();
@@ -265,17 +265,17 @@ export async function startWatching(config: WatchServiceConfig): Promise<WatchSe
   activeWatchService = new WatchService(config);
   await activeWatchService.start();
   return activeWatchService;
-}
+});
 
 /**
  * Stop the active watcher
  */
-export async function stopWatching(): Promise<void> {
+export const stopWatching = traced('stopWatching', async function stopWatching(): Promise<void> {
   if (activeWatchService) {
     await activeWatchService.stop();
     activeWatchService = null;
   }
-}
+});
 
 /**
  * Get the active watch service (if any)

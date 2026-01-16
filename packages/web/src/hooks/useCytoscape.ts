@@ -91,12 +91,21 @@ function graphDataToElements(data: GraphData): ElementDefinition[] {
 // ============================================================================
 
 export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeReturn {
-  const { onNodeSelect, onNodeDoubleClick } = options;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<Core | null>(null);
   const [layout, setLayoutState] = useState<LayoutName>(DEFAULT_LAYOUT);
 
-  // Initialize Cytoscape
+  // Store callbacks in refs to prevent re-initialization
+  const onNodeSelectRef = useRef(options.onNodeSelect);
+  const onNodeDoubleClickRef = useRef(options.onNodeDoubleClick);
+
+  // Keep refs updated without causing re-renders
+  useEffect(() => {
+    onNodeSelectRef.current = options.onNodeSelect;
+    onNodeDoubleClickRef.current = options.onNodeDoubleClick;
+  });
+
+  // Initialize Cytoscape - only once
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -114,10 +123,10 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
 
     cyRef.current = cy;
 
-    // Node selection handler
+    // Node selection handler - uses ref for stable callback
     cy.on('tap', 'node', (evt) => {
       const node = evt.target;
-      if (onNodeSelect) {
+      if (onNodeSelectRef.current) {
         const graphNode: GraphNode = {
           id: node.id(),
           label: node.data('label'),
@@ -125,21 +134,21 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
           filePath: node.data('filePath'),
           data: node.data(),
         } as GraphNode;
-        onNodeSelect(graphNode);
+        onNodeSelectRef.current(graphNode);
       }
     });
 
     // Background click - deselect
     cy.on('tap', (evt) => {
       if (evt.target === cy) {
-        onNodeSelect?.(null);
+        onNodeSelectRef.current?.(null);
       }
     });
 
     // Double-click handler
     cy.on('dbltap', 'node', (evt) => {
       const node = evt.target;
-      if (onNodeDoubleClick) {
+      if (onNodeDoubleClickRef.current) {
         const graphNode: GraphNode = {
           id: node.id(),
           label: node.data('label'),
@@ -147,7 +156,7 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
           filePath: node.data('filePath'),
           data: node.data(),
         } as GraphNode;
-        onNodeDoubleClick(graphNode);
+        onNodeDoubleClickRef.current(graphNode);
       }
     });
 
@@ -155,7 +164,7 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
       cy.destroy();
       cyRef.current = null;
     };
-  }, [onNodeSelect, onNodeDoubleClick]);
+  }, []); // Empty deps - initialize only once
 
   // Set graph data
   const setData = useCallback((data: GraphData) => {

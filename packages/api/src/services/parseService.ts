@@ -5,7 +5,7 @@
 import type { ParseResult, ParseStats, FileEntity } from '@codegraph/types';
 import { initParser, parseFile, parseFiles, extractAllEntities, type ExtractedEntities } from '@codegraph/parser';
 import { createClient, createOperations, type ParsedFileEntities, type GraphOperations } from '@codegraph/graph';
-import { createLogger } from '@codegraph/logger';
+import { createLogger, traced } from '@codegraph/logger';
 import fastGlob from 'fast-glob';
 import { stat, readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
@@ -39,18 +39,18 @@ let graphOps: GraphOperations | null = null;
 /**
  * Get or create graph operations instance
  */
-async function getGraphOps(): Promise<GraphOperations> {
+const getGraphOps = traced('getGraphOps', async function getGraphOps(): Promise<GraphOperations> {
   if (!graphOps) {
     const client = await createClient();
     graphOps = createOperations(client);
   }
   return graphOps;
-}
+});
 
 /**
  * Create a FileEntity from file metadata
  */
-async function createFileEntity(filePath: string): Promise<FileEntity> {
+const createFileEntity = traced('createFileEntity', async function createFileEntity(filePath: string): Promise<FileEntity> {
   const fileStat = await stat(filePath);
   const content = await readFile(filePath, 'utf-8');
   const loc = content.split('\n').length;
@@ -64,7 +64,7 @@ async function createFileEntity(filePath: string): Promise<FileEntity> {
     lastModified: fileStat.mtime.toISOString(),
     hash,
   };
-}
+});
 
 /**
  * Build ParsedFileEntities from extracted entities
@@ -143,10 +143,7 @@ function countEdges(parsed: ParsedFileEntities): number {
   );
 }
 
-/**
- * Parse a project directory
- */
-export async function parseProject(
+export const parseProject = traced('parseProject', async function parseProject(
   projectPath: string,
   ignorePatterns: string[] = []
 ): Promise<ParseResult> {
@@ -250,12 +247,12 @@ export async function parseProject(
       error: error instanceof Error ? error.message : 'Unknown parsing error',
     };
   }
-}
+});
 
 /**
  * Parse a single file
  */
-export async function parseSingleFile(filePath: string): Promise<{
+export const parseSingleFile = traced('parseSingleFile', async function parseSingleFile(filePath: string): Promise<{
   success: boolean;
   error?: string;
   entities?: number;
@@ -295,12 +292,12 @@ export async function parseSingleFile(filePath: string): Promise<{
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
-}
+});
 
 /**
  * Remove a file and its entities from the graph
  */
-export async function removeFileFromGraph(filePath: string): Promise<{
+export const removeFileFromGraph = traced('removeFileFromGraph', async function removeFileFromGraph(filePath: string): Promise<{
   success: boolean;
   error?: string;
 }> {
@@ -317,4 +314,4 @@ export async function removeFileFromGraph(filePath: string): Promise<{
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
-}
+});
