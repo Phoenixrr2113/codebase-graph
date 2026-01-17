@@ -155,7 +155,9 @@ function SignatureDisplay({ node }: { node: GraphNode }) {
   
   if (node.label === 'Function' || node.label === 'Component') {
     const fn = data as FunctionEntity;
-    const params = fn.params?.map((p) => `${p.name}${p.type ? `: ${p.type}` : ''}`).join(', ') || '';
+    const params = Array.isArray(fn.params)
+      ? fn.params.map((p) => `${p.name}${p.type ? `: ${p.type}` : ''}`).join(', ')
+      : '';
     const returnType = fn.returnType || 'void';
     
     return (

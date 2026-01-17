@@ -21,6 +21,10 @@ export { extractClasses } from './classes.js';
 export { extractVariables } from './variables.js';
 export { extractTypes, extractInterfaces } from './type-aliases.js';
 export { extractComponents } from './jsx.js';
+export { extractCalls } from './calls.js';
+export { extractRenders } from './renders.js';
+export type { CallReference } from './calls.js';
+export type { RenderReference } from './renders.js';
 
 // Re-export utility types and functions
 export { getLocation, findNodesOfType, generateEntityId } from './types.js';
@@ -33,6 +37,7 @@ import { extractClasses } from './classes.js';
 import { extractVariables } from './variables.js';
 import { extractTypes, extractInterfaces } from './type-aliases.js';
 import { extractComponents } from './jsx.js';
+// Note: extractCalls/extractRenders are re-exported above, used directly by parseService
 
 /** Combined result of all entity extraction */
 export interface ExtractedEntities {

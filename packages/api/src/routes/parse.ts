@@ -15,6 +15,8 @@ const parse = new Hono();
 const parseProjectSchema = z.object({
   path: z.string().min(1, 'Project path is required'),
   ignore: z.array(z.string()).optional().default([]),
+  deepAnalysis: z.boolean().optional().default(false),
+  includeExternals: z.boolean().optional().default(false),
 });
 
 /** Schema for parse/delete file request */
@@ -34,8 +36,8 @@ parse.post(
     }
   }),
   async (c) => {
-    const { path, ignore } = c.req.valid('json');
-    const result = await parseProject(path, ignore);
+    const { path, ignore, deepAnalysis, includeExternals } = c.req.valid('json');
+    const result = await parseProject(path, ignore, { deepAnalysis, includeExternals });
     
     if (result.status === 'error') {
       throw new HttpError(400, 'PARSE_ERROR', result.error ?? 'Unknown parse error');

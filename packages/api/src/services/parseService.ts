@@ -3,7 +3,8 @@
  */
 
 import type { ParseResult, ParseStats, FileEntity, ProjectEntity } from '@codegraph/types';
-import { initParser, parseFile, parseFiles, extractAllEntities, type ExtractedEntities } from '@codegraph/parser';
+import { initParser, parseFile, parseFiles, extractAllEntities, extractCalls, extractRenders, type ExtractedEntities } from '@codegraph/parser';
+import type Parser from 'tree-sitter';
 import { createClient, createOperations, type ParsedFileEntities, type GraphOperations } from '@codegraph/graph';
 import { createLogger, traced } from '@codegraph/logger';
 import fastGlob from 'fast-glob';
@@ -66,13 +67,23 @@ const createFileEntity = traced('createFileEntity', async function createFileEnt
   };
 });
 
+/** Parse options for deep analysis */
+export interface ParseOptions {
+  deepAnalysis?: boolean;
+  includeExternals?: boolean;
+}
+
 /**
  * Build ParsedFileEntities from extracted entities
  */
 function buildParsedFileEntities(
   file: FileEntity,
-  extracted: ExtractedEntities
+  extracted: ExtractedEntities,
+  rootNode?: Parser.SyntaxNode,
+  options: ParseOptions = {}
 ): ParsedFileEntities {
+  const { deepAnalysis = false, includeExternals = false } = options;
+
   // Build import edges from import entities
   const importsEdges = extracted.imports
     .filter((imp) => imp.resolvedPath)
@@ -98,6 +109,46 @@ function buildParsedFileEntities(
     }))
   );
 
+  // Build call edges (only if deep analysis enabled and we have rootNode)
+  let callEdges: ParsedFileEntities['callEdges'] = [];
+  if (deepAnalysis && rootNode) {
+    logger.debug(`[Deep Analysis] Extracting calls for ${file.path}`);
+    const calls = extractCalls(
+      rootNode,
+      file.path,
+      extracted.functions,
+      extracted.imports,
+      includeExternals
+    );
+    logger.debug(`[Deep Analysis] Found ${calls.length} call references in ${file.path}`);
+    callEdges = calls.map((call) => ({
+      callerId: `Function:${call.callerFilePath}:${call.callerName}`,
+      calleeId: call.calleeFilePath
+        ? `Function:${call.calleeFilePath}:${call.calleeName}`
+        : `Function:external:${call.calleeName}`,
+      line: call.line,
+    }));
+  }
+
+  // Build render edges (only if deep analysis enabled and we have rootNode)
+  let rendersEdges: ParsedFileEntities['rendersEdges'] = [];
+  if (deepAnalysis && rootNode) {
+    const renders = extractRenders(
+      rootNode,
+      file.path,
+      extracted.components,
+      extracted.imports,
+      includeExternals
+    );
+    rendersEdges = renders.map((render) => ({
+      parentId: `Component:${render.parentFilePath}:${render.parentName}`,
+      childId: render.childFilePath
+        ? `Component:${render.childFilePath}:${render.childName}`
+        : `Component:external:${render.childName}`,
+      line: render.line,
+    }));
+  }
+
   return {
     file,
     functions: extracted.functions,
@@ -107,11 +158,11 @@ function buildParsedFileEntities(
     types: extracted.types,
     components: extracted.components,
     imports: extracted.imports,
-    callEdges: [], // Call analysis requires cross-file resolution - future enhancement
+    callEdges,
     importsEdges,
     extendsEdges,
     implementsEdges,
-    rendersEdges: [], // Render analysis requires JSX traversal - future enhancement
+    rendersEdges,
   };
 }
 
@@ -145,7 +196,8 @@ function countEdges(parsed: ParsedFileEntities): number {
 
 export const parseProject = traced('parseProject', async function parseProject(
   projectPath: string,
-  ignorePatterns: string[] = []
+  ignorePatterns: string[] = [],
+  options: ParseOptions = {}
 ): Promise<ParseResult> {
   const startTime = Date.now();
 
@@ -224,8 +276,8 @@ export const parseProject = traced('parseProject', async function parseProject(
           // Create file entity
           const fileEntity = await createFileEntity(result.filePath);
 
-          // Build full parsed file structure
-          const parsed = buildParsedFileEntities(fileEntity, extracted);
+          // Build full parsed file structure (pass rootNode for deep analysis)
+          const parsed = buildParsedFileEntities(fileEntity, extracted, result.tree.rootNode, options);
 
           // Persist to graph database
           await ops.batchUpsert(parsed);

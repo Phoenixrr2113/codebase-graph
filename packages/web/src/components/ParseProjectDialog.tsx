@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,10 +29,12 @@ interface ParseProjectDialogProps {
 export function ParseProjectDialog({ onProjectParsed }: ParseProjectDialogProps) {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState('');
+  const [deepAnalysis, setDeepAnalysis] = useState(false);
+  const [includeExternals, setIncludeExternals] = useState(false);
   const queryClient = useQueryClient();
 
   const parseMutation = useMutation({
-    mutationFn: (projectPath: string) => api.parse.project(projectPath),
+    mutationFn: (projectPath: string) => api.parse.project(projectPath, undefined, deepAnalysis, includeExternals),
     onSuccess: (_result, projectPath) => {
       queryClient.invalidateQueries({ queryKey: ['graph'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -66,6 +69,8 @@ export function ParseProjectDialog({ onProjectParsed }: ParseProjectDialogProps)
     // Reset state when closing
     setTimeout(() => {
       setPath('');
+      setDeepAnalysis(false);
+      setIncludeExternals(false);
       parseMutation.reset();
       clearMutation.reset();
     }, 200);
@@ -98,15 +103,59 @@ export function ParseProjectDialog({ onProjectParsed }: ParseProjectDialogProps)
             </DialogDescription>
           </DialogHeader>
 
-          <div className="py-4">
+          <div className="py-4 space-y-4">
             {!isSuccess && (
-              <Input
-                value={path}
-                onChange={(e) => setPath(e.target.value)}
-                placeholder="/path/to/your/project"
-                className="bg-slate-950 border-slate-700 text-slate-100"
-                disabled={isPending}
-              />
+              <>
+                <Input
+                  value={path}
+                  onChange={(e) => setPath(e.target.value)}
+                  placeholder="/path/to/your/project"
+                  className="bg-slate-950 border-slate-700 text-slate-100"
+                  disabled={isPending}
+                />
+
+                {/* Deep Analysis Option */}
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="deepAnalysis"
+                      checked={deepAnalysis}
+                      onCheckedChange={(checked) => setDeepAnalysis(!!checked)}
+                      disabled={isPending}
+                    />
+                    <label htmlFor="deepAnalysis" className="text-sm text-slate-300 cursor-pointer">
+                      Deep analysis (function calls, component renders)
+                    </label>
+                  </div>
+                  {deepAnalysis && (
+                    <div className="text-xs text-amber-400/80 pl-6">
+                      ⚠️ Increases parsing time significantly for large codebases.
+                    </div>
+                  )}
+                </div>
+
+                {/* Include Externals Option */}
+                {deepAnalysis && (
+                  <div className="space-y-2">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="includeExternals"
+                        checked={includeExternals}
+                        onCheckedChange={(checked) => setIncludeExternals(!!checked)}
+                        disabled={isPending}
+                      />
+                      <label htmlFor="includeExternals" className="text-sm text-slate-300 cursor-pointer">
+                        Include external library references
+                      </label>
+                    </div>
+                    {includeExternals && (
+                      <div className="text-xs text-amber-400/80 pl-6">
+                        ⚠️ External refs will appear as orphan nodes (no source code).
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
 
             {parseMutation.isPending && (

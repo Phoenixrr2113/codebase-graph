@@ -95,11 +95,13 @@ export async function getStats(): Promise<GraphStats> {
 
 export async function parseProject(
   path: string,
-  ignore?: string[]
+  ignore?: string[],
+  deepAnalysis?: boolean,
+  includeExternals?: boolean
 ): Promise<ParseResult> {
   return fetchAPI<ParseResult>('/api/parse/project', {
     method: 'POST',
-    body: JSON.stringify({ path, ignore }),
+    body: JSON.stringify({ path, ignore, deepAnalysis, includeExternals }),
   });
 }
 

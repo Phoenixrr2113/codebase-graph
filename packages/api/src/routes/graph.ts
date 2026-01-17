@@ -16,7 +16,8 @@ const graph = new Hono();
 graph.get('/full', async (c) => {
   const limitParam = c.req.query('limit');
   const projectId = c.req.query('projectId');
-  const limit = limitParam ? parseInt(limitParam, 10) : 1000;
+  // Removed 1000-node limit to see full graph
+  const limit = limitParam ? parseInt(limitParam, 10) : 100000;
 
   try {
     const client = await createClient();
