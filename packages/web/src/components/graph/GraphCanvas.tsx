@@ -14,8 +14,15 @@ export interface GraphCanvasProps {
   data?: GraphData | undefined;
   onNodeSelect?: (node: GraphNode | null) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
-  onReady?: (controls: { selectNode: (nodeId: string) => void }) => void;
+  onReady?: (controls: GraphCanvasControls) => void;
   className?: string;
+}
+
+/** Controls exposed by GraphCanvas for external manipulation */
+export interface GraphCanvasControls {
+  selectNode: (nodeId: string) => void;
+  highlightNeighbors: (nodeId: string) => void;
+  clearHighlight: () => void;
 }
 
 export interface GraphCanvasRef extends UseCytoscapeReturn {}
@@ -37,6 +44,8 @@ export function GraphCanvas({
     zoomIn,
     zoomOut,
     selectNode,
+    highlightNeighbors,
+    clearHighlight,
   } = useCytoscape({
     onNodeSelect,
     onNodeDoubleClick,
@@ -45,9 +54,9 @@ export function GraphCanvas({
   // Expose controls when ready
   useEffect(() => {
     if (onReady) {
-      onReady({ selectNode });
+      onReady({ selectNode, highlightNeighbors, clearHighlight });
     }
-  }, [onReady, selectNode]);
+  }, [onReady, selectNode, highlightNeighbors, clearHighlight]);
 
   // Update graph data when it changes
   useEffect(() => {

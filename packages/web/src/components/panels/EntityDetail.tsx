@@ -3,9 +3,14 @@
 /**
  * EntityDetail Panel
  * Shows selected node details with code preview
+ * 
+ * Layout Strategy for Resizable Panels:
+ * - Root uses w-full to fill resizable panel
+ * - All containers use w-full and overflow-x-hidden to prevent horizontal overflow
+ * - Text uses overflow-wrap: anywhere for aggressive word breaking
  */
 
-import { useCallback } from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
 import type { GraphNode, FunctionEntity, ClassEntity, ComponentEntity } from '@codegraph/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +18,7 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { NODE_COLORS } from '@/lib/cytoscapeConfig';
 import { useSourceCode } from '@/hooks/useGraphData';
+import { cn } from '@/lib/utils';
 
 export interface EntityDetailProps {
   node: GraphNode | null;
@@ -53,99 +59,106 @@ export function EntityDetail({ node, onFocusNode, onShowConnections }: EntityDet
   const color = NODE_COLORS[node.label] || '#64748b';
 
   return (
-    <ScrollArea className="h-full">
-      <div className="p-4 space-y-4">
-        {/* Header */}
-        <div className="space-y-2">
-          <div className="flex items-start gap-2">
-            <div
-              className="w-4 h-4 rounded shrink-0 mt-1"
-              style={{ backgroundColor: color }}
-            />
-            <div className="flex-1 min-w-0">
-              <h2 className="text-lg font-semibold text-white break-all">
-                {node.displayName}
-              </h2>
-              <div className="flex items-center gap-2 mt-1">
-                <Badge variant="secondary" className="text-xs">
-                  {node.label}
-                </Badge>
-                {isExported(node) && (
-                  <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-400/30">
-                    exported
+    <div className="h-full w-full overflow-hidden">
+      <ScrollArea className="h-full w-full">
+        <div className="p-4 space-y-4 w-full">
+          {/* Header */}
+          <div className="space-y-2">
+            <div className="flex items-start gap-2">
+              <div
+                className="w-3 h-3 rounded shrink-0 mt-1"
+                style={{ backgroundColor: color }}
+              />
+              <div className="flex-1 min-w-0">
+                <h2 className="text-base font-semibold text-white" style={{ overflowWrap: 'anywhere' }}>
+                  {node.displayName}
+                </h2>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  <Badge variant="secondary" className="text-xs">
+                    {node.label}
                   </Badge>
-                )}
+                  {isExported(node) && (
+                    <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-400/30">
+                      exported
+                    </Badge>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <Separator className="bg-slate-800" />
+          <Separator className="bg-slate-800" />
 
-        {/* Location */}
-        {node.filePath && (
-          <Section title="Location">
-            <div className="text-sm text-slate-400 break-all font-mono">
-              {node.filePath}
-            </div>
-            {hasLineRange(node) && (
-              <div className="text-xs text-slate-500 mt-1">
-                Lines {(node.data as { startLine: number }).startLine} - {(node.data as { endLine: number }).endLine}
+          {/* Location */}
+          {node.filePath && (
+            <Section title="Location">
+              <div
+                className="text-xs text-slate-400 font-mono"
+                style={{ overflowWrap: 'anywhere' }}
+              >
+                {node.filePath}
               </div>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2 text-xs"
-              onClick={() => openInEditor(node.filePath!, getStartLine(node))}
-            >
-              Open in Editor
+              {hasLineRange(node) && (
+                <div className="text-xs text-slate-500 mt-1">
+                  Lines {(node.data as { startLine: number }).startLine} - {(node.data as { endLine: number }).endLine}
+                </div>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 text-xs"
+                onClick={() => openInEditor(node.filePath!, getStartLine(node))}
+              >
+                Open in Editor
+              </Button>
+            </Section>
+          )}
+
+          {/* Signature (for functions/classes) */}
+          {hasSignature(node) && (
+            <Section title="Signature">
+              <SignatureDisplay node={node} />
+            </Section>
+          )}
+
+          {/* Properties based on type */}
+          <Section title="Properties">
+            <PropertiesDisplay node={node} />
+          </Section>
+
+          {/* Code Preview */}
+          <Section title="Code Preview">
+            <CodePreview node={node} />
+          </Section>
+
+          {/* Actions */}
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Button variant="outline" size="sm" className="text-xs" onClick={handleFocus}>
+              Focus in Graph
             </Button>
-          </Section>
-        )}
-
-        {/* Signature (for functions/classes) */}
-        {hasSignature(node) && (
-          <Section title="Signature">
-            <SignatureDisplay node={node} />
-          </Section>
-        )}
-
-        {/* Properties based on type */}
-        <Section title="Properties">
-          <PropertiesDisplay node={node} />
-        </Section>
-
-        {/* Code Preview */}
-        <Section title="Code Preview">
-          <CodePreview node={node} />
-        </Section>
-
-        {/* Actions */}
-        <div className="flex flex-wrap gap-2 pt-2">
-          <Button variant="outline" size="sm" className="text-xs" onClick={handleFocus}>
-            Focus in Graph
-          </Button>
-          <Button variant="outline" size="sm" className="text-xs" onClick={handleShowConnections}>
-            Show Connections
-          </Button>
-          <Button variant="outline" size="sm" className="text-xs" onClick={handleCopyPath}>
-            Copy Path
-          </Button>
+            <Button variant="outline" size="sm" className="text-xs" onClick={handleShowConnections}>
+              Show Connections
+            </Button>
+            <Button variant="outline" size="sm" className="text-xs" onClick={handleCopyPath}>
+              Copy Path
+            </Button>
+          </div>
         </div>
-      </div>
-    </ScrollArea>
+      </ScrollArea>
+    </div>
   );
 }
 
 // Helper components
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div>
+    <div className="w-full">
       <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-2">
         {title}
       </h3>
-      {children}
+      <div className="w-full">
+        {children}
+      </div>
     </div>
   );
 }
@@ -161,7 +174,10 @@ function SignatureDisplay({ node }: { node: GraphNode }) {
     const returnType = fn.returnType || 'void';
     
     return (
-      <code className="text-xs text-emerald-400 font-mono block bg-slate-950 p-2 rounded border border-slate-800 break-all">
+      <code
+        className="text-xs text-emerald-400 font-mono block bg-slate-950 p-2 rounded border border-slate-800"
+        style={{ overflowWrap: 'anywhere' }}
+      >
         {fn.isAsync && <span className="text-purple-400">async </span>}
         {node.displayName}({params}): {returnType}
       </code>
@@ -171,7 +187,10 @@ function SignatureDisplay({ node }: { node: GraphNode }) {
   if (node.label === 'Class') {
     const cls = data as ClassEntity;
     return (
-      <code className="text-xs text-amber-400 font-mono block bg-slate-950 p-2 rounded border border-slate-800 break-all">
+      <code
+        className="text-xs text-amber-400 font-mono block bg-slate-950 p-2 rounded border border-slate-800"
+        style={{ overflowWrap: 'anywhere' }}
+      >
         {cls.isAbstract && <span className="text-purple-400">abstract </span>}
         class {node.displayName}
         {cls.extends && <span className="text-slate-400"> extends {cls.extends}</span>}
@@ -197,14 +216,66 @@ function PropertiesDisplay({ node }: { node: GraphNode }) {
   if (entries.length === 0) {
     return <div className="text-xs text-slate-500 italic">No additional properties</div>;
   }
-  
+
+  // Format a value for display
+  const formatValue = (key: string, value: unknown): React.ReactNode => {
+    // Try to parse JSON strings
+    let parsedValue = value;
+    if (typeof value === 'string' && (value.startsWith('[') || value.startsWith('{'))) {
+      try {
+        parsedValue = JSON.parse(value);
+      } catch {
+        // Keep original string
+      }
+    }
+
+    // Special handling for params array
+    if (key === 'params' && Array.isArray(parsedValue)) {
+      if (parsedValue.length === 0) return <span className="text-slate-500 italic">none</span>;
+      return (
+        <div className="mt-1 space-y-0.5">
+          {parsedValue.map((param: { name: string; type?: string }, idx: number) => (
+            <div key={idx} className="flex flex-wrap gap-1 text-xs">
+              <span className="text-cyan-400">{param.name}</span>
+              {param.type && (
+                <span className="text-slate-500">: {param.type}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // Arrays (other than params)
+    if (Array.isArray(parsedValue)) {
+      if (parsedValue.length === 0) return <span className="text-slate-500 italic">none</span>;
+      return <span style={{ overflowWrap: 'anywhere' }}>{parsedValue.join(', ')}</span>;
+    }
+
+    // Objects - pretty print
+    if (typeof parsedValue === 'object' && parsedValue !== null) {
+      return (
+        <pre className="text-[10px] text-slate-400 bg-slate-900 rounded p-1 mt-1 whitespace-pre-wrap" style={{ overflowWrap: 'anywhere' }}>
+          {JSON.stringify(parsedValue, null, 2)}
+        </pre>
+      );
+    }
+
+    // Booleans
+    if (typeof parsedValue === 'boolean') {
+      return <span className={parsedValue ? 'text-emerald-400' : 'text-slate-500'}>{String(parsedValue)}</span>;
+    }
+
+    return <span style={{ overflowWrap: 'anywhere' }}>{String(parsedValue)}</span>;
+  };
+
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       {entries.map(([key, value]) => (
-        <div key={key} className="flex items-start gap-2 text-xs">
-          <span className="text-slate-500 shrink-0">{key}:</span>
-          <span className="text-slate-300 break-all">
-            {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+        <div key={key} className="text-xs">
+          <span className="text-slate-500">{key}: </span>
+          <span className="text-slate-300">
+            {formatValue(key, value)}
           </span>
         </div>
       ))}
@@ -213,14 +284,85 @@ function PropertiesDisplay({ node }: { node: GraphNode }) {
 }
 
 function CodePreview({ node }: { node: GraphNode }) {
-  const startLine = getStartLine(node);
-  const endLine = (node.data as { endLine?: number }).endLine;
+  const entityStartLine = getStartLine(node);
+  const entityEndLine = (node.data as { endLine?: number }).endLine;
+  const highlightRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [highlightedLines, setHighlightedLines] = useState<string[]>([]);
 
   const { data, isLoading, error } = useSourceCode(
     node.filePath,
-    startLine,
-    endLine
+    undefined, // Fetch full file for context
+    undefined
   );
+
+  // Generate syntax highlighted lines using shiki
+  useEffect(() => {
+    if (!data?.lines?.length || !node.filePath) return;
+
+    const highlight = async () => {
+      try {
+        const { codeToHtml } = await import('shiki');
+        const fullCode = data.lines.map(l => l.content).join('\n');
+
+        // Detect language from file extension
+        const ext = node.filePath?.split('.').pop()?.toLowerCase() || 'text';
+        const langMap: Record<string, string> = {
+          ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
+          py: 'python', css: 'css', json: 'json', html: 'html',
+          md: 'markdown', yaml: 'yaml', yml: 'yaml', sh: 'bash',
+          sql: 'sql', graphql: 'graphql', go: 'go', rs: 'rust',
+        };
+        const lang = langMap[ext] || 'text';
+
+        const html = await codeToHtml(fullCode, {
+          lang,
+          theme: 'github-dark',
+        });
+
+        // Parse the HTML to extract individual line contents
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const lineSpans = doc.querySelectorAll('.line');
+
+        const lines: string[] = [];
+        lineSpans.forEach((span) => {
+          lines.push(span.innerHTML);
+        });
+
+        setHighlightedLines(lines);
+      } catch (err) {
+        console.warn('Shiki highlighting failed, using fallback:', err);
+        setHighlightedLines([]);
+      }
+    };
+
+    highlight();
+  }, [data, node.filePath]);
+
+  // Auto-scroll to highlighted entity when node changes
+  useEffect(() => {
+    if (!highlightRef.current || !scrollContainerRef.current) return;
+
+    const scrollToHighlight = () => {
+      if (highlightRef.current) {
+        highlightRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+      }
+    };
+
+    // Use double RAF to ensure layout is complete
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToHighlight);
+    });
+  }, [node.id, highlightedLines.length]);
+
+  // Check if a line is within the entity's range
+  const isEntityLine = (lineNum: number) =>
+    entityStartLine != null && entityEndLine != null &&
+    lineNum >= entityStartLine && lineNum <= entityEndLine;
 
   if (!node.filePath) {
     return (
@@ -254,25 +396,50 @@ function CodePreview({ node }: { node: GraphNode }) {
     );
   }
 
+  // Use highlighted lines if available, otherwise plain text
+  const useHighlighting = highlightedLines.length === data.lines.length;
+
   return (
     <div className="bg-slate-950 rounded-lg border border-slate-800 overflow-hidden">
-      <pre className="text-xs overflow-x-auto">
-        <code>
-          {data.lines.slice(0, 20).map((line) => (
-            <div key={line.number} className="flex hover:bg-slate-800/50">
-              <span className="w-10 shrink-0 text-right pr-3 text-slate-600 select-none border-r border-slate-800">
-                {line.number}
-              </span>
-              <span className="pl-3 text-slate-300 whitespace-pre">{line.content}</span>
-            </div>
-          ))}
-          {data.lines.length > 20 && (
-            <div className="text-slate-500 text-center py-2">
-              ... {data.lines.length - 20} more lines
-            </div>
-          )}
-        </code>
-      </pre>
+      <div
+        ref={scrollContainerRef}
+        className="max-h-[350px] overflow-y-auto overflow-x-auto"
+      >
+        <pre className="text-xs min-w-max font-mono">
+          <code>
+            {data.lines.map((line, idx) => {
+              const isHighlighted = isEntityLine(line.number);
+              const isFirstLine = line.number === entityStartLine;
+
+              return (
+                <div
+                  key={line.number}
+                  ref={isFirstLine ? highlightRef : undefined}
+                  className={cn(
+                    "flex hover:bg-slate-800/50",
+                    isHighlighted && "bg-indigo-900/40 border-l-2 border-indigo-500"
+                  )}
+                >
+                  <span className={cn(
+                    "w-10 shrink-0 text-right pr-3 select-none border-r border-slate-800",
+                    isHighlighted ? "text-indigo-400 font-medium" : "text-slate-600"
+                  )}>
+                    {line.number}
+                  </span>
+                  {useHighlighting ? (
+                    <span
+                      className="pl-3 whitespace-pre [&>span]:!bg-transparent"
+                      dangerouslySetInnerHTML={{ __html: highlightedLines[idx] ?? '' }}
+                    />
+                  ) : (
+                      <span className="pl-3 text-slate-300 whitespace-pre">{line.content}</span>
+                  )}
+                </div>
+              );
+            })}
+          </code>
+        </pre>
+      </div>
     </div>
   );
 }

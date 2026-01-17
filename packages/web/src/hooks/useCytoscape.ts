@@ -95,6 +95,9 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
   const cyRef = useRef<Core | null>(null);
   const [layout, setLayoutState] = useState<LayoutName>(DEFAULT_LAYOUT);
 
+  // Store original graph data so we can look up full nodes on click
+  const graphDataRef = useRef<GraphData | null>(null);
+
   // Store callbacks in refs to prevent re-initialization
   const onNodeSelectRef = useRef(options.onNodeSelect);
   const onNodeDoubleClickRef = useRef(options.onNodeDoubleClick);
@@ -124,17 +127,14 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
     cyRef.current = cy;
 
     // Node selection handler - uses ref for stable callback
+    // Look up full node from stored graph data to preserve startLine/endLine
     cy.on('tap', 'node', (evt) => {
-      const node = evt.target;
-      if (onNodeSelectRef.current) {
-        const graphNode: GraphNode = {
-          id: node.id(),
-          label: node.data('label'),
-          displayName: node.data('displayName'),
-          filePath: node.data('filePath'),
-          data: node.data(),
-        } as GraphNode;
-        onNodeSelectRef.current(graphNode);
+      const nodeId = evt.target.id();
+      if (onNodeSelectRef.current && graphDataRef.current) {
+        const fullNode = graphDataRef.current.nodes.find(n => n.id === nodeId);
+        if (fullNode) {
+          onNodeSelectRef.current(fullNode);
+        }
       }
     });
 
@@ -145,18 +145,14 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
       }
     });
 
-    // Double-click handler
+    // Double-click handler - also looks up full node from stored graph data
     cy.on('dbltap', 'node', (evt) => {
-      const node = evt.target;
-      if (onNodeDoubleClickRef.current) {
-        const graphNode: GraphNode = {
-          id: node.id(),
-          label: node.data('label'),
-          displayName: node.data('displayName'),
-          filePath: node.data('filePath'),
-          data: node.data(),
-        } as GraphNode;
-        onNodeDoubleClickRef.current(graphNode);
+      const nodeId = evt.target.id();
+      if (onNodeDoubleClickRef.current && graphDataRef.current) {
+        const fullNode = graphDataRef.current.nodes.find(n => n.id === nodeId);
+        if (fullNode) {
+          onNodeDoubleClickRef.current(fullNode);
+        }
       }
     });
 
@@ -170,6 +166,9 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
   const setData = useCallback((data: GraphData) => {
     const cy = cyRef.current;
     if (!cy) return;
+
+    // Store full graph data for node lookups on click
+    graphDataRef.current = data;
 
     const elements = graphDataToElements(data);
     const hadElements = cy.elements().length > 0;

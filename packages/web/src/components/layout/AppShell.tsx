@@ -20,13 +20,14 @@ import { ParseProjectDialog } from '@/components/ParseProjectDialog';
 import { ProjectSelector } from '@/components/ProjectSelector';
 import { useGraphData, projectKeys, graphKeys } from '@/hooks/useGraphData';
 import type { GraphData, GraphNode, EdgeLabel } from '@codegraph/types';
+import type { GraphCanvasControls } from '@/components/graph/GraphCanvas';
 
 export function AppShell() {
   const { leftPanel, rightPanel, legendCollapsed, toggleLegend, nodeTypeFilters, edgeTypeFilters, selectedProjectId, setSelectedProjectId } = useUIStore();
   const { selectedNode, selectNode: setSelectedNode } = useGraphStore();
 
-  // Store graph controls to focus on nodes
-  const graphControlsRef = useRef<{ selectNode: (nodeId: string) => void } | null>(null);
+  // Store graph controls to focus on nodes and show connections
+  const graphControlsRef = useRef<GraphCanvasControls | null>(null);
 
   // Combined handler: select in store + focus in graph
   const handleNodeSelect = useCallback((node: GraphNode | null) => {
@@ -36,8 +37,17 @@ export function AppShell() {
     }
   }, [setSelectedNode]);
 
-  const handleGraphReady = useCallback((controls: { selectNode: (nodeId: string) => void }) => {
+  const handleGraphReady = useCallback((controls: GraphCanvasControls) => {
     graphControlsRef.current = controls;
+  }, []);
+
+  // Callbacks for EntityDetail buttons
+  const handleFocusNode = useCallback((nodeId: string) => {
+    graphControlsRef.current?.selectNode(nodeId);
+  }, []);
+
+  const handleShowConnections = useCallback((nodeId: string) => {
+    graphControlsRef.current?.highlightNeighbors(nodeId);
   }, []);
 
   const queryClient = useQueryClient();
@@ -162,7 +172,11 @@ export function AppShell() {
               maxSize={45}
               className="bg-slate-900/30"
             >
-              <EntityDetail node={selectedNode} />
+              <EntityDetail
+                node={selectedNode}
+                onFocusNode={handleFocusNode}
+                onShowConnections={handleShowConnections}
+              />
             </ResizablePanel>
           </>
         )}
