@@ -166,18 +166,32 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
     };
   }, []); // Empty deps - initialize only once
 
-  // Set graph data
+  // Set graph data - preserve positions when possible
   const setData = useCallback((data: GraphData) => {
     const cy = cyRef.current;
     if (!cy) return;
 
-    cy.elements().remove();
     const elements = graphDataToElements(data);
-    cy.add(elements);
+    const hadElements = cy.elements().length > 0;
+
+    // Batch update: remove old, add new
+    cy.batch(() => {
+      cy.elements().remove();
+      cy.add(elements);
+    });
     
-    // Run layout after adding elements
-    const layoutOptions = LAYOUT_OPTIONS[layout];
-    cy.layout(layoutOptions).run();
+    // Run layout after updating elements
+    if (elements.length > 0) {
+      const layoutOptions = LAYOUT_OPTIONS[layout];
+
+      // For initial load or when many nodes are added: run full layout
+      // Use animate: false for faster updates on filter changes
+      const opts = hadElements
+        ? { ...layoutOptions, animate: false, fit: false }  // Quick layout, don't fit
+        : layoutOptions;  // Full animated layout for initial load
+
+      cy.layout(opts).run();
+    }
   }, [layout]);
 
   // Change layout

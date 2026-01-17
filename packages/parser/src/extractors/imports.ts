@@ -4,8 +4,52 @@
  */
 
 import Parser from 'tree-sitter';
+import { existsSync } from 'node:fs';
+import { resolve, dirname, extname } from 'node:path';
 import type { ImportEntity, ImportSpecifier } from '@codegraph/types';
 import { findNodesOfType, generateEntityId } from './types.js';
+
+/** File extensions to try when resolving imports */
+const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'];
+
+/**
+ * Resolve an import source to an absolute file path
+ * @param source - The import source (e.g., './utils', 'react')
+ * @param importingFilePath - Absolute path of the file containing the import
+ * @returns Resolved absolute path or undefined if unresolvable
+ */
+function resolveImportPath(source: string, importingFilePath: string): string | undefined {
+  // Skip package imports (no leading . or /)
+  if (!source.startsWith('.') && !source.startsWith('/')) {
+    return undefined;
+  }
+
+  const dir = dirname(importingFilePath);
+  const basePath = resolve(dir, source);
+
+  // If already has extension, check directly
+  if (extname(source)) {
+    return existsSync(basePath) ? basePath : undefined;
+  }
+
+  // Try with various extensions
+  for (const ext of RESOLVE_EXTENSIONS) {
+    const fullPath = basePath + ext;
+    if (existsSync(fullPath)) {
+      return fullPath;
+    }
+  }
+
+  // Try as directory with index file
+  for (const ext of RESOLVE_EXTENSIONS) {
+    const indexPath = resolve(basePath, `index${ext}`);
+    if (existsSync(indexPath)) {
+      return indexPath;
+    }
+  }
+
+  return undefined;
+}
 
 /**
  * Extract all import entities from a syntax tree
@@ -22,6 +66,11 @@ export function extractImports(
   for (const node of importNodes) {
     const importEntity = parseImportStatement(node, filePath);
     if (importEntity) {
+      // Resolve the import path (only set if resolved successfully)
+      const resolved = resolveImportPath(importEntity.source, filePath);
+      if (resolved) {
+        importEntity.resolvedPath = resolved;
+      }
       imports.push(importEntity);
     }
   }

@@ -5,18 +5,40 @@
  * Shows selected node details with code preview
  */
 
+import { useCallback } from 'react';
 import type { GraphNode, FunctionEntity, ClassEntity, ComponentEntity } from '@codegraph/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { NODE_COLORS } from '@/lib/cytoscapeConfig';
+import { useSourceCode } from '@/hooks/useGraphData';
 
 export interface EntityDetailProps {
   node: GraphNode | null;
+  onFocusNode?: (nodeId: string) => void;
+  onShowConnections?: (nodeId: string) => void;
 }
 
-export function EntityDetail({ node }: EntityDetailProps) {
+export function EntityDetail({ node, onFocusNode, onShowConnections }: EntityDetailProps) {
+  const handleCopyPath = useCallback(() => {
+    if (node?.filePath) {
+      navigator.clipboard.writeText(node.filePath);
+    }
+  }, [node?.filePath]);
+
+  const handleFocus = useCallback(() => {
+    if (node && onFocusNode) {
+      onFocusNode(node.id);
+    }
+  }, [node, onFocusNode]);
+
+  const handleShowConnections = useCallback(() => {
+    if (node && onShowConnections) {
+      onShowConnections(node.id);
+    }
+  }, [node, onShowConnections]);
+
   if (!node) {
     return (
       <div className="h-full flex items-center justify-center p-6">
@@ -94,24 +116,20 @@ export function EntityDetail({ node }: EntityDetailProps) {
           <PropertiesDisplay node={node} />
         </Section>
 
-        {/* Code Preview Placeholder */}
+        {/* Code Preview */}
         <Section title="Code Preview">
-          <div className="bg-slate-950 rounded-lg border border-slate-800 p-3">
-            <div className="text-xs text-slate-500 italic">
-              Code preview will be available when connected to the API
-            </div>
-          </div>
+          <CodePreview node={node} />
         </Section>
 
         {/* Actions */}
         <div className="flex flex-wrap gap-2 pt-2">
-          <Button variant="outline" size="sm" className="text-xs">
+          <Button variant="outline" size="sm" className="text-xs" onClick={handleFocus}>
             Focus in Graph
           </Button>
-          <Button variant="outline" size="sm" className="text-xs">
+          <Button variant="outline" size="sm" className="text-xs" onClick={handleShowConnections}>
             Show Connections
           </Button>
-          <Button variant="outline" size="sm" className="text-xs">
+          <Button variant="outline" size="sm" className="text-xs" onClick={handleCopyPath}>
             Copy Path
           </Button>
         </div>
@@ -155,7 +173,7 @@ function SignatureDisplay({ node }: { node: GraphNode }) {
         {cls.isAbstract && <span className="text-purple-400">abstract </span>}
         class {node.displayName}
         {cls.extends && <span className="text-slate-400"> extends {cls.extends}</span>}
-        {cls.implements && cls.implements.length > 0 && (
+        {Array.isArray(cls.implements) && cls.implements.length > 0 && (
           <span className="text-slate-400"> implements {cls.implements.join(', ')}</span>
         )}
       </code>
@@ -188,6 +206,71 @@ function PropertiesDisplay({ node }: { node: GraphNode }) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function CodePreview({ node }: { node: GraphNode }) {
+  const startLine = getStartLine(node);
+  const endLine = (node.data as { endLine?: number }).endLine;
+
+  const { data, isLoading, error } = useSourceCode(
+    node.filePath,
+    startLine,
+    endLine
+  );
+
+  if (!node.filePath) {
+    return (
+      <div className="text-xs text-slate-500 italic">
+        No file path available
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="bg-slate-950 rounded-lg border border-slate-800 p-3">
+        <div className="text-xs text-slate-500 animate-pulse">Loading code...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-slate-950 rounded-lg border border-slate-800 p-3">
+        <div className="text-xs text-red-400">Failed to load code</div>
+      </div>
+    );
+  }
+
+  if (!data?.lines?.length) {
+    return (
+      <div className="bg-slate-950 rounded-lg border border-slate-800 p-3">
+        <div className="text-xs text-slate-500 italic">No code available</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-950 rounded-lg border border-slate-800 overflow-hidden">
+      <pre className="text-xs overflow-x-auto">
+        <code>
+          {data.lines.slice(0, 20).map((line) => (
+            <div key={line.number} className="flex hover:bg-slate-800/50">
+              <span className="w-10 shrink-0 text-right pr-3 text-slate-600 select-none border-r border-slate-800">
+                {line.number}
+              </span>
+              <span className="pl-3 text-slate-300 whitespace-pre">{line.content}</span>
+            </div>
+          ))}
+          {data.lines.length > 20 && (
+            <div className="text-slate-500 text-center py-2">
+              ... {data.lines.length - 20} more lines
+            </div>
+          )}
+        </code>
+      </pre>
     </div>
   );
 }

@@ -175,6 +175,12 @@ const CYPHER = {
     MATCH (f:File {path: $path})-[:CONTAINS]->(e)
     RETURN count(e) as count
   `,
+
+  // Clear all nodes and edges from the graph
+  CLEAR_ALL: `
+    MATCH (n)
+    DETACH DELETE n
+  `,
 };
 
 // ============================================================================
@@ -228,6 +234,8 @@ export interface GraphOperations {
 
   deleteFileEntities(filePath: string): Promise<void>;
   
+  clearAll(): Promise<void>;
+
   batchUpsert(entities: ParsedFileEntities): Promise<void>;
 }
 
@@ -351,6 +359,11 @@ class GraphOperationsImpl implements GraphOperations {
     await this.client.query(CYPHER.DELETE_FILE_ENTITIES, {
       params: { path: filePath },
     });
+  }
+
+  @trace()
+  async clearAll(): Promise<void> {
+    await this.client.query(CYPHER.CLEAR_ALL, { params: {} });
   }
 
   @trace()

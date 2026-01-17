@@ -14,6 +14,7 @@ export interface GraphCanvasProps {
   data?: GraphData | undefined;
   onNodeSelect?: (node: GraphNode | null) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
+  onReady?: (controls: { selectNode: (nodeId: string) => void }) => void;
   className?: string;
 }
 
@@ -23,6 +24,7 @@ export function GraphCanvas({
   data,
   onNodeSelect,
   onNodeDoubleClick,
+  onReady,
   className,
 }: GraphCanvasProps) {
   const {
@@ -34,10 +36,18 @@ export function GraphCanvas({
     fit,
     zoomIn,
     zoomOut,
+    selectNode,
   } = useCytoscape({
     onNodeSelect,
     onNodeDoubleClick,
   });
+
+  // Expose controls when ready
+  useEffect(() => {
+    if (onReady) {
+      onReady({ selectNode });
+    }
+  }, [onReady, selectNode]);
 
   // Update graph data when it changes
   useEffect(() => {

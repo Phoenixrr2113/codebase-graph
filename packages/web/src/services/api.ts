@@ -117,6 +117,12 @@ export async function deleteFile(path: string): Promise<{ success: boolean }> {
   });
 }
 
+export async function clearGraph(): Promise<{ success: boolean; message: string }> {
+  return fetchAPI<{ success: boolean; message: string }>('/api/parse/clear', {
+    method: 'DELETE',
+  });
+}
+
 // ============================================================================
 // Query Endpoints
 // ============================================================================
@@ -139,6 +145,33 @@ export async function queryNatural(question: string): Promise<{
   return fetchAPI('/api/query/natural', {
     method: 'POST',
     body: JSON.stringify({ question }),
+  });
+}
+
+// ============================================================================
+// Source Code Endpoint
+// ============================================================================
+
+export interface SourceCodeResponse {
+  path: string;
+  startLine: number;
+  endLine: number;
+  totalLines: number;
+  content: string;
+  lines: Array<{ number: number; content: string }>;
+}
+
+export async function getSourceCode(
+  path: string,
+  startLine?: number,
+  endLine?: number
+): Promise<SourceCodeResponse> {
+  return fetchAPI<SourceCodeResponse>('/api/source', {
+    params: {
+      path,
+      startLine,
+      endLine,
+    },
   });
 }
 
@@ -176,10 +209,12 @@ export const api = {
     project: parseProject,
     file: parseFile,
     delete: deleteFile,
+    clear: clearGraph,
   },
   query: {
     cypher: executeCypher,
     natural: queryNatural,
   },
   search,
+  source: getSourceCode,
 };

@@ -95,4 +95,20 @@ parse.delete(
   }
 );
 
+/**
+ * DELETE /api/parse/clear
+ * Clear all data from the graph
+ */
+parse.delete(
+  '/clear',
+  async (c) => {
+    const { createClient, createOperations } = await import('@codegraph/graph');
+    const client = await createClient();
+    const ops = createOperations(client);
+    await ops.clearAll();
+
+    return c.json({ success: true, message: 'Graph cleared' });
+  }
+);
+
 export { parse };

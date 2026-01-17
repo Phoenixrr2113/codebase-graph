@@ -8,18 +8,26 @@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useUIStore, useGraphStore } from '@/stores';
+import { useUIStore } from '@/stores';
+import { useGraphData } from '@/hooks/useGraphData';
 import { NODE_COLORS } from '@/lib/cytoscapeConfig';
-import type { NodeLabel } from '@codegraph/types';
+import type { NodeLabel, GraphNode } from '@codegraph/types';
 import { cn } from '@/lib/utils';
 
 const NODE_TYPES: NodeLabel[] = [
   'File', 'Class', 'Interface', 'Function', 'Component', 'Variable', 'Type'
 ];
 
-export function SearchPanel() {
+export interface SearchPanelProps {
+  onNodeSelect?: (node: GraphNode) => void;
+}
+
+export function SearchPanel({ onNodeSelect }: SearchPanelProps) {
   const { searchQuery, setSearchQuery, nodeTypeFilters, toggleNodeTypeFilter, clearFilters } = useUIStore();
-  const { nodes, selectNode } = useGraphStore();
+
+  // Get nodes directly from TanStack Query cache
+  const { data: graphData } = useGraphData();
+  const nodes = graphData?.nodes ?? [];
   
   // Filter nodes based on search and type filters
   const filteredNodes = nodes.filter((node) => {
@@ -104,7 +112,7 @@ export function SearchPanel() {
             {filteredNodes.slice(0, 100).map((node) => (
               <button
                 key={node.id}
-                onClick={() => selectNode(node)}
+                onClick={() => onNodeSelect?.(node)}
                 className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-800 transition-colors group"
               >
                 <div className="flex items-center gap-2">

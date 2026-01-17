@@ -57,3 +57,22 @@ export function useEntityGraph(entityId: string | undefined, depth = 1) {
     enabled: !!entityId,
   });
 }
+
+/**
+ * Fetch source code for a file
+ */
+export function useSourceCode(
+  filePath: string | undefined,
+  startLine?: number,
+  endLine?: number
+) {
+  return useQuery({
+    queryKey: ['source', filePath, startLine, endLine] as const,
+    queryFn: async () => {
+      const { getSourceCode } = await import('@/services/api');
+      return getSourceCode(filePath!, startLine, endLine);
+    },
+    enabled: !!filePath,
+  });
+}
+

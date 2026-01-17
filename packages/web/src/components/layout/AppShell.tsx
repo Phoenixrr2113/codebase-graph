@@ -5,6 +5,7 @@
  * Main layout with three resizable panels using Shadcn resizable
  */
 
+import { useMemo, useRef, useCallback } from 'react';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -14,17 +15,50 @@ import { useUIStore, useGraphStore } from '@/stores';
 import { GraphCanvas, GraphLegend } from '@/components/graph';
 import { EntityDetail } from '@/components/panels/EntityDetail';
 import { SearchPanel } from '@/components/panels/SearchPanel';
+import { ParseProjectDialog } from '@/components/ParseProjectDialog';
 import { useGraphData } from '@/hooks/useGraphData';
+import type { GraphData, GraphNode } from '@codegraph/types';
 
 export function AppShell() {
-  const { leftPanel, rightPanel, legendCollapsed, toggleLegend } = useUIStore();
-  const { selectedNode, selectNode } = useGraphStore();
+  const { leftPanel, rightPanel, legendCollapsed, toggleLegend, nodeTypeFilters } = useUIStore();
+  const { selectedNode, selectNode: setSelectedNode } = useGraphStore();
+
+  // Store graph controls to focus on nodes
+  const graphControlsRef = useRef<{ selectNode: (nodeId: string) => void } | null>(null);
+
+  // Combined handler: select in store + focus in graph
+  const handleNodeSelect = useCallback((node: GraphNode | null) => {
+    setSelectedNode(node);
+    if (node && graphControlsRef.current) {
+      graphControlsRef.current.selectNode(node.id);
+    }
+  }, [setSelectedNode]);
+
+  const handleGraphReady = useCallback((controls: { selectNode: (nodeId: string) => void }) => {
+    graphControlsRef.current = controls;
+  }, []);
 
   // Fetch graph data via TanStack Query - stable, cached, no unnecessary refetches
   const { data: graphData, isLoading: loading, error } = useGraphData();
 
-  const nodes = graphData?.nodes ?? [];
-  const edges = graphData?.edges ?? [];
+  // Apply node type filters to graph data
+  const filteredGraphData = useMemo<GraphData | undefined>(() => {
+    if (!graphData) return undefined;
+
+    // Filter nodes by selected types
+    const filteredNodes = graphData.nodes.filter(node => nodeTypeFilters.has(node.label));
+    const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+
+    // Keep edges where both source and target are in filtered nodes
+    const filteredEdges = graphData.edges.filter(
+      edge => filteredNodeIds.has(edge.source) && filteredNodeIds.has(edge.target)
+    );
+
+    return { nodes: filteredNodes, edges: filteredEdges };
+  }, [graphData, nodeTypeFilters]);
+
+  const nodes = filteredGraphData?.nodes ?? [];
+  const edges = filteredGraphData?.edges ?? [];
 
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-950">
@@ -46,10 +80,11 @@ export function AppShell() {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <span className="text-xs text-slate-500">
             {nodes.length} nodes · {edges.length} edges
           </span>
+          <ParseProjectDialog />
         </div>
       </header>
 
@@ -64,7 +99,7 @@ export function AppShell() {
               maxSize={35}
               className="bg-slate-900/30"
             >
-              <SearchPanel />
+              <SearchPanel onNodeSelect={handleNodeSelect} />
             </ResizablePanel>
             <ResizableHandle className="w-1 bg-slate-800 hover:bg-indigo-500 transition-colors" />
           </>
@@ -73,8 +108,9 @@ export function AppShell() {
         {/* Center panel - Graph */}
         <ResizablePanel minSize={30} className="relative">
           <GraphCanvas
-            data={graphData}
-            onNodeSelect={selectNode}
+            data={filteredGraphData}
+            onNodeSelect={handleNodeSelect}
+            onReady={handleGraphReady}
             className="h-full"
           />
           {/* Legend overlay */}
