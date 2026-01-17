@@ -50,9 +50,9 @@ async function fetchAPI<T>(endpoint: string, options: FetchOptions = {}): Promis
 // Graph Endpoints
 // ============================================================================
 
-export async function getFullGraph(limit?: number): Promise<GraphData> {
+export async function getFullGraph(limit?: number, projectId?: string): Promise<GraphData> {
   return fetchAPI<GraphData>('/api/graph/full', {
-    params: { limit },
+    params: { limit, projectId },
   });
 }
 
@@ -194,6 +194,22 @@ export async function search(
 }
 
 // ============================================================================
+// Projects Endpoints
+// ============================================================================
+
+import type { ProjectEntity } from '@codegraph/types';
+
+export async function getProjects(): Promise<{ projects: ProjectEntity[] }> {
+  return fetchAPI<{ projects: ProjectEntity[] }>('/api/projects');
+}
+
+export async function deleteProject(projectId: string): Promise<{ success: boolean }> {
+  return fetchAPI<{ success: boolean }>(`/api/projects/${projectId}`, {
+    method: 'DELETE',
+  });
+}
+
+// ============================================================================
 // Export all API functions
 // ============================================================================
 
@@ -217,4 +233,8 @@ export const api = {
   },
   search,
   source: getSourceCode,
+  projects: {
+    list: getProjects,
+    delete: deleteProject,
+  },
 };

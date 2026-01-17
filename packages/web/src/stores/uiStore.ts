@@ -24,6 +24,9 @@ interface UIState {
   nodeTypeFilters: Set<NodeLabel>;
   edgeTypeFilters: Set<EdgeLabel>;
   
+  // Project selection
+  selectedProjectId: string | null;
+
   // Legend
   legendCollapsed: boolean;
   
@@ -41,6 +44,7 @@ interface UIState {
   clearFilters: () => void;
   setLegendCollapsed: (collapsed: boolean) => void;
   toggleLegend: () => void;
+  setSelectedProjectId: (projectId: string | null) => void;
 }
 
 const ALL_NODE_TYPES: NodeLabel[] = [
@@ -55,12 +59,12 @@ const ALL_EDGE_TYPES: EdgeLabel[] = [
 export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
-      // Initial state
       leftPanel: { visible: true, size: 20 },
       rightPanel: { visible: true, size: 25 },
       searchQuery: '',
       nodeTypeFilters: new Set<NodeLabel>(ALL_NODE_TYPES),
       edgeTypeFilters: new Set<EdgeLabel>(ALL_EDGE_TYPES),
+      selectedProjectId: null,
       legendCollapsed: false,
       theme: 'dark',
 
@@ -119,6 +123,8 @@ export const useUIStore = create<UIState>()(
 
       toggleLegend: () =>
         set((state) => ({ legendCollapsed: !state.legendCollapsed })),
+
+      setSelectedProjectId: (projectId) => set({ selectedProjectId: projectId }),
     }),
     {
       name: 'codegraph-ui-store',

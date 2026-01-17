@@ -4,23 +4,35 @@
  */
 
 import { Hono } from 'hono';
-import { createClient, createQueries } from '@codegraph/graph';
+import { createClient, createQueries, createOperations } from '@codegraph/graph';
 import { HttpError } from '../middleware/errorHandler.js';
 
 const graph = new Hono();
 
 /**
  * GET /api/graph/full
- * Get entire graph (for small projects)
+ * Get entire graph (optionally filtered by project)
  */
 graph.get('/full', async (c) => {
   const limitParam = c.req.query('limit');
+  const projectId = c.req.query('projectId');
   const limit = limitParam ? parseInt(limitParam, 10) : 1000;
 
   try {
     const client = await createClient();
     const queries = createQueries(client);
-    const data = await queries.getFullGraph(limit);
+
+    // If projectId provided, get project's rootPath for database-level filtering
+    let rootPath: string | undefined;
+    if (projectId) {
+      const ops = createOperations(client);
+      const projects = await ops.getProjects();
+      const project = projects.find(p => p.id === projectId);
+      rootPath = project?.rootPath;
+    }
+
+    // Pass rootPath to query - filtering happens at database level
+    const data = await queries.getFullGraph(limit, rootPath);
 
     return c.json(data);
   } catch (error) {

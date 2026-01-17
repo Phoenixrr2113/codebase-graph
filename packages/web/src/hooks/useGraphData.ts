@@ -10,7 +10,7 @@ import type { GraphData, GraphStats } from '@codegraph/types';
 // Query key factory for type-safe, consistent keys
 export const graphKeys = {
   all: ['graph'] as const,
-  full: (limit?: number) => [...graphKeys.all, 'full', limit] as const,
+  full: (limit?: number, projectId?: string | null) => [...graphKeys.all, 'full', limit, projectId] as const,
   file: (path: string) => [...graphKeys.all, 'file', path] as const,
   entity: (id: string, depth: number) => [...graphKeys.all, 'entity', id, depth] as const,
   stats: ['stats'] as const,
@@ -18,11 +18,15 @@ export const graphKeys = {
 
 /**
  * Fetch the full graph data
+ * @param limit - Maximum number of nodes to fetch
+ * @param projectId - Project ID to filter by (required - query won't run without it)
  */
-export function useGraphData(limit?: number) {
+export function useGraphData(limit?: number, projectId?: string | null) {
   return useQuery<GraphData>({
-    queryKey: graphKeys.full(limit),
-    queryFn: () => getFullGraph(limit),
+    queryKey: graphKeys.full(limit, projectId),
+    queryFn: () => getFullGraph(limit, projectId ?? undefined),
+    // Only fetch when we have a valid project selected
+    enabled: !!projectId,
   });
 }
 
@@ -76,3 +80,22 @@ export function useSourceCode(
   });
 }
 
+import type { ProjectEntity } from '@codegraph/types';
+
+// Query key for projects
+export const projectKeys = {
+  all: ['projects'] as const,
+};
+
+/**
+ * Fetch all projects
+ */
+export function useProjects() {
+  return useQuery<{ projects: ProjectEntity[] }>({
+    queryKey: projectKeys.all,
+    queryFn: async () => {
+      const { getProjects } = await import('@/services/api');
+      return getProjects();
+    },
+  });
+}

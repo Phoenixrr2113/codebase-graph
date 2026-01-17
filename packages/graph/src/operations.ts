@@ -23,6 +23,7 @@ import {
   type TypeEntity,
   type ComponentEntity,
 } from './schema.js';
+import type { ProjectEntity } from '@codegraph/types';
 
 // ============================================================================
 // Cypher Query Templates
@@ -181,6 +182,44 @@ const CYPHER = {
     MATCH (n)
     DETACH DELETE n
   `,
+
+  // Project operations
+  UPSERT_PROJECT: `
+    MERGE (p:Project {id: $id})
+    SET p.name = $name,
+        p.rootPath = $rootPath,
+        p.createdAt = $createdAt,
+        p.lastParsed = $lastParsed,
+        p.fileCount = $fileCount
+    RETURN p
+  `,
+
+  GET_ALL_PROJECTS: `
+    MATCH (p:Project)
+    RETURN p
+    ORDER BY p.lastParsed DESC
+  `,
+
+  GET_PROJECT_BY_ROOT: `
+    MATCH (p:Project {rootPath: $rootPath})
+    RETURN p
+  `,
+
+  DELETE_PROJECT: `
+    MATCH (p:Project {id: $id})
+    OPTIONAL MATCH (p)-[:HAS_FILE]->(f:File)-[:CONTAINS]->(e)
+    DETACH DELETE e
+    WITH p, f
+    DETACH DELETE f
+    WITH p
+    DETACH DELETE p
+  `,
+
+  LINK_PROJECT_FILE: `
+    MATCH (p:Project {id: $projectId})
+    MATCH (f:File {path: $filePath})
+    MERGE (p)-[:HAS_FILE]->(f)
+  `,
 };
 
 // ============================================================================
@@ -237,6 +276,13 @@ export interface GraphOperations {
   clearAll(): Promise<void>;
 
   batchUpsert(entities: ParsedFileEntities): Promise<void>;
+
+  // Project operations
+  upsertProject(project: ProjectEntity): Promise<void>;
+  getProjects(): Promise<ProjectEntity[]>;
+  getProjectByRoot(rootPath: string): Promise<ProjectEntity | null>;
+  deleteProject(projectId: string): Promise<void>;
+  linkProjectFile(projectId: string, filePath: string): Promise<void>;
 }
 
 // ============================================================================
@@ -429,6 +475,81 @@ class GraphOperationsImpl implements GraphOperations {
         )
       ),
     ]);
+  }
+
+  // Project operations
+
+  @trace()
+  async upsertProject(project: ProjectEntity): Promise<void> {
+    await this.client.query(CYPHER.UPSERT_PROJECT, {
+      params: {
+        id: project.id,
+        name: project.name,
+        rootPath: project.rootPath,
+        createdAt: project.createdAt,
+        lastParsed: project.lastParsed,
+        fileCount: project.fileCount ?? 0,
+      },
+    });
+  }
+
+  @trace()
+  async getProjects(): Promise<ProjectEntity[]> {
+    try {
+      const result = await this.client.roQuery<{ p: Record<string, unknown> }>(
+        CYPHER.GET_ALL_PROJECTS
+      );
+      return (result.data ?? []).map((row) => this.projectFromRow(row.p));
+    } catch {
+      // Handle empty graph case - return empty array
+      return [];
+    }
+  }
+
+  @trace()
+  async getProjectByRoot(rootPath: string): Promise<ProjectEntity | null> {
+    try {
+      const result = await this.client.roQuery<{ p: Record<string, unknown> }>(
+        CYPHER.GET_PROJECT_BY_ROOT,
+        { params: { rootPath } }
+      );
+      const row = result.data?.[0];
+      return row ? this.projectFromRow(row.p) : null;
+    } catch {
+      // Handle empty graph case - return null (no existing project)
+      return null;
+    }
+  }
+
+  @trace()
+  async deleteProject(projectId: string): Promise<void> {
+    await this.client.query(CYPHER.DELETE_PROJECT, {
+      params: { id: projectId },
+    });
+  }
+
+  @trace()
+  async linkProjectFile(projectId: string, filePath: string): Promise<void> {
+    await this.client.query(CYPHER.LINK_PROJECT_FILE, {
+      params: { projectId, filePath },
+    });
+  }
+
+  private projectFromRow(row: Record<string, unknown>): ProjectEntity {
+    // Handle FalkorDB nested properties format
+    const props = (row['properties'] ?? row) as Record<string, unknown>;
+    const fileCount = props['fileCount'] as number | undefined;
+    const entity: ProjectEntity = {
+      id: props['id'] as string,
+      name: props['name'] as string,
+      rootPath: props['rootPath'] as string,
+      createdAt: props['createdAt'] as string,
+      lastParsed: props['lastParsed'] as string,
+    };
+    if (fileCount !== undefined) {
+      entity.fileCount = fileCount;
+    }
+    return entity;
   }
 }
 

@@ -11,3 +11,4 @@ export { stats } from './stats.js';
 export { query } from './query.js';
 export { search } from './search.js';
 export { source } from './source.js';
+export { projects } from './projects.js';

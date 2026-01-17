@@ -216,6 +216,26 @@ export interface ComponentEntity extends RangeEntity {
 }
 
 // ============================================================================
+// Project Entity
+// ============================================================================
+
+/** Represents a parsed project in the graph */
+export interface ProjectEntity {
+  /** Unique identifier (generated UUID) */
+  id: string;
+  /** Project name (directory name) */
+  name: string;
+  /** Absolute path to project root */
+  rootPath: string;
+  /** ISO 8601 timestamp when project was first parsed */
+  createdAt: string;
+  /** ISO 8601 timestamp of last parse */
+  lastParsed: string;
+  /** Number of files in the project */
+  fileCount?: number;
+}
+
+// ============================================================================
 // Union Types
 // ============================================================================
 

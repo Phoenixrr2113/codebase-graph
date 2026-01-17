@@ -6,6 +6,7 @@
  */
 
 import { useMemo, useRef, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -16,11 +17,12 @@ import { GraphCanvas, GraphLegend } from '@/components/graph';
 import { EntityDetail } from '@/components/panels/EntityDetail';
 import { SearchPanel } from '@/components/panels/SearchPanel';
 import { ParseProjectDialog } from '@/components/ParseProjectDialog';
-import { useGraphData } from '@/hooks/useGraphData';
+import { ProjectSelector } from '@/components/ProjectSelector';
+import { useGraphData, projectKeys, graphKeys } from '@/hooks/useGraphData';
 import type { GraphData, GraphNode } from '@codegraph/types';
 
 export function AppShell() {
-  const { leftPanel, rightPanel, legendCollapsed, toggleLegend, nodeTypeFilters } = useUIStore();
+  const { leftPanel, rightPanel, legendCollapsed, toggleLegend, nodeTypeFilters, selectedProjectId, setSelectedProjectId } = useUIStore();
   const { selectedNode, selectNode: setSelectedNode } = useGraphStore();
 
   // Store graph controls to focus on nodes
@@ -38,8 +40,30 @@ export function AppShell() {
     graphControlsRef.current = controls;
   }, []);
 
-  // Fetch graph data via TanStack Query - stable, cached, no unnecessary refetches
-  const { data: graphData, isLoading: loading, error } = useGraphData();
+  const queryClient = useQueryClient();
+
+  // Handle when a project is parsed - fetch fresh project list and select it
+  const handleProjectParsed = useCallback(async (projectPath: string) => {
+    // Small delay to let the backend finish persisting
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Fetch fresh project list (invalidation was already triggered by ParseProjectDialog)
+    const data = await queryClient.fetchQuery({
+      queryKey: projectKeys.all,
+      staleTime: 0, // Force fresh fetch
+    });
+
+    const projects = (data as { projects: Array<{ id: string; rootPath: string }> })?.projects ?? [];
+    const newProject = projects.find(p => p.rootPath === projectPath);
+    if (newProject) {
+      setSelectedProjectId(newProject.id);
+      // Invalidate graph data to load the new project's graph
+      queryClient.invalidateQueries({ queryKey: graphKeys.all });
+    }
+  }, [queryClient, setSelectedProjectId]);
+
+  // Fetch graph data via TanStack Query - filters by selected project
+  const { data: graphData, isLoading: loading, error } = useGraphData(undefined, selectedProjectId);
 
   // Apply node type filters to graph data
   const filteredGraphData = useMemo<GraphData | undefined>(() => {
@@ -81,10 +105,14 @@ export function AppShell() {
           )}
         </div>
         <div className="flex items-center gap-3">
+          <ProjectSelector
+            selectedProjectId={selectedProjectId}
+            onSelectProject={setSelectedProjectId}
+          />
           <span className="text-xs text-slate-500">
             {nodes.length} nodes · {edges.length} edges
           </span>
-          <ParseProjectDialog />
+          <ParseProjectDialog onProjectParsed={handleProjectParsed} />
         </div>
       </header>
 
@@ -99,7 +127,7 @@ export function AppShell() {
               maxSize={35}
               className="bg-slate-900/30"
             >
-              <SearchPanel onNodeSelect={handleNodeSelect} />
+              <SearchPanel onNodeSelect={handleNodeSelect} selectedProjectId={selectedProjectId} />
             </ResizablePanel>
             <ResizableHandle className="w-1 bg-slate-800 hover:bg-indigo-500 transition-colors" />
           </>

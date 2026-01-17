@@ -20,13 +20,14 @@ const NODE_TYPES: NodeLabel[] = [
 
 export interface SearchPanelProps {
   onNodeSelect?: (node: GraphNode) => void;
+  selectedProjectId?: string | null;
 }
 
-export function SearchPanel({ onNodeSelect }: SearchPanelProps) {
+export function SearchPanel({ onNodeSelect, selectedProjectId }: SearchPanelProps) {
   const { searchQuery, setSearchQuery, nodeTypeFilters, toggleNodeTypeFilter, clearFilters } = useUIStore();
 
-  // Get nodes directly from TanStack Query cache
-  const { data: graphData } = useGraphData();
+  // Get nodes from TanStack Query - must use same projectId as AppShell for cache consistency
+  const { data: graphData } = useGraphData(undefined, selectedProjectId);
   const nodes = graphData?.nodes ?? [];
   
   // Filter nodes based on search and type filters

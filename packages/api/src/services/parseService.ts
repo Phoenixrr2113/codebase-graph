@@ -2,14 +2,14 @@
  * Parse service - orchestrates parsing and graph persistence
  */
 
-import type { ParseResult, ParseStats, FileEntity } from '@codegraph/types';
+import type { ParseResult, ParseStats, FileEntity, ProjectEntity } from '@codegraph/types';
 import { initParser, parseFile, parseFiles, extractAllEntities, type ExtractedEntities } from '@codegraph/parser';
 import { createClient, createOperations, type ParsedFileEntities, type GraphOperations } from '@codegraph/graph';
 import { createLogger, traced } from '@codegraph/logger';
 import fastGlob from 'fast-glob';
 import { stat, readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 const logger = createLogger({ namespace: 'API:Parse' });
 
@@ -195,6 +195,21 @@ export const parseProject = traced('parseProject', async function parseProject(
     // Get graph operations
     const ops = await getGraphOps();
 
+    // Create or update project entity
+    const now = new Date().toISOString();
+    let existingProject = await ops.getProjectByRoot(projectPath);
+    const project: ProjectEntity = existingProject ?? {
+      id: randomUUID(),
+      name: basename(projectPath),
+      rootPath: projectPath,
+      createdAt: now,
+      lastParsed: now,
+      fileCount: successCount,
+    };
+    project.lastParsed = now;
+    project.fileCount = successCount;
+    await ops.upsertProject(project);
+
     // Track totals
     let totalEntities = 0;
     let totalEdges = 0;
@@ -214,6 +229,9 @@ export const parseProject = traced('parseProject', async function parseProject(
 
           // Persist to graph database
           await ops.batchUpsert(parsed);
+
+          // Link file to project
+          await ops.linkProjectFile(project.id, result.filePath);
 
           // Update counts (add 1 for the file entity itself)
           totalEntities += 1 + countEntities(extracted);

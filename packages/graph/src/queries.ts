@@ -204,8 +204,10 @@ function edgeToGraphEdge(
 export interface GraphQueries {
   /**
    * Get the full graph (limited)
+   * @param limit - Maximum number of nodes to return
+   * @param rootPath - Optional project root path to filter by
    */
-  getFullGraph(limit?: number): Promise<GraphData>;
+  getFullGraph(limit?: number, rootPath?: string): Promise<GraphData>;
 
   /**
    * Get subgraph for a specific file
@@ -241,16 +243,30 @@ class GraphQueriesImpl implements GraphQueries {
   constructor(private readonly client: GraphClient) {}
 
   @trace()
-  async getFullGraph(limit = 1000): Promise<GraphData> {
+  async getFullGraph(limit = 1000, rootPath?: string): Promise<GraphData> {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
     const nodeIds = new Set<string>();
+
+    // Build dynamic query with optional rootPath filter
+    // File nodes use 'path', other entities use 'filePath'
+    const pathFilter = rootPath
+      ? `AND (CASE WHEN n:File THEN n.path ELSE n.filePath END) STARTS WITH $rootPath`
+      : '';
+
+    const nodesQuery = `
+      MATCH (n)
+      WHERE (n:File OR n:Function OR n:Class OR n:Interface OR n:Variable OR n:Type OR n:Component)
+        ${pathFilter}
+      RETURN n, labels(n) as labels
+      LIMIT $limit
+    `;
 
     // Get nodes
     const nodesResult = await this.client.roQuery<{
       n: Record<string, unknown>;
       labels: string[];
-    }>(CYPHER.GET_FULL_GRAPH_NODES, { params: { limit } });
+    }>(nodesQuery, { params: { limit, ...(rootPath && { rootPath }) } });
 
     for (const row of nodesResult.data ?? []) {
       const node = nodeToGraphNode(row.n, row.labels);
@@ -260,13 +276,27 @@ class GraphQueriesImpl implements GraphQueries {
       }
     }
 
-    // Get edges
+    // Get edges - also filter by rootPath if provided
+    const edgesPathFilter = rootPath
+      ? `AND (CASE WHEN a:File THEN a.path ELSE a.filePath END) STARTS WITH $rootPath
+         AND (CASE WHEN b:File THEN b.path ELSE b.filePath END) STARTS WITH $rootPath`
+      : '';
+
+    const edgesQuery = `
+      MATCH (a)-[r]->(b)
+      WHERE (a:File OR a:Function OR a:Class OR a:Interface OR a:Variable OR a:Type OR a:Component)
+        AND (b:File OR b:Function OR b:Class OR b:Interface OR b:Variable OR b:Type OR b:Component)
+        ${edgesPathFilter}
+      RETURN a, r, b, type(r) as edgeType
+      LIMIT $limit
+    `;
+
     const edgesResult = await this.client.roQuery<{
       a: Record<string, unknown>;
       r: Record<string, unknown>;
       b: Record<string, unknown>;
       edgeType: string;
-    }>(CYPHER.GET_FULL_GRAPH_EDGES, { params: { limit } });
+    }>(edgesQuery, { params: { limit, ...(rootPath && { rootPath }) } });
 
     for (const row of edgesResult.data ?? []) {
       // Extract properties from FalkorDB node format
