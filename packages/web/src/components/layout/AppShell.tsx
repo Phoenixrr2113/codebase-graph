@@ -19,10 +19,10 @@ import { SearchPanel } from '@/components/panels/SearchPanel';
 import { ParseProjectDialog } from '@/components/ParseProjectDialog';
 import { ProjectSelector } from '@/components/ProjectSelector';
 import { useGraphData, projectKeys, graphKeys } from '@/hooks/useGraphData';
-import type { GraphData, GraphNode } from '@codegraph/types';
+import type { GraphData, GraphNode, EdgeLabel } from '@codegraph/types';
 
 export function AppShell() {
-  const { leftPanel, rightPanel, legendCollapsed, toggleLegend, nodeTypeFilters, selectedProjectId, setSelectedProjectId } = useUIStore();
+  const { leftPanel, rightPanel, legendCollapsed, toggleLegend, nodeTypeFilters, edgeTypeFilters, selectedProjectId, setSelectedProjectId } = useUIStore();
   const { selectedNode, selectNode: setSelectedNode } = useGraphStore();
 
   // Store graph controls to focus on nodes
@@ -73,13 +73,15 @@ export function AppShell() {
     const filteredNodes = graphData.nodes.filter(node => nodeTypeFilters.has(node.label));
     const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
 
-    // Keep edges where both source and target are in filtered nodes
+    // Keep edges where both endpoints exist and edge type is enabled
     const filteredEdges = graphData.edges.filter(
-      edge => filteredNodeIds.has(edge.source) && filteredNodeIds.has(edge.target)
+      edge => filteredNodeIds.has(edge.source) &&
+        filteredNodeIds.has(edge.target) &&
+        edgeTypeFilters.has(edge.label as EdgeLabel)
     );
 
     return { nodes: filteredNodes, edges: filteredEdges };
-  }, [graphData, nodeTypeFilters]);
+  }, [graphData, nodeTypeFilters, edgeTypeFilters]);
 
   const nodes = filteredGraphData?.nodes ?? [];
   const edges = filteredGraphData?.edges ?? [];
@@ -134,7 +136,7 @@ export function AppShell() {
         )}
 
         {/* Center panel - Graph */}
-        <ResizablePanel minSize={30} className="relative">
+        <ResizablePanel defaultSize={55} minSize={30} className="relative">
           <GraphCanvas
             data={filteredGraphData}
             onNodeSelect={handleNodeSelect}

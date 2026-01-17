@@ -143,14 +143,18 @@ const CYPHER = {
 
   CREATE_EXTENDS_EDGE: `
     MATCH (child:Class {name: $childName, filePath: $childFile})
-    MATCH (parent:Class {name: $parentName})
+    OPTIONAL MATCH (parent:Class {name: $parentName, filePath: $parentFile})
+    WITH child, parent
+    WHERE parent IS NOT NULL
     MERGE (child)-[e:EXTENDS]->(parent)
     RETURN e
   `,
 
   CREATE_IMPLEMENTS_EDGE: `
     MATCH (c:Class {name: $className, filePath: $classFile})
-    MATCH (i:Interface {name: $interfaceName})
+    OPTIONAL MATCH (i:Interface {name: $interfaceName, filePath: $interfaceFile})
+    WITH c, i
+    WHERE i IS NOT NULL
     MERGE (c)-[impl:IMPLEMENTS]->(i)
     RETURN impl
   `,
@@ -255,13 +259,15 @@ export interface GraphOperations {
   createExtendsEdge(
     childName: string,
     childFile: string,
-    parentName: string
+    parentName: string,
+    parentFile?: string
   ): Promise<void>;
 
   createImplementsEdge(
     className: string,
     classFile: string,
-    interfaceName: string
+    interfaceName: string,
+    interfaceFile?: string
   ): Promise<void>;
 
   createRendersEdge(
@@ -370,10 +376,11 @@ class GraphOperationsImpl implements GraphOperations {
   async createExtendsEdge(
     childName: string,
     childFile: string,
-    parentName: string
+    parentName: string,
+    parentFile?: string
   ): Promise<void> {
     await this.client.query(CYPHER.CREATE_EXTENDS_EDGE, {
-      params: { childName, childFile, parentName },
+      params: { childName, childFile, parentName, parentFile: parentFile ?? null },
     });
   }
 
@@ -381,10 +388,11 @@ class GraphOperationsImpl implements GraphOperations {
   async createImplementsEdge(
     className: string,
     classFile: string,
-    interfaceName: string
+    interfaceName: string,
+    interfaceFile?: string
   ): Promise<void> {
     await this.client.query(CYPHER.CREATE_IMPLEMENTS_EDGE, {
-      params: { className, classFile, interfaceName },
+      params: { className, classFile, interfaceName, interfaceFile: interfaceFile ?? null },
     });
   }
 
@@ -449,22 +457,28 @@ class GraphOperationsImpl implements GraphOperations {
       ...entities.importsEdges.map((edge) =>
         this.createImportsEdge(edge.fromFilePath, edge.toFilePath, edge.specifiers)
       ),
-      // Extends edges (classes)
-      ...entities.extendsEdges.map((edge) =>
-        this.createExtendsEdge(
+      // Extends edges (classes) - extract parent file from ID if present
+      ...entities.extendsEdges.map((edge) => {
+        const parentParts = edge.parentId.split(':');
+        const parentFile = parentParts[1] !== 'external' ? parentParts[1] : undefined;
+        return this.createExtendsEdge(
           edge.childId.split(':')[2] ?? '',
           edge.childId.split(':')[1] ?? '',
-          edge.parentId.split(':')[2] ?? ''
-        )
-      ),
-      // Implements edges (class -> interface)
-      ...entities.implementsEdges.map((edge) =>
-        this.createImplementsEdge(
+          parentParts[2] ?? parentParts[1] ?? '', // name at index 2 or 1 for external
+          parentFile
+        );
+      }),
+      // Implements edges (class -> interface) - extract interface file from ID if present
+      ...entities.implementsEdges.map((edge) => {
+        const ifaceParts = edge.interfaceId.split(':');
+        const ifaceFile = ifaceParts[1] !== 'external' ? ifaceParts[1] : undefined;
+        return this.createImplementsEdge(
           edge.classId.split(':')[2] ?? '',
           edge.classId.split(':')[1] ?? '',
-          edge.interfaceId.split(':')[2] ?? ''
-        )
-      ),
+          ifaceParts[2] ?? ifaceParts[1] ?? '', // name at index 2 or 1 for external
+          ifaceFile
+        );
+      }),
       // Renders edges (components)
       ...entities.rendersEdges.map((edge) =>
         this.createRendersEdge(

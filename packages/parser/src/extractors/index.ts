@@ -23,8 +23,10 @@ export { extractTypes, extractInterfaces } from './type-aliases.js';
 export { extractComponents } from './jsx.js';
 export { extractCalls } from './calls.js';
 export { extractRenders } from './renders.js';
+export { extractInheritance } from './inheritance.js';
 export type { CallReference } from './calls.js';
 export type { RenderReference } from './renders.js';
+export type { ExtendsReference, ImplementsReference, InheritanceResult } from './inheritance.js';
 
 // Re-export utility types and functions
 export { getLocation, findNodesOfType, generateEntityId } from './types.js';

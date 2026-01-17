@@ -3,7 +3,7 @@
  */
 
 import type { ParseResult, ParseStats, FileEntity, ProjectEntity } from '@codegraph/types';
-import { initParser, parseFile, parseFiles, extractAllEntities, extractCalls, extractRenders, type ExtractedEntities } from '@codegraph/parser';
+import { initParser, parseFile, parseFiles, extractAllEntities, extractCalls, extractRenders, extractInheritance, type ExtractedEntities } from '@codegraph/parser';
 import type Parser from 'tree-sitter';
 import { createClient, createOperations, type ParsedFileEntities, type GraphOperations } from '@codegraph/graph';
 import { createLogger, traced } from '@codegraph/logger';
@@ -93,21 +93,28 @@ function buildParsedFileEntities(
       specifiers: imp.specifiers.map((s) => s.name),
     }));
 
-  // Build extends edges from classes
-  const extendsEdges = extracted.classes
-    .filter((cls) => cls.extends)
-    .map((cls) => ({
-      childId: `Class:${cls.filePath}:${cls.name}:${cls.startLine}`,
-      parentId: `Class:${cls.extends}`, // Parent may not have full path
-    }));
-
-  // Build implements edges from classes
-  const implementsEdges = extracted.classes.flatMap((cls) =>
-    (cls.implements ?? []).map((ifaceName) => ({
-      classId: `Class:${cls.filePath}:${cls.name}:${cls.startLine}`,
-      interfaceId: `Interface:${ifaceName}`,
-    }))
+  // Build extends/implements edges with cross-file resolution
+  const inheritance = extractInheritance(
+    file.path,
+    extracted.classes,
+    extracted.interfaces,
+    extracted.imports,
+    includeExternals
   );
+
+  const extendsEdges = inheritance.extends.map((ext) => ({
+    childId: `Class:${ext.childFilePath}:${ext.childName}:${ext.childStartLine}`,
+    parentId: ext.parentFilePath
+      ? `Class:${ext.parentFilePath}:${ext.parentName}`
+      : `Class:external:${ext.parentName}`,
+  }));
+
+  const implementsEdges = inheritance.implements.map((impl) => ({
+    classId: `Class:${impl.classFilePath}:${impl.className}:${impl.classStartLine}`,
+    interfaceId: impl.interfaceFilePath
+      ? `Interface:${impl.interfaceFilePath}:${impl.interfaceName}`
+      : `Interface:external:${impl.interfaceName}`,
+  }));
 
   // Build call edges (only if deep analysis enabled and we have rootNode)
   let callEdges: ParsedFileEntities['callEdges'] = [];

@@ -6,7 +6,9 @@
  */
 
 import { NODE_COLORS, EDGE_COLORS } from '@/lib/cytoscapeConfig';
+import { useUIStore } from '@/stores';
 import { cn } from '@/lib/utils';
+import type { EdgeLabel } from '@codegraph/types';
 
 interface LegendItem {
   label: string;
@@ -25,12 +27,13 @@ const NODE_LEGEND: LegendItem[] = [
   { label: 'Type', color: NODE_COLORS.Type, shape: 'hexagon' },
 ];
 
-const EDGE_LEGEND: LegendItem[] = [
-  { label: 'Calls', color: EDGE_COLORS.CALLS },
-  { label: 'Imports', color: EDGE_COLORS.IMPORTS, dashed: true },
-  { label: 'Extends', color: EDGE_COLORS.EXTENDS },
-  { label: 'Implements', color: EDGE_COLORS.IMPLEMENTS, dashed: true },
-  { label: 'Renders', color: EDGE_COLORS.RENDERS },
+const EDGE_LEGEND: (LegendItem & { edgeType: EdgeLabel })[] = [
+  { label: 'Calls', color: EDGE_COLORS.CALLS, edgeType: 'CALLS' },
+  { label: 'Imports', color: EDGE_COLORS.IMPORTS, dashed: true, edgeType: 'IMPORTS' },
+  { label: 'Extends', color: EDGE_COLORS.EXTENDS, edgeType: 'EXTENDS' },
+  { label: 'Implements', color: EDGE_COLORS.IMPLEMENTS, dashed: true, edgeType: 'IMPLEMENTS' },
+  { label: 'Renders', color: EDGE_COLORS.RENDERS, edgeType: 'RENDERS' },
+  { label: 'Contains', color: EDGE_COLORS.CONTAINS, edgeType: 'CONTAINS' },
 ];
 
 export interface GraphLegendProps {
@@ -40,6 +43,7 @@ export interface GraphLegendProps {
 }
 
 export function GraphLegend({ className, collapsed = false, onToggle }: GraphLegendProps) {
+  const { edgeTypeFilters, toggleEdgeTypeFilter } = useUIStore();
   return (
     <div
       className={cn(
@@ -76,7 +80,12 @@ export function GraphLegend({ className, collapsed = false, onToggle }: GraphLeg
             </div>
             <div className="space-y-1">
               {EDGE_LEGEND.map((item) => (
-                <LegendEdgeItem key={item.label} {...item} />
+                <LegendEdgeItem
+                  key={item.label}
+                  {...item}
+                  enabled={edgeTypeFilters.has(item.edgeType)}
+                  onToggle={() => toggleEdgeTypeFilter(item.edgeType)}
+                />
               ))}
             </div>
           </div>
@@ -108,9 +117,15 @@ function LegendNodeItem({ label, color, shape, dashed }: LegendItem) {
   );
 }
 
-function LegendEdgeItem({ label, color, dashed }: LegendItem) {
+function LegendEdgeItem({ label, color, dashed, enabled = true, onToggle }: LegendItem & { enabled?: boolean; onToggle?: () => void }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <button
+      onClick={onToggle}
+      className={cn(
+        'flex items-center gap-1.5 w-full text-left transition-opacity',
+        !enabled && 'opacity-30'
+      )}
+    >
       <div className="w-4 h-0.5 relative shrink-0">
         <div
           className={cn('absolute inset-0', dashed && 'border-t border-dashed')}
@@ -125,8 +140,8 @@ function LegendEdgeItem({ label, color, dashed }: LegendItem) {
           style={{ borderLeftColor: color }}
         />
       </div>
-      <span className="text-[10px] text-slate-400">{label}</span>
-    </div>
+      <span className={cn('text-[10px] text-slate-400', !enabled && 'line-through')}>{label}</span>
+    </button>
   );
 }
 

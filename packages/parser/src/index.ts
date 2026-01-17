@@ -27,13 +27,22 @@ export {
   extractComponents,
   extractCalls,
   extractRenders,
+  extractInheritance,
   extractAllEntities,
   getLocation,
   findNodesOfType,
   generateEntityId,
 } from './extractors/index.js';
 
-export type { ExtractedEntities, SourceLocation, CallReference, RenderReference } from './extractors/index.js';
+export type {
+  ExtractedEntities,
+  SourceLocation,
+  CallReference,
+  RenderReference,
+  ExtendsReference,
+  ImplementsReference,
+  InheritanceResult,
+} from './extractors/index.js';
 
 // Re-export entity types from @codegraph/types
 export type {
