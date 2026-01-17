@@ -12,9 +12,9 @@ export {
   parseFiles,
   disposeParser,
   getLanguageForExtension,
-} from './parser.js';
+} from './parser';
 
-export type { SyntaxTree, LanguageType } from './parser.js';
+export type { SyntaxTree, LanguageType } from './parser';
 
 // Entity extractors
 export {
@@ -32,7 +32,7 @@ export {
   getLocation,
   findNodesOfType,
   generateEntityId,
-} from './extractors/index.js';
+} from './extractors';
 
 export type {
   ExtractedEntities,
@@ -42,7 +42,7 @@ export type {
   ExtendsReference,
   ImplementsReference,
   InheritanceResult,
-} from './extractors/index.js';
+} from './extractors';
 
 // Re-export entity types from @codegraph/types
 export type {

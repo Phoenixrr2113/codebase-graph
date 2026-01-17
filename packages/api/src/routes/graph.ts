@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import { createClient, createQueries, createOperations } from '@codegraph/graph';
-import { HttpError } from '../middleware/errorHandler.js';
+import { HttpError } from '../middleware/errorHandler';
 
 const graph = new Hono();
 

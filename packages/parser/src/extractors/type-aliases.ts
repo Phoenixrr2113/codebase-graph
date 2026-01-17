@@ -5,7 +5,7 @@
 
 import Parser from 'tree-sitter';
 import type { TypeEntity, InterfaceEntity } from '@codegraph/types';
-import { findNodesOfType, getLocation, generateEntityId } from './types.js';
+import { findNodesOfType, getLocation, generateEntityId } from './types';
 
 /**
  * Extract all type entities from a syntax tree

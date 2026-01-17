@@ -4,7 +4,7 @@
  * Based on CodeGraph MVP Specification Section 6.2
  */
 
-import type { GraphClient, QueryParams } from './client.js';
+import type { GraphClient, QueryParams } from './client';
 import { trace } from '@codegraph/logger';
 import {
   fileToNodeProps,
@@ -22,7 +22,7 @@ import {
   type VariableEntity,
   type TypeEntity,
   type ComponentEntity,
-} from './schema.js';
+} from './schema';
 import type { ProjectEntity } from '@codegraph/types';
 
 // ============================================================================

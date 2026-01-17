@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import { readFile, stat } from 'node:fs/promises';
-import { HttpError } from '../middleware/errorHandler.js';
+import { HttpError } from '../middleware/errorHandler';
 
 const source = new Hono();
 

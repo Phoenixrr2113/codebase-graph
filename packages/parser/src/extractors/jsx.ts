@@ -5,7 +5,7 @@
 
 import Parser from 'tree-sitter';
 import type { ComponentEntity, ComponentProp } from '@codegraph/types';
-import { findNodesOfTypes, getLocation, generateEntityId } from './types.js';
+import { findNodesOfTypes, getLocation, generateEntityId } from './types';
 
 /**
  * Extract all React component entities from a syntax tree

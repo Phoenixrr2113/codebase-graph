@@ -13,8 +13,8 @@ import type {
   ImportEntity,
   TypeEntity,
   ComponentEntity,
-} from './nodes.js';
-import type { Edge, EdgeLabel } from './edges.js';
+} from './nodes';
+import type { Edge, EdgeLabel } from './edges';
 
 // ============================================================================
 // Graph Node (for visualization)
@@ -209,7 +209,7 @@ export type {
   ImportSpecifier,
   VariableKind,
   TypeKind,
-} from './nodes.js';
+} from './nodes';
 
 export type {
   Edge,
@@ -229,4 +229,4 @@ export type {
   RendersEdge,
   UsesHookEdge,
   Visibility,
-} from './edges.js';
+} from './edges';

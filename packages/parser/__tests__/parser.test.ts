@@ -11,7 +11,7 @@ import {
   disposeParser,
   isInitialized,
   getLanguageForExtension,
-} from '../src/parser.js';
+} from '../src/parser';
 import { writeFile, unlink, mkdir, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';

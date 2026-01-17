@@ -5,7 +5,7 @@
 
 import Parser from 'tree-sitter';
 import type { VariableEntity, VariableKind } from '@codegraph/types';
-import { findNodesOfTypes, generateEntityId } from './types.js';
+import { findNodesOfTypes, generateEntityId } from './types';
 
 /** Node types for variable declarations */
 const VARIABLE_TYPES = [

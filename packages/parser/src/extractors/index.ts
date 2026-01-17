@@ -15,30 +15,30 @@ import type {
 } from '@codegraph/types';
 
 // Re-export individual extractors
-export { extractImports } from './imports.js';
-export { extractFunctions } from './functions.js';
-export { extractClasses } from './classes.js';
-export { extractVariables } from './variables.js';
-export { extractTypes, extractInterfaces } from './type-aliases.js';
-export { extractComponents } from './jsx.js';
-export { extractCalls } from './calls.js';
-export { extractRenders } from './renders.js';
-export { extractInheritance } from './inheritance.js';
-export type { CallReference } from './calls.js';
-export type { RenderReference } from './renders.js';
-export type { ExtendsReference, ImplementsReference, InheritanceResult } from './inheritance.js';
+export { extractImports } from './imports';
+export { extractFunctions } from './functions';
+export { extractClasses } from './classes';
+export { extractVariables } from './variables';
+export { extractTypes, extractInterfaces } from './type-aliases';
+export { extractComponents } from './jsx';
+export { extractCalls } from './calls';
+export { extractRenders } from './renders';
+export { extractInheritance } from './inheritance';
+export type { CallReference } from './calls';
+export type { RenderReference } from './renders';
+export type { ExtendsReference, ImplementsReference, InheritanceResult } from './inheritance';
 
 // Re-export utility types and functions
-export { getLocation, findNodesOfType, generateEntityId } from './types.js';
-export type { SourceLocation } from './types.js';
+export { getLocation, findNodesOfType, generateEntityId } from './types';
+export type { SourceLocation } from './types';
 
 // Import for the combined extractor
-import { extractImports } from './imports.js';
-import { extractFunctions } from './functions.js';
-import { extractClasses } from './classes.js';
-import { extractVariables } from './variables.js';
-import { extractTypes, extractInterfaces } from './type-aliases.js';
-import { extractComponents } from './jsx.js';
+import { extractImports } from './imports';
+import { extractFunctions } from './functions';
+import { extractClasses } from './classes';
+import { extractVariables } from './variables';
+import { extractTypes, extractInterfaces } from './type-aliases';
+import { extractComponents } from './jsx';
 // Note: extractCalls/extractRenders are re-exported above, used directly by parseService
 
 /** Combined result of all entity extraction */

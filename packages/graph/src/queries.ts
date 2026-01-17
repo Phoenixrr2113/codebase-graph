@@ -4,7 +4,7 @@
  * Based on CodeGraph MVP Specification Section 6.2
  */
 
-import type { GraphClient } from './client.js';
+import type { GraphClient } from './client';
 import { trace } from '@codegraph/logger';
 import type {
   GraphData,

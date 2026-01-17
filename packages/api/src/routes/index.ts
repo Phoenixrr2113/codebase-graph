@@ -2,13 +2,13 @@
  * Route exports
  */
 
-export { health, type HealthResponse } from './health.js';
-export { parse } from './parse.js';
-export { graph } from './graph.js';
-export { entity } from './entity.js';
-export { neighbors } from './neighbors.js';
-export { stats } from './stats.js';
-export { query } from './query.js';
-export { search } from './search.js';
-export { source } from './source.js';
-export { projects } from './projects.js';
+export { health, type HealthResponse } from './health';
+export { parse } from './parse';
+export { graph } from './graph';
+export { entity } from './entity';
+export { neighbors } from './neighbors';
+export { stats } from './stats';
+export { query } from './query';
+export { search } from './search';
+export { source } from './source';
+export { projects } from './projects';

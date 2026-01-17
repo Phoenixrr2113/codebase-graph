@@ -5,9 +5,9 @@
 
 import { serve } from '@hono/node-server';
 import { createLogger } from '@codegraph/logger';
-import { app } from './app.js';
-import { setupWebSocket, injectWebSocketToServer, subscribeToWatchEvents } from './websocket.js';
-import { startWatching } from './services/index.js';
+import { app } from './app';
+import { setupWebSocket, injectWebSocketToServer, subscribeToWatchEvents } from './websocket';
+import { startWatching } from './services';
 
 const logger = createLogger({ namespace: 'API:Server' });
 

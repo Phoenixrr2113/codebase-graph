@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { errorHandler, notFoundHandler, requestLogger } from './middleware/index.js';
+import { errorHandler, notFoundHandler, requestLogger } from './middleware';
 import {
   health,
   parse,
@@ -17,7 +17,7 @@ import {
   search,
   source,
   projects,
-} from './routes/index.js';
+} from './routes';
 
 /** Create and configure the Hono application */
 export function createApp(): Hono {

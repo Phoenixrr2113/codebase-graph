@@ -5,8 +5,8 @@
  * with inputs, outputs, and timing.
  */
 
-import type { TraceConfig, TraceEntry } from './types.js';
-import { createLogger } from './logger.js';
+import type { TraceConfig, TraceEntry } from './types';
+import { createLogger } from './logger';
 
 /** Get trace configuration from environment */
 function getTraceConfig(): TraceConfig {

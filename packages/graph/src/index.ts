@@ -11,13 +11,13 @@ export {
   type QueryOptions,
   type QueryResult,
   GraphClientError,
-} from './client.js';
+} from './client';
 
 // Operations exports
-export { createOperations, type GraphOperations } from './operations.js';
+export { createOperations, type GraphOperations } from './operations';
 
 // Query exports
-export { createQueries, type GraphQueries } from './queries.js';
+export { createQueries, type GraphQueries } from './queries';
 
 // Schema exports
 export {
@@ -43,7 +43,7 @@ export {
   generateEdgeId,
   // Parsed file type
   type ParsedFileEntities,
-} from './schema.js';
+} from './schema';
 
 // Re-export types from @codegraph/types for convenience
 export type {

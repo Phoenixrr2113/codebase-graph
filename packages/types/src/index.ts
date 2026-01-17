@@ -4,6 +4,6 @@
  */
 
 // Re-export all types
-export * from './nodes.js';
-export * from './edges.js';
-export * from './graph.js';
+export * from './nodes';
+export * from './edges';
+export * from './graph';

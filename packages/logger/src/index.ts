@@ -4,10 +4,10 @@
  */
 
 // Core logger
-export { createLogger, logger } from './logger.js';
+export { createLogger, logger } from './logger';
 
 // Tracing utilities
-export { trace, traced, withTrace } from './trace.js';
+export { trace, traced, withTrace } from './trace';
 
 // Types
 export type {
@@ -16,6 +16,6 @@ export type {
   LogLevel,
   TraceConfig,
   TraceEntry,
-} from './types.js';
+} from './types';
 
-export { LOG_LEVEL_ORDER } from './types.js';
+export { LOG_LEVEL_ORDER } from './types';

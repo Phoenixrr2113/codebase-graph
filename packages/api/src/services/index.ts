@@ -2,7 +2,7 @@
  * Services exports
  */
 
-export { parseProject, parseSingleFile, removeFileFromGraph } from './parseService.js';
+export { parseProject, parseSingleFile, removeFileFromGraph } from './parseService';
 export {
   WatchService,
   startWatching,
@@ -11,5 +11,5 @@ export {
   type FileChangeEvent,
   type FileEventType,
   type WatchServiceConfig,
-} from './watchService.js';
+} from './watchService';
 

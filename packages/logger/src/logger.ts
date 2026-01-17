@@ -2,8 +2,8 @@
  * @codegraph/logger - Core logger implementation
  */
 
-import type { Logger, LoggerConfig, LogLevel } from './types.js';
-import { LOG_LEVEL_ORDER } from './types.js';
+import type { Logger, LoggerConfig, LogLevel } from './types';
+import { LOG_LEVEL_ORDER } from './types';
 
 /** Get log level from environment */
 function getEnvLogLevel(): LogLevel {

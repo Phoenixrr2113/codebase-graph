@@ -5,7 +5,7 @@
 
 import Parser from 'tree-sitter';
 import type { FunctionEntity, FunctionParam } from '@codegraph/types';
-import { findNodesOfTypes, getLocation, generateEntityId } from './types.js';
+import { findNodesOfTypes, getLocation, generateEntityId } from './types';
 
 /** Node types that represent function declarations */
 const FUNCTION_TYPES = [

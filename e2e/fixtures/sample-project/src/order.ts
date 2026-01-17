@@ -3,7 +3,7 @@
  * For testing cross-file relationships
  */
 
-import { User, createUser } from './user.js';
+import { User, createUser } from './user';
 
 export interface Order {
   id: string;

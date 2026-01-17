@@ -7,7 +7,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { createClient } from '@codegraph/graph';
-import { HttpError } from '../middleware/errorHandler.js';
+import { HttpError } from '../middleware/errorHandler';
 
 const query = new Hono();
 

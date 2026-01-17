@@ -6,7 +6,7 @@
 import { Hono } from 'hono';
 import { createClient } from '@codegraph/graph';
 import type { GraphNode, GraphEdge, NodeLabel, EdgeLabel } from '@codegraph/types';
-import { HttpError } from '../middleware/errorHandler.js';
+import { HttpError } from '../middleware/errorHandler';
 
 const neighbors = new Hono();
 

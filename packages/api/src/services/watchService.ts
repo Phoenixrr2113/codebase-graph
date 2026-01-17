@@ -9,7 +9,7 @@ import { watch, type FSWatcher } from 'chokidar';
 import fastGlob from 'fast-glob';
 import { EventEmitter } from 'node:events';
 import { createLogger, traced } from '@codegraph/logger';
-import { parseSingleFile, removeFileFromGraph } from './parseService.js';
+import { parseSingleFile, removeFileFromGraph } from './parseService';
 
 const logger = createLogger({ namespace: 'API:Watch' });
 

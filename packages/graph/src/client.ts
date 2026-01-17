@@ -4,7 +4,7 @@
  */
 
 import { FalkorDB, type Graph, type FalkorDBOptions } from 'falkordb';
-import type { QueryOptions as FalkorQueryOptions } from 'falkordb/dist/src/commands/index.js';
+import type { QueryOptions as FalkorQueryOptions } from 'falkordb/dist/src/commands';
 import { trace } from '@codegraph/logger';
 
 /**

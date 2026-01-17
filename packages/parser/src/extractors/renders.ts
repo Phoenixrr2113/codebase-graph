@@ -5,7 +5,7 @@
 
 import Parser from 'tree-sitter';
 import type { ComponentEntity, ImportEntity } from '@codegraph/types';
-import { findNodesOfTypes } from './types.js';
+import { findNodesOfTypes } from './types';
 
 /**
  * Represents a component render reference

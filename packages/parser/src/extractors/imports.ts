@@ -7,7 +7,7 @@ import Parser from 'tree-sitter';
 import { existsSync } from 'node:fs';
 import { resolve, dirname, extname } from 'node:path';
 import type { ImportEntity, ImportSpecifier } from '@codegraph/types';
-import { findNodesOfType, generateEntityId } from './types.js';
+import { findNodesOfType, generateEntityId } from './types';
 
 /** File extensions to try when resolving imports */
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'];
@@ -27,9 +27,29 @@ function resolveImportPath(source: string, importingFilePath: string): string | 
   const dir = dirname(importingFilePath);
   const basePath = resolve(dir, source);
 
-  // If already has extension, check directly
-  if (extname(source)) {
-    return existsSync(basePath) ? basePath : undefined;
+  // If already has extension, check directly OR try swapping .js -> .ts
+  const sourceExt = extname(source);
+  if (sourceExt) {
+    // Direct check
+    if (existsSync(basePath)) return basePath;
+
+    // TypeScript uses .js in imports but the source files are .ts/.tsx
+    // Try swapping .js/.jsx/.mjs/.cjs -> .ts/.tsx/.mts/.cts
+    const extMap: Record<string, string[]> = {
+      '.js': ['.ts', '.tsx'],
+      '.jsx': ['.tsx', '.ts'],
+      '.mjs': ['.mts', '.ts'],
+      '.cjs': ['.cts', '.ts'],
+    };
+    const alternates = extMap[sourceExt];
+    if (alternates) {
+      const baseWithoutExt = basePath.slice(0, -sourceExt.length);
+      for (const alt of alternates) {
+        const altPath = baseWithoutExt + alt;
+        if (existsSync(altPath)) return altPath;
+      }
+    }
+    return undefined;
   }
 
   // Try with various extensions

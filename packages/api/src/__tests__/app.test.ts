@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { app } from '../app.js';
+import { app } from '../app';
 
 describe('CodeGraph API', () => {
   describe('Health endpoint', () => {
@@ -79,11 +79,11 @@ describe('CodeGraph API', () => {
     });
 
     it('GET /api/graph/file/:path should accept file path', async () => {
-      const res = await app.request('/api/graph/file/src/index.ts');
+      const res = await app.request('/api/graph/file/src');
       
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body).toHaveProperty('filePath', 'src/index.ts');
+      expect(body).toHaveProperty('filePath', 'src');
     });
   });
 

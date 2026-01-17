@@ -6,8 +6,8 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { parseProject, parseSingleFile, removeFileFromGraph } from '../services/parseService.js';
-import { HttpError } from '../middleware/errorHandler.js';
+import { parseProject, parseSingleFile, removeFileFromGraph } from '../services/parseService';
+import { HttpError } from '../middleware/errorHandler';
 
 const parse = new Hono();
 

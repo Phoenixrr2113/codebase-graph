@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createLogger, logger, trace, traced, withTrace } from '../src/index.js';
+import { createLogger, logger, trace, traced, withTrace } from '../src';
 
 describe('Logger', () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;

@@ -3,5 +3,5 @@
  * Re-exports all modules
  */
 
-export * from './user.js';
-export * from './order.js';
+export * from './user';
+export * from './order';

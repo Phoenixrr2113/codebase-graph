@@ -16,7 +16,7 @@ import {
   extractInterfaces,
   extractComponents,
   extractAllEntities,
-} from '../src/index.js';
+} from '../src';
 
 const TEST_FILE = '/test/sample.ts';
 
