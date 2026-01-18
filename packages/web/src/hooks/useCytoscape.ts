@@ -41,6 +41,7 @@ export interface UseCytoscapeReturn {
   layout: LayoutName;
   setLayout: (layout: LayoutName) => void;
   runLayout: () => void;
+  spreadOut: () => void;
   fit: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -219,6 +220,30 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
     cy.layout(layoutOptions).run();
   }, [layout]);
 
+  // Spread out nodes - runs layout with increased spacing to disperse clusters
+  const spreadOut = useCallback(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    // Use current layout but with increased spacing
+    // Cast to unknown first to allow property access
+    const baseOptions = LAYOUT_OPTIONS[layout] as unknown as Record<string, number | string | boolean | undefined>;
+    const spreadOptions = {
+      ...LAYOUT_OPTIONS[layout],
+      // Increase spacing for cose-bilkent
+      nodeRepulsion: (baseOptions['nodeRepulsion'] ?? 4500) as number * 2,
+      idealEdgeLength: (baseOptions['idealEdgeLength'] ?? 100) as number * 1.5,
+      gravity: (baseOptions['gravity'] ?? 0.25) as number * 0.5,
+      // Increase spacing for dagre
+      nodeSep: (baseOptions['nodeSep'] ?? 50) as number * 2,
+      rankSep: (baseOptions['rankSep'] ?? 80) as number * 1.5,
+      // Increase spacing for others
+      spacingFactor: (baseOptions['spacingFactor'] ?? 1.5) as number * 1.5,
+      minNodeSpacing: (baseOptions['minNodeSpacing'] ?? 50) as number * 2,
+    };
+    cy.layout(spreadOptions).run();
+  }, [layout]);
+
   // Fit to viewport
   const fit = useCallback(() => {
     cyRef.current?.fit(undefined, 50);
@@ -281,6 +306,7 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
     layout,
     setLayout,
     runLayout,
+    spreadOut,
     fit,
     zoomIn,
     zoomOut,

@@ -40,6 +40,7 @@ export function GraphCanvas({
     layout,
     setLayout,
     runLayout,
+    spreadOut,
     fit,
     zoomIn,
     zoomOut,
@@ -77,6 +78,7 @@ export function GraphCanvas({
         layout={layout}
         setLayout={setLayout}
         runLayout={runLayout}
+        spreadOut={spreadOut}
         fit={fit}
         zoomIn={zoomIn}
         zoomOut={zoomOut}
@@ -90,6 +92,7 @@ interface GraphControlsOverlayProps {
   layout: string;
   setLayout: (layout: 'cose-bilkent' | 'dagre' | 'concentric' | 'breadthfirst') => void;
   runLayout: () => void;
+  spreadOut: () => void;
   fit: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -99,6 +102,7 @@ function GraphControlsOverlay({
   layout,
   setLayout,
   runLayout,
+  spreadOut,
   fit,
   zoomIn,
   zoomOut,
@@ -167,6 +171,14 @@ function GraphControlsOverlay({
         >
           <RefreshIcon />
         </button>
+        <div className="h-px bg-slate-800" />
+        <button
+          onClick={spreadOut}
+          className="p-2 hover:bg-slate-800 transition-colors text-slate-400 hover:text-white"
+          title="Spread out nodes"
+        >
+          <SpreadIcon />
+        </button>
       </div>
     </div>
   );
@@ -211,6 +223,24 @@ function RefreshIcon() {
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M14 8a6 6 0 1 1-1.5-4" />
       <polyline points="14,2 14,5 11,5" />
+    </svg>
+  );
+}
+
+function SpreadIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      {/* Center dot */}
+      <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+      {/* Arrows pointing outward */}
+      <line x1="8" y1="5" x2="8" y2="2" />
+      <polyline points="6,3 8,1 10,3" />
+      <line x1="11" y1="8" x2="14" y2="8" />
+      <polyline points="13,6 15,8 13,10" />
+      <line x1="8" y1="11" x2="8" y2="14" />
+      <polyline points="6,13 8,15 10,13" />
+      <line x1="5" y1="8" x2="2" y2="8" />
+      <polyline points="3,6 1,8 3,10" />
     </svg>
   );
 }
