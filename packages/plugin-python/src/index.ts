@@ -10,6 +10,7 @@ import type {
   VariableEntity,
   ImportEntity,
   InheritanceReference,
+  CallReference,
   ExtractedEntities,
   SyntaxNode,
 } from '@codegraph/types';
@@ -343,6 +344,96 @@ export function extractImports(root: SyntaxNode, filePath: string): ImportEntity
   return imports;
 }
 
+// ============================================================================
+// Import Path Resolution
+// ============================================================================
+
+/**
+ * Resolve a Python import to a file path
+ * @param moduleName - The module path (e.g., 'api.analyzers.analyzer')
+ * @param importingFilePath - Path of the file containing the import
+ * @param projectRoot - Root path of the project
+ * @returns Resolved file path or undefined if external/not found
+ */
+export function resolvePythonImport(
+  moduleName: string,
+  importingFilePath: string,
+  projectRoot: string
+): string | undefined {
+  if (!moduleName) return undefined;
+
+  // Convert module path to potential file path
+  // e.g., 'api.analyzers.analyzer' -> 'api/analyzers/analyzer'
+  const modulePath = moduleName.replace(/\./g, '/');
+
+  // Get the directory of the importing file
+  const importingDir = importingFilePath.substring(0, importingFilePath.lastIndexOf('/'));
+
+  // Possible file locations to check
+  const candidates: string[] = [];
+
+  // Handle relative imports (starts with '.')
+  if (moduleName.startsWith('.')) {
+    // Relative import: . is current dir, .. is parent dir
+    let baseDir = importingDir;
+    let relPath = modulePath;
+
+    // Count leading dots and adjust path
+    const match = moduleName.match(/^(\.+)/);
+    if (match) {
+      const dots = match[1].length;
+      // Each dot after the first goes up one directory
+      for (let i = 1; i < dots; i++) {
+        baseDir = baseDir.substring(0, baseDir.lastIndexOf('/'));
+      }
+      relPath = modulePath.substring(dots); // Remove leading dots
+    }
+
+    if (relPath) {
+      candidates.push(`${baseDir}/${relPath}.py`);
+      candidates.push(`${baseDir}/${relPath}/__init__.py`);
+    } else {
+      candidates.push(`${baseDir}/__init__.py`);
+    }
+  } else {
+    // Absolute import - check from project root
+    candidates.push(`${projectRoot}/${modulePath}.py`);
+    candidates.push(`${projectRoot}/${modulePath}/__init__.py`);
+
+    // Also check if it could be relative to importing file's package
+    const packageDir = findPackageRoot(importingDir, projectRoot);
+    if (packageDir && packageDir !== projectRoot) {
+      candidates.push(`${packageDir}/${modulePath}.py`);
+      candidates.push(`${packageDir}/${modulePath}/__init__.py`);
+    }
+  }
+
+  // Return the first candidate that looks like a project file
+  // (We can't do file system checks at extraction time, so we return the most likely path)
+  for (const candidate of candidates) {
+    if (candidate.startsWith(projectRoot) && !candidate.includes('/site-packages/')) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Find the package root directory (directory with __init__.py up the tree)
+ */
+function findPackageRoot(dir: string, projectRoot: string): string | undefined {
+  let current = dir;
+  while (current.length >= projectRoot.length) {
+    // Return this dir as potential package root
+    if (current !== projectRoot) {
+      return current;
+    }
+    current = current.substring(0, current.lastIndexOf('/'));
+  }
+  return projectRoot;
+}
+
 /**
  * Extract module-level variable assignments from Python AST
  */
@@ -411,6 +502,89 @@ export function extractInheritance(root: SyntaxNode, filePath: string): Inherita
 }
 
 // ============================================================================
+// Call Extraction
+// ============================================================================
+
+/** Python builtins to skip when extracting calls */
+const PYTHON_BUILTINS = new Set([
+  // Built-in functions
+  'print', 'len', 'range', 'str', 'int', 'float', 'list', 'dict', 'set', 'tuple',
+  'type', 'isinstance', 'issubclass', 'hasattr', 'getattr', 'setattr', 'delattr',
+  'open', 'input', 'format', 'repr', 'abs', 'min', 'max', 'sum', 'sorted', 'reversed',
+  'enumerate', 'zip', 'map', 'filter', 'any', 'all', 'next', 'iter', 'id', 'hash',
+  'dir', 'vars', 'globals', 'locals', 'callable', 'super', 'property', 'classmethod',
+  'staticmethod', 'object', 'bool', 'bytes', 'bytearray', 'memoryview', 'complex',
+  'divmod', 'pow', 'round', 'chr', 'ord', 'bin', 'oct', 'hex', 'slice', 'frozenset',
+  'compile', 'exec', 'eval', 'breakpoint', 'help', 'exit', 'quit',
+  // Common assert/test methods
+  'assert', 'assertEqual', 'assertTrue', 'assertFalse', 'assertRaises', 'assertIn',
+  'assertIsNone', 'assertIsNotNone', 'assertIs', 'assertIsNot', 'fail',
+  // Logging
+  'info', 'debug', 'warning', 'error', 'critical', 'exception',
+]);
+
+/**
+ * Extract function calls from Python AST
+ * Returns CallReference[] for CALLS edges
+ */
+export function extractCalls(root: SyntaxNode, filePath: string): CallReference[] {
+  const calls: CallReference[] = [];
+
+  // Get all functions in the file for local function lookup
+  const functions = extractFunctions(root, filePath);
+  const localFunctionNames = new Set(functions.map(f => f.name));
+
+  // Find all function definitions and extract calls from their bodies
+  const funcNodes = findNodesOfType(root, ['function_definition']);
+
+  for (const funcNode of funcNodes) {
+    const callerNameNode = funcNode.childForFieldName('name');
+    if (!callerNameNode) continue;
+    const callerName = callerNameNode.text;
+
+    // Find all call expressions in this function's body
+    const bodyNode = funcNode.childForFieldName('body');
+    if (!bodyNode) continue;
+
+    const callNodes = findNodesOfType(bodyNode, ['call']);
+
+    for (const callNode of callNodes) {
+      const funcExpr = callNode.childForFieldName('function');
+      if (!funcExpr) continue;
+
+      let calleeName: string | undefined;
+
+      // Simple identifier: foo()
+      if (funcExpr.type === 'identifier') {
+        calleeName = funcExpr.text;
+      }
+      // Attribute: obj.method() - extract method name
+      else if (funcExpr.type === 'attribute') {
+        const attr = funcExpr.childForFieldName('attribute');
+        if (attr) {
+          calleeName = attr.text;
+        }
+      }
+
+      if (!calleeName || PYTHON_BUILTINS.has(calleeName)) continue;
+
+      // For now, only create edges for local function calls
+      // (Cross-file resolution would require import resolution)
+      if (localFunctionNames.has(calleeName)) {
+        calls.push({
+          callerName,
+          calleeName,
+          line: callNode.startPosition.row + 1,
+          filePath,
+        });
+      }
+    }
+  }
+
+  return calls;
+}
+
+// ============================================================================
 // Extract All Entities (Single Pass)
 // ============================================================================
 
@@ -444,6 +618,7 @@ export const pythonPlugin = {
     extractVariables,
     extractImports,
     extractInheritance,
+    extractCalls,
   },
   extractAllEntities,
 };

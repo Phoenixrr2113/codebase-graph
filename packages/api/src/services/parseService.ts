@@ -10,6 +10,8 @@ import {
   extractImports as extractPythonImports,
   extractVariables as extractPythonVariables,
   extractInheritance as extractPythonInheritance,
+  extractCalls as extractPythonCalls,
+  resolvePythonImport,
 } from '@codegraph/plugin-python';
 import type Parser from 'tree-sitter';
 import { createClient, createOperations, type ParsedFileEntities, type GraphOperations } from '@codegraph/graph';
@@ -129,18 +131,37 @@ function buildParsedFileEntities(
   file: FileEntity,
   extracted: ExtractedEntities,
   rootNode?: Parser.SyntaxNode,
-  options: ParseOptions = {}
+  options: ParseOptions = {},
+  projectRoot?: string
 ): ParsedFileEntities {
   const { deepAnalysis = false, includeExternals = false } = options;
 
   // Build import edges from import entities
-  const importsEdges = extracted.imports
-    .filter((imp) => imp.resolvedPath)
-    .map((imp) => ({
-      fromFilePath: file.path,
-      toFilePath: imp.resolvedPath!,
-      specifiers: imp.specifiers.map((s) => s.name),
-    }));
+  let importsEdges: { fromFilePath: string; toFilePath: string; specifiers: string[] }[] = [];
+
+  if (isPythonFile(file.path) && projectRoot) {
+    // Python: Resolve module names to file paths
+    for (const imp of extracted.imports) {
+      const resolvedPath = resolvePythonImport(imp.source, file.path, projectRoot);
+      if (resolvedPath) {
+        importsEdges.push({
+          fromFilePath: file.path,
+          toFilePath: resolvedPath,
+          specifiers: imp.specifiers.map((s) => s.name),
+        });
+      }
+    }
+
+  } else {
+    // TypeScript/JavaScript: Use resolvedPath from parser
+    importsEdges = extracted.imports
+      .filter((imp) => imp.resolvedPath)
+      .map((imp) => ({
+        fromFilePath: file.path,
+        toFilePath: imp.resolvedPath!,
+        specifiers: imp.specifiers.map((s) => s.name),
+      }));
+  }
 
   // Build extends/implements edges
   let extendsEdges: { childId: string; parentId: string }[] = [];
@@ -149,7 +170,6 @@ function buildParsedFileEntities(
   if (isPythonFile(file.path)) {
     // Python: Use plugin's extractInheritance  
     const inheritanceRefs = extractPythonInheritance(rootNode as any, file.path);
-    logger.info(`[Python] File: ${basename(file.path)}, Classes: ${extracted.classes.length}, Inheritance refs: ${inheritanceRefs.length}`);
 
     for (const ref of inheritanceRefs) {
       const cls = extracted.classes.find(c => c.name === ref.childName);
@@ -158,7 +178,6 @@ function buildParsedFileEntities(
           childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
           parentId: `Class:external:${ref.parentName}`,
         });
-        logger.info(`[Python] EXTENDS edge: ${cls.name} -> ${ref.parentName}`);
       }
     }
   } else {
@@ -189,22 +208,33 @@ function buildParsedFileEntities(
   // Build call edges (only if deep analysis enabled and we have rootNode)
   let callEdges: ParsedFileEntities['callEdges'] = [];
   if (deepAnalysis && rootNode) {
-    logger.debug(`[Deep Analysis] Extracting calls for ${file.path}`);
-    const calls = extractCalls(
-      rootNode,
-      file.path,
-      extracted.functions,
-      extracted.imports,
-      includeExternals
-    );
-    logger.debug(`[Deep Analysis] Found ${calls.length} call references in ${file.path}`);
-    callEdges = calls.map((call) => ({
-      callerId: `Function:${call.callerFilePath}:${call.callerName}`,
-      calleeId: call.calleeFilePath
-        ? `Function:${call.calleeFilePath}:${call.calleeName}`
-        : `Function:external:${call.calleeName}`,
-      line: call.line,
-    }));
+    if (isPythonFile(file.path)) {
+      // Python: Use plugin's extractCalls
+      const pythonCalls = extractPythonCalls(rootNode as unknown as import('@codegraph/types').SyntaxNode, file.path);
+      callEdges = pythonCalls.map((call) => ({
+        callerId: `Function:${call.filePath}:${call.callerName}`,
+        calleeId: `Function:${call.filePath}:${call.calleeName}`,
+        line: call.line,
+      }));
+    } else {
+    // TypeScript/JavaScript
+      logger.debug(`[Deep Analysis] Extracting calls for ${file.path}`);
+      const calls = extractCalls(
+        rootNode,
+        file.path,
+        extracted.functions,
+        extracted.imports,
+        includeExternals
+      );
+      logger.debug(`[Deep Analysis] Found ${calls.length} call references in ${file.path}`);
+      callEdges = calls.map((call) => ({
+        callerId: `Function:${call.callerFilePath}:${call.callerName}`,
+        calleeId: call.calleeFilePath
+          ? `Function:${call.calleeFilePath}:${call.calleeName}`
+          : `Function:external:${call.calleeName}`,
+        line: call.line,
+      }));
+    }
   }
 
   // Build render edges (only if deep analysis enabled and we have rootNode)
@@ -354,7 +384,7 @@ export const parseProject = traced('parseProject', async function parseProject(
           const fileEntity = await createFileEntity(result.filePath);
 
           // Build full parsed file structure (pass rootNode for deep analysis)
-          const parsed = buildParsedFileEntities(fileEntity, extracted, result.tree.rootNode, options);
+          const parsed = buildParsedFileEntities(fileEntity, extracted, result.tree.rootNode, options, projectPath);
 
           // Persist to graph database
           await ops.batchUpsert(parsed);
