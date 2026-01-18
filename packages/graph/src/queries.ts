@@ -5,7 +5,7 @@
  */
 
 import type { GraphClient } from './client';
-import { trace, logger } from '@codegraph/logger';
+import { trace } from '@codegraph/logger';
 import type {
   GraphData,
   GraphNode,
@@ -314,16 +314,6 @@ class GraphQueriesImpl implements GraphQueries {
       toLabels: string[];
     }>(edgesQuery, { params: { limit, ...(rootPath && { rootPath }) } });
 
-    // LOG: Count raw edges by type from database
-    const rawEdgeCounts: Record<string, number> = {};
-    for (const row of edgesResult.data ?? []) {
-      rawEdgeCounts[row.edgeType] = (rawEdgeCounts[row.edgeType] || 0) + 1;
-    }
-    logger.info('[getFullGraph] RAW edges from DB query:', {
-      total: edgesResult.data?.length ?? 0,
-      byType: rawEdgeCounts,
-      nodeCount: nodes.length,
-    });
 
     for (const row of edgesResult.data ?? []) {
       // Extract properties from FalkorDB node format
@@ -372,28 +362,10 @@ class GraphQueriesImpl implements GraphQueries {
           toLabels.length > 0 ? toLabels : [toNode.label]
         );
         edges.push(edge);
-      } else if (row.edgeType === 'IMPORTS' || row.edgeType === 'IMPLEMENTS' || row.edgeType === 'EXTENDS') {
-        // Log missing nodes for relationship edges
-        logger.info(`[getFullGraph] SKIPPED ${row.edgeType} edge:`, {
-          fromNode: fromNode?.id ?? 'MISSING',
-          toNode: toNode?.id ?? 'MISSING',
-          fromProps: { name: fromProps['name'], filePath: fromProps['filePath'], path: fromProps['path'] },
-          toProps: { name: toProps['name'], filePath: toProps['filePath'], path: toProps['path'] },
-          toLabels,
-        });
       }
     }
 
-    // LOG: Final edge counts
-    const finalEdgeCounts: Record<string, number> = {};
-    for (const edge of edges) {
-      finalEdgeCounts[edge.label] = (finalEdgeCounts[edge.label] || 0) + 1;
-    }
-    logger.info('[getFullGraph] FINAL output:', {
-      nodes: nodes.length,
-      edges: edges.length,
-      edgesByType: finalEdgeCounts,
-    });
+
 
     return { nodes, edges };
   }
