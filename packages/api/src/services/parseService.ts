@@ -4,6 +4,13 @@
 
 import type { ParseResult, ParseStats, FileEntity, ProjectEntity } from '@codegraph/types';
 import { initParser, parseFile, parseFiles, extractAllEntities, extractCalls, extractRenders, extractInheritance, type ExtractedEntities } from '@codegraph/parser';
+import {
+  extractFunctions as extractPythonFunctions,
+  extractClasses as extractPythonClasses,
+  extractImports as extractPythonImports,
+  extractVariables as extractPythonVariables,
+  extractInheritance as extractPythonInheritance,
+} from '@codegraph/plugin-python';
 import type Parser from 'tree-sitter';
 import { createClient, createOperations, type ParsedFileEntities, type GraphOperations } from '@codegraph/graph';
 import { createLogger, traced } from '@codegraph/logger';
@@ -29,10 +36,22 @@ const DEFAULT_IGNORE_PATTERNS = [
   '**/__mocks__/**',
   '**/.next/**',
   '**/.turbo/**',
+  '**/__pycache__/**',
+  '**/.venv/**',
+  '**/venv/**',
+  '**/*.pyc',
 ];
 
 /** Supported file extensions */
-const SUPPORTED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'];
+const SUPPORTED_EXTENSIONS = [
+  // TypeScript/JavaScript
+  '.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs',
+  // Python
+  '.py', '.pyw', '.pyi',
+];
+
+/** Python file extensions */
+const PYTHON_EXTENSIONS = ['.py', '.pyw', '.pyi'];
 
 /** Singleton graph operations instance */
 let graphOps: GraphOperations | null = null;
@@ -74,6 +93,36 @@ export interface ParseOptions {
 }
 
 /**
+ * Check if file is a Python file
+ */
+function isPythonFile(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  return PYTHON_EXTENSIONS.includes(ext);
+}
+
+/**
+ * Extract entities from a file based on its language
+ * Uses TypeScript extractors for TS/JS files, Python extractors for .py files
+ */
+function extractEntitiesForFile(rootNode: Parser.SyntaxNode, filePath: string): ExtractedEntities {
+  if (isPythonFile(filePath)) {
+    // Use Python extractors - note: Python doesn't have interfaces, types, or components
+    return {
+      functions: extractPythonFunctions(rootNode as any, filePath),
+      classes: extractPythonClasses(rootNode as any, filePath),
+      variables: extractPythonVariables(rootNode as any, filePath),
+      imports: extractPythonImports(rootNode as any, filePath),
+      interfaces: [], // Not applicable for Python
+      types: [], // Not applicable for Python
+      components: [], // Not applicable for Python
+    };
+  }
+
+  // Use TypeScript/JavaScript extractors
+  return extractAllEntities(rootNode, filePath);
+}
+
+/**
  * Build ParsedFileEntities from extracted entities
  */
 function buildParsedFileEntities(
@@ -93,28 +142,49 @@ function buildParsedFileEntities(
       specifiers: imp.specifiers.map((s) => s.name),
     }));
 
-  // Build extends/implements edges with cross-file resolution
-  const inheritance = extractInheritance(
-    file.path,
-    extracted.classes,
-    extracted.interfaces,
-    extracted.imports,
-    includeExternals
-  );
+  // Build extends/implements edges
+  let extendsEdges: { childId: string; parentId: string }[] = [];
+  let implementsEdges: { classId: string; interfaceId: string }[] = [];
 
-  const extendsEdges = inheritance.extends.map((ext) => ({
-    childId: `Class:${ext.childFilePath}:${ext.childName}:${ext.childStartLine}`,
-    parentId: ext.parentFilePath
-      ? `Class:${ext.parentFilePath}:${ext.parentName}`
-      : `Class:external:${ext.parentName}`,
-  }));
+  if (isPythonFile(file.path)) {
+    // Python: Use plugin's extractInheritance  
+    const inheritanceRefs = extractPythonInheritance(rootNode as any, file.path);
+    logger.info(`[Python] File: ${basename(file.path)}, Classes: ${extracted.classes.length}, Inheritance refs: ${inheritanceRefs.length}`);
 
-  const implementsEdges = inheritance.implements.map((impl) => ({
-    classId: `Class:${impl.classFilePath}:${impl.className}:${impl.classStartLine}`,
-    interfaceId: impl.interfaceFilePath
-      ? `Interface:${impl.interfaceFilePath}:${impl.interfaceName}`
-      : `Interface:external:${impl.interfaceName}`,
-  }));
+    for (const ref of inheritanceRefs) {
+      const cls = extracted.classes.find(c => c.name === ref.childName);
+      if (cls) {
+        extendsEdges.push({
+          childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
+          parentId: `Class:external:${ref.parentName}`,
+        });
+        logger.info(`[Python] EXTENDS edge: ${cls.name} -> ${ref.parentName}`);
+      }
+    }
+  } else {
+    // TypeScript/JavaScript: Use full inheritance extraction with import resolution
+    const inheritance = extractInheritance(
+      file.path,
+      extracted.classes,
+      extracted.interfaces,
+      extracted.imports,
+      includeExternals
+    );
+
+    extendsEdges = inheritance.extends.map((ext) => ({
+      childId: `Class:${ext.childFilePath}:${ext.childName}:${ext.childStartLine}`,
+      parentId: ext.parentFilePath
+        ? `Class:${ext.parentFilePath}:${ext.parentName}`
+        : `Class:external:${ext.parentName}`,
+    }));
+
+    implementsEdges = inheritance.implements.map((impl) => ({
+      classId: `Class:${impl.classFilePath}:${impl.className}:${impl.classStartLine}`,
+      interfaceId: impl.interfaceFilePath
+        ? `Interface:${impl.interfaceFilePath}:${impl.interfaceName}`
+        : `Interface:external:${impl.interfaceName}`,
+    }));
+  }
 
   // Build call edges (only if deep analysis enabled and we have rootNode)
   let callEdges: ParsedFileEntities['callEdges'] = [];
@@ -277,8 +347,8 @@ export const parseProject = traced('parseProject', async function parseProject(
     for (const result of results) {
       if (result.tree) {
         try {
-          // Extract entities from syntax tree
-          const extracted = extractAllEntities(result.tree.rootNode, result.filePath);
+          // Extract entities from syntax tree (language-aware)
+          const extracted = extractEntitiesForFile(result.tree.rootNode, result.filePath);
 
           // Create file entity
           const fileEntity = await createFileEntity(result.filePath);
@@ -340,7 +410,7 @@ export const parseSingleFile = traced('parseSingleFile', async function parseSin
     const tree = await parseFile(filePath);
 
     // Extract entities from syntax tree
-    const extracted = extractAllEntities(tree.rootNode, filePath);
+    const extracted = extractEntitiesForFile(tree.rootNode, filePath);
 
     // Create file entity
     const fileEntity = await createFileEntity(filePath);

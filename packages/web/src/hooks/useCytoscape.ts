@@ -58,6 +58,20 @@ function graphDataToElements(data: GraphData): ElementDefinition[] {
   // Build set of valid node IDs to filter edges
   const nodeIds = new Set(data.nodes.map((node) => node.id));
 
+  // Debug logging
+  const extendsEdges = data.edges.filter(e => e.label === 'EXTENDS');
+  console.log('[Cytoscape] Total nodes:', data.nodes.length);
+  console.log('[Cytoscape] Total edges:', data.edges.length);
+  console.log('[Cytoscape] EXTENDS edges in data:', extendsEdges.length);
+  if (extendsEdges.length > 0) {
+    console.log('[Cytoscape] EXTENDS edges:', extendsEdges);
+    extendsEdges.forEach(e => {
+      console.log(`[Cytoscape] EXTENDS: ${e.source} -> ${e.target}`);
+      console.log(`  Source in nodeIds: ${nodeIds.has(e.source)}`);
+      console.log(`  Target in nodeIds: ${nodeIds.has(e.target)}`);
+    });
+  }
+
   const nodes: ElementDefinition[] = data.nodes.map((node) => ({
     group: 'nodes' as const,
     data: {
@@ -73,6 +87,9 @@ function graphDataToElements(data: GraphData): ElementDefinition[] {
     (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)
   );
 
+  const validExtendsEdges = validEdges.filter(e => e.label === 'EXTENDS');
+  console.log('[Cytoscape] Valid EXTENDS edges after filter:', validExtendsEdges.length);
+
   const edges: ElementDefinition[] = validEdges.map((edge) => ({
     group: 'edges' as const,
     data: {
@@ -83,6 +100,7 @@ function graphDataToElements(data: GraphData): ElementDefinition[] {
     },
   }));
 
+  console.log('[Cytoscape] Final elements - Nodes:', nodes.length, 'Edges:', edges.length);
   return [...nodes, ...edges];
 }
 

@@ -8,9 +8,11 @@ import type {
   FunctionEntity,
   ClassEntity,
   VariableEntity,
-  ImportEntity
+  ImportEntity,
+  InheritanceReference,
+  ExtractedEntities,
+  SyntaxNode,
 } from '@codegraph/types';
-import type { SyntaxNode } from '@codegraph/types';
 
 // ============================================================================
 // Grammar Export
@@ -383,6 +385,51 @@ export function extractVariables(root: SyntaxNode, filePath: string): VariableEn
 }
 
 // ============================================================================
+// Inheritance Extraction
+// ============================================================================
+
+/**
+ * Extract inheritance relationships from Python classes
+ * Returns InheritanceReference[] for EXTENDS edges
+ */
+export function extractInheritance(root: SyntaxNode, filePath: string): InheritanceReference[] {
+  const refs: InheritanceReference[] = [];
+  const classes = extractClasses(root, filePath);
+
+  for (const cls of classes) {
+    if (cls.extends) {
+      refs.push({
+        childName: cls.name,
+        parentName: cls.extends,
+        type: 'extends',
+        filePath,
+      });
+    }
+  }
+
+  return refs;
+}
+
+// ============================================================================
+// Extract All Entities (Single Pass)
+// ============================================================================
+
+/**
+ * Extract all entities from a Python file in a single pass
+ */
+export function extractAllEntities(root: SyntaxNode, filePath: string): ExtractedEntities {
+  return {
+    functions: extractFunctions(root, filePath),
+    classes: extractClasses(root, filePath),
+    variables: extractVariables(root, filePath),
+    imports: extractImports(root, filePath),
+    interfaces: [], // Not applicable for Python
+    types: [], // Not applicable for Python  
+    components: [], // Not applicable for Python
+  };
+}
+
+// ============================================================================
 // Plugin Export
 // ============================================================================
 
@@ -396,5 +443,7 @@ export const pythonPlugin = {
     extractClasses,
     extractVariables,
     extractImports,
+    extractInheritance,
   },
+  extractAllEntities,
 };
