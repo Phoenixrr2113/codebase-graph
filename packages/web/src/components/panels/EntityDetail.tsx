@@ -168,10 +168,20 @@ export function EntityDetail({ node, graphData, onFocusNode, onShowConnections, 
             </Section>
           )}
 
-          {/* Code Preview */}
-          <Section title="Code Preview">
-            <CodePreview node={node} />
-          </Section>
+          {/* Type-specific content */}
+          {node.label === 'File' && graphData ? (
+            <Section title="Contains">
+              <ContainedEntitiesList
+                fileNode={node}
+                graphData={graphData}
+                onNodeSelect={onNodeSelect}
+              />
+            </Section>
+          ) : (
+            <Section title="Code Preview">
+              <CodePreview node={node} />
+            </Section>
+          )}
 
           {/* Actions */}
           <div className="flex flex-wrap gap-2 pt-2">
@@ -389,6 +399,103 @@ function PropertiesDisplay({ node }: { node: GraphNode }) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ContainedEntitiesList({
+  fileNode,
+  graphData,
+  onNodeSelect
+}: {
+  fileNode: GraphNode;
+  graphData: GraphData;
+  onNodeSelect?: ((node: GraphNode) => void) | undefined;
+}) {
+  // Find all entities in this file via CONTAINS edges
+  const containedEntities = useMemo(() => {
+    const nodeMap = new Map(graphData.nodes.map(n => [n.id, n]));
+    const entities: GraphNode[] = [];
+
+    for (const edge of graphData.edges) {
+      if (edge.label === 'CONTAINS' && edge.source === fileNode.id) {
+        const targetNode = nodeMap.get(edge.target);
+        if (targetNode) {
+          entities.push(targetNode);
+        }
+      }
+    }
+
+    // Sort by line number, then by name
+    return entities.sort((a, b) => {
+      const aLine = getStartLine(a) ?? 0;
+      const bLine = getStartLine(b) ?? 0;
+      if (aLine !== bLine) return aLine - bLine;
+      return a.displayName.localeCompare(b.displayName);
+    });
+  }, [fileNode.id, graphData]);
+
+  // Group by type
+  const groupedEntities = useMemo(() => {
+    const groups: Record<string, GraphNode[]> = {};
+    for (const entity of containedEntities) {
+      if (!groups[entity.label]) {
+        groups[entity.label] = [];
+      }
+      groups[entity.label]!.push(entity);
+    }
+    return groups;
+  }, [containedEntities]);
+
+  if (containedEntities.length === 0) {
+    return <div className="text-xs text-slate-500 italic">No entities found in this file</div>;
+  }
+
+  const typeOrder = ['Function', 'Class', 'Component', 'Interface', 'Type', 'Variable', 'Import'];
+
+  return (
+    <div className="space-y-3">
+      {typeOrder.map(type => {
+        const entities = groupedEntities[type];
+        if (!entities?.length) return null;
+
+        return (
+          <div key={type} className="space-y-1">
+            <div className="flex items-center gap-1.5 text-xs">
+              <div
+                className="w-2 h-2 rounded shrink-0"
+                style={{ backgroundColor: NODE_COLORS[type as keyof typeof NODE_COLORS] || '#64748b' }}
+              />
+              <span className="text-slate-400 font-medium">{type}s</span>
+              <Badge variant="secondary" className="text-[10px] h-4 px-1">
+                {entities.length}
+              </Badge>
+            </div>
+            <div className="space-y-0.5 pl-3">
+              {entities.slice(0, 8).map((entity) => (
+                <button
+                  key={entity.id}
+                  className="flex items-center gap-1.5 text-xs w-full text-left hover:bg-slate-800/50 rounded px-1 py-0.5 transition-colors"
+                  onClick={() => onNodeSelect?.(entity)}
+                >
+                  <span className="text-slate-300">{entity.displayName}</span>
+                  {isExported(entity) && (
+                    <span className="text-emerald-500 text-[10px]">•</span>
+                  )}
+                  {getStartLine(entity) && (
+                    <span className="text-slate-600 text-[10px] ml-auto">L{getStartLine(entity)}</span>
+                  )}
+                </button>
+              ))}
+              {entities.length > 8 && (
+                <div className="text-[10px] text-slate-500 pl-1">
+                  +{entities.length - 8} more
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
