@@ -38,6 +38,9 @@ importers:
       '@codegraph/parser':
         specifier: workspace:*
         version: link:../parser
+      '@codegraph/plugin-csharp':
+        specifier: workspace:*
+        version: link:../plugin-csharp
       '@codegraph/plugin-python':
         specifier: workspace:*
         version: link:../plugin-python
@@ -109,6 +112,9 @@ importers:
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger
+      '@codegraph/plugin-csharp':
+        specifier: workspace:*
+        version: link:../plugin-csharp
       '@codegraph/plugin-python':
         specifier: workspace:*
         version: link:../plugin-python
@@ -133,6 +139,28 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
+
+  packages/plugin-csharp:
+    dependencies:
+      '@codegraph/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@codegraph/types':
+        specifier: workspace:*
+        version: link:../types
+      tree-sitter:
+        specifier: ^0.21.1
+        version: 0.21.1
+      tree-sitter-c-sharp:
+        specifier: ^0.21.3
+        version: 0.21.3(tree-sitter@0.21.1)
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.4
         version: 3.2.4(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
   packages/plugin-python:
@@ -2040,6 +2068,15 @@ packages:
     resolution: {integrity: sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ==}
     engines: {node: '>=8.0'}
 
+  tree-sitter-c-sharp@0.21.3:
+    resolution: {integrity: sha512-TVsl5EhmqetO/mhzDPVnMK6TPFnpNMKP0OTNuAQIprshk5Hx672ODRxoIoG5WqvUUlsnBu8J0zmn35hmJqelsA==}
+    peerDependencies:
+      tree-sitter: ^0.21.0
+      tree_sitter: '*'
+    peerDependenciesMeta:
+      tree_sitter:
+        optional: true
+
   tree-sitter-javascript@0.23.1:
     resolution: {integrity: sha512-/bnhbrTD9frUYHQTiYnPcxyHORIw157ERBa6dqzaKxvR/x3PC4Yzd+D1pZIMS6zNg2v3a8BZ0oK7jHqsQo9fWA==}
     peerDependencies:
@@ -3847,6 +3884,12 @@ snapshots:
   to-regex-range@5.0.1:
     dependencies:
       is-number: 7.0.0
+
+  tree-sitter-c-sharp@0.21.3(tree-sitter@0.21.1):
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+      tree-sitter: 0.21.1
 
   tree-sitter-javascript@0.23.1(tree-sitter@0.21.1):
     dependencies:

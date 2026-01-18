@@ -7,6 +7,7 @@
 import TreeSitter from 'tree-sitter';
 import { grammars as tsGrammars } from '@codegraph/plugin-typescript';
 import { getGrammar as getPythonGrammar } from '@codegraph/plugin-python';
+import { getGrammar as getCSharpGrammar } from '@codegraph/plugin-csharp';
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { withTrace, createLogger } from '@codegraph/logger';
@@ -18,7 +19,7 @@ const logger = createLogger({ namespace: 'Parser' });
 // ============================================================================
 
 /** Supported language types */
-export type LanguageType = 'typescript' | 'tsx' | 'javascript' | 'jsx' | 'python';
+export type LanguageType = 'typescript' | 'tsx' | 'javascript' | 'jsx' | 'python' | 'csharp';
 
 /** Syntax tree wrapper with metadata */
 export interface SyntaxTree {
@@ -49,6 +50,8 @@ const EXTENSION_MAP: Record<string, LanguageType> = {
   '.py': 'python',
   '.pyw': 'python',
   '.pyi': 'python',
+  // C#
+  '.cs': 'csharp',
 };
 
 // ============================================================================
@@ -60,6 +63,7 @@ const parser = new TreeSitter();
 // Get grammars from language plugins
 const { typescript: tsLanguage, tsx: tsxLanguage } = tsGrammars;
 const pythonLanguage = getPythonGrammar();
+const csharpLanguage = getCSharpGrammar();
 
 let initialized = false;
 
@@ -117,6 +121,8 @@ export function parseCode(code: string, language: LanguageType): SyntaxTree {
   
   if (language === 'python') {
     lang = pythonLanguage;
+  } else if (language === 'csharp') {
+    lang = csharpLanguage;
   } else if (language === 'tsx' || language === 'jsx') {
     lang = tsxLanguage;
   } else {

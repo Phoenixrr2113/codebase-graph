@@ -5,7 +5,7 @@
  */
 
 import type { GraphClient } from './client';
-import { trace } from '@codegraph/logger';
+import { trace, logger } from '@codegraph/logger';
 import type {
   GraphData,
   GraphNode,
@@ -116,8 +116,20 @@ function getLabelFromLabels(labels: string[]): NodeLabel {
     'Component',
     'Import',
   ];
+
+  // First check for specific valid labels (File, Interface, etc.)
+  // This ensures External File nodes return 'File', not 'Class'
   const found = labels.find((l) => validLabels.includes(l as NodeLabel));
-  return (found as NodeLabel) ?? 'File';
+  if (found) {
+    return found as NodeLabel;
+  }
+
+  // Fallback for pure External nodes (like external classes with no other label)
+  if (labels.includes('External')) {
+    return 'Class' as NodeLabel;
+  }
+
+  return 'File';
 }
 
 /**
@@ -240,7 +252,7 @@ export interface GraphQueries {
 // ============================================================================
 
 class GraphQueriesImpl implements GraphQueries {
-  constructor(private readonly client: GraphClient) {}
+  constructor(private readonly client: GraphClient) { }
 
   @trace()
   async getFullGraph(limit = 1000, rootPath?: string): Promise<GraphData> {
@@ -250,10 +262,9 @@ class GraphQueriesImpl implements GraphQueries {
 
     // Build dynamic query with optional rootPath filter
     // File nodes use 'path', other entities use 'filePath'
-    // Also include External nodes which have filePath = 'external'
+    // External nodes are NOT fetched eagerly - they're added when processing edges
     const pathFilter = rootPath
-      ? `AND ((CASE WHEN n:File THEN n.path ELSE n.filePath END) STARTS WITH $rootPath
-              OR n.filePath = 'external')`
+      ? `AND (CASE WHEN n:File THEN n.path ELSE n.filePath END) STARTS WITH $rootPath`
       : '';
 
     const nodesQuery = `
@@ -282,15 +293,16 @@ class GraphQueriesImpl implements GraphQueries {
     const edgesPathFilter = rootPath
       ? `AND (CASE WHEN a:File THEN a.path ELSE a.filePath END) STARTS WITH $rootPath
          AND ((CASE WHEN b:File THEN b.path ELSE b.filePath END) STARTS WITH $rootPath
-              OR b.filePath = 'external')`
+              OR b.filePath = 'external'
+              OR (b:File AND b.path STARTS WITH 'external:'))`
       : '';
 
     const edgesQuery = `
       MATCH (a)-[r]->(b)
       WHERE (a:File OR a:Function OR a:Class OR a:Interface OR a:Variable OR a:Type OR a:Component)
-        AND (b:File OR b:Function OR b:Class OR b:Interface OR b:Variable OR b:Type OR b:Component)
+        AND (b:File OR b:Function OR b:Class OR b:Interface OR b:Variable OR b:Type OR b:Component OR b:External)
         ${edgesPathFilter}
-      RETURN a, r, b, type(r) as edgeType
+      RETURN a, r, b, type(r) as edgeType, labels(b) as toLabels
       LIMIT $limit
     `;
 
@@ -299,28 +311,56 @@ class GraphQueriesImpl implements GraphQueries {
       r: Record<string, unknown>;
       b: Record<string, unknown>;
       edgeType: string;
+      toLabels: string[];
     }>(edgesQuery, { params: { limit, ...(rootPath && { rootPath }) } });
+
+    // LOG: Count raw edges by type from database
+    const rawEdgeCounts: Record<string, number> = {};
+    for (const row of edgesResult.data ?? []) {
+      rawEdgeCounts[row.edgeType] = (rawEdgeCounts[row.edgeType] || 0) + 1;
+    }
+    logger.info('[getFullGraph] RAW edges from DB query:', {
+      total: edgesResult.data?.length ?? 0,
+      byType: rawEdgeCounts,
+      nodeCount: nodes.length,
+    });
 
     for (const row of edgesResult.data ?? []) {
       // Extract properties from FalkorDB node format
       const fromProps = extractNodeProps(row.a);
       const toProps = extractNodeProps(row.b);
       const fromLabels = extractLabels(row.a, []);
-      const toLabels = extractLabels(row.b, []);
+      const toLabels = row.toLabels ?? extractLabels(row.b, []);
 
-      // Get labels from nodes
+      // Get source node from our nodes array
       const fromNode = nodes.find((n) => {
         return (
           n.filePath === fromProps['path'] ||
           (n.displayName === fromProps['name'] && n.filePath === fromProps['filePath'])
         );
       });
-      const toNode = nodes.find((n) => {
+
+      // Get target node - or create External node if needed
+      let toNode = nodes.find((n) => {
         return (
           n.filePath === toProps['path'] ||
           (n.displayName === toProps['name'] && n.filePath === toProps['filePath'])
         );
       });
+
+      // If target is External and not in nodes, add it
+      // This handles External Interface nodes (filePath = 'external') and External File nodes (path starts with 'external:')
+      const isExternalTarget = toLabels.includes('External') ||
+        (typeof toProps['path'] === 'string' && toProps['path'].startsWith('external:'));
+
+      if (!toNode && isExternalTarget) {
+        const externalNode = nodeToGraphNode(row.b, toLabels);
+        if (!nodeIds.has(externalNode.id)) {
+          nodes.push(externalNode);
+          nodeIds.add(externalNode.id);
+        }
+        toNode = externalNode;
+      }
 
       if (fromNode && toNode) {
         const edge = edgeToGraphEdge(
@@ -332,8 +372,28 @@ class GraphQueriesImpl implements GraphQueries {
           toLabels.length > 0 ? toLabels : [toNode.label]
         );
         edges.push(edge);
+      } else if (row.edgeType === 'IMPORTS' || row.edgeType === 'IMPLEMENTS' || row.edgeType === 'EXTENDS') {
+        // Log missing nodes for relationship edges
+        logger.info(`[getFullGraph] SKIPPED ${row.edgeType} edge:`, {
+          fromNode: fromNode?.id ?? 'MISSING',
+          toNode: toNode?.id ?? 'MISSING',
+          fromProps: { name: fromProps['name'], filePath: fromProps['filePath'], path: fromProps['path'] },
+          toProps: { name: toProps['name'], filePath: toProps['filePath'], path: toProps['path'] },
+          toLabels,
+        });
       }
     }
+
+    // LOG: Final edge counts
+    const finalEdgeCounts: Record<string, number> = {};
+    for (const edge of edges) {
+      finalEdgeCounts[edge.label] = (finalEdgeCounts[edge.label] || 0) + 1;
+    }
+    logger.info('[getFullGraph] FINAL output:', {
+      nodes: nodes.length,
+      edges: edges.length,
+      edgesByType: finalEdgeCounts,
+    });
 
     return { nodes, edges };
   }
@@ -399,7 +459,7 @@ class GraphQueriesImpl implements GraphQueries {
           row.labels,
           row.relatedLabels
         );
-        
+
         // Avoid duplicate edges
         if (!edges.some((e) => e.id === edge.id)) {
           edges.push(edge);

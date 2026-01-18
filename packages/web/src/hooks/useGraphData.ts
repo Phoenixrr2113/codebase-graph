@@ -24,7 +24,20 @@ export const graphKeys = {
 export function useGraphData(limit?: number, projectId?: string | null) {
   return useQuery<GraphData>({
     queryKey: graphKeys.full(limit, projectId),
-    queryFn: () => getFullGraph(limit, projectId ?? undefined),
+    queryFn: async () => {
+      const data = await getFullGraph(limit, projectId ?? undefined);
+      // Debug: Log edge types received
+      const edgeCounts: Record<string, number> = {};
+      for (const edge of data.edges) {
+        edgeCounts[edge.label] = (edgeCounts[edge.label] || 0) + 1;
+      }
+      console.log('[useGraphData] Received graph:', {
+        nodes: data.nodes.length,
+        edges: data.edges.length,
+        edgeCounts
+      });
+      return data;
+    },
     // Only fetch when we have a valid project selected
     enabled: !!projectId,
   });

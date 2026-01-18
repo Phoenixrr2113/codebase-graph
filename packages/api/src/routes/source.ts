@@ -26,6 +26,24 @@ source.get('/', async (c) => {
     throw new HttpError(400, 'VALIDATION_ERROR', 'File path is required');
   }
 
+  // Handle external namespace paths (e.g., "external:System.Collections.Generic")
+  // These are virtual nodes representing external dependencies, not real files
+  if (filePath.startsWith('external:')) {
+    const namespaceName = filePath.substring(9); // Remove "external:" prefix
+    return c.json({
+      path: filePath,
+      startLine: 1,
+      endLine: 1,
+      totalLines: 1,
+      content: `// External namespace: ${namespaceName}\n// This is an external dependency, source code is not available.`,
+      lines: [
+        { number: 1, content: `// External namespace: ${namespaceName}` },
+        { number: 2, content: '// This is an external dependency, source code is not available.' },
+      ],
+      isExternal: true,
+    });
+  }
+
   // Security: validate path is absolute and exists
   if (!filePath.startsWith('/')) {
     throw new HttpError(400, 'VALIDATION_ERROR', 'File path must be absolute');
