@@ -1,7 +1,7 @@
 {
-  "name": "@codegraph/parser",
+  "name": "@codegraph/plugin-python",
   "version": "0.1.0",
-  "private": true,
+  "description": "Python language plugin for CodeGraph",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,20 +14,16 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@codegraph/logger": "workspace:*",
     "@codegraph/types": "workspace:*",
-    "@codegraph/plugin-typescript": "workspace:*",
-    "@codegraph/plugin-python": "workspace:*",
+    "@codegraph/logger": "workspace:*",
     "tree-sitter": "^0.21.1",
-    "tree-sitter-wasms": "^0.1.13",
-    "web-tree-sitter": "^0.26.3"
+    "tree-sitter-python": "^0.21.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
-    "vitest": "^3.0.0"
+    "typescript": "^5.7.3"
   }
 }

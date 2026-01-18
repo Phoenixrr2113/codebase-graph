@@ -17,6 +17,9 @@ importers:
       prettier:
         specifier: ^3.4.2
         version: 3.8.0
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
       turbo:
         specifier: ^2.7.4
         version: 2.7.4
@@ -103,18 +106,18 @@ importers:
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger
+      '@codegraph/plugin-python':
+        specifier: workspace:*
+        version: link:../plugin-python
+      '@codegraph/plugin-typescript':
+        specifier: workspace:*
+        version: link:../plugin-typescript
       '@codegraph/types':
         specifier: workspace:*
         version: link:../types
       tree-sitter:
         specifier: ^0.21.1
         version: 0.21.1
-      tree-sitter-javascript:
-        specifier: ^0.25.0
-        version: 0.25.0(tree-sitter@0.21.1)
-      tree-sitter-typescript:
-        specifier: ^0.23.2
-        version: 0.23.2(tree-sitter@0.21.1)
       tree-sitter-wasms:
         specifier: ^0.1.13
         version: 0.1.13
@@ -128,6 +131,44 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
+
+  packages/plugin-python:
+    dependencies:
+      '@codegraph/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@codegraph/types':
+        specifier: workspace:*
+        version: link:../types
+      tree-sitter:
+        specifier: ^0.21.1
+        version: 0.21.1
+      tree-sitter-python:
+        specifier: ^0.21.0
+        version: 0.21.0(tree-sitter@0.21.1)
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/plugin-typescript:
+    dependencies:
+      '@codegraph/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@codegraph/types':
+        specifier: workspace:*
+        version: link:../types
+      tree-sitter:
+        specifier: ^0.21.1
+        version: 0.21.1
+      tree-sitter-typescript:
+        specifier: ^0.23.2
+        version: 0.23.2(tree-sitter@0.21.1)
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
 
   packages/types:
     devDependencies:
@@ -1770,6 +1811,9 @@ packages:
       sass:
         optional: true
 
+  node-addon-api@7.1.1:
+    resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
+
   node-addon-api@8.5.0:
     resolution: {integrity: sha512-/bRZty2mXUIFY/xU5HLvveNHlswNJej+RnxBjOMkidWfwZzgTbPG1E3K5TOxRLOR+5hX7bSofy8yf1hZevMS8A==}
     engines: {node: ^18 || ^20 || >= 21}
@@ -2001,12 +2045,13 @@ packages:
       tree-sitter:
         optional: true
 
-  tree-sitter-javascript@0.25.0:
-    resolution: {integrity: sha512-1fCbmzAskZkxcZzN41sFZ2br2iqTYP3tKls1b/HKGNPQUVOpsUxpmGxdN/wMqAk3jYZnYBR1dd/y/0avMeU7dw==}
+  tree-sitter-python@0.21.0:
+    resolution: {integrity: sha512-IUKx7JcTVbByUx1iHGFS/QsIjx7pqwTMHL9bl/NGyhyyydbfNrpruo2C7W6V4KZrbkkCOlX8QVrCoGOFW5qecg==}
     peerDependencies:
-      tree-sitter: ^0.25.0
+      tree-sitter: ^0.21.0
+      tree_sitter: '*'
     peerDependenciesMeta:
-      tree-sitter:
+      tree_sitter:
         optional: true
 
   tree-sitter-typescript@0.23.2:
@@ -3554,6 +3599,8 @@ snapshots:
       - '@babel/core'
       - babel-plugin-macros
 
+  node-addon-api@7.1.1: {}
+
   node-addon-api@8.5.0: {}
 
   node-gyp-build@4.8.4: {}
@@ -3805,11 +3852,10 @@ snapshots:
     optionalDependencies:
       tree-sitter: 0.21.1
 
-  tree-sitter-javascript@0.25.0(tree-sitter@0.21.1):
+  tree-sitter-python@0.21.0(tree-sitter@0.21.1):
     dependencies:
-      node-addon-api: 8.5.0
+      node-addon-api: 7.1.1
       node-gyp-build: 4.8.4
-    optionalDependencies:
       tree-sitter: 0.21.1
 
   tree-sitter-typescript@0.23.2(tree-sitter@0.21.1):

@@ -1,10 +1,12 @@
 /**
- * Tree-sitter Parser for TypeScript/JavaScript/React
+ * Tree-sitter Parser for Multiple Languages
  * Uses native tree-sitter Node.js bindings for maximum performance
+ * Grammars are provided by language plugins
  */
 
 import TreeSitter from 'tree-sitter';
-import TypeScript from 'tree-sitter-typescript';
+import { grammars as tsGrammars } from '@codegraph/plugin-typescript';
+import { getGrammar as getPythonGrammar } from '@codegraph/plugin-python';
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { withTrace, createLogger } from '@codegraph/logger';
@@ -16,7 +18,7 @@ const logger = createLogger({ namespace: 'Parser' });
 // ============================================================================
 
 /** Supported language types */
-export type LanguageType = 'typescript' | 'tsx' | 'javascript' | 'jsx';
+export type LanguageType = 'typescript' | 'tsx' | 'javascript' | 'jsx' | 'python';
 
 /** Syntax tree wrapper with metadata */
 export interface SyntaxTree {
@@ -34,6 +36,7 @@ export interface SyntaxTree {
 
 /** File extension to language mapping */
 const EXTENSION_MAP: Record<string, LanguageType> = {
+  // TypeScript/JavaScript
   '.ts': 'typescript',
   '.tsx': 'tsx',
   '.js': 'javascript',
@@ -42,6 +45,10 @@ const EXTENSION_MAP: Record<string, LanguageType> = {
   '.cts': 'typescript',
   '.mjs': 'javascript',
   '.cjs': 'javascript',
+  // Python
+  '.py': 'python',
+  '.pyw': 'python',
+  '.pyi': 'python',
 };
 
 // ============================================================================
@@ -50,12 +57,9 @@ const EXTENSION_MAP: Record<string, LanguageType> = {
 
 const parser = new TreeSitter();
 
-// Access typescript and tsx languages from the package
-// tree-sitter-typescript exports both as named exports
-// Note: TypeScript grammar handles JavaScript since TS is a superset
-const { typescript: tsLanguage, tsx: tsxLanguage } = TypeScript;
-// Use TypeScript grammar for JS since it's a superset and handles all JS syntax
-const jsLanguage = tsLanguage;
+// Get grammars from language plugins
+const { typescript: tsLanguage, tsx: tsxLanguage } = tsGrammars;
+const pythonLanguage = getPythonGrammar();
 
 let initialized = false;
 
@@ -111,13 +115,13 @@ export function parseCode(code: string, language: LanguageType): SyntaxTree {
   // Select the appropriate language grammar
   let lang: unknown;
   
-  if (language === 'tsx') {
+  if (language === 'python') {
+    lang = pythonLanguage;
+  } else if (language === 'tsx' || language === 'jsx') {
     lang = tsxLanguage;
-  } else if (language === 'typescript') {
-    lang = tsLanguage;
   } else {
-    // Use JavaScript grammar for JS and JSX
-    lang = jsLanguage;
+    // TypeScript grammar handles both TS and JS
+    lang = tsLanguage;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
