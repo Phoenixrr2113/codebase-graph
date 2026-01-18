@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { NODE_COLORS } from '@/lib/cytoscapeConfig';
 import { useSourceCode } from '@/hooks/useGraphData';
 import { cn } from '@/lib/utils';
@@ -137,6 +138,20 @@ export function EntityDetail({ node, graphData, onFocusNode, onShowConnections, 
             </Section>
           )}
 
+          {/* Docstring (if available) */}
+          {hasDocstring(node) && (
+            <div className="w-full">
+              <div className="bg-slate-900/50 border-l-2 border-cyan-500/50 rounded-r p-2">
+                <div className="text-[10px] uppercase tracking-wider text-cyan-500/70 mb-1">
+                  Documentation
+                </div>
+                <p className="text-xs text-slate-300 italic leading-relaxed" style={{ overflowWrap: 'anywhere' }}>
+                  {getDocstring(node)}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Properties based on type */}
           <Section title="Properties">
             <PropertiesDisplay node={node} />
@@ -182,16 +197,79 @@ export function EntityDetail({ node, graphData, onFocusNode, onShowConnections, 
 }
 
 // Helper components
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="w-full">
-      <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-2">
-        {title}
-      </h3>
+
+// Default collapse states for sections
+const DEFAULT_COLLAPSED: Record<string, boolean> = {
+  'Location': false,
+  'Signature': false,
+  'Properties': true, // Collapsed by default
+  'Relationships': false,
+  'Code Preview': false,
+};
+
+function Section({
+  title,
+  children,
+  collapsible = true
+}: {
+  title: string;
+  children: React.ReactNode;
+  collapsible?: boolean;
+}) {
+  const storageKey = `entityDetail.section.${title}`;
+
+  // Initialize from localStorage or default
+  const [isOpen, setIsOpen] = useState(() => {
+    if (typeof window === 'undefined') return !DEFAULT_COLLAPSED[title];
+    const stored = localStorage.getItem(storageKey);
+    if (stored !== null) return stored === 'true';
+    return !DEFAULT_COLLAPSED[title];
+  });
+
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(storageKey, String(open));
+    }
+  };
+
+  if (!collapsible) {
+    return (
       <div className="w-full">
-        {children}
+        <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+          {title}
+        </h3>
+        <div className="w-full">
+          {children}
+        </div>
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={handleOpenChange} className="w-full">
+      <CollapsibleTrigger className="flex items-center justify-between w-full group">
+        <h3 className="text-xs uppercase tracking-wider text-slate-500">
+          {title}
+        </h3>
+        <svg
+          className={cn(
+            "w-3 h-3 text-slate-500 transition-transform",
+            isOpen && "rotate-180"
+          )}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-2">
+        <div className="w-full">
+          {children}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -640,6 +718,15 @@ function getStartLine(node: GraphNode): number | undefined {
 
 function hasSignature(node: GraphNode): boolean {
   return ['Function', 'Class', 'Component'].includes(node.label);
+}
+
+function hasDocstring(node: GraphNode): boolean {
+  const docstring = (node.data as { docstring?: string }).docstring;
+  return typeof docstring === 'string' && docstring.trim().length > 0;
+}
+
+function getDocstring(node: GraphNode): string | undefined {
+  return (node.data as { docstring?: string }).docstring;
 }
 
 function openInEditor(filePath: string, line?: number) {
