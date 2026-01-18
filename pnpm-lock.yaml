@@ -38,6 +38,9 @@ importers:
       '@codegraph/parser':
         specifier: workspace:*
         version: link:../parser
+      '@codegraph/plugin-python':
+        specifier: workspace:*
+        version: link:../plugin-python
       '@codegraph/types':
         specifier: workspace:*
         version: link:../types

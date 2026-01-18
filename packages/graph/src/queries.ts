@@ -250,13 +250,15 @@ class GraphQueriesImpl implements GraphQueries {
 
     // Build dynamic query with optional rootPath filter
     // File nodes use 'path', other entities use 'filePath'
+    // Also include External nodes which have filePath = 'external'
     const pathFilter = rootPath
-      ? `AND (CASE WHEN n:File THEN n.path ELSE n.filePath END) STARTS WITH $rootPath`
+      ? `AND ((CASE WHEN n:File THEN n.path ELSE n.filePath END) STARTS WITH $rootPath
+              OR n.filePath = 'external')`
       : '';
 
     const nodesQuery = `
       MATCH (n)
-      WHERE (n:File OR n:Function OR n:Class OR n:Interface OR n:Variable OR n:Type OR n:Component)
+      WHERE (n:File OR n:Function OR n:Class OR n:Interface OR n:Variable OR n:Type OR n:Component OR n:External)
         ${pathFilter}
       RETURN n, labels(n) as labels
       LIMIT $limit
@@ -276,10 +278,11 @@ class GraphQueriesImpl implements GraphQueries {
       }
     }
 
-    // Get edges - also filter by rootPath if provided
+    // Get edges - filter by rootPath if provided, but allow external nodes as targets
     const edgesPathFilter = rootPath
       ? `AND (CASE WHEN a:File THEN a.path ELSE a.filePath END) STARTS WITH $rootPath
-         AND (CASE WHEN b:File THEN b.path ELSE b.filePath END) STARTS WITH $rootPath`
+         AND ((CASE WHEN b:File THEN b.path ELSE b.filePath END) STARTS WITH $rootPath
+              OR b.filePath = 'external')`
       : '';
 
     const edgesQuery = `

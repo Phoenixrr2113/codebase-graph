@@ -143,9 +143,8 @@ const CYPHER = {
 
   CREATE_EXTENDS_EDGE: `
     MATCH (child:Class {name: $childName, filePath: $childFile})
-    OPTIONAL MATCH (parent:Class {name: $parentName, filePath: $parentFile})
-    WITH child, parent
-    WHERE parent IS NOT NULL
+    MERGE (parent:Class {name: $parentName, filePath: COALESCE($parentFile, 'external')})
+    ON CREATE SET parent:External
     MERGE (child)-[e:EXTENDS]->(parent)
     RETURN e
   `,
