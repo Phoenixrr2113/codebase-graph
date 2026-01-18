@@ -645,6 +645,7 @@ function CodePreview({ node }: { node: GraphNode }) {
           py: 'python', css: 'css', json: 'json', html: 'html',
           md: 'markdown', yaml: 'yaml', yml: 'yaml', sh: 'bash',
           sql: 'sql', graphql: 'graphql', go: 'go', rs: 'rust',
+          cs: 'csharp', csx: 'csharp',
         };
         const lang = langMap[ext] || 'text';
 

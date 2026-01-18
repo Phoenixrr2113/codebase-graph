@@ -135,7 +135,8 @@ const CYPHER = {
 
   CREATE_IMPORTS_EDGE: `
     MATCH (from:File {path: $fromPath})
-    MATCH (to:File {path: $toPath})
+    MERGE (to:File {path: $toPath})
+    ON CREATE SET to:External
     MERGE (from)-[i:IMPORTS]->(to)
     SET i.specifiers = $specifiers
     RETURN i
@@ -151,9 +152,8 @@ const CYPHER = {
 
   CREATE_IMPLEMENTS_EDGE: `
     MATCH (c:Class {name: $className, filePath: $classFile})
-    OPTIONAL MATCH (i:Interface {name: $interfaceName, filePath: $interfaceFile})
-    WITH c, i
-    WHERE i IS NOT NULL
+    MERGE (i:Interface {name: $interfaceName, filePath: COALESCE($interfaceFile, 'external')})
+    ON CREATE SET i:External
     MERGE (c)-[impl:IMPLEMENTS]->(i)
     RETURN impl
   `,

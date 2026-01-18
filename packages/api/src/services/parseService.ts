@@ -13,6 +13,16 @@ import {
   extractCalls as extractPythonCalls,
   resolvePythonImport,
 } from '@codegraph/plugin-python';
+import {
+  extractFunctions as extractCSharpFunctions,
+  extractClasses as extractCSharpClasses,
+  extractInterfaces as extractCSharpInterfaces,
+  extractVariables as extractCSharpVariables,
+  extractImports as extractCSharpImports,
+  extractTypes as extractCSharpTypes,
+  extractInheritance as extractCSharpInheritance,
+  extractCalls as extractCSharpCalls,
+} from '@codegraph/plugin-csharp';
 import type Parser from 'tree-sitter';
 import { createClient, createOperations, type ParsedFileEntities, type GraphOperations } from '@codegraph/graph';
 import { createLogger, traced } from '@codegraph/logger';
@@ -50,10 +60,15 @@ const SUPPORTED_EXTENSIONS = [
   '.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs',
   // Python
   '.py', '.pyw', '.pyi',
+  // C#
+  '.cs',
 ];
 
 /** Python file extensions */
 const PYTHON_EXTENSIONS = ['.py', '.pyw', '.pyi'];
+
+/** C# file extensions */
+const CSHARP_EXTENSIONS = ['.cs'];
 
 /** Singleton graph operations instance */
 let graphOps: GraphOperations | null = null;
@@ -103,8 +118,16 @@ function isPythonFile(filePath: string): boolean {
 }
 
 /**
+ * Check if file is a C# file
+ */
+function isCSharpFile(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  return CSHARP_EXTENSIONS.includes(ext);
+}
+
+/**
  * Extract entities from a file based on its language
- * Uses TypeScript extractors for TS/JS files, Python extractors for .py files
+ * Uses TypeScript extractors for TS/JS files, Python extractors for .py files, C# extractors for .cs files
  */
 function extractEntitiesForFile(rootNode: Parser.SyntaxNode, filePath: string): ExtractedEntities {
   if (isPythonFile(filePath)) {
@@ -117,6 +140,19 @@ function extractEntitiesForFile(rootNode: Parser.SyntaxNode, filePath: string): 
       interfaces: [], // Not applicable for Python
       types: [], // Not applicable for Python
       components: [], // Not applicable for Python
+    };
+  }
+
+  if (isCSharpFile(filePath)) {
+    // Use C# extractors
+    return {
+      functions: extractCSharpFunctions(rootNode as any, filePath),
+      classes: extractCSharpClasses(rootNode as any, filePath),
+      interfaces: extractCSharpInterfaces(rootNode as any, filePath),
+      variables: extractCSharpVariables(rootNode as any, filePath),
+      imports: extractCSharpImports(rootNode as any, filePath),
+      types: extractCSharpTypes(rootNode as any, filePath),
+      components: [], // Not applicable for C#
     };
   }
 
@@ -152,6 +188,18 @@ function buildParsedFileEntities(
       }
     }
 
+  } else if (isCSharpFile(file.path)) {
+    // C#: Create edges to external namespace nodes
+    // C# using directives reference namespaces, not files
+    // We create External nodes for each namespace (similar to IMPLEMENTS pattern)
+    for (const imp of extracted.imports) {
+      importsEdges.push({
+        fromFilePath: file.path,
+        toFilePath: `external:${imp.source}`, // e.g., "external:System.Collections.Generic"
+        specifiers: imp.specifiers.map((s) => s.name),
+      });
+    }
+
   } else {
     // TypeScript/JavaScript: Use resolvedPath from parser
     importsEdges = extracted.imports
@@ -177,6 +225,34 @@ function buildParsedFileEntities(
         extendsEdges.push({
           childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
           parentId: `Class:external:${ref.parentName}`,
+        });
+      }
+    }
+  } else if (isCSharpFile(file.path)) {
+    // C#: Use plugin's extractInheritance
+    const inheritanceRefs = extractCSharpInheritance(rootNode as any, file.path);
+
+    for (const ref of inheritanceRefs) {
+      const cls = extracted.classes.find(c => c.name === ref.childName);
+      const iface = extracted.interfaces.find(i => i.name === ref.childName);
+
+      if (ref.type === 'extends') {
+        if (cls) {
+          extendsEdges.push({
+            childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
+            parentId: `Class:external:${ref.parentName}`,
+          });
+        } else if (iface) {
+          // Interface extending interface
+          extendsEdges.push({
+            childId: `Interface:${file.path}:${iface.name}:${iface.startLine}`,
+            parentId: `Interface:external:${ref.parentName}`,
+          });
+        }
+      } else if (ref.type === 'implements' && cls) {
+        implementsEdges.push({
+          classId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
+          interfaceId: `Interface:external:${ref.parentName}`,
         });
       }
     }
@@ -212,6 +288,16 @@ function buildParsedFileEntities(
       // Python: Use plugin's extractCalls
       const pythonCalls = extractPythonCalls(rootNode as unknown as import('@codegraph/types').SyntaxNode, file.path);
       callEdges = pythonCalls.map((call) => ({
+        callerId: `Function:${call.filePath}:${call.callerName}`,
+        calleeId: `Function:${call.filePath}:${call.calleeName}`,
+        line: call.line,
+      }));
+    } else if (isCSharpFile(file.path)) {
+      // C#: Use plugin's extractCalls
+      logger.debug(`[Deep Analysis] Extracting C# calls for ${file.path}`);
+      const csharpCalls = extractCSharpCalls(rootNode as unknown as import('@codegraph/types').SyntaxNode, file.path);
+      logger.debug(`[Deep Analysis] Found ${csharpCalls.length} C# call references in ${file.path}`);
+      callEdges = csharpCalls.map((call) => ({
         callerId: `Function:${call.filePath}:${call.callerName}`,
         calleeId: `Function:${call.filePath}:${call.calleeName}`,
         line: call.line,
@@ -385,6 +471,17 @@ export const parseProject = traced('parseProject', async function parseProject(
 
           // Build full parsed file structure (pass rootNode for deep analysis)
           const parsed = buildParsedFileEntities(fileEntity, extracted, result.tree.rootNode, options, projectPath);
+
+          // LOG: Track edges being persisted
+          if (parsed.implementsEdges.length > 0 || parsed.extendsEdges.length > 0 || parsed.importsEdges.length > 0) {
+            logger.info(`[parseProject] Edges for ${basename(result.filePath)}:`, {
+              implements: parsed.implementsEdges.length,
+              extends: parsed.extendsEdges.length,
+              imports: parsed.importsEdges.length,
+              calls: parsed.callEdges.length,
+              implementsDetails: parsed.implementsEdges.slice(0, 3),
+            });
+          }
 
           // Persist to graph database
           await ops.batchUpsert(parsed);
