@@ -61,10 +61,6 @@ export function GraphCanvas({
   // Update graph data when it changes
   useEffect(() => {
     if (data) {
-      console.log('[GraphCanvas] Passing data to setData:', {
-        nodes: data.nodes.length,
-        edges: data.edges.length,
-      });
       setData(data);
     }
   }, [data, setData]);

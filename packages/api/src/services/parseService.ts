@@ -472,17 +472,6 @@ export const parseProject = traced('parseProject', async function parseProject(
           // Build full parsed file structure (pass rootNode for deep analysis)
           const parsed = buildParsedFileEntities(fileEntity, extracted, result.tree.rootNode, options, projectPath);
 
-          // LOG: Track edges being persisted
-          if (parsed.implementsEdges.length > 0 || parsed.extendsEdges.length > 0 || parsed.importsEdges.length > 0) {
-            logger.info(`[parseProject] Edges for ${basename(result.filePath)}:`, {
-              implements: parsed.implementsEdges.length,
-              extends: parsed.extendsEdges.length,
-              imports: parsed.importsEdges.length,
-              calls: parsed.callEdges.length,
-              implementsDetails: parsed.implementsEdges.slice(0, 3),
-            });
-          }
-
           // Persist to graph database
           await ops.batchUpsert(parsed);
 

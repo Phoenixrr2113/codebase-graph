@@ -73,28 +73,6 @@ function graphDataToElements(data: GraphData): ElementDefinition[] {
     (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)
   );
 
-  // Log filtered edges for debugging
-  const droppedEdges = data.edges.filter(
-    (edge) => !nodeIds.has(edge.source) || !nodeIds.has(edge.target)
-  );
-  if (droppedEdges.length > 0) {
-    const droppedByType: Record<string, number> = {};
-    for (const edge of droppedEdges) {
-      droppedByType[edge.label] = (droppedByType[edge.label] || 0) + 1;
-    }
-    console.log('[useCytoscape] Dropped edges (missing source/target nodes):', {
-      total: droppedEdges.length,
-      byType: droppedByType,
-      samples: droppedEdges.slice(0, 5).map(e => ({
-        type: e.label,
-        source: e.source.substring(0, 50),
-        target: e.target.substring(0, 50),
-        sourceExists: nodeIds.has(e.source),
-        targetExists: nodeIds.has(e.target),
-      })),
-    });
-  }
-
   const edges: ElementDefinition[] = validEdges.map((edge) => ({
     group: 'edges' as const,
     data: {
