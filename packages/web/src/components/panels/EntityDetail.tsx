@@ -10,8 +10,8 @@
  * - Text uses overflow-wrap: anywhere for aggressive word breaking
  */
 
-import { useCallback, useRef, useEffect, useState } from 'react';
-import type { GraphNode, FunctionEntity, ClassEntity, ComponentEntity } from '@codegraph/types';
+import { useCallback, useRef, useEffect, useState, useMemo } from 'react';
+import type { GraphNode, GraphData, GraphEdge, FunctionEntity, ClassEntity, ComponentEntity } from '@codegraph/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -22,14 +22,20 @@ import { cn } from '@/lib/utils';
 
 export interface EntityDetailProps {
   node: GraphNode | null;
-  onFocusNode?: (nodeId: string) => void;
-  onShowConnections?: (nodeId: string) => void;
+  graphData?: GraphData | undefined;
+  onFocusNode?: ((nodeId: string) => void) | undefined;
+  onShowConnections?: ((nodeId: string) => void) | undefined;
+  onNodeSelect?: ((node: GraphNode) => void) | undefined;
 }
 
-export function EntityDetail({ node, onFocusNode, onShowConnections }: EntityDetailProps) {
+export function EntityDetail({ node, graphData, onFocusNode, onShowConnections, onNodeSelect }: EntityDetailProps) {
+  const [copied, setCopied] = useState(false);
+
   const handleCopyPath = useCallback(() => {
     if (node?.filePath) {
       navigator.clipboard.writeText(node.filePath);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   }, [node?.filePath]);
 
@@ -82,6 +88,16 @@ export function EntityDetail({ node, onFocusNode, onShowConnections }: EntityDet
                       exported
                     </Badge>
                   )}
+                  {isAsync(node) && (
+                    <Badge variant="outline" className="text-xs text-purple-400 border-purple-400/30">
+                      async
+                    </Badge>
+                  )}
+                  {isArrow(node) && (
+                    <Badge variant="outline" className="text-xs text-sky-400 border-sky-400/30">
+                      arrow
+                    </Badge>
+                  )}
                 </div>
               </div>
             </div>
@@ -98,9 +114,9 @@ export function EntityDetail({ node, onFocusNode, onShowConnections }: EntityDet
               >
                 {node.filePath}
               </div>
-              {hasLineRange(node) && (
+              {getLineInfo(node) && (
                 <div className="text-xs text-slate-500 mt-1">
-                  Lines {(node.data as { startLine: number }).startLine} - {(node.data as { endLine: number }).endLine}
+                  {getLineInfo(node)}
                 </div>
               )}
               <Button
@@ -126,6 +142,17 @@ export function EntityDetail({ node, onFocusNode, onShowConnections }: EntityDet
             <PropertiesDisplay node={node} />
           </Section>
 
+          {/* Relationships */}
+          {graphData && (
+            <Section title="Relationships">
+              <RelationshipsSection
+                node={node}
+                graphData={graphData}
+                onNodeSelect={onNodeSelect ?? undefined}
+              />
+            </Section>
+          )}
+
           {/* Code Preview */}
           <Section title="Code Preview">
             <CodePreview node={node} />
@@ -139,8 +166,13 @@ export function EntityDetail({ node, onFocusNode, onShowConnections }: EntityDet
             <Button variant="outline" size="sm" className="text-xs" onClick={handleShowConnections}>
               Show Connections
             </Button>
-            <Button variant="outline" size="sm" className="text-xs" onClick={handleCopyPath}>
-              Copy Path
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn("text-xs", copied && "text-emerald-400 border-emerald-400/50")}
+              onClick={handleCopyPath}
+            >
+              {copied ? "Copied!" : "Copy Path"}
             </Button>
           </div>
         </div>
@@ -283,14 +315,130 @@ function PropertiesDisplay({ node }: { node: GraphNode }) {
   );
 }
 
+interface RelationshipGroup {
+  label: string;
+  direction: 'incoming' | 'outgoing';
+  edges: GraphEdge[];
+  nodes: GraphNode[];
+}
+
+function RelationshipsSection({
+  node,
+  graphData,
+  onNodeSelect
+}: {
+  node: GraphNode;
+  graphData: GraphData;
+  onNodeSelect?: ((node: GraphNode) => void) | undefined;
+}) {
+  // Group edges by type and direction
+  const relationships = useMemo(() => {
+    const groups: Map<string, RelationshipGroup> = new Map();
+    const nodeMap = new Map(graphData.nodes.map(n => [n.id, n]));
+
+    for (const edge of graphData.edges) {
+      const isOutgoing = edge.source === node.id;
+      const isIncoming = edge.target === node.id;
+
+      if (!isOutgoing && !isIncoming) continue;
+
+      const direction = isOutgoing ? 'outgoing' : 'incoming';
+      const targetNodeId = isOutgoing ? edge.target : edge.source;
+      const targetNode = nodeMap.get(targetNodeId);
+
+      if (!targetNode) continue;
+
+      const key = `${edge.label}-${direction}`;
+
+      if (!groups.has(key)) {
+        groups.set(key, {
+          label: edge.label,
+          direction,
+          edges: [],
+          nodes: []
+        });
+      }
+
+      const group = groups.get(key)!;
+      group.edges.push(edge);
+      group.nodes.push(targetNode);
+    }
+
+    return Array.from(groups.values());
+  }, [node.id, graphData]);
+
+  if (relationships.length === 0) {
+    return <div className="text-xs text-slate-500 italic">No relationships found</div>;
+  }
+
+  const getDirectionIcon = (direction: 'incoming' | 'outgoing') => {
+    return direction === 'outgoing' ? '→' : '←';
+  };
+
+  const getEdgeColor = (label: string) => {
+    const colors: Record<string, string> = {
+      'IMPORTS': 'text-purple-400',
+      'CONTAINS': 'text-slate-400',
+      'CALLS': 'text-amber-400',
+      'EXTENDS': 'text-cyan-400',
+      'IMPLEMENTS': 'text-emerald-400',
+      'USES_TYPE': 'text-pink-400',
+      'RENDERS': 'text-orange-400',
+      'USES_HOOK': 'text-blue-400',
+    };
+    return colors[label] || 'text-slate-400';
+  };
+
+  return (
+    <div className="space-y-3">
+      {relationships.map((group) => (
+        <div key={`${group.label}-${group.direction}`} className="space-y-1">
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className={cn("font-medium", getEdgeColor(group.label))}>
+              {group.label}
+            </span>
+            <span className="text-slate-600">{getDirectionIcon(group.direction)}</span>
+            <Badge variant="secondary" className="text-[10px] h-4 px-1">
+              {group.nodes.length}
+            </Badge>
+          </div>
+          <div className="space-y-0.5 pl-2 border-l border-slate-800">
+            {group.nodes.slice(0, 5).map((targetNode, idx) => (
+              <button
+                key={`${targetNode.id}-${idx}`}
+                className="flex items-center gap-1.5 text-xs w-full text-left hover:bg-slate-800/50 rounded px-1 py-0.5 transition-colors"
+                onClick={() => onNodeSelect?.(targetNode)}
+              >
+                <div
+                  className="w-2 h-2 rounded shrink-0"
+                  style={{ backgroundColor: NODE_COLORS[targetNode.label] || '#64748b' }}
+                />
+                <span className="text-slate-300 truncate">{targetNode.displayName}</span>
+                <span className="text-slate-600 text-[10px]">{targetNode.label}</span>
+              </button>
+            ))}
+            {group.nodes.length > 5 && (
+              <div className="text-[10px] text-slate-500 pl-1">
+                +{group.nodes.length - 5} more
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function CodePreview({ node }: { node: GraphNode }) {
-  const entityStartLine = getStartLine(node);
-  const entityEndLine = (node.data as { endLine?: number }).endLine;
+  // Handle both range entities (startLine/endLine) and single-line entities (line)
+  const nodeData = node.data as { startLine?: number; endLine?: number; line?: number };
+  const entityStartLine = nodeData.startLine ?? nodeData.line;
+  const entityEndLine = nodeData.endLine ?? nodeData.line; // For variables, start and end are the same
   const highlightRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [highlightedLines, setHighlightedLines] = useState<string[]>([]);
 
-  const { data, isLoading, error } = useSourceCode(
+  const { data: sourceData, isLoading, error } = useSourceCode(
     node.filePath,
     undefined, // Fetch full file for context
     undefined
@@ -298,12 +446,12 @@ function CodePreview({ node }: { node: GraphNode }) {
 
   // Generate syntax highlighted lines using shiki
   useEffect(() => {
-    if (!data?.lines?.length || !node.filePath) return;
+    if (!sourceData?.lines?.length || !node.filePath) return;
 
     const highlight = async () => {
       try {
         const { codeToHtml } = await import('shiki');
-        const fullCode = data.lines.map(l => l.content).join('\n');
+        const fullCode = sourceData.lines.map((l: { content: string }) => l.content).join('\n');
 
         // Detect language from file extension
         const ext = node.filePath?.split('.').pop()?.toLowerCase() || 'text';
@@ -338,7 +486,7 @@ function CodePreview({ node }: { node: GraphNode }) {
     };
 
     highlight();
-  }, [data, node.filePath]);
+  }, [sourceData, node.filePath]);
 
   // Auto-scroll to highlighted entity when node changes
   useEffect(() => {
@@ -388,7 +536,7 @@ function CodePreview({ node }: { node: GraphNode }) {
     );
   }
 
-  if (!data?.lines?.length) {
+  if (!sourceData?.lines?.length) {
     return (
       <div className="bg-slate-950 rounded-lg border border-slate-800 p-3">
         <div className="text-xs text-slate-500 italic">No code available</div>
@@ -397,7 +545,7 @@ function CodePreview({ node }: { node: GraphNode }) {
   }
 
   // Use highlighted lines if available, otherwise plain text
-  const useHighlighting = highlightedLines.length === data.lines.length;
+  const useHighlighting = highlightedLines.length === sourceData.lines.length;
 
   return (
     <div className="bg-slate-950 rounded-lg border border-slate-800 overflow-hidden">
@@ -407,7 +555,7 @@ function CodePreview({ node }: { node: GraphNode }) {
       >
         <pre className="text-xs min-w-max font-mono">
           <code>
-            {data.lines.map((line, idx) => {
+            {sourceData.lines.map((line: { number: number; content: string }, idx: number) => {
               const isHighlighted = isEntityLine(line.number);
               const isFirstLine = line.number === entityStartLine;
 
@@ -466,13 +614,28 @@ function isExported(node: GraphNode): boolean {
   return (node.data as { isExported?: boolean }).isExported === true;
 }
 
-function hasLineRange(node: GraphNode): boolean {
-  const data = node.data as { startLine?: number; endLine?: number };
-  return typeof data.startLine === 'number' && typeof data.endLine === 'number';
+function isAsync(node: GraphNode): boolean {
+  return (node.data as { isAsync?: boolean }).isAsync === true;
+}
+
+function isArrow(node: GraphNode): boolean {
+  return (node.data as { isArrow?: boolean }).isArrow === true;
+}
+
+function getLineInfo(node: GraphNode): string | null {
+  const data = node.data as { startLine?: number; endLine?: number; line?: number };
+  if (typeof data.startLine === 'number' && typeof data.endLine === 'number') {
+    return `Lines ${data.startLine} - ${data.endLine}`;
+  }
+  if (typeof data.line === 'number') {
+    return `Line ${data.line}`;
+  }
+  return null;
 }
 
 function getStartLine(node: GraphNode): number | undefined {
-  return (node.data as { startLine?: number }).startLine;
+  const data = node.data as { startLine?: number; line?: number };
+  return data.startLine ?? data.line; // Variables use 'line', others use 'startLine'
 }
 
 function hasSignature(node: GraphNode): boolean {

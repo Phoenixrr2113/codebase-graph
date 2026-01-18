@@ -174,8 +174,10 @@ export function AppShell() {
             >
               <EntityDetail
                 node={selectedNode}
+                graphData={filteredGraphData}
                 onFocusNode={handleFocusNode}
                 onShowConnections={handleShowConnections}
+                onNodeSelect={handleNodeSelect}
               />
             </ResizablePanel>
           </>
