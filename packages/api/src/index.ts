@@ -3,7 +3,11 @@
  * Server entry point with WebSocket and file watcher support
  */
 
-import 'dotenv/config'; // Load .env from monorepo root
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+// Load .env from monorepo root (2 levels up from packages/api/src)
+config({ path: resolve(import.meta.dirname, '../../../.env') });
 
 import { serve } from '@hono/node-server';
 import { createLogger } from '@codegraph/logger';
