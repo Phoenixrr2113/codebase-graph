@@ -11,15 +11,17 @@ import { trace } from '@codegraph/logger';
  * FalkorDB connection configuration
  */
 export interface FalkorConfig {
+  /** Full connection URL - takes priority if set (env: FALKORDB_URL) */
+  url?: string;
   /** FalkorDB host (default: localhost, env: FALKORDB_HOST) */
   host?: string;
   /** FalkorDB port (default: 6379, env: FALKORDB_PORT) */
   port?: number;
   /** Graph name (default: codegraph, env: FALKORDB_GRAPH) */
   graphName?: string;
-  /** Connection username (optional) */
+  /** Connection username (optional, env: FALKORDB_USERNAME) */
   username?: string;
-  /** Connection password (optional) */
+  /** Connection password (optional, env: FALKORDB_PASSWORD) */
   password?: string;
 }
 
@@ -198,11 +200,35 @@ class GraphClientImpl implements GraphClient {
  * ```
  */
 export async function createClient(config?: FalkorConfig): Promise<GraphClient> {
-  const host = config?.host ?? process.env['FALKORDB_HOST'] ?? 'localhost';
-  const port = config?.port ?? parseInt(process.env['FALKORDB_PORT'] ?? '6379', 10);
   const graphName = config?.graphName ?? process.env['FALKORDB_GRAPH'] ?? 'codegraph';
   const username = config?.username ?? process.env['FALKORDB_USERNAME'];
   const password = config?.password ?? process.env['FALKORDB_PASSWORD'];
+
+  // Check for URL-based connection (cloud) first, then fall back to host/port (Docker)
+  const url = config?.url ?? process.env['FALKORDB_URL'];
+
+  let host: string;
+  let port: number;
+  let connectionLabel: string;
+
+  if (url) {
+    // Parse URL to extract host and port
+    // Expected format: hostname:port (e.g., node-f-0.instance-xyz.cloud:58963)
+    const urlParts = url.split(':');
+    if (urlParts.length >= 2) {
+      host = urlParts.slice(0, -1).join(':'); // Handle potential colons in hostname
+      port = parseInt(urlParts[urlParts.length - 1] ?? '6379', 10);
+    } else {
+      host = url;
+      port = 6379;
+    }
+    connectionLabel = `cloud (${url})`;
+  } else {
+    // Fallback to host/port configuration (Docker/local)
+    host = config?.host ?? process.env['FALKORDB_HOST'] ?? 'localhost';
+    port = config?.port ?? parseInt(process.env['FALKORDB_PORT'] ?? '6379', 10);
+    connectionLabel = `${host}:${port}`;
+  }
 
   const connectionOptions: FalkorDBOptions = {
     socket: {
@@ -223,7 +249,7 @@ export async function createClient(config?: FalkorConfig): Promise<GraphClient> 
     return new GraphClientImpl(db, { graphName });
   } catch (error) {
     throw new GraphClientError(
-      `Failed to connect to FalkorDB at ${host}:${port}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      `Failed to connect to FalkorDB at ${connectionLabel}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       'CONNECTION_FAILED'
     );
   }

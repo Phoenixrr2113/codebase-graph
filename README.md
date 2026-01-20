@@ -133,8 +133,9 @@ Then open [http://localhost:3000](http://localhost:3000) and add a project to pa
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `API_PORT` | 3001 | API server port |
-| `FALKORDB_HOST` | localhost | FalkorDB host |
-| `FALKORDB_PORT` | 6379 | FalkorDB port |
+| `FALKORDB_URL` | - | Cloud connection URL (takes priority, format: `hostname:port`) |
+| `FALKORDB_HOST` | localhost | FalkorDB host (Docker/local fallback) |
+| `FALKORDB_PORT` | 6379 | FalkorDB port (Docker/local fallback) |
 | `FALKORDB_GRAPH` | codegraph | Graph name |
 | `WATCH_PATH` | - | Auto-watch project path |
 
