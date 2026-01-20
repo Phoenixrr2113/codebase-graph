@@ -1,43 +1,50 @@
 /**
  * Graph routes - /api/graph/*
- * Endpoints for retrieving graph data
+ * Endpoints for retrieving graph visualization data
+ * @module routes/graph
  */
 
 import { Hono } from 'hono';
-import { createClient, createQueries, createOperations } from '@codegraph/graph';
+import { createLogger } from '@codegraph/logger';
 import { HttpError } from '../middleware/errorHandler';
+import { getQueries, getOperations } from '../model';
+
+const logger = createLogger({ namespace: 'API:Graph' });
 
 const graph = new Hono();
 
 /**
  * GET /api/graph/full
- * Get entire graph (optionally filtered by project)
+ * Retrieve the complete graph or a project-filtered subset
+ * 
+ * @query limit - Maximum nodes to return (default: 100000)
+ * @query projectId - Optional project UUID to filter by
+ * @returns Graph data with nodes and edges arrays
+ * 
+ * @example
+ * GET /api/graph/full?limit=500&projectId=abc-123
  */
 graph.get('/full', async (c) => {
   const limitParam = c.req.query('limit');
   const projectId = c.req.query('projectId');
-  // Removed 1000-node limit to see full graph
   const limit = limitParam ? parseInt(limitParam, 10) : 100000;
 
   try {
-    const client = await createClient();
-    const queries = createQueries(client);
+    const queries = await getQueries();
 
-    // If projectId provided, get project's rootPath for database-level filtering
     let rootPath: string | undefined;
     if (projectId) {
-      const ops = createOperations(client);
+      const ops = await getOperations();
       const projects = await ops.getProjects();
       const project = projects.find(p => p.id === projectId);
       rootPath = project?.rootPath;
     }
 
-    // Pass rootPath to query - filtering happens at database level
     const data = await queries.getFullGraph(limit, rootPath);
 
     return c.json(data);
   } catch (error) {
-    console.error('[Graph] Failed to get full graph:', error);
+    logger.error('Failed to get full graph', error);
     return c.json({
       nodes: [],
       edges: [],
@@ -48,7 +55,14 @@ graph.get('/full', async (c) => {
 
 /**
  * GET /api/graph/file/:path
- * Get subgraph for a specific file
+ * Retrieve subgraph for a specific file and its connections
+ * 
+ * @param path - Absolute file path (URL encoded)
+ * @returns File's nodes, edges, and relationships
+ * @throws {HttpError} 400 if path is missing
+ * 
+ * @example
+ * GET /api/graph/file/%2Fsrc%2Findex.ts
  */
 graph.get('/file/:path{.*}', async (c) => {
   const filePath = c.req.param('path');
@@ -58,8 +72,7 @@ graph.get('/file/:path{.*}', async (c) => {
   }
 
   try {
-    const client = await createClient();
-    const queries = createQueries(client);
+    const queries = await getQueries();
     const data = await queries.getFileSubgraph(filePath);
 
     return c.json({
@@ -67,7 +80,7 @@ graph.get('/file/:path{.*}', async (c) => {
       filePath,
     });
   } catch (error) {
-    console.error('[Graph] Failed to get file subgraph:', error);
+    logger.error('Failed to get file subgraph', error);
     return c.json({
       nodes: [],
       edges: [],

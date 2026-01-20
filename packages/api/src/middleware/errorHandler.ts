@@ -5,6 +5,9 @@
 
 import type { Context, Next } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { createLogger } from '@codegraph/logger';
+
+const logger = createLogger({ namespace: 'API:Error' });
 
 /** Structured API error response */
 export interface ApiError {
@@ -82,7 +85,7 @@ export async function errorHandler(c: Context, next: Next): Promise<void | Respo
       );
     }
 
-    console.error('[API Error]', err);
+    logger.error('Unhandled error', err);
 
     const message = err instanceof Error ? err.message : 'Internal server error';
     return c.json(

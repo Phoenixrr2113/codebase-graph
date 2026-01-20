@@ -1,27 +1,31 @@
 /**
  * Stats routes - /api/stats
  * Endpoints for graph statistics
+ * @module routes/stats
  */
 
 import { Hono } from 'hono';
-import { createClient, createQueries } from '@codegraph/graph';
+import { createLogger } from '@codegraph/logger';
+import { getQueries } from '../model';
+
+const logger = createLogger({ namespace: 'API:Stats' });
 
 const stats = new Hono();
 
 /**
  * GET /api/stats
- * Get graph statistics
+ * Get graph statistics including node/edge counts by type
+ * 
+ * @returns Graph statistics object with counts and top entities
  */
 stats.get('/', async (c) => {
   try {
-    const client = await createClient();
-    const queries = createQueries(client);
+    const queries = await getQueries();
     const graphStats = await queries.getStats();
 
     return c.json(graphStats);
   } catch (error) {
-    // If graph is unavailable, return empty stats
-    console.error('[Stats] Failed to get stats:', error);
+    logger.error('Failed to get stats', error);
     return c.json({
       totalNodes: 0,
       totalEdges: 0,
@@ -57,3 +61,4 @@ stats.get('/', async (c) => {
 });
 
 export { stats };
+
