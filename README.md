@@ -21,7 +21,26 @@ Visual codebase knowledge graph that parses source code to extract entities and 
 # Install dependencies
 pnpm install
 
-# Start FalkorDB + API + Web dev servers
+# Copy environment template
+cp .env.template .env
+```
+
+### Option A: FalkorDB Cloud (Recommended)
+Configure your `.env` with cloud credentials:
+```env
+FALKORDB_URL=your-instance.cloud:port
+FALKORDB_USERNAME=falkordb
+FALKORDB_PASSWORD=your-password
+```
+
+Then start dev servers (no Docker required):
+```bash
+pnpm dev
+```
+
+### Option B: Local Docker
+Start FalkorDB container + dev servers:
+```bash
 pnpm start
 ```
 
@@ -133,9 +152,11 @@ Then open [http://localhost:3000](http://localhost:3000) and add a project to pa
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `API_PORT` | 3001 | API server port |
-| `FALKORDB_URL` | - | Cloud connection URL (takes priority, format: `hostname:port`) |
-| `FALKORDB_HOST` | localhost | FalkorDB host (Docker/local fallback) |
-| `FALKORDB_PORT` | 6379 | FalkorDB port (Docker/local fallback) |
+| `FALKORDB_URL` | - | Cloud connection URL (format: `hostname:port`) |
+| `FALKORDB_USERNAME` | - | Cloud authentication username |
+| `FALKORDB_PASSWORD` | - | Cloud authentication password |
+| `FALKORDB_HOST` | localhost | FalkorDB host (local/Docker fallback) |
+| `FALKORDB_PORT` | 6379 | FalkorDB port (local/Docker fallback) |
 | `FALKORDB_GRAPH` | codegraph | Graph name |
 | `WATCH_PATH` | - | Auto-watch project path |
 
