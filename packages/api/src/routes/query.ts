@@ -1,23 +1,27 @@
 /**
  * Query routes - /api/query/*
- * Endpoints for Cypher and natural language queries
+ * @module routes/query
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { createClient } from '@codegraph/graph';
 import { HttpError } from '../middleware/errorHandler';
+import * as queryModel from '../model/queryModel';
 
 const query = new Hono();
 
-/** Schema for Cypher query request */
+/**
+ * Request schema for Cypher query
+ */
 const cypherQuerySchema = z.object({
   query: z.string().min(1, 'Query is required'),
   params: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
-/** Schema for natural language query request */
+/**
+ * Request schema for natural language query
+ */
 const naturalQuerySchema = z.object({
   question: z.string().min(1, 'Question is required'),
   stream: z.boolean().optional().default(false),
@@ -25,7 +29,7 @@ const naturalQuerySchema = z.object({
 
 /**
  * POST /api/query/cypher
- * Execute raw Cypher query
+ * Execute a raw Cypher query
  */
 query.post(
   '/cypher',
@@ -36,22 +40,19 @@ query.post(
   }),
   async (c) => {
     const { query: cypherQuery, params } = c.req.valid('json');
-
-    const client = await createClient();
-    const result = await client.roQuery(cypherQuery, {
-      params: params as Record<string, string | number | boolean | null | unknown[]>
-    });
-
-    return c.json({
-      results: result.data ?? [],
-      metadata: result.metadata ?? null,
-    });
+    const result = await queryModel.executeCypher(cypherQuery, params);
+    return c.json(result);
   }
 );
 
 /**
  * POST /api/query/natural
- * Natural language query (converts to Cypher)
+ * Convert natural language question to Cypher and execute
+ * 
+ * @body question - Natural language question
+ * @body stream - Enable SSE streaming (not yet implemented)
+ * @returns Generated Cypher, results, and explanation
+ * @note This endpoint requires AI SDK integration (not yet implemented)
  */
 query.post(
   '/natural',

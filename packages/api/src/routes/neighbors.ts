@@ -1,18 +1,24 @@
 /**
  * Neighbors routes - /api/neighbors/*
- * Endpoints for retrieving neighboring nodes
+ * @module routes/neighbors
  */
 
 import { Hono } from 'hono';
-import { createClient } from '@codegraph/graph';
-import type { GraphNode, GraphEdge, NodeLabel, EdgeLabel } from '@codegraph/types';
+import type { EdgeLabel } from '@codegraph/types';
 import { HttpError } from '../middleware/errorHandler';
+import * as neighborsModel from '../model/neighborsModel';
 
 const neighbors = new Hono();
 
 /**
  * GET /api/neighbors/:id
- * Get neighboring nodes
+ * Get neighboring nodes with optional filters
+ * 
+ * @param id - Entity identifier
+ * @query direction - "in", "out", or "both" (default: both)
+ * @query edgeTypes - Comma-separated edge types
+ * @query depth - Traversal depth (default: 1)
+ * @throws {HttpError} 400 if ID missing or invalid direction
  */
 neighbors.get('/:id', async (c) => {
   const id = decodeURIComponent(c.req.param('id') ?? '');
@@ -31,76 +37,15 @@ neighbors.get('/:id', async (c) => {
   const edgeTypes = edgeTypesParam ? edgeTypesParam.split(',') as EdgeLabel[] : undefined;
   const depth = depthParam ? parseInt(depthParam, 10) : 1;
 
-  const client = await createClient();
+  const result = await neighborsModel.getNeighbors(
+    id,
+    direction as neighborsModel.Direction,
+    edgeTypes,
+    depth
+  );
 
-  // Build direction-specific query
-  let cypherMatch: string;
-  if (direction === 'in') {
-    cypherMatch = '(neighbor)-[r]->(center)';
-  } else if (direction === 'out') {
-    cypherMatch = '(center)-[r]->(neighbor)';
-  } else {
-    cypherMatch = '(center)-[r]-(neighbor)';
-  }
-
-  // Add edge type filter if specified
-  const edgeTypeFilter = edgeTypes && edgeTypes.length > 0
-    ? `AND type(r) IN [${edgeTypes.map(t => `'${t}'`).join(', ')}]`
-    : '';
-
-  const result = await client.roQuery<{
-    neighbor: Record<string, unknown>;
-    neighborLabels: string[];
-    r: Record<string, unknown>;
-    rType: string;
-  }>(`
-    MATCH (center)
-    WHERE center.path = $id OR (center.name IS NOT NULL AND center.filePath IS NOT NULL)
-    MATCH ${cypherMatch}
-    WHERE (neighbor.path = $id OR neighbor.name IS NOT NULL) ${edgeTypeFilter}
-    RETURN neighbor, labels(neighbor) as neighborLabels, r, type(r) as rType
-    LIMIT $limit
-  `, { params: { id, limit: depth * 50 } });
-
-  const nodes: GraphNode[] = [];
-  const edges: GraphEdge[] = [];
-  const seenNodes = new Set<string>();
-  const seenEdges = new Set<string>();
-
-  for (const row of result.data ?? []) {
-    const nodeId = (row.neighbor['name'] as string) ?? (row.neighbor['path'] as string) ?? '';
-    const nodeLabel = (row.neighborLabels[0] ?? 'Unknown') as NodeLabel;
-
-    if (nodeId && !seenNodes.has(nodeId)) {
-      seenNodes.add(nodeId);
-      nodes.push({
-        id: nodeId,
-        label: nodeLabel,
-        displayName: (row.neighbor['name'] as string) ?? (row.neighbor['path'] as string) ?? 'unknown',
-        filePath: (row.neighbor['filePath'] as string) ?? (row.neighbor['path'] as string),
-        data: row.neighbor as unknown as GraphNode['data'],
-      } as GraphNode);
-    }
-
-    const edgeId = `${row.rType}:${id}:${nodeId}`;
-    if (!seenEdges.has(edgeId)) {
-      seenEdges.add(edgeId);
-      edges.push({
-        id: edgeId,
-        source: direction === 'in' ? nodeId : id,
-        target: direction === 'in' ? id : nodeId,
-        label: row.rType as EdgeLabel,
-        data: row.r as unknown as GraphEdge['data'],
-      } as GraphEdge);
-    }
-  }
-
-  return c.json({
-    nodes,
-    edges,
-    centerId: id,
-    direction,
-  });
+  return c.json(result);
 });
 
 export { neighbors };
+

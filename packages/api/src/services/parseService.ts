@@ -30,45 +30,14 @@ import fastGlob from 'fast-glob';
 import { stat, readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import {
+  SUPPORTED_EXTENSIONS,
+  DEFAULT_IGNORE_PATTERNS,
+  PYTHON_EXTENSIONS,
+  CSHARP_EXTENSIONS,
+} from '../config/constants';
 
 const logger = createLogger({ namespace: 'API:Parse' });
-
-/** Default glob patterns to ignore during parsing */
-const DEFAULT_IGNORE_PATTERNS = [
-  '**/node_modules/**',
-  '**/dist/**',
-  '**/build/**',
-  '**/.git/**',
-  '**/coverage/**',
-  '**/*.test.ts',
-  '**/*.test.tsx',
-  '**/*.spec.ts',
-  '**/*.spec.tsx',
-  '**/__tests__/**',
-  '**/__mocks__/**',
-  '**/.next/**',
-  '**/.turbo/**',
-  '**/__pycache__/**',
-  '**/.venv/**',
-  '**/venv/**',
-  '**/*.pyc',
-];
-
-/** Supported file extensions */
-const SUPPORTED_EXTENSIONS = [
-  // TypeScript/JavaScript
-  '.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs',
-  // Python
-  '.py', '.pyw', '.pyi',
-  // C#
-  '.cs',
-];
-
-/** Python file extensions */
-const PYTHON_EXTENSIONS = ['.py', '.pyw', '.pyi'];
-
-/** C# file extensions */
-const CSHARP_EXTENSIONS = ['.cs'];
 
 /** Singleton graph operations instance */
 let graphOps: GraphOperations | null = null;

@@ -10,28 +10,9 @@ import fastGlob from 'fast-glob';
 import { EventEmitter } from 'node:events';
 import { createLogger, traced } from '@codegraph/logger';
 import { parseSingleFile, removeFileFromGraph } from './parseService';
+import { SUPPORTED_EXTENSIONS, DEFAULT_IGNORE_PATTERNS } from '../config/constants';
 
 const logger = createLogger({ namespace: 'API:Watch' });
-
-/** Supported file extensions for watching */
-const SUPPORTED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'];
-
-/** Default patterns to ignore */
-const DEFAULT_IGNORE_PATTERNS = [
-  '**/node_modules/**',
-  '**/dist/**',
-  '**/build/**',
-  '**/.git/**',
-  '**/coverage/**',
-  '**/*.test.ts',
-  '**/*.test.tsx',
-  '**/*.spec.ts',
-  '**/*.spec.tsx',
-  '**/__tests__/**',
-  '**/__mocks__/**',
-  '**/.next/**',
-  '**/.turbo/**',
-];
 
 /** File change event types */
 export type FileEventType = 'add' | 'change' | 'unlink';
