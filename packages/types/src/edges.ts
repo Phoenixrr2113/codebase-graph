@@ -134,6 +134,31 @@ export interface UsesHookEdge extends BaseEdge {
 }
 
 // ============================================================================
+// Temporal Edges (Git History)
+// ============================================================================
+
+/** Entity was introduced in a commit */
+export interface IntroducedInEdge extends BaseEdge {
+  type: 'INTRODUCED_IN';
+}
+
+/** Entity was modified in a commit */
+export interface ModifiedInEdge extends BaseEdge {
+  type: 'MODIFIED_IN';
+  /** Lines added in this commit */
+  linesAdded?: number;
+  /** Lines removed in this commit */
+  linesRemoved?: number;
+  /** Change in complexity */
+  complexityDelta?: number;
+}
+
+/** Entity was deleted in a commit */
+export interface DeletedInEdge extends BaseEdge {
+  type: 'DELETED_IN';
+}
+
+// ============================================================================
 // Union Types
 // ============================================================================
 
@@ -151,7 +176,10 @@ export type Edge =
   | HasMethodEdge
   | HasPropertyEdge
   | RendersEdge
-  | UsesHookEdge;
+  | UsesHookEdge
+  | IntroducedInEdge
+  | ModifiedInEdge
+  | DeletedInEdge;
 
 /** Edge label types matching FalkorDB schema */
 export type EdgeLabel =
@@ -167,4 +195,7 @@ export type EdgeLabel =
   | 'HAS_METHOD'
   | 'HAS_PROPERTY'
   | 'RENDERS'
-  | 'USES_HOOK';
+  | 'USES_HOOK'
+  | 'INTRODUCED_IN'
+  | 'MODIFIED_IN'
+  | 'DELETED_IN';
