@@ -67,3 +67,22 @@ export {
   type RefactoringAnalysisInput,
   type RefactoringAnalysisOptions,
 } from './refactoring';
+
+export {
+  analyzeDataflow,
+  isTaintSource,
+  isTaintSink,
+  isSanitizer,
+  getTaintSourcePatterns,
+  getTaintSinkPatterns,
+  getSanitizerPatterns,
+  getDataflowSummary,
+  type TaintSource,
+  type TaintSink,
+  type TaintSourceCategory,
+  type TaintSinkCategory,
+  type FlowStep,
+  type DataFlowPath,
+  type DataflowAnalysisResult,
+  type DataflowAnalysisOptions,
+} from './dataflow';
