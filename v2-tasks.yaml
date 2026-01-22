@@ -15,7 +15,10 @@ metadata:
     - Clear ownership boundaries prevent conflicts
     - Tasks are ordered by dependency
     - Mark status as you complete tasks: not_started → in_progress → complete
-    - Do 1 task at a time, write tests, verify it, then make a commit before we move on to the next
+    - Do 1 task at a time.
+    - Write tests, verify it
+    - Make a commit when the task is complete before moving on to the next
+    - 
     
   verification_note: |
     ⚠️ IMPORTANT: Before starting any task, verify if the feature is already 
