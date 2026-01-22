@@ -113,6 +113,12 @@ export interface FunctionEntity extends RangeEntity {
   returnType?: string;
   /** JSDoc/docstring content */
   docstring?: string;
+  /** Cyclomatic complexity (1 + decision points) */
+  complexity?: number;
+  /** Cognitive complexity (flow breaks + nesting penalties) */
+  cognitiveComplexity?: number;
+  /** Maximum nesting depth */
+  nestingDepth?: number;
 }
 
 // ============================================================================

@@ -1,0 +1,2710 @@
+# ============================================================================
+# CODEMIND AI - COMPLETE ATOMIC TASK SPECIFICATIONS (v2.1)
+# Each task is sized for a single agent session (~100k context max)
+# Paste the `prompt` field to start a new session
+# ============================================================================
+
+metadata:
+  version: "2.1"
+  created: "2025-01-22"
+  source: codeGraph-v2-plans.yml
+  total_tasks: 70
+  
+  guidelines: |
+    - Each task targets ≤3-5 files
+    - Clear ownership boundaries prevent conflicts
+    - Tasks are ordered by dependency
+    - Mark status as you complete tasks: not_started → in_progress → complete
+    - Do 1 task at a time, write tests, verify it, then make a commit before we move on to the next
+    
+  verification_note: |
+    ⚠️ IMPORTANT: Before starting any task, verify if the feature is already 
+    implemented in the codebase
+    
+    Check these locations:
+    - packages/types/src/edges.ts - for edge type definitions
+    - packages/types/src/nodes.ts - for node type definitions  
+    - packages/graph/src/schema.ts - for graph schema
+    - packages/parser/src/extractors/ - for extraction logic
+    - packages/api/src/services/ - for service implementations
+    
+    The codebase uses FalkorDB (not Memgraph), so adjust any Cypher syntax
+    or index creation commands accordingly.
+
+# ============================================================================
+# PHASE 2: ANALYSIS LAYER (12 tasks)
+# Status: "Deep Analysis toggle exists, Git history NOT DONE"
+# ============================================================================
+
+phase_2_analysis:
+  description: Complete the Analysis Layer - complexity, security, git history, impact, dataflow
+
+  # ==========================================================================
+  # COMPLEXITY METRICS (2 tasks)
+  # ==========================================================================
+  
+  task_2_1_complexity_metrics:
+    id: ANALYSIS-COMPLEXITY-001
+    name: Implement Cyclomatic & Cognitive Complexity Extractor
+    status: not_started
+    estimated_duration: 30-45 min
+    
+    description: |
+      Add complexity metric calculation to the extraction pipeline.
+      Calculate cyclomatic complexity, cognitive complexity, and nesting depth.
+      Store metrics on Function nodes in the graph.
+    
+    acceptance_criteria:
+      - Cyclomatic complexity calculated (1 + decision points)
+      - Cognitive complexity calculated (breaks in flow + nesting penalties)
+      - Nesting depth calculated (max nested blocks)
+      - Metrics stored on Function node properties
+      - Unit tests verify correct calculation
+    
+    ownership:
+      creates:
+        - packages/parser/src/analysis/complexity.ts
+        - packages/parser/src/analysis/index.ts
+        - packages/parser/src/__tests__/complexity.test.ts
+      modifies:
+        - packages/types/src/nodes.ts (add complexity properties if missing)
+      reads:
+        - packages/parser/src/extractors/functions.ts
+        - codeGraph-v2-plans.yml (lines 918-960)
+      forbidden:
+        - packages/graph/*
+        - packages/api/*
+        - packages/web/*
+    
+    prompt: |
+      Implement cyclomatic and cognitive complexity extraction for CodeGraph.
+      
+      **Goal**: Add complexity metric calculation to the parser package.
+      
+      **Read first**:
+      - `packages/parser/src/extractors/functions.ts` - tree-sitter extraction pattern
+      - `packages/types/src/nodes.ts` - FunctionNode type definition
+      - `codeGraph-v2-plans.yml` lines 918-960 - complexity metric spec
+      
+      **Create**:
+      - `packages/parser/src/analysis/complexity.ts` - complexity calculator
+      - `packages/parser/src/analysis/index.ts` - exports
+      - `packages/parser/src/__tests__/complexity.test.ts` - unit tests
+      
+      **Modify**:
+      - `packages/types/src/nodes.ts` - ensure complexity/cognitiveComplexity/nestingDepth on FunctionNode
+      
+      **Do NOT modify**: packages/graph/*, packages/api/*, packages/web/*
+      
+      **Formulas**:
+      - Cyclomatic = 1 + count(if, else if, case, for, while, &&, ||, try, catch, ?:)
+      - Cognitive = +1 per break in linear flow, +1 per nesting level (cumulative)
+      - Nesting = max depth of nested blocks
+
+  task_2_2_complexity_integration:
+    id: ANALYSIS-COMPLEXITY-002
+    name: Integrate Complexity Metrics into Parse Pipeline
+    status: not_started
+    depends_on: [ANALYSIS-COMPLEXITY-001]
+    estimated_duration: 20-30 min
+    
+    description: |
+      Wire the complexity extractor into parseService so complexity
+      metrics are calculated during extraction and stored in the graph.
+    
+    ownership:
+      modifies:
+        - packages/api/src/services/parseService.ts
+        - packages/graph/src/operations.ts
+      reads:
+        - packages/parser/src/analysis/complexity.ts
+    
+    prompt: |
+      Integrate complexity extraction into CodeGraph parse pipeline.
+      
+      **Prerequisite**: Task ANALYSIS-COMPLEXITY-001 must be complete.
+      
+      **Goal**: Wire complexity calculation into parseService.
+      
+      **Read first**:
+      - `packages/api/src/services/parseService.ts` - main parsing orchestration
+      - `packages/parser/src/analysis/complexity.ts` - completed extractor
+      - `packages/graph/src/operations.ts` - graph storage operations
+      
+      **Modify**:
+      - `packages/api/src/services/parseService.ts` - call complexity extractor after function extraction
+      - `packages/graph/src/operations.ts` - ensure Function upsert includes complexity fields
+      
+      **Verify**: Extract a test file, query graph to confirm complexity values appear.
+
+  # ==========================================================================
+  # GIT HISTORY (2 tasks)
+  # ==========================================================================
+  
+  task_2_3_git_commit_schema:
+    id: ANALYSIS-GIT-001
+    name: Add Commit Node Type and Temporal Edges
+    status: not_started
+    estimated_duration: 25-35 min
+    
+    description: |
+      Define the Commit node type and temporal relationships (INTRODUCED_IN,
+      MODIFIED_IN, DELETED_IN) in the graph schema.
+    
+    ownership:
+      modifies:
+        - packages/types/src/nodes.ts
+        - packages/types/src/edges.ts
+        - packages/graph/src/schema.ts
+        - packages/graph/src/queries.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 400-404, 468-484)
+    
+    prompt: |
+      Add Commit node type and temporal relationships to CodeGraph schema.
+      
+      **Goal**: Define graph schema for git history tracking.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 400-404 - Commit node properties
+      - `codeGraph-v2-plans.yml` lines 468-484 - temporal relationships
+      - `packages/types/src/nodes.ts` - existing node types
+      - `packages/types/src/edges.ts` - existing edge types
+      
+      **Modify**:
+      - `packages/types/src/nodes.ts` - add CommitNode interface (hash, message, author, email, date)
+      - `packages/types/src/edges.ts` - add INTRODUCED_IN, MODIFIED_IN, DELETED_IN
+      - `packages/graph/src/schema.ts` - add Commit node creation
+      - `packages/graph/src/queries.ts` - add commit-related queries
+
+  task_2_4_git_history_service:
+    id: ANALYSIS-GIT-002
+    name: Implement Git History Extraction Service
+    status: not_started
+    depends_on: [ANALYSIS-GIT-001]
+    estimated_duration: 45-60 min
+    
+    description: |
+      Create a service that extracts git history using simple-git and
+      creates Commit nodes + temporal relationships in the graph.
+    
+    ownership:
+      creates:
+        - packages/api/src/services/gitService.ts
+        - packages/api/src/__tests__/gitService.test.ts
+      modifies:
+        - packages/api/src/services/index.ts
+        - packages/graph/src/operations.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 684-710, 1035-1066)
+    
+    prompt: |
+      Implement git history extraction service for CodeGraph.
+      
+      **Prerequisite**: Task ANALYSIS-GIT-001 must be complete.
+      
+      **Goal**: Extract git commits and create temporal edges.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 684-710 - git sync specification
+      - `codeGraph-v2-plans.yml` lines 1035-1066 - temporal queries
+      - `packages/graph/src/operations.ts` - graph operations pattern
+      
+      **Create**:
+      - `packages/api/src/services/gitService.ts` - uses simple-git
+      - `packages/api/src/__tests__/gitService.test.ts` - unit tests
+      
+      **Features**:
+      - Extract commits since last sync (tracked in graph metadata)
+      - Create Commit nodes with hash, message, author, date
+      - Create MODIFIED_IN edges from File to Commit
+      - Track lastCommitSynced in graph metadata
+
+  # ==========================================================================
+  # SECURITY SCANNING (2 tasks)
+  # ==========================================================================
+  
+  task_2_5_security_scanner:
+    id: ANALYSIS-SECURITY-001
+    name: Implement Security Pattern Scanner
+    status: not_started
+    estimated_duration: 45-60 min
+    
+    description: |
+      Create a security scanner using tree-sitter pattern matching
+      to detect OWASP Top 10 vulnerabilities.
+    
+    ownership:
+      creates:
+        - packages/parser/src/analysis/security.ts
+        - packages/parser/src/__tests__/security.test.ts
+      modifies:
+        - packages/parser/src/analysis/index.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 962-1033)
+    
+    prompt: |
+      Implement security vulnerability scanner for CodeGraph.
+      
+      **Goal**: Tree-sitter based security scanner for common vulnerabilities.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 962-1033 - security rules specification
+      - `packages/parser/src/extractors/functions.ts` - tree-sitter pattern
+      
+      **Create**:
+      - `packages/parser/src/analysis/security.ts` - SecurityScanner class
+      - `packages/parser/src/__tests__/security.test.ts` - tests with vulnerable code samples
+      
+      **Detect**:
+      - SQL injection (string concat in queries)
+      - XSS (innerHTML, dangerouslySetInnerHTML)
+      - Command injection (exec, spawn with user input)
+      - Path traversal (fs.readFile with user input)
+      - Hardcoded secrets (API keys, passwords)
+      - Eval usage
+      
+      **Return**: [{type, severity, file, line, code, description, fix}]
+
+  task_2_6_payment_security_rules:
+    id: ANALYSIS-SECURITY-002
+    name: Add Payment-Specific Security Rules
+    status: not_started
+    depends_on: [ANALYSIS-SECURITY-001]
+    estimated_duration: 30-40 min
+    
+    description: |
+      Add payment-specific security rules for Stripe, Adyen, etc.
+    
+    ownership:
+      modifies:
+        - packages/parser/src/analysis/security.ts
+      creates:
+        - packages/parser/src/analysis/rules/payment.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1011-1033)
+    
+    prompt: |
+      Add payment-specific security rules to CodeGraph scanner.
+      
+      **Prerequisite**: Task ANALYSIS-SECURITY-001 must be complete.
+      
+      **Goal**: Detect payment processing vulnerabilities.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1011-1033 - payment rules spec
+      - `packages/parser/src/analysis/security.ts` - existing scanner
+      
+      **Create**:
+      - `packages/parser/src/analysis/rules/payment.ts` - payment rules
+      
+      **Detect**:
+      - Unvalidated payment amounts (amount from req.body to Stripe)
+      - PCI data logging (console.log with card data)
+      - Hardcoded payment keys (sk_live_*, sk_test_*)
+      - Missing idempotency keys
+      
+      **Severity**: All payment issues are CRITICAL
+
+  # ==========================================================================
+  # IMPACT ANALYSIS (2 tasks)
+  # ==========================================================================
+  
+  task_2_7_impact_analysis:
+    id: ANALYSIS-IMPACT-001
+    name: Implement Impact Analysis Module
+    status: not_started
+    estimated_duration: 40-50 min
+    
+    description: |
+      Create impact analysis module that finds all code affected by changing a symbol.
+    
+    ownership:
+      creates:
+        - packages/parser/src/analysis/impact.ts
+        - packages/parser/src/__tests__/impact.test.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1068-1095)
+        - packages/graph/src/queries.ts
+    
+    prompt: |
+      Implement impact analysis module for CodeGraph.
+      
+      **Goal**: Analyze what code is affected by changing a symbol.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1068-1095 - impact analysis spec
+      - `packages/graph/src/queries.ts` - existing graph queries
+      
+      **Create**:
+      - `packages/parser/src/analysis/impact.ts` - ImpactAnalyzer class
+      - `packages/parser/src/__tests__/impact.test.ts` - tests
+      
+      **Features**:
+      - Find direct callers (CALLS edges)
+      - Find transitive callers (CALLS*1..N)
+      - Find affected test files
+      - Calculate risk score
+      
+      **Risk formula**: 
+      risk = (direct_callers × 2) + (transitive_callers × 0.5) + 
+             (no_test_coverage ? 10 : 0) + (complexity > 20 ? 5 : 0)
+
+  task_2_8_refactoring_analysis:
+    id: ANALYSIS-REFACTOR-001
+    name: Implement Refactoring Analysis Module
+    status: not_started
+    estimated_duration: 35-45 min
+    
+    description: |
+      Analyze files for extraction opportunities and coupling.
+    
+    ownership:
+      creates:
+        - packages/parser/src/analysis/refactoring.ts
+        - packages/parser/src/__tests__/refactoring.test.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1097-1116)
+    
+    prompt: |
+      Implement refactoring analysis module for CodeGraph.
+      
+      **Goal**: Identify extraction candidates and coupling metrics.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1097-1116 - refactoring analysis spec
+      
+      **Create**:
+      - `packages/parser/src/analysis/refactoring.ts` - RefactoringAnalyzer
+      - `packages/parser/src/__tests__/refactoring.test.ts` - tests
+      
+      **Features**:
+      - Calculate coupling score per function (internal_calls + state_reads)
+      - Identify extraction candidates (coupling_score < 3)
+      - Detect responsibilities within a file
+      - Suggest extraction order
+
+  # ==========================================================================
+  # DATAFLOW / TAINT TRACKING (2 tasks)
+  # ==========================================================================
+  
+  task_2_9_dataflow_schema:
+    id: ANALYSIS-DATAFLOW-001
+    name: Add Dataflow Edges to Schema
+    status: not_started
+    estimated_duration: 20-25 min
+    
+    description: |
+      Add READS, WRITES, FLOWS_TO edges for dataflow tracking.
+    
+    ownership:
+      modifies:
+        - packages/types/src/edges.ts
+        - packages/graph/src/schema.ts
+        - packages/graph/src/queries.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 447-466)
+    
+    prompt: |
+      Add dataflow edges to CodeGraph schema.
+      
+      **Goal**: Schema support for taint tracking.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 447-466 - dataflow edges spec
+      - `packages/types/src/edges.ts` - existing edge types
+      
+      **Modify**:
+      - `packages/types/src/edges.ts` - add READS, WRITES, FLOWS_TO edge types
+      - `packages/graph/src/schema.ts` - edge creation methods
+      - `packages/graph/src/queries.ts` - dataflow queries
+      
+      **FLOWS_TO properties**: transformation, tainted, sanitized
+
+  task_2_10_dataflow_extractor:
+    id: ANALYSIS-DATAFLOW-002
+    name: Implement Dataflow Extraction
+    status: not_started
+    depends_on: [ANALYSIS-DATAFLOW-001]
+    estimated_duration: 50-60 min
+    
+    description: |
+      Extract dataflow relationships and track taint propagation.
+    
+    ownership:
+      creates:
+        - packages/parser/src/analysis/dataflow.ts
+        - packages/parser/src/__tests__/dataflow.test.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 962-1010, 1186-1196)
+    
+    prompt: |
+      Implement dataflow extraction for CodeGraph.
+      
+      **Prerequisite**: Task ANALYSIS-DATAFLOW-001 must be complete.
+      
+      **Goal**: Track data flow from sources to sinks.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 962-1010 - taint sources/sinks
+      - `codeGraph-v2-plans.yml` lines 1186-1196 - trace_data_flow spec
+      
+      **Create**:
+      - `packages/parser/src/analysis/dataflow.ts` - DataflowAnalyzer
+      - `packages/parser/src/__tests__/dataflow.test.ts` - tests
+      
+      **Features**:
+      - Identify taint sources (request.body, process.env, etc.)
+      - Track flow through assignments and function calls
+      - Identify sinks (db.query, innerHTML, exec)
+      - Mark FLOWS_TO edges as tainted/sanitized
+
+  # ==========================================================================
+  # ADDITIONAL EDGE TYPES (2 tasks) - NEW
+  # ==========================================================================
+  
+  task_2_11_exports_edge:
+    id: SCHEMA-EXPORTS-001
+    name: Implement EXPORTS Edge Type
+    status: not_started
+    estimated_duration: 25-35 min
+    
+    verification_before_starting: |
+      Check packages/types/src/edges.ts for EXPORTS edge type.
+      Check if File nodes have outgoing EXPORTS edges to symbols.
+      The 'exported: boolean' property on symbols may exist but the
+      explicit EXPORTS edge provides richer querying.
+    
+    description: |
+      Add EXPORTS relationship from File to exported symbols.
+      This enables queries like "what does this file export?" and
+      "find all public API surface".
+    
+    plan_reference: |
+      codeGraph-v2-plans.yml lines 415-420:
+      - type: EXPORTS
+        from: File
+        to: [Function, Class, Interface, Variable, Type]
+        properties:
+          - asName: string (for renamed exports)
+    
+    ownership:
+      modifies:
+        - packages/types/src/edges.ts
+        - packages/graph/src/schema.ts
+        - packages/graph/src/operations.ts
+        - packages/parser/src/extractors/functions.ts (or equivalent)
+      reads:
+        - codeGraph-v2-plans.yml (lines 415-420)
+    
+    prompt: |
+      Implement EXPORTS edge type for CodeGraph.
+      
+      **⚠️ VERIFY FIRST**: 
+      - Check if EXPORTS edge already exists in packages/types/src/edges.ts
+      - Check if export relationships are tracked differently
+      
+      **Goal**: Track explicit file → symbol export relationships.
+      
+      **Read first**:
+      - `packages/types/src/edges.ts` - existing edge types
+      - `codeGraph-v2-plans.yml` lines 415-420 - EXPORTS spec
+      
+      **Modify**:
+      - `packages/types/src/edges.ts` - add EXPORTS edge type
+      - `packages/graph/src/schema.ts` - edge creation method
+      - `packages/graph/src/operations.ts` - upsert logic
+      - Extraction logic to detect exports
+      
+      **Properties**:
+      - asName: string (for `export { foo as bar }`)
+      
+      **Use cases**:
+      - "What does this file export?"
+      - "Find all public API surface"
+      - "Track breaking changes (removed exports)"
+
+  task_2_12_instantiates_edge:
+    id: SCHEMA-INSTANTIATES-001
+    name: Implement INSTANTIATES Edge Type
+    status: not_started
+    estimated_duration: 30-40 min
+    
+    verification_before_starting: |
+      Check packages/types/src/edges.ts for INSTANTIATES edge type.
+      Check if `new ClassName()` calls are tracked via CALLS edges instead.
+    
+    description: |
+      Add INSTANTIATES relationship from Function to Class when
+      `new ClassName()` is called. Distinct from CALLS for better
+      semantic understanding.
+    
+    plan_reference: |
+      codeGraph-v2-plans.yml lines 438-441:
+      - type: INSTANTIATES
+        from: Function
+        to: Class
+        properties:
+          - line: int
+    
+    ownership:
+      modifies:
+        - packages/types/src/edges.ts
+        - packages/graph/src/schema.ts
+        - packages/parser/src/extractors/functions.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 438-441)
+    
+    prompt: |
+      Implement INSTANTIATES edge type for CodeGraph.
+      
+      **⚠️ VERIFY FIRST**: 
+      - Check if INSTANTIATES already exists in packages/types/src/edges.ts
+      - Check if `new` expressions are tracked via CALLS edges
+      
+      **Goal**: Track class instantiation separately from method calls.
+      
+      **Read first**:
+      - `packages/types/src/edges.ts` - existing edge types
+      - `packages/parser/src/extractors/functions.ts` - call detection
+      
+      **Modify**:
+      - `packages/types/src/edges.ts` - add INSTANTIATES edge type
+      - `packages/graph/src/schema.ts` - edge creation
+      - Extraction logic - detect `new ClassName()` patterns
+      
+      **Tree-sitter pattern**:
+      ```scm
+      (new_expression
+        constructor: (identifier) @class_name)
+      ```
+      
+      **Use cases**:
+      - "Which classes are instantiated in this function?"
+      - "Find all usages of a class constructor"
+      - Separate instantiation from method calls in impact analysis
+
+  # ==========================================================================
+  # INCREMENTAL INDEXING (2 tasks) - NEW
+  # ==========================================================================
+  
+  task_2_13_change_detection:
+    id: INDEX-CHANGE-001
+    name: Implement Smart Change Detection
+    status: not_started
+    estimated_duration: 35-45 min
+    
+    verification_before_starting: |
+      Check packages/api/src/services/parseService.ts for existing change detection.
+      Look for file hash comparison logic.
+      Check if renamed files are detected or treated as delete+add.
+    
+    description: |
+      Implement content-hash based change detection with rename detection.
+      Renamed files should preserve their symbol nodes and relationships.
+    
+    plan_reference: |
+      codeGraph-v2-plans.yml lines 617-665:
+      - detection_process: hash comparison
+      - detect_renames: same hash on deleted+added pair
+      - renamed_file: update path, preserve relationships
+    
+    ownership:
+      modifies:
+        - packages/api/src/services/parseService.ts
+      creates:
+        - packages/api/src/services/changeDetection.ts (optional)
+      reads:
+        - codeGraph-v2-plans.yml (lines 617-665)
+    
+    prompt: |
+      Implement smart change detection for CodeGraph.
+      
+      **⚠️ VERIFY FIRST**: 
+      - Check packages/api/src/services/parseService.ts for existing logic
+      - Check if file hashes are stored on File nodes
+      - Check how file changes are currently detected
+      
+      **Goal**: Content-hash based change detection with rename support.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 617-665 - change detection spec
+      - `packages/api/src/services/parseService.ts` - current parse logic
+      
+      **Algorithm**:
+      1. Walk filesystem, calculate SHA-256 hash for each file
+      2. Query graph for existing File nodes with hashes
+      3. Compare:
+         - added = new paths not in graph
+         - deleted = graph paths not in filesystem  
+         - modified = same path, different hash
+         - unchanged = same path, same hash
+      4. Detect renames:
+         - For each (deleted, added) pair with matching hash
+         - Mark as rename instead of delete+add
+      
+      **Rename handling**:
+      - Update File.path property
+      - Update all contained symbol references
+      - Preserve CALLS, IMPORTS edges
+      - Update incoming IMPORTS edges from other files
+
+  task_2_14_two_pass_resolution:
+    id: INDEX-TWOPASS-001
+    name: Implement Two-Pass Relationship Resolution
+    status: not_started
+    depends_on: [INDEX-CHANGE-001]
+    estimated_duration: 30-40 min
+    
+    verification_before_starting: |
+      Check if CALLS edges are resolved during or after extraction.
+      Check if cross-file relationships are resolved correctly.
+    
+    description: |
+      Implement two-pass extraction: symbols first, then relationships.
+      This ensures all symbols exist before resolving cross-file calls.
+    
+    plan_reference: |
+      codeGraph-v2-plans.yml lines 655-665:
+      Cross-file call resolution requires knowing all symbols.
+      Process in two passes:
+      1. Extract all symbols
+      2. Resolve all calls
+    
+    ownership:
+      modifies:
+        - packages/api/src/services/parseService.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 655-665)
+    
+    prompt: |
+      Implement two-pass relationship resolution for CodeGraph.
+      
+      **⚠️ VERIFY FIRST**: 
+      - Check how CALLS edges are currently resolved
+      - Check if cross-file references work correctly
+      
+      **Goal**: Reliable cross-file relationship resolution.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 655-665 - two-pass spec
+      - `packages/api/src/services/parseService.ts` - current flow
+      
+      **Implementation**:
+      
+      Pass 1 - Symbol Extraction:
+      - Parse all files
+      - Extract all symbols (functions, classes, etc.)
+      - Create all nodes in graph
+      - Create CONTAINS edges
+      
+      Pass 2 - Relationship Resolution:
+      - For each function, resolve CALLS targets
+      - Match by name + import context
+      - Create CALLS edges with location info
+      - Resolve EXTENDS, IMPLEMENTS references
+      
+      **Optimization**:
+      - For incremental index, only re-resolve relationships
+        for files that changed or depend on changed files
+
+# ============================================================================
+# PHASE 3: MCP SERVER (14 tasks)
+# Status: "NOT STARTED"
+# ============================================================================
+
+phase_3_mcp:
+  description: Implement MCP server for Claude/Cursor integration
+
+  # ==========================================================================
+  # CORE MCP SERVER (1 task)
+  # ==========================================================================
+  
+  task_3_1_mcp_scaffold:
+    id: MCP-CORE-001
+    name: Create MCP Server Package Scaffold
+    status: not_started
+    estimated_duration: 25-35 min
+    
+    description: |
+      Create packages/mcp-server with basic MCP server using @modelcontextprotocol/sdk.
+    
+    ownership:
+      creates:
+        - packages/mcp-server/package.json
+        - packages/mcp-server/tsconfig.json
+        - packages/mcp-server/src/index.ts
+        - packages/mcp-server/src/server.ts
+        - packages/mcp-server/src/tools/index.ts
+      modifies:
+        - pnpm-workspace.yaml
+      reads:
+        - packages/api/package.json
+        - codeGraph-v2-plans.yml (lines 1343-1348)
+    
+    prompt: |
+      Create MCP server package scaffold for CodeGraph.
+      
+      **Goal**: Basic MCP server that starts and accepts connections.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1343-1348 - serve command spec
+      - `packages/api/package.json` - package structure reference
+      - MCP SDK: https://modelcontextprotocol.io/docs/
+      
+      **Create**:
+      - `packages/mcp-server/package.json` - deps: @modelcontextprotocol/sdk, @codegraph/graph, @codegraph/parser
+      - `packages/mcp-server/tsconfig.json` - extends base config
+      - `packages/mcp-server/src/index.ts` - entry point
+      - `packages/mcp-server/src/server.ts` - MCP server class with stdio transport
+      - `packages/mcp-server/src/tools/index.ts` - tool registry
+      
+      **Verify**: Server starts with `pnpm --filter @codegraph/mcp-server dev`
+
+  # ==========================================================================
+  # MCP TOOLS - Index Management (2 tasks)
+  # ==========================================================================
+  
+  task_3_2_tool_index_status:
+    id: MCP-TOOL-001
+    name: Implement get_index_status MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001]
+    estimated_duration: 20-25 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/indexStatus.ts
+      modifies:
+        - packages/mcp-server/src/tools/index.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1124-1136)
+        - packages/graph/src/queries.ts
+    
+    prompt: |
+      Implement get_index_status MCP tool.
+      
+      **Prerequisite**: MCP-CORE-001 complete.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1124-1136 - spec
+      
+      **Create**: `packages/mcp-server/src/tools/indexStatus.ts`
+      
+      **Returns**: lastFullIndex, lastIncrementalIndex, fileCount, symbolCount, staleFiles, lastCommitSynced, pendingCommits
+
+  task_3_3_tool_trigger_reindex:
+    id: MCP-TOOL-002
+    name: Implement trigger_reindex MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001]
+    estimated_duration: 25-30 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/reindex.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1137-1146)
+        - packages/api/src/services/parseService.ts
+    
+    prompt: |
+      Implement trigger_reindex MCP tool.
+      
+      **Prerequisite**: MCP-CORE-001 complete.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1137-1146 - spec
+      - `packages/api/src/services/parseService.ts` - parse logic
+      
+      **Create**: `packages/mcp-server/src/tools/reindex.ts`
+      
+      **Parameters**: mode (incremental|full), scope (file/dir)
+      **Returns**: filesProcessed, symbolsUpdated, duration, errors
+
+  # ==========================================================================
+  # MCP TOOLS - Symbol Lookup (3 tasks)
+  # ==========================================================================
+  
+  task_3_4_tool_find_symbol:
+    id: MCP-TOOL-003
+    name: Implement find_symbol MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001]
+    estimated_duration: 30-35 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/findSymbol.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1148-1155)
+        - packages/api/src/model/entityModel.ts
+    
+    prompt: |
+      Implement find_symbol MCP tool.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1148-1155 - spec
+      - `packages/api/src/model/entityModel.ts` - entity lookup
+      
+      **Create**: `packages/mcp-server/src/tools/findSymbol.ts`
+      
+      **Parameters**: name (required), kind (function|class|interface|variable|any), file
+      **Returns**: name, kind, file, line, signature, code, complexity
+
+  task_3_5_tool_search_code:
+    id: MCP-TOOL-004
+    name: Implement search_code MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001]
+    estimated_duration: 25-30 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/searchCode.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1157-1169)
+        - packages/api/src/routes/search.ts
+    
+    prompt: |
+      Implement search_code MCP tool.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1157-1169 - spec
+      
+      **Create**: `packages/mcp-server/src/tools/searchCode.ts`
+      
+      **Parameters**: query, type (name|fulltext|pattern), scope, language
+      **Returns**: results [{file, line, match, context}], total
+      
+      **Search types**: name = exact, fulltext = graph text search, pattern = tree-sitter
+
+  task_3_6_tool_explain_code:
+    id: MCP-TOOL-005
+    name: Implement explain_code MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001]
+    estimated_duration: 35-45 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/explainCode.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1253-1266)
+    
+    prompt: |
+      Implement explain_code MCP tool.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1253-1266 - spec
+      
+      **Create**: `packages/mcp-server/src/tools/explainCode.ts`
+      
+      **Parameters**: file (required), start_line, end_line
+      **Returns**: code, dependencies, dependents, related_tests, complexity, recent_changes
+
+  # ==========================================================================
+  # MCP TOOLS - Analysis (4 tasks)
+  # ==========================================================================
+  
+  task_3_7_tool_analyze_impact:
+    id: MCP-TOOL-006
+    name: Implement analyze_impact MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001, ANALYSIS-IMPACT-001]
+    estimated_duration: 25-30 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/analyzeImpact.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1171-1184)
+        - packages/parser/src/analysis/impact.ts
+    
+    prompt: |
+      Implement analyze_impact MCP tool.
+      
+      **Prerequisites**: MCP-CORE-001, ANALYSIS-IMPACT-001 complete.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1171-1184 - spec
+      - `packages/parser/src/analysis/impact.ts` - impact analyzer
+      
+      **Create**: `packages/mcp-server/src/tools/analyzeImpact.ts`
+      
+      **Parameters**: symbol (required), file, depth (default: 5)
+      **Returns**: direct_callers, transitive_callers, affected_files, affected_tests, risk_score, recommendation
+
+  task_3_8_tool_trace_dataflow:
+    id: MCP-TOOL-007
+    name: Implement trace_data_flow MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001, ANALYSIS-DATAFLOW-002]
+    estimated_duration: 30-35 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/traceDataflow.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1186-1196)
+        - packages/parser/src/analysis/dataflow.ts
+    
+    prompt: |
+      Implement trace_data_flow MCP tool.
+      
+      **Prerequisites**: MCP-CORE-001, ANALYSIS-DATAFLOW-002 complete.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1186-1196 - spec
+      
+      **Create**: `packages/mcp-server/src/tools/traceDataflow.ts`
+      
+      **Parameters**: source (required), sink (optional), file
+      **Returns**: paths [{source, transformations[], sink}], vulnerabilities, sanitizers_found
+
+  task_3_9_tool_find_vulnerabilities:
+    id: MCP-TOOL-008
+    name: Implement find_vulnerabilities MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001, ANALYSIS-SECURITY-001]
+    estimated_duration: 25-30 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/findVulnerabilities.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1198-1207)
+        - packages/parser/src/analysis/security.ts
+    
+    prompt: |
+      Implement find_vulnerabilities MCP tool.
+      
+      **Prerequisites**: MCP-CORE-001, ANALYSIS-SECURITY-001 complete.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1198-1207 - spec
+      
+      **Create**: `packages/mcp-server/src/tools/findVulnerabilities.ts`
+      
+      **Parameters**: scope (default: all), severity, category
+      **Returns**: vulnerabilities [{type, severity, file, line, code, description, fix}], summary
+
+  task_3_10_tool_complexity_report:
+    id: MCP-TOOL-009
+    name: Implement get_complexity_report MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001, ANALYSIS-COMPLEXITY-002]
+    estimated_duration: 25-30 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/complexityReport.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1209-1218)
+    
+    prompt: |
+      Implement get_complexity_report MCP tool.
+      
+      **Prerequisites**: MCP-CORE-001, ANALYSIS-COMPLEXITY-002 complete.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1209-1218 - spec
+      
+      **Create**: `packages/mcp-server/src/tools/complexityReport.ts`
+      
+      **Parameters**: scope, threshold (default: 10), sort_by (complexity|cognitive|nesting)
+      **Returns**: hotspots [{name, file, complexity, cognitive, nesting, lines}], summary
+
+  # ==========================================================================
+  # MCP TOOLS - History & Context (3 tasks)
+  # ==========================================================================
+  
+  task_3_11_tool_symbol_history:
+    id: MCP-TOOL-010
+    name: Implement get_symbol_history MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001, ANALYSIS-GIT-002]
+    estimated_duration: 25-30 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/symbolHistory.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1220-1231)
+    
+    prompt: |
+      Implement get_symbol_history MCP tool.
+      
+      **Prerequisites**: MCP-CORE-001, ANALYSIS-GIT-002 complete.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1220-1231 - spec
+      
+      **Create**: `packages/mcp-server/src/tools/symbolHistory.ts`
+      
+      **Parameters**: symbol (required), file, limit (default: 20)
+      **Returns**: changes [{date, author, message, linesAdded, linesRemoved}], authors, age_days, change_frequency
+
+  task_3_12_tool_repo_map:
+    id: MCP-TOOL-011
+    name: Implement get_repo_map MCP Tool (Aider-style)
+    status: not_started
+    depends_on: [MCP-CORE-001]
+    estimated_duration: 50-60 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/repoMap.ts
+        - packages/mcp-server/src/utils/context.ts
+        - packages/mcp-server/src/utils/tokens.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1233-1243)
+    
+    prompt: |
+      Implement get_repo_map MCP tool (Aider-style).
+      
+      **Prerequisite**: MCP-CORE-001 complete.
+      
+      **Goal**: Generate token-limited repo overview ranked by importance.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1233-1243 - spec
+      - Aider RepoMap: https://github.com/Aider-AI/aider/blob/main/aider/repomap.py
+      
+      **Create**:
+      - `packages/mcp-server/src/tools/repoMap.ts` - tool handler
+      - `packages/mcp-server/src/utils/context.ts` - context assembly
+      - `packages/mcp-server/src/utils/tokens.ts` - token counting (tiktoken)
+      
+      **Parameters**: max_tokens (default: 2048), focus_files[], focus_symbols[]
+      **Returns**: map (formatted string), files_included, symbols_included
+      
+      **Algorithm**: Query symbols, rank by PageRank + focus priority, format nested under files, truncate to token limit
+
+  task_3_13_tool_query_graph:
+    id: MCP-TOOL-012
+    name: Implement query_graph MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001]
+    estimated_duration: 20-25 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/queryGraph.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1245-1251)
+        - packages/graph/src/client.ts
+    
+    prompt: |
+      Implement query_graph MCP tool.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1245-1251 - spec
+      - `packages/graph/src/client.ts` - graph client
+      
+      **Create**: `packages/mcp-server/src/tools/queryGraph.ts`
+      
+      **Parameters**: cypher (required), params (object)
+      **Returns**: results[], columns[]
+      
+      **Security**: Consider read-only mode (reject CREATE/MERGE/DELETE/SET)
+
+  # ==========================================================================
+  # MCP TOOLS - Refactoring (1 task)
+  # ==========================================================================
+  
+  task_3_14_tool_refactoring:
+    id: MCP-TOOL-013
+    name: Implement analyze_file_for_refactoring MCP Tool
+    status: not_started
+    depends_on: [MCP-CORE-001, ANALYSIS-REFACTOR-001]
+    estimated_duration: 25-30 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/tools/analyzeRefactoring.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1268-1277)
+        - packages/parser/src/analysis/refactoring.ts
+    
+    prompt: |
+      Implement analyze_file_for_refactoring MCP tool.
+      
+      **Prerequisites**: MCP-CORE-001, ANALYSIS-REFACTOR-001 complete.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1268-1277 - spec
+      
+      **Create**: `packages/mcp-server/src/tools/analyzeRefactoring.ts`
+      
+      **Parameters**: file (required)
+      **Returns**: responsibilities, extraction_candidates, suggested_order, warnings
+
+# ============================================================================
+# PHASE 3B: CLI COMMANDS (8 tasks)
+# ============================================================================
+
+phase_3b_cli:
+  description: Implement standalone CLI commands
+
+  task_3_15_cli_scaffold:
+    id: CLI-CORE-001
+    name: Create CLI Package Scaffold
+    status: not_started
+    estimated_duration: 25-30 min
+    
+    ownership:
+      creates:
+        - packages/cli/package.json
+        - packages/cli/tsconfig.json
+        - packages/cli/src/index.ts
+        - packages/cli/src/commands/index.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1280-1356)
+    
+    prompt: |
+      Create CLI package scaffold for CodeGraph.
+      
+      **Goal**: Standalone CLI tool with commander.js
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1280-1356 - CLI commands spec
+      
+      **Create**:
+      - `packages/cli/package.json` - deps: commander, chalk
+      - `packages/cli/tsconfig.json`
+      - `packages/cli/src/index.ts` - CLI entry with #!/usr/bin/env node
+      - `packages/cli/src/commands/index.ts` - command registry
+      
+      **Commands to scaffold** (implement in separate tasks):
+      - extract, status, analyze, query, search, serve, map
+
+  task_3_16_cli_extract:
+    id: CLI-EXTRACT-001
+    name: Implement CLI extract Command
+    status: not_started
+    depends_on: [CLI-CORE-001]
+    estimated_duration: 30-35 min
+    
+    ownership:
+      creates:
+        - packages/cli/src/commands/extract.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1284-1301)
+        - packages/api/src/services/parseService.ts
+    
+    prompt: |
+      Implement CLI extract command.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1284-1301 - extract command spec
+      
+      **Create**: `packages/cli/src/commands/extract.ts`
+      
+      **Usage**: codemind extract <path> [options]
+      **Options**: --full, --incremental, --file, --dry-run, --no-git, --languages, --exclude, -o, -v
+      
+      **Examples in spec**: codemind extract ., codemind extract . --full, etc.
+
+  task_3_17_cli_status:
+    id: CLI-STATUS-001
+    name: Implement CLI status Command
+    status: not_started
+    depends_on: [CLI-CORE-001]
+    estimated_duration: 20-25 min
+    
+    ownership:
+      creates:
+        - packages/cli/src/commands/status.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1303-1314)
+    
+    prompt: |
+      Implement CLI status command.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1303-1314 - status command spec
+      
+      **Create**: `packages/cli/src/commands/status.ts`
+      
+      **Usage**: codemind status [--json]
+      **Output**: Last indexed, Files indexed, Symbols, Stale files, Git sync status
+
+  task_3_18_cli_analyze:
+    id: CLI-ANALYZE-001
+    name: Implement CLI analyze Command
+    status: not_started
+    depends_on: [CLI-CORE-001]
+    estimated_duration: 35-40 min
+    
+    ownership:
+      creates:
+        - packages/cli/src/commands/analyze.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1315-1327)
+    
+    prompt: |
+      Implement CLI analyze command.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1315-1327 - analyze command spec
+      
+      **Create**: `packages/cli/src/commands/analyze.ts`
+      
+      **Usage**: codemind analyze <type> [options]
+      **Types**: complexity, security, impact, hotspots, refactor
+      **Options**: --scope, --threshold, --format (table|json)
+
+  task_3_19_cli_query:
+    id: CLI-QUERY-001
+    name: Implement CLI query Command
+    status: not_started
+    depends_on: [CLI-CORE-001]
+    estimated_duration: 20-25 min
+    
+    ownership:
+      creates:
+        - packages/cli/src/commands/query.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1329-1334)
+    
+    prompt: |
+      Implement CLI query command.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1329-1334 - query command spec
+      
+      **Create**: `packages/cli/src/commands/query.ts`
+      
+      **Usage**: codemind query "<cypher>" [--params json] [--format table|json|csv]
+
+  task_3_20_cli_search:
+    id: CLI-SEARCH-001
+    name: Implement CLI search Command
+    status: not_started
+    depends_on: [CLI-CORE-001]
+    estimated_duration: 20-25 min
+    
+    ownership:
+      creates:
+        - packages/cli/src/commands/search.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1336-1341)
+    
+    prompt: |
+      Implement CLI search command.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1336-1341 - search command spec
+      
+      **Create**: `packages/cli/src/commands/search.ts`
+      
+      **Usage**: codemind search <query> [--type name|fulltext|pattern] [--scope path]
+
+  task_3_21_cli_serve:
+    id: CLI-SERVE-001
+    name: Implement CLI serve Command
+    status: not_started
+    depends_on: [CLI-CORE-001, MCP-CORE-001]
+    estimated_duration: 20-25 min
+    
+    ownership:
+      creates:
+        - packages/cli/src/commands/serve.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1343-1348)
+        - packages/mcp-server/src/server.ts
+    
+    prompt: |
+      Implement CLI serve command.
+      
+      **Prerequisites**: MCP-CORE-001 complete.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1343-1348 - serve command spec
+      
+      **Create**: `packages/cli/src/commands/serve.ts`
+      
+      **Usage**: codemind serve [--transport stdio|http] [--port 3001]
+      
+      Start the MCP server with specified transport.
+
+  task_3_22_cli_map:
+    id: CLI-MAP-001
+    name: Implement CLI map Command
+    status: not_started
+    depends_on: [CLI-CORE-001]
+    estimated_duration: 25-30 min
+    
+    ownership:
+      creates:
+        - packages/cli/src/commands/map.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1350-1356)
+        - packages/mcp-server/src/tools/repoMap.ts
+    
+    prompt: |
+      Implement CLI map command.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1350-1356 - map command spec
+      
+      **Create**: `packages/cli/src/commands/map.ts`
+      
+      **Usage**: codemind map <path> [--tokens N] [--focus files] [--output file]
+      
+      Generate a repo map (Aider-style) showing important symbols.
+      Reuse logic from packages/mcp-server/src/tools/repoMap.ts if available.
+
+# ============================================================================
+# PHASE 4: INFRASTRUCTURE & POLISH (12 tasks)
+# ============================================================================
+
+phase_4_infrastructure:
+  description: Docker, testing, documentation, and infrastructure
+
+  task_4_1_docker_setup:
+    id: INFRA-DOCKER-001
+    name: Create Docker Configuration
+    status: not_started
+    estimated_duration: 35-45 min
+    
+    ownership:
+      creates:
+        - Dockerfile
+        - docker-compose.codemind.yml
+        - .dockerignore
+      modifies:
+        - docker-compose.yml
+      reads:
+        - codeGraph-v2-plans.yml (lines 1358-1410)
+    
+    prompt: |
+      Create Docker configuration for CodeGraph.
+      
+      **Goal**: Full containerization with Memgraph/FalkorDB.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1358-1410 - Docker spec
+      - Existing `docker-compose.yml`
+      
+      **Create**:
+      - `Dockerfile` - multi-stage build with tree-sitter
+      - `docker-compose.codemind.yml` - full stack with graph DB
+      - `.dockerignore`
+      
+      **Architecture**: 
+      - codemind-app container (tree-sitter + MCP server)
+      - graph DB container (memgraph or falkordb)
+      - Volume mounts for /repo (source) and /data (cache)
+
+  task_4_2_mcp_tests:
+    id: POLISH-TEST-001
+    name: Add MCP Server Integration Tests
+    status: not_started
+    depends_on: [MCP-CORE-001]
+    estimated_duration: 45-55 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/__tests__/server.test.ts
+        - packages/mcp-server/src/__tests__/tools.test.ts
+        - packages/mcp-server/src/__tests__/fixtures/
+      reads:
+        - packages/mcp-server/src/**/*.ts
+        - packages/api/src/__tests__/*.test.ts
+    
+    prompt: |
+      Add integration tests for CodeGraph MCP server.
+      
+      **Goal**: Comprehensive tests for all MCP tools.
+      
+      **Read first**:
+      - `packages/mcp-server/src/tools/*.ts` - all tool implementations
+      - `packages/api/src/__tests__/app.test.ts` - testing patterns
+      
+      **Create**:
+      - `packages/mcp-server/src/__tests__/server.test.ts` - server lifecycle
+      - `packages/mcp-server/src/__tests__/tools.test.ts` - tool tests
+      - `packages/mcp-server/src/__tests__/fixtures/` - test code samples
+      
+      Test each tool with realistic inputs.
+
+  task_4_3_cli_tests:
+    id: POLISH-TEST-002
+    name: Add CLI Integration Tests
+    status: not_started
+    depends_on: [CLI-CORE-001]
+    estimated_duration: 35-45 min
+    
+    ownership:
+      creates:
+        - packages/cli/src/__tests__/commands.test.ts
+      reads:
+        - packages/cli/src/commands/*.ts
+    
+    prompt: |
+      Add integration tests for CodeGraph CLI.
+      
+      **Goal**: Test all CLI commands.
+      
+      **Create**: `packages/cli/src/__tests__/commands.test.ts`
+      
+      Test each command: extract, status, analyze, query, search, serve
+
+  task_4_4_mcp_docs:
+    id: POLISH-DOCS-001
+    name: Document MCP Server Usage
+    status: not_started
+    depends_on: [MCP-CORE-001]
+    estimated_duration: 30-40 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/README.md
+        - docs/mcp-tools.md
+        - docs/claude-desktop-setup.md
+      modifies:
+        - README.md
+    
+    prompt: |
+      Document CodeGraph MCP server usage.
+      
+      **Create**:
+      - `packages/mcp-server/README.md` - package docs
+      - `docs/mcp-tools.md` - tool reference with examples
+      - `docs/claude-desktop-setup.md` - Claude Desktop config
+      
+      **Modify**: `README.md` - add MCP section
+      
+      Include installation, configuration, tool reference, troubleshooting.
+
+  task_4_5_cli_docs:
+    id: POLISH-DOCS-002
+    name: Document CLI Usage
+    status: not_started
+    depends_on: [CLI-CORE-001]
+    estimated_duration: 25-30 min
+    
+    ownership:
+      creates:
+        - packages/cli/README.md
+        - docs/cli-reference.md
+      modifies:
+        - README.md
+    
+    prompt: |
+      Document CodeGraph CLI usage.
+      
+      **Create**:
+      - `packages/cli/README.md` - package docs
+      - `docs/cli-reference.md` - command reference
+      
+      **Modify**: `README.md` - add CLI section
+      
+      Document each command with examples.
+
+  task_4_6_query_router:
+    id: INFRA-ROUTER-001
+    name: Implement Query Router
+    status: not_started
+    estimated_duration: 40-50 min
+    
+    ownership:
+      creates:
+        - packages/mcp-server/src/router.ts
+        - packages/mcp-server/src/__tests__/router.test.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 84-118)
+    
+    prompt: |
+      Implement query router for CodeGraph.
+      
+      **Goal**: Route natural language queries to appropriate data source.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 84-118 - query routing rules
+      
+      **Create**:
+      - `packages/mcp-server/src/router.ts` - QueryRouter class
+      - `packages/mcp-server/src/__tests__/router.test.ts` - tests
+      
+      **Route patterns**:
+      - "what calls X" → graph
+      - "find all console.log" → tree-sitter
+      - "show me function X" → graph + filesystem
+      - "find SQL injection" → tree-sitter + graph
+      
+      Use pattern matching or simple NLP to classify queries.
+
+  # ==========================================================================
+  # GRAPH INFRASTRUCTURE (3 tasks) - NEW
+  # ==========================================================================
+
+  task_4_7_metadata_node:
+    id: INFRA-METADATA-001
+    name: Implement Graph Metadata Node
+    status: not_started
+    estimated_duration: 25-30 min
+    
+    verification_before_starting: |
+      Check if a Metadata node type exists in packages/types/src/nodes.ts.
+      Check if graph state is tracked another way (e.g., separate config file).
+      Look for properties like lastFullIndex, lastCommitSynced in the schema.
+    
+    description: |
+      Create Metadata node type for graph-level state tracking.
+      Enables incremental indexing, git sync tracking, and schema versioning.
+    
+    plan_reference: |
+      codeGraph-v2-plans.yml lines 373-386:
+      Metadata:
+        properties:
+          - key: string (unique)
+          - value: string
+        instances:
+          - key: repoPath, lastFullIndex, lastIncrementalIndex, 
+                 lastCommitSynced, schemaVersion, fileCount, symbolCount
+    
+    ownership:
+      modifies:
+        - packages/types/src/nodes.ts
+        - packages/graph/src/schema.ts
+        - packages/graph/src/operations.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 373-386)
+    
+    prompt: |
+      Implement Graph Metadata node for CodeGraph.
+      
+      **⚠️ VERIFY FIRST**: 
+      - Check if Metadata node exists in packages/types/src/nodes.ts
+      - Check how index state is currently tracked
+      
+      **Goal**: Graph-level metadata for state tracking.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 373-386 - Metadata spec
+      - `packages/graph/src/operations.ts` - current operations
+      
+      **Create/Modify**:
+      - Add MetadataNode interface to types
+      - Add getMetadata(key), setMetadata(key, value) operations
+      - Initialize metadata on first index
+      
+      **Required metadata keys**:
+      - repoPath: absolute path to indexed repo
+      - lastFullIndex: ISO datetime of last full index
+      - lastIncrementalIndex: ISO datetime of last incremental
+      - lastCommitSynced: git commit hash
+      - schemaVersion: "1.0" (for migration support)
+      - fileCount: total files indexed
+      - symbolCount: total symbols extracted
+
+  task_4_8_fulltext_indexes:
+    id: INFRA-FULLTEXT-001
+    name: Create Full-Text Search Indexes
+    status: not_started
+    estimated_duration: 20-30 min
+    
+    verification_before_starting: |
+      Check packages/graph/src/schema.ts for full-text index creation.
+      Check if FalkorDB supports full-text indexes (it does via RediSearch).
+      Look for existing search functionality in packages/api/src/routes/search.ts.
+    
+    description: |
+      Create full-text search indexes on symbol names and commit messages.
+      Enables fast text search without external search service.
+    
+    plan_reference: |
+      codeGraph-v2-plans.yml lines 501-507:
+      fulltext:
+        - name: symbol_search
+          on: [Function.name, Function.signature, Class.name, Interface.name, Type.name]
+        - name: commit_search
+          on: [Commit.message]
+    
+    ownership:
+      modifies:
+        - packages/graph/src/schema.ts
+        - packages/graph/src/client.ts (if needed)
+      reads:
+        - codeGraph-v2-plans.yml (lines 501-507)
+    
+    prompt: |
+      Create full-text search indexes for CodeGraph.
+      
+      **⚠️ VERIFY FIRST**: 
+      - Check if full-text indexes exist in packages/graph/src/schema.ts
+      - Check FalkorDB documentation for index syntax
+      - Review existing search in packages/api/src/routes/search.ts
+      
+      **Goal**: Full-text search on symbol names and signatures.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 501-507 - index spec
+      - FalkorDB documentation for full-text index syntax
+      
+      **Create indexes**:
+      
+      For FalkorDB (Cypher):
+      ```cypher
+      CALL db.idx.fulltext.createNodeIndex('symbol_search', 
+        ['Function', 'Class', 'Interface', 'Type'], 
+        ['name', 'signature'])
+      ```
+      
+      For Memgraph (if migrating):
+      ```cypher
+      CREATE TEXT INDEX ON :Function(name);
+      CREATE TEXT INDEX ON :Function(signature);
+      ```
+      
+      **Add search queries**:
+      - `searchSymbols(query)` - returns matching symbols
+      - `searchCommits(query)` - returns matching commits (if Commit nodes exist)
+
+  task_4_9_query_cache:
+    id: CACHE-QUERY-001
+    name: Implement Query Result Cache
+    status: not_started
+    estimated_duration: 25-35 min
+    
+    verification_before_starting: |
+      Check packages/graph/src/client.ts for existing caching.
+      Check if any caching layer exists (Redis, in-memory).
+    
+    description: |
+      Implement optional query result caching for repeated queries.
+      Improves response time for common queries during exploration.
+    
+    plan_reference: |
+      codeGraph-v2-plans.yml lines 749-753:
+      query_cache:
+        type: Optional query result cache
+        ttl: 60 seconds
+        invalidation: Clear on any graph mutation
+    
+    ownership:
+      creates:
+        - packages/graph/src/cache.ts
+      modifies:
+        - packages/graph/src/client.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 749-753)
+    
+    prompt: |
+      Implement query result cache for CodeGraph.
+      
+      **⚠️ VERIFY FIRST**: 
+      - Check if caching exists in packages/graph/src/client.ts
+      - Check for Redis/in-memory cache usage
+      
+      **Goal**: Optional TTL-based query result caching.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 749-753 - cache spec
+      - `packages/graph/src/client.ts` - current query execution
+      
+      **Create**: `packages/graph/src/cache.ts`
+      
+      **Features**:
+      - LRU cache with TTL (default 60 seconds)
+      - Cache key: hash of Cypher query + params
+      - Invalidation: Clear all on write operations
+      - Optional: Disable via config flag
+      
+      **Implementation**:
+      ```typescript
+      interface QueryCache {
+        get(query: string, params: object): CacheResult | null;
+        set(query: string, params: object, result: any): void;
+        invalidate(): void;
+      }
+      ```
+
+  # ==========================================================================
+  # CONVENIENCE & DOCUMENTATION (2 tasks) - NEW
+  # ==========================================================================
+
+  task_4_10_convenience_scripts:
+    id: INFRA-SCRIPTS-001
+    name: Create Convenience Wrapper Scripts
+    status: not_started
+    estimated_duration: 20-25 min
+    
+    verification_before_starting: |
+      Check if codemind.sh, codemind.ps1, codemind.bat exist in repo root.
+      Check if there's an npm script or alias for CLI usage.
+    
+    description: |
+      Create shell/batch wrapper scripts for cross-platform CLI usage.
+      Makes it easier to run codemind commands from any directory.
+    
+    plan_reference: |
+      codeGraph-v2-plans.yml lines 1517-1562 defines:
+      - codemind.sh (Linux/Mac wrapper)
+      - codemind.ps1 (PowerShell wrapper)
+      - codemind.bat (Windows CMD wrapper)
+    
+    ownership:
+      creates:
+        - codemind.sh
+        - codemind.ps1
+        - codemind.bat
+      reads:
+        - codeGraph-v2-plans.yml (lines 1517-1562)
+    
+    prompt: |
+      Create convenience wrapper scripts for CodeGraph.
+      
+      **⚠️ VERIFY FIRST**: 
+      - Check if wrapper scripts already exist
+      - Check current CLI invocation method
+      
+      **Goal**: Easy CLI access from any directory.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1517-1562 - script specs
+      
+      **Create**:
+      
+      `codemind.sh` (Linux/Mac):
+      ```bash
+      #!/bin/bash
+      SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+      REPO_PATH="${REPO_PATH:-$(pwd)}"
+      
+      docker-compose -f "$SCRIPT_DIR/docker-compose.yaml" \
+        run --rm -e REPO_PATH="$REPO_PATH" codemind "$@"
+      ```
+      
+      `codemind.ps1` (PowerShell):
+      ```powershell
+      $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+      $RepoPath = if ($env:REPO_PATH) { $env:REPO_PATH } else { Get-Location }
+      
+      docker-compose -f "$ScriptDir\docker-compose.yaml" `
+        run --rm -e REPO_PATH="$RepoPath" codemind @args
+      ```
+      
+      `codemind.bat` (Windows CMD):
+      ```batch
+      @echo off
+      set SCRIPT_DIR=%~dp0
+      if "%REPO_PATH%"=="" set REPO_PATH=%cd%
+      
+      docker-compose -f "%SCRIPT_DIR%docker-compose.yaml" ^
+        run --rm -e REPO_PATH="%REPO_PATH%" codemind %*
+      ```
+
+  task_4_11_git_hooks_docs:
+    id: DOCS-GITHOOKS-001
+    name: Document Git Hooks Setup
+    status: not_started
+    estimated_duration: 20-25 min
+    
+    verification_before_starting: |
+      Check if docs/git-hooks-setup.md exists.
+      Check README.md for git hooks section.
+    
+    description: |
+      Document recommended git hooks for keeping index in sync.
+      Includes post-commit and pre-push hook examples.
+    
+    plan_reference: |
+      codeGraph-v2-plans.yml lines 1458-1478:
+      - post-commit: incremental reindex after each commit
+      - pre-push: security scan before pushing
+    
+    ownership:
+      creates:
+        - docs/git-hooks-setup.md
+      modifies:
+        - README.md (add section)
+      reads:
+        - codeGraph-v2-plans.yml (lines 1458-1478)
+    
+    prompt: |
+      Document git hooks setup for CodeGraph.
+      
+      **⚠️ VERIFY FIRST**: 
+      - Check if git hooks documentation exists
+      - Check README.md for existing git integration section
+      
+      **Goal**: Clear instructions for automated index sync.
+      
+      **Create**: `docs/git-hooks-setup.md`
+      
+      **Content**:
+      
+      # Git Hooks Setup
+      
+      ## Recommended Hooks
+      
+      ### post-commit (Recommended)
+      Automatically update the index after each commit.
+      
+      ```bash
+      #!/bin/bash
+      # .git/hooks/post-commit
+      codemind extract --incremental
+      ```
+      
+      ### pre-push (Optional)
+      Run security scan before pushing.
+      
+      ```bash
+      #!/bin/bash
+      # .git/hooks/pre-push
+      codemind analyze security --scope changed --fail-on critical
+      if [ $? -ne 0 ]; then
+        echo "Security issues found. Push blocked."
+        exit 1
+      fi
+      ```
+      
+      ## Installation
+      
+      ```bash
+      # Copy hooks to your repo
+      cp docs/hooks/* .git/hooks/
+      chmod +x .git/hooks/*
+      ```
+      
+      **Also update**: README.md with a "Git Integration" section
+
+# ============================================================================
+# PHASE 4B: TREE-SITTER QUERIES & RULES (6 tasks)
+# ============================================================================
+
+phase_4b_queries_rules:
+  description: Create tree-sitter query files and YAML rule configurations
+
+  task_4_12_ts_queries:
+    id: QUERY-TS-001
+    name: Create TypeScript Tree-sitter Queries
+    status: not_started
+    estimated_duration: 40-50 min
+    
+    description: |
+      Create .scm query files for TypeScript extraction patterns.
+    
+    ownership:
+      creates:
+        - queries/typescript.scm
+        - queries/javascript.scm
+      reads:
+        - codeGraph-v2-plans.yml (lines 271-277)
+        - packages/parser/src/extractors/*.ts
+    
+    prompt: |
+      Create tree-sitter query files for TypeScript/JavaScript.
+      
+      **Goal**: .scm query files for symbol extraction patterns.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 271-277 - query file list
+      - `packages/parser/src/extractors/functions.ts` - see current patterns
+      - Reference: https://github.com/Aider-AI/aider/tree/main/aider/queries
+      
+      **Create**:
+      - `queries/typescript.scm` - TS-specific patterns
+      - `queries/javascript.scm` - JS patterns
+      
+      **Include queries for**: functions, classes, interfaces, imports, exports, calls
+
+  task_4_13_python_queries:
+    id: QUERY-PY-001
+    name: Create Python Tree-sitter Queries
+    status: not_started
+    estimated_duration: 30-40 min
+    
+    ownership:
+      creates:
+        - queries/python.scm
+      reads:
+        - packages/plugin-python/src/*.ts
+    
+    prompt: |
+      Create tree-sitter query files for Python.
+      
+      **Create**: `queries/python.scm`
+      
+      **Include queries for**: functions, classes, imports, decorators, async functions
+
+  task_4_14_csharp_queries:
+    id: QUERY-CS-001
+    name: Create C# Tree-sitter Queries
+    status: not_started
+    estimated_duration: 30-40 min
+    
+    verification_before_starting: |
+      Check if queries/csharp.scm already exists in the repo.
+      Check packages/plugin-csharp/src/*.ts for inline query patterns.
+      If patterns are inline, this task extracts them to .scm files.
+    
+    description: |
+      Create tree-sitter query files for C# symbol extraction patterns.
+      These enable pattern-based code search and consistent extraction.
+    
+    ownership:
+      creates:
+        - queries/csharp.scm
+      reads:
+        - packages/plugin-csharp/src/*.ts
+        - codeGraph-v2-plans.yml (lines 271-277)
+    
+    prompt: |
+      Create tree-sitter query files for C# language.
+      
+      **⚠️ VERIFY FIRST**: Check if queries/csharp.scm already exists or if
+      patterns are defined inline in packages/plugin-csharp/src/*.ts
+      
+      **Goal**: .scm query files for C# symbol extraction patterns.
+      
+      **Read first**:
+      - `packages/plugin-csharp/src/*.ts` - existing C# extraction
+      - Reference: https://github.com/Aider-AI/aider/tree/main/aider/queries
+      
+      **Create**: `queries/csharp.scm`
+      
+      **Include queries for**:
+      - Classes (class_declaration)
+      - Interfaces (interface_declaration)
+      - Methods (method_declaration)
+      - Properties (property_declaration)
+      - Fields (field_declaration)
+      - Namespaces (namespace_declaration)
+      - Using directives (using_directive)
+      - Inheritance (base_list)
+
+  task_4_15_common_queries:
+    id: QUERY-COMMON-001
+    name: Create Common Cross-Language Queries
+    status: not_started
+    estimated_duration: 20-25 min
+    
+    verification_before_starting: |
+      Check if queries/common.scm already exists.
+      Review what patterns are shared across TypeScript, Python, C#.
+    
+    description: |
+      Create common.scm with cross-language patterns like comments,
+      string literals, and generic structural elements.
+    
+    ownership:
+      creates:
+        - queries/common.scm
+      reads:
+        - queries/typescript.scm (if exists)
+        - queries/python.scm (if exists)
+    
+    prompt: |
+      Create common cross-language tree-sitter queries.
+      
+      **⚠️ VERIFY FIRST**: Check if queries/common.scm already exists.
+      
+      **Create**: `queries/common.scm`
+      
+      **Include patterns for**:
+      - Comments (line and block)
+      - String literals
+      - Numeric literals
+      - Identifiers
+      - Import-like statements (generic)
+      
+      These patterns use generic node types that work across grammars.
+
+  task_4_16_security_queries:
+    id: QUERY-SECURITY-001
+    name: Create Security Tree-sitter Queries
+    status: not_started
+    estimated_duration: 45-55 min
+    
+    ownership:
+      creates:
+        - queries/security.scm
+      reads:
+        - codeGraph-v2-plans.yml (lines 962-1033)
+    
+    prompt: |
+      Create tree-sitter security vulnerability queries.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 962-1033 - security patterns
+      
+      **Create**: `queries/security.scm`
+      
+      **Patterns**:
+      - SQL injection (db.query with string concat)
+      - XSS (innerHTML, dangerouslySetInnerHTML)
+      - Command injection (exec, spawn)
+      - Eval usage
+      - Hardcoded secrets
+
+  task_4_17_yaml_rules:
+    id: RULES-ALL-001
+    name: Create YAML Rule Configuration Files
+    status: not_started
+    estimated_duration: 35-45 min
+    
+    ownership:
+      creates:
+        - rules/security.yaml
+        - rules/payment.yaml
+        - rules/react.yaml
+      reads:
+        - codeGraph-v2-plans.yml (lines 279-282, 1011-1033)
+    
+    prompt: |
+      Create YAML rule configuration files.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 279-282 - rule file list
+      - `codeGraph-v2-plans.yml` lines 1011-1033 - payment rules spec
+      
+      **Create**:
+      - `rules/security.yaml` - OWASP Top 10 rules
+      - `rules/payment.yaml` - Stripe/Adyen payment rules
+      - `rules/react.yaml` - React anti-patterns
+      
+      **Format**: Each rule has id, name, severity, pattern, description, fix
+
+# ============================================================================
+# PHASE 4C: CACHING LAYER (1 task)
+# ============================================================================
+
+phase_4c_caching:
+  description: Implement parse tree caching
+
+  task_4_18_parse_cache:
+    id: CACHE-PARSE-001
+    name: Implement Parse Tree LRU Cache
+    status: not_started
+    estimated_duration: 30-40 min
+    
+    description: |
+      Implement LRU cache for parse trees to avoid re-parsing unchanged files.
+    
+    ownership:
+      creates:
+        - packages/parser/src/cache/parseTreeCache.ts
+        - packages/parser/src/cache/index.ts
+      modifies:
+        - packages/parser/src/parser.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 742-756)
+    
+    prompt: |
+      Implement parse tree LRU cache for CodeGraph.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 742-756 - cache management spec
+      - `packages/parser/src/parser.ts` - current parser
+      
+      **Create**:
+      - `packages/parser/src/cache/parseTreeCache.ts` - LRU cache class
+      - `packages/parser/src/cache/index.ts` - exports
+      
+      **Features**:
+      - Size: 100 most recent parse trees
+      - Key: file path + content hash
+      - Eviction: LRU
+      - Invalidation: on file content change
+
+# ============================================================================
+# PHASE 4D: ENHANCED REACT EXTRACTION (1 task)
+# ============================================================================
+
+phase_4d_react:
+  description: Enhanced React-specific extraction
+
+  task_4_19_react_hooks:
+    id: REACT-HOOKS-001
+    name: Enhanced React Hooks/State/Context Extraction
+    status: not_started
+    estimated_duration: 45-55 min
+    
+    verification_before_starting: |
+      Check packages/types/src/edges.ts for USES_HOOK, USES_CONTEXT edges.
+      Check packages/parser/src/extractors/jsx.ts (or equivalent) for hook detection.
+      Check if Component nodes have hooks[] property.
+    
+    description: |
+      Enhance React extraction with USES_HOOK and USES_CONTEXT edges.
+    
+    ownership:
+      modifies:
+        - packages/parser/src/extractors/jsx.ts
+        - packages/types/src/edges.ts
+        - packages/graph/src/operations.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 486-499, 838-846)
+    
+    prompt: |
+      Enhance React hooks/state/context extraction.
+      
+      **⚠️ VERIFY FIRST**: 
+      - Check if USES_HOOK, USES_CONTEXT edges exist
+      - Check if Component nodes track hooks[] property
+      - Check current React extraction in JSX extractor
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 486-499 - React-specific edges
+      - `codeGraph-v2-plans.yml` lines 838-846 - React node types to extract
+      - `packages/parser/src/extractors/jsx.ts` - current React extraction
+      
+      **Modify**:
+      - `packages/parser/src/extractors/jsx.ts` - extract hooks, state, context usage
+      - `packages/types/src/edges.ts` - add USES_HOOK, USES_CONTEXT if missing
+      - `packages/graph/src/operations.ts` - create hook/context edges
+      
+      **Extract**:
+      - Which hooks each component uses (useState, useEffect, custom)
+      - Context usage (useContext calls)
+      - Create USES_HOOK edges (Component → Function)
+      - Create USES_CONTEXT edges (Component → Variable)
+
+# ============================================================================
+# FUTURE: ADDITIONAL LANGUAGES (3 tasks)
+# ============================================================================
+
+future_languages:
+  description: Add extractors for Go, Rust, Java
+
+  task_5_1_go_extractor:
+    id: LANG-GO-001
+    name: Implement Go Language Extractor
+    status: not_started
+    estimated_duration: 60-90 min
+    
+    ownership:
+      creates:
+        - packages/plugin-go/package.json
+        - packages/plugin-go/src/index.ts
+        - packages/plugin-go/src/extractors/*.ts
+        - packages/plugin-go/src/__tests__/*.ts
+      reads:
+        - packages/plugin-typescript/src/*.ts
+        - packages/plugin-python/src/*.ts
+    
+    prompt: |
+      Implement Go language extractor for CodeGraph.
+      
+      **Goal**: Full Go extraction following existing plugin pattern.
+      
+      **Read first**:
+      - `packages/plugin-typescript/src/*.ts` - plugin pattern
+      - `packages/plugin-python/src/*.ts` - another example
+      
+      **Create**: `packages/plugin-go/` with extractors for:
+      - Functions (func declarations)
+      - Types (structs, interfaces)
+      - Methods (receiver functions)
+      - Imports
+      - Package structure
+      
+      **Use**: tree-sitter-go
+
+  task_5_2_rust_extractor:
+    id: LANG-RUST-001
+    name: Implement Rust Language Extractor
+    status: not_started
+    estimated_duration: 60-90 min
+    
+    ownership:
+      creates:
+        - packages/plugin-rust/package.json
+        - packages/plugin-rust/src/index.ts
+        - packages/plugin-rust/src/extractors/*.ts
+    
+    prompt: |
+      Implement Rust language extractor for CodeGraph.
+      
+      **Goal**: Full Rust extraction.
+      
+      **Pattern**: Follow plugin-typescript structure.
+      
+      **Create**: `packages/plugin-rust/` with extractors for:
+      - Functions (fn)
+      - Structs
+      - Traits
+      - Impls
+      - Modules
+      - Use statements
+      
+      **Use**: tree-sitter-rust
+
+  task_5_3_java_extractor:
+    id: LANG-JAVA-001
+    name: Implement Java Language Extractor
+    status: not_started
+    estimated_duration: 60-90 min
+    
+    ownership:
+      creates:
+        - packages/plugin-java/package.json
+        - packages/plugin-java/src/index.ts
+        - packages/plugin-java/src/extractors/*.ts
+    
+    prompt: |
+      Implement Java language extractor for CodeGraph.
+      
+      **Goal**: Full Java extraction.
+      
+      **Create**: `packages/plugin-java/` with extractors for:
+      - Classes
+      - Interfaces
+      - Methods
+      - Fields
+      - Annotations
+      - Imports
+      - Package declarations
+      
+      **Use**: tree-sitter-java
+
+  task_5_4_java_queries:
+    id: QUERY-JAVA-001
+    name: Create Java Tree-sitter Queries
+    status: not_started
+    depends_on: [LANG-JAVA-001]
+    estimated_duration: 30-40 min
+    
+    verification_before_starting: |
+      This task should be done alongside or after LANG-JAVA-001 (Java extractor).
+      Check if queries/java.scm already exists.
+    
+    description: |
+      Create tree-sitter query files for Java symbol extraction.
+    
+    ownership:
+      creates:
+        - queries/java.scm
+      reads:
+        - packages/plugin-java/src/*.ts (when created)
+    
+    prompt: |
+      Create tree-sitter query files for Java language.
+      
+      **⚠️ VERIFY FIRST**: Check if queries/java.scm already exists.
+      **Prerequisite**: LANG-JAVA-001 should be complete or in progress.
+      
+      **Create**: `queries/java.scm`
+      
+      **Include queries for**:
+      - Classes (class_declaration)
+      - Interfaces (interface_declaration)
+      - Methods (method_declaration)
+      - Fields (field_declaration)
+      - Constructors (constructor_declaration)
+      - Annotations (annotation)
+      - Package declarations (package_declaration)
+      - Import statements (import_declaration)
+
+# ============================================================================
+# FUTURE: .NET PROJECT SUPPORT (3 tasks)
+# ============================================================================
+
+future_dotnet:
+  description: Parse .NET solution and project files
+
+  task_6_1_dotnet_scaffold:
+    id: DOTNET-CORE-001
+    name: Create .NET Plugin Package
+    status: not_started
+    estimated_duration: 20-25 min
+    
+    ownership:
+      creates:
+        - packages/plugin-dotnet/package.json
+        - packages/plugin-dotnet/tsconfig.json
+        - packages/plugin-dotnet/src/index.ts
+      reads:
+        - packages/plugin-csharp/*
+    
+    prompt: |
+      Create .NET plugin package scaffold.
+      
+      **Goal**: Package for .sln/.csproj parsing (extends existing C# plugin).
+      
+      **Read first**:
+      - `packages/plugin-csharp/*` - existing C# support
+      
+      **Create**:
+      - `packages/plugin-dotnet/package.json`
+      - `packages/plugin-dotnet/tsconfig.json`
+      - `packages/plugin-dotnet/src/index.ts`
+
+  task_6_2_sln_parser:
+    id: DOTNET-SLN-001
+    name: Implement .sln File Parser
+    status: not_started
+    depends_on: [DOTNET-CORE-001]
+    estimated_duration: 35-45 min
+    
+    ownership:
+      creates:
+        - packages/plugin-dotnet/src/parsers/sln.ts
+        - packages/plugin-dotnet/src/__tests__/sln.test.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1930-1959)
+    
+    prompt: |
+      Implement .sln file parser.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1930-1959 - .NET spec
+      
+      **Create**:
+      - `packages/plugin-dotnet/src/parsers/sln.ts`
+      - `packages/plugin-dotnet/src/__tests__/sln.test.ts`
+      
+      **Extract**: Solution name, project references (path, GUID), solution folders
+      
+      **.sln is text-based**, use regex/line parsing.
+
+  task_6_3_csproj_parser:
+    id: DOTNET-CSPROJ-001
+    name: Implement .csproj File Parser
+    status: not_started
+    depends_on: [DOTNET-CORE-001]
+    estimated_duration: 35-45 min
+    
+    ownership:
+      creates:
+        - packages/plugin-dotnet/src/parsers/csproj.ts
+        - packages/plugin-dotnet/src/__tests__/csproj.test.ts
+    
+    prompt: |
+      Implement .csproj file parser.
+      
+      **Create**:
+      - `packages/plugin-dotnet/src/parsers/csproj.ts` - XML parser
+      - `packages/plugin-dotnet/src/__tests__/csproj.test.ts`
+      
+      **Extract**: TargetFramework, PackageReferences, ProjectReferences, Compile items
+      
+      **Use**: fast-xml-parser or similar
+
+# ============================================================================
+# FUTURE: SITECORE/HELIX SUPPORT (5 tasks)
+# ============================================================================
+
+future_sitecore:
+  description: Sitecore CMS and Helix architecture support
+
+  task_7_1_helix_detector:
+    id: SITECORE-HELIX-001
+    name: Implement Helix Layer Detection
+    status: not_started
+    depends_on: [DOTNET-CORE-001]
+    estimated_duration: 35-45 min
+    
+    ownership:
+      creates:
+        - packages/plugin-dotnet/src/sitecore/helix.ts
+        - packages/plugin-dotnet/src/__tests__/helix.test.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1961-2036)
+    
+    prompt: |
+      Implement Helix layer detection for Sitecore projects.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1961-2036 - Sitecore/Helix spec
+      
+      **Create**:
+      - `packages/plugin-dotnet/src/sitecore/helix.ts`
+      - `packages/plugin-dotnet/src/__tests__/helix.test.ts`
+      
+      **Detect**:
+      - Layer folders: src/Foundation, src/Feature, src/Project
+      - Module marker files: *.module.json
+      - Create HelixLayer and HelixModule nodes
+      
+      **Dependency rules**:
+      - Project → Feature → Foundation (allowed)
+      - Violations create VIOLATES_HELIX edges
+
+  task_7_2_sitecore_templates:
+    id: SITECORE-TEMPLATE-001
+    name: Parse Sitecore Serialized Templates
+    status: not_started
+    depends_on: [SITECORE-HELIX-001]
+    estimated_duration: 40-50 min
+    
+    ownership:
+      creates:
+        - packages/plugin-dotnet/src/sitecore/templates.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1989-2020)
+    
+    prompt: |
+      Parse Sitecore serialized templates.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1989-2020 - template spec
+      
+      **Create**:
+      - `packages/plugin-dotnet/src/sitecore/templates.ts`
+      
+      **Parse formats**: SCS (.yml), Unicorn (.yml), TDS (.json)
+      **Create nodes**: SitecoreTemplate (id, name, path, baseTemplates)
+
+  task_7_3_glass_mapper:
+    id: SITECORE-GLASS-001
+    name: Extract Glass Mapper Models
+    status: not_started
+    depends_on: [SITECORE-HELIX-001]
+    estimated_duration: 35-45 min
+    
+    ownership:
+      creates:
+        - packages/plugin-dotnet/src/sitecore/glass.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 1993-1997)
+    
+    prompt: |
+      Extract Glass Mapper models from C# code.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1993-1997 - Glass detection patterns
+      
+      **Create**:
+      - `packages/plugin-dotnet/src/sitecore/glass.ts`
+      
+      **Detect patterns**:
+      - [SitecoreType(TemplateId = "...")]
+      - : IGlassBase
+      - : GlassBase
+      
+      **Create nodes**: GlassModel with MAPS_TO_TEMPLATE edges to SitecoreTemplate
+
+  task_7_4_sitecore_pipelines:
+    id: SITECORE-PIPELINE-001
+    name: Extract Pipeline Processors
+    status: not_started
+    depends_on: [SITECORE-HELIX-001]
+    estimated_duration: 35-45 min
+    
+    ownership:
+      creates:
+        - packages/plugin-dotnet/src/sitecore/pipelines.ts
+    
+    prompt: |
+      Extract Sitecore pipeline processors.
+      
+      **Create**:
+      - `packages/plugin-dotnet/src/sitecore/pipelines.ts`
+      
+      **Parse**: .config patch files for pipeline definitions
+      **Create nodes**: Pipeline, PipelineProcessor
+      **Create edges**: PROCESSES (processor → pipeline)
+
+  task_7_5_helix_violations:
+    id: SITECORE-VIOLATIONS-001
+    name: Implement Helix Violation Checker
+    status: not_started
+    depends_on: [SITECORE-HELIX-001]
+    estimated_duration: 30-40 min
+    
+    ownership:
+      creates:
+        - packages/plugin-dotnet/src/sitecore/violations.ts
+    
+    prompt: |
+      Implement Helix violation detection.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 1975-1983 - violation rules
+      
+      **Create**:
+      - `packages/plugin-dotnet/src/sitecore/violations.ts`
+      
+      **Detect violations**:
+      - Foundation → Feature (forbidden)
+      - Foundation → Project (forbidden)
+      - Feature → Project (forbidden)
+      
+      **Create**: VIOLATES_HELIX edges with severity
+
+# ============================================================================
+# PHASE 5B: ADVANCED ANALYSIS (4 tasks)
+# ============================================================================
+
+phase_5b_advanced:
+  description: Advanced analysis features from v2.1
+
+  task_8_1_dead_code:
+    id: ADVANCED-DEADCODE-001
+    name: Implement Dead Code Detection
+    status: not_started
+    estimated_duration: 40-50 min
+    
+    ownership:
+      creates:
+        - packages/parser/src/analysis/deadCode.ts
+        - packages/parser/src/__tests__/deadCode.test.ts
+      reads:
+        - codeGraph-v2-plans.yml (lines 2047-2051)
+    
+    prompt: |
+      Implement dead code detection for CodeGraph.
+      
+      **Read first**:
+      - `codeGraph-v2-plans.yml` lines 2047-2051 - advanced analysis spec
+      - `packages/graph/src/queries.ts` - existing queries
+      
+      **Create**:
+      - `packages/parser/src/analysis/deadCode.ts` - DeadCodeDetector
+      - `packages/parser/src/__tests__/deadCode.test.ts` - tests
+      
+      **Detect**:
+      - Functions with no callers (except exports)
+      - Unexported symbols with no internal references
+      - Unused imports
+      
+      **Query pattern**: MATCH (f:Function) WHERE NOT (:Function)-[:CALLS]->(f) AND NOT f.exported...
+
+  task_8_2_circular_deps:
+    id: ADVANCED-CIRCULAR-001
+    name: Implement Circular Dependency Detection
+    status: not_started
+    estimated_duration: 35-45 min
+    
+    ownership:
+      creates:
+        - packages/parser/src/analysis/circular.ts
+        - packages/parser/src/__tests__/circular.test.ts
+    
+    prompt: |
+      Implement circular dependency detection.
+      
+      **Create**:
+      - `packages/parser/src/analysis/circular.ts` - CircularDependencyDetector
+      - `packages/parser/src/__tests__/circular.test.ts` - tests
+      
+      **Features**:
+      - Detect file-level import cycles
+      - Detect function/class call cycles
+      - Report cycle path
+      
+      **Query pattern**: MATCH path = (f:File)-[:IMPORTS*]->(f) RETURN path
+
+  task_8_3_api_surface:
+    id: ADVANCED-API-001
+    name: Implement API Surface Analysis
+    status: not_started
+    estimated_duration: 35-45 min
+    
+    ownership:
+      creates:
+        - packages/parser/src/analysis/apiSurface.ts
+    
+    prompt: |
+      Implement API surface analysis.
+      
+      **Create**:
+      - `packages/parser/src/analysis/apiSurface.ts` - ApiSurfaceAnalyzer
+      
+      **Features**:
+      - Identify all exported symbols (public API)
+      - Track export stability (how often exports change)
+      - Detect breaking changes (removed exports, signature changes)
+      - Generate API surface report
+
+  task_8_4_breaking_changes:
+    id: ADVANCED-BREAKING-001
+    name: Implement Breaking Change Detection
+    status: not_started
+    depends_on: [ADVANCED-API-001, ANALYSIS-GIT-002]
+    estimated_duration: 40-50 min
+    
+    ownership:
+      creates:
+        - packages/parser/src/analysis/breakingChanges.ts
+    
+    prompt: |
+      Implement breaking change detection.
+      
+      **Prerequisites**: ADVANCED-API-001, ANALYSIS-GIT-002 complete.
+      
+      **Create**:
+      - `packages/parser/src/analysis/breakingChanges.ts` - BreakingChangeDetector
+      
+      **Detect**:
+      - Removed exports since last commit/version
+      - Changed function signatures
+      - Changed class interfaces
+      - Removed/renamed public properties
+      
+      **Use**: Combine API surface with git history
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+
+summary:
+  total_tasks: 70
+  
+  by_phase:
+    phase_2_analysis: 14          # Original 10 + 4 new (edges, incremental)
+    phase_3_mcp: 14               # MCP server + tools
+    phase_3b_cli: 8               # CLI commands
+    phase_4_infrastructure: 12    # Original 6 + 6 new (metadata, cache, scripts, docs)
+    phase_4b_queries_rules: 6     # Query files + YAML rules
+    phase_4c_caching: 1           # Parse tree cache
+    phase_4d_react: 1             # React hooks/context
+    future_languages: 4           # Go, Rust, Java + Java queries
+    future_dotnet: 3              # .NET project support
+    future_sitecore: 5            # Sitecore/Helix
+    phase_5b_advanced: 4          # Advanced analysis
+  
+  coverage_verification:
+    mcp_tools: "All 13 tools covered ✓"
+    cli_commands: "All 7 commands covered ✓ (extract, status, analyze, query, search, serve, map)"
+    graph_schema: "All node/edge types covered ✓ (including EXPORTS, INSTANTIATES)"
+    analysis_features: "All covered ✓ (complexity, security, git, impact, dataflow, refactoring)"
+    query_files: "All covered ✓ (typescript, javascript, python, csharp, java, common, security.scm)"
+    rule_files: "Covered ✓ (security, payment, react.yaml)"
+    caching: "Covered ✓ (parse tree cache, query cache)"
+    infrastructure: "Covered ✓ (metadata node, full-text indexes, convenience scripts)"
+    incremental: "Covered ✓ (change detection, two-pass resolution)"
+    docker: "Covered ✓"
+    future: "Covered ✓ (.NET, Sitecore, Go/Rust/Java, advanced analysis)"
+  
+  recommended_order:
+    # Foundation (do these first)
+    1: "INFRA-METADATA-001 (enables index tracking)"
+    2: "ANALYSIS-COMPLEXITY-001 (no deps, foundational)"
+    3: "MCP-CORE-001 (enables all MCP tools)"
+    4: "CLI-CORE-001 (enables all CLI commands)"
+    
+    # Core Analysis
+    5: "ANALYSIS-GIT-001 (enables history features)"
+    6: "ANALYSIS-SECURITY-001 (high value)"
+    7: "INDEX-CHANGE-001 (smart incremental indexing)"
+    
+    # Query & Search
+    8: "QUERY-TS-001 (enables pattern matching)"
+    9: "INFRA-FULLTEXT-001 (better search)"
+    
+    # Performance
+    10: "CACHE-PARSE-001 (performance improvement)"
+    11: "CACHE-QUERY-001 (query performance)"
+    
+    # Polish
+    12: "SCHEMA-EXPORTS-001 (API surface tracking)"
+    13: "REACT-HOOKS-001 (enhanced React analysis)"
+
+  verification_reminder: |
+    ⚠️ IMPORTANT: Before starting ANY task:
+    
+    1. Clone/pull the latest from https://github.com/Phoenixrr2113/codebase-graph
+    2. Check the specific files mentioned in "verification_before_starting" (if present)
+    3. If the feature exists, mark the task as "already_implemented" and skip
+    4. If partially implemented, adjust the task scope accordingly
+    5. If not implemented, proceed with the task
+    
+    The codebase uses FalkorDB (not Memgraph), so adjust any Cypher syntax
+    or index creation commands accordingly.
