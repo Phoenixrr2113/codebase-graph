@@ -159,6 +159,35 @@ export interface DeletedInEdge extends BaseEdge {
 }
 
 // ============================================================================
+// Dataflow Edges
+// ============================================================================
+
+/** Function reads from a variable */
+export interface ReadsEdge extends BaseEdge {
+  type: 'READS';
+  /** Line number where the read occurs */
+  line?: number;
+}
+
+/** Function writes to a variable */
+export interface WritesEdge extends BaseEdge {
+  type: 'WRITES';
+  /** Line number where the write occurs */
+  line?: number;
+}
+
+/** Data flows from one node to another (for taint tracking) */
+export interface FlowsToEdge extends BaseEdge {
+  type: 'FLOWS_TO';
+  /** Type of transformation applied (e.g., 'assignment', 'call_argument', 'return') */
+  transformation?: string;
+  /** Whether this flow carries tainted data */
+  tainted?: boolean;
+  /** Whether the data has been sanitized at this point */
+  sanitized?: boolean;
+}
+
+// ============================================================================
 // Union Types
 // ============================================================================
 
@@ -179,7 +208,10 @@ export type Edge =
   | UsesHookEdge
   | IntroducedInEdge
   | ModifiedInEdge
-  | DeletedInEdge;
+  | DeletedInEdge
+  | ReadsEdge
+  | WritesEdge
+  | FlowsToEdge;
 
 /** Edge label types matching FalkorDB schema */
 export type EdgeLabel =
@@ -198,4 +230,7 @@ export type EdgeLabel =
   | 'USES_HOOK'
   | 'INTRODUCED_IN'
   | 'MODIFIED_IN'
-  | 'DELETED_IN';
+  | 'DELETED_IN'
+  | 'READS'
+  | 'WRITES'
+  | 'FLOWS_TO';
