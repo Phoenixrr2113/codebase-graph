@@ -170,7 +170,7 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
     };
   }, []); // Empty deps - initialize only once
 
-  // Set graph data - preserve positions when possible
+  // Set graph data - incrementally add/remove nodes, preserving positions
   const setData = useCallback((data: GraphData) => {
     const cy = cyRef.current;
     if (!cy) return;
@@ -178,26 +178,81 @@ export function useCytoscape(options: UseCytoscapeOptions = {}): UseCytoscapeRet
     // Store full graph data for node lookups on click
     graphDataRef.current = data;
 
-    const elements = graphDataToElements(data);
-    const hadElements = cy.elements().length > 0;
+    const newElements = graphDataToElements(data);
+    const existingNodeIds = new Set(cy.nodes().map(n => n.id()));
+    const existingEdgeIds = new Set(cy.edges().map(e => e.id()));
+    const newNodeIds = new Set(data.nodes.map(n => n.id));
+    const newEdgeIds = new Set(data.edges.map(e => e.id));
 
-    // Batch update: remove old, add new
+    // Find nodes/edges to add and remove
+    const nodesToAdd = newElements.filter(el => el.group === 'nodes' && !existingNodeIds.has(el.data.id as string));
+    const edgesToAdd = newElements.filter(el => el.group === 'edges' && !existingEdgeIds.has(el.data.id as string));
+    const nodesToRemove = cy.nodes().filter(n => !newNodeIds.has(n.id()));
+    const edgesToRemove = cy.edges().filter(e => !newEdgeIds.has(e.id()));
+
+    const isInitialLoad = existingNodeIds.size === 0;
+    const hasNewNodes = nodesToAdd.length > 0;
+
     cy.batch(() => {
-      cy.elements().remove();
-      cy.add(elements);
+      // Remove stale elements
+      nodesToRemove.remove();
+      edgesToRemove.remove();
+
+      // Add new elements
+      if (nodesToAdd.length > 0 || edgesToAdd.length > 0) {
+        // For new nodes, position them near their connected existing node
+        for (const nodeEl of nodesToAdd) {
+          const nodeId = nodeEl.data.id as string;
+
+          // Find an edge connecting this new node to an existing node
+          const connectedEdge = edgesToAdd.find(e => {
+            const src = e.data.source as string;
+            const tgt = e.data.target as string;
+            return (src === nodeId && existingNodeIds.has(tgt)) ||
+              (tgt === nodeId && existingNodeIds.has(src));
+          });
+
+          if (connectedEdge) {
+            // Get parent node position
+            const parentId = connectedEdge.data.source === nodeId
+              ? connectedEdge.data.target as string
+              : connectedEdge.data.source as string;
+            const parentNode = cy.$id(parentId);
+
+            if (parentNode.length > 0) {
+              const pos = parentNode.position();
+              // Random offset around parent (70-120px away)
+              const angle = Math.random() * 2 * Math.PI;
+              const distance = 70 + Math.random() * 50;
+              nodeEl.position = {
+                x: pos.x + Math.cos(angle) * distance,
+                y: pos.y + Math.sin(angle) * distance,
+              };
+            }
+          }
+        }
+
+        cy.add([...nodesToAdd, ...edgesToAdd]);
+      }
     });
-    
-    // Run layout after updating elements
-    if (elements.length > 0) {
-      const layoutOptions = LAYOUT_OPTIONS[layout];
 
-      // For initial load or when many nodes are added: run full layout
-      // Use animate: false for faster updates on filter changes
-      const opts = hadElements
-        ? { ...layoutOptions, animate: false, fit: false }  // Quick layout, don't fit
-        : layoutOptions;  // Full animated layout for initial load
-
-      cy.layout(opts).run();
+    // Run layout
+    if (isInitialLoad && cy.elements().length > 0) {
+      // Full layout for initial load
+      cy.layout(LAYOUT_OPTIONS[layout]).run();
+    } else if (hasNewNodes) {
+      // For incremental updates, just run a quick local layout on new nodes only
+      const newNodeSelector = nodesToAdd.map(n => `#${CSS.escape(n.data.id as string)}`).join(',');
+      if (newNodeSelector) {
+        const newNodes = cy.$(newNodeSelector);
+        // Use a simple concentric layout just for the new nodes
+        newNodes.layout({
+          name: 'concentric',
+          animate: false,
+          fit: false,
+          boundingBox: newNodes.boundingBox(),
+        }).run();
+      }
     }
   }, [layout]);
 

@@ -21,7 +21,7 @@ export interface NeighborsResult {
 
 /**
  * Get neighboring nodes with direction and edge type filtering
- * @param id - Center entity identifier
+ * @param id - Center entity identifier (format: Label:path or Label:filePath:name:line)
  * @param direction - Traversal direction
  * @param edgeTypes - Optional edge type filter
  * @param depth - Traversal depth multiplier
@@ -35,7 +35,15 @@ export async function getNeighbors(
 ): Promise<NeighborsResult> {
   const client = await getClient();
 
-  // Build direction-specific query
+  // Parse the generated ID to extract the actual path/name
+  // File IDs: "File:/path/to/file.ts"
+  // Other IDs: "Function:/path:functionName:42"
+  const isFileId = id.startsWith('File:');
+  const actualPath = isFileId ? id.substring(5) : null;
+  const parts = id.split(':');
+
+  // Build direction-specific query (bidirectional to get all edge types)
+  // We want both incoming and outgoing edges to see IMPORTS, CONTAINS, CALLS, etc.
   let cypherMatch: string;
   if (direction === 'in') {
     cypherMatch = '(neighbor)-[r]->(center)';
@@ -50,6 +58,35 @@ export async function getNeighbors(
     ? `AND type(r) IN [${edgeTypes.map(t => `'${t}'`).join(', ')}]`
     : '';
 
+  // Build WHERE clause to match center node by path or name+filePath+line
+  // For File nodes: match by path
+  // For other nodes: match by filePath + name + startLine
+  // Fallback: match by name or path directly
+  let centerMatch: string;
+  const queryParams: {
+    limit: number;
+    actualPath?: string;
+    filePath?: string;
+    name?: string;
+    line?: number;
+    simpleId?: string;
+  } = { limit: depth * 50 };
+
+  if (isFileId && actualPath) {
+    centerMatch = 'center.path = $actualPath';
+    queryParams.actualPath = actualPath;
+  } else if (parts.length >= 4) {
+    // Format: Label:filePath:name:line
+    centerMatch = '(center.filePath = $filePath AND center.name = $name AND (center.startLine = $line OR center.line = $line))';
+    queryParams.filePath = parts[1] ?? '';
+    queryParams.name = parts[2] ?? '';
+    queryParams.line = parseInt(parts[3] ?? '0', 10) || 0;
+  } else {
+    // Fallback: try matching by name or path directly
+    centerMatch = '(center.name = $simpleId OR center.path = $simpleId)';
+    queryParams.simpleId = id;
+  }
+
   const result = await client.roQuery<{
     neighbor: Record<string, unknown>;
     neighborLabels: string[];
@@ -57,30 +94,51 @@ export async function getNeighbors(
     rType: string;
   }>(`
     MATCH (center)
-    WHERE center.path = $id OR (center.name IS NOT NULL AND center.filePath IS NOT NULL)
+    WHERE ${centerMatch}
     MATCH ${cypherMatch}
-    WHERE (neighbor.path = $id OR neighbor.name IS NOT NULL) ${edgeTypeFilter}
-    RETURN neighbor, labels(neighbor) as neighborLabels, r, type(r) as rType
+    WHERE neighbor.path IS NOT NULL OR neighbor.name IS NOT NULL ${edgeTypeFilter}
+    RETURN DISTINCT neighbor, labels(neighbor) as neighborLabels, r, type(r) as rType
     LIMIT $limit
-  `, { params: { id, limit: depth * 50 } });
+  `, { params: queryParams });
 
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const seenNodes = new Set<string>();
   const seenEdges = new Set<string>();
 
+  // Helper to extract node properties from FalkorDB result (may be nested)
+  function extractNodeProps(node: Record<string, unknown>): Record<string, unknown> {
+    if (node['properties'] && typeof node['properties'] === 'object') {
+      return node['properties'] as Record<string, unknown>;
+    }
+    return node;
+  }
+
+  // Helper to generate consistent node IDs (matching nodesModel pattern)
+  function generateNodeId(label: string, props: Record<string, unknown>): string {
+    if (label === 'File') {
+      return `File:${props['path'] ?? ''}`;
+    }
+    const name = props['name'] ?? '';
+    const filePath = props['filePath'] ?? '';
+    const line = props['startLine'] ?? props['line'] ?? 0;
+    return `${label}:${filePath}:${name}:${line}`;
+  }
+
   for (const row of result.data ?? []) {
-    const nodeId = (row.neighbor['name'] as string) ?? (row.neighbor['path'] as string) ?? '';
-    const nodeLabel = (row.neighborLabels[0] ?? 'Unknown') as NodeLabel;
+    // Extract properties from potentially nested FalkorDB node structure
+    const neighborProps = extractNodeProps(row.neighbor as Record<string, unknown>);
+    const nodeLabel = (row.neighborLabels[0] ?? 'File') as NodeLabel;
+    const nodeId = generateNodeId(nodeLabel, neighborProps);
 
     if (nodeId && !seenNodes.has(nodeId)) {
       seenNodes.add(nodeId);
       nodes.push({
         id: nodeId,
         label: nodeLabel,
-        displayName: (row.neighbor['name'] as string) ?? (row.neighbor['path'] as string) ?? 'unknown',
-        filePath: (row.neighbor['filePath'] as string) ?? (row.neighbor['path'] as string),
-        data: row.neighbor as unknown as GraphNode['data'],
+        displayName: (neighborProps['name'] as string) ?? (neighborProps['path'] as string) ?? 'unknown',
+        filePath: (neighborProps['filePath'] as string) ?? (neighborProps['path'] as string),
+        data: neighborProps as unknown as GraphNode['data'],
       } as GraphNode);
     }
 

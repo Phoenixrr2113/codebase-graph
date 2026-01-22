@@ -76,7 +76,8 @@ export async function getNeighbors(
   edgeTypes?: string[],
   depth: number = 1
 ): Promise<GraphData> {
-  return fetchAPI<GraphData>(`/api/graph/neighbors/${entityId}`, {
+  const encodedId = encodeURIComponent(entityId);
+  return fetchAPI<GraphData>(`/api/neighbors/${encodedId}`, {
     params: {
       direction,
       edgeTypes: edgeTypes?.join(','),
@@ -173,6 +174,46 @@ export async function getSourceCode(
       path,
       startLine,
       endLine,
+    },
+  });
+}
+
+// ============================================================================
+// Nodes Endpoint (Paginated)
+// ============================================================================
+
+import type { GraphNode, NodeLabel } from '@codegraph/types';
+
+export interface Pagination {
+  page: number;
+  limit: number;
+  totalCount: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
+export interface NodesResponse {
+  nodes: GraphNode[];
+  pagination: Pagination;
+}
+
+export interface GetNodesOptions {
+  page?: number | undefined;
+  limit?: number | undefined;
+  types?: NodeLabel[] | undefined;
+  q?: string | undefined;
+  projectId?: string | undefined;
+}
+
+export async function getNodes(options: GetNodesOptions = {}): Promise<NodesResponse> {
+  const { page, limit, types, q, projectId } = options;
+  return fetchAPI<NodesResponse>('/api/nodes', {
+    params: {
+      page,
+      limit,
+      types: types?.join(','),
+      q,
+      projectId,
     },
   });
 }

@@ -18,7 +18,8 @@ import { EntityDetail } from '@/components/panels/EntityDetail';
 import { SearchPanel } from '@/components/panels/SearchPanel';
 import { ParseProjectDialog } from '@/components/ParseProjectDialog';
 import { ProjectSelector } from '@/components/ProjectSelector';
-import { useGraphData, projectKeys, graphKeys } from '@/hooks/useGraphData';
+import { projectKeys, graphKeys } from '@/hooks/useGraphData';
+import { useFocusGraph } from '@/hooks/useFocusGraph';
 import type { GraphData, GraphNode, EdgeLabel } from '@codegraph/types';
 import type { GraphCanvasControls } from '@/components/graph/GraphCanvas';
 
@@ -29,12 +30,10 @@ export function AppShell() {
   // Store graph controls to focus on nodes and show connections
   const graphControlsRef = useRef<GraphCanvasControls | null>(null);
 
-  // Combined handler: select in store + focus in graph
+  // Combined handler: select in store (no auto-pan to allow double-click)
+  // Use Focus button in EntityDetail to pan to node
   const handleNodeSelect = useCallback((node: GraphNode | null) => {
     setSelectedNode(node);
-    if (node && graphControlsRef.current) {
-      graphControlsRef.current.selectNode(node.id);
-    }
   }, [setSelectedNode]);
 
   const handleGraphReady = useCallback((controls: GraphCanvasControls) => {
@@ -72,8 +71,31 @@ export function AppShell() {
     }
   }, [queryClient, setSelectedProjectId]);
 
-  // Fetch graph data via TanStack Query - filters by selected project
-  const { data: graphData, isLoading: loading, error } = useGraphData(undefined, selectedProjectId);
+  // Auto-pan to expanded node after neighbors load
+  const handleExpanded = useCallback((nodeId: string) => {
+    // Small delay to let layout settle before panning
+    setTimeout(() => {
+      graphControlsRef.current?.selectNode(nodeId);
+    }, 100);
+  }, []);
+
+  // Focus-based graph loading: starts with Files only, expands on double-click
+  const {
+    graphData,
+    isLoading: loading,
+    error,
+    expandNode,
+    expandedNodes,
+    isExpandingNode,
+  } = useFocusGraph({
+    projectId: selectedProjectId,
+    onExpanded: handleExpanded,
+  });
+
+  // Handle node double-click: expand its neighbors
+  const handleNodeDoubleClick = useCallback((node: GraphNode) => {
+    expandNode(node.id);
+  }, [expandNode]);
 
   // Apply node type filters to graph data
   const filteredGraphData = useMemo<GraphData | undefined>(() => {
@@ -150,9 +172,16 @@ export function AppShell() {
           <GraphCanvas
             data={filteredGraphData}
             onNodeSelect={handleNodeSelect}
+            onNodeDoubleClick={handleNodeDoubleClick}
             onReady={handleGraphReady}
             className="h-full"
           />
+          {/* Expanding indicator */}
+          {isExpandingNode && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-indigo-600 text-white text-xs px-3 py-1 rounded-full animate-pulse">
+              Expanding node...
+            </div>
+          )}
           {/* Legend overlay */}
           <div className="absolute bottom-3 left-3 z-10">
             <GraphLegend
@@ -160,6 +189,12 @@ export function AppShell() {
               onToggle={toggleLegend}
             />
           </div>
+          {/* Expanded nodes indicator */}
+          {expandedNodes.size > 0 && (
+            <div className="absolute bottom-3 right-3 z-10 text-xs text-slate-500 bg-slate-900/80 px-2 py-1 rounded">
+              {expandedNodes.size} nodes expanded
+            </div>
+          )}
         </ResizablePanel>
 
         {/* Right panel - Entity Detail */}

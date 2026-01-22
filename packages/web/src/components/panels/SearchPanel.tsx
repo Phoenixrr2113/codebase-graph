@@ -2,14 +2,15 @@
 
 /**
  * SearchPanel Component
- * Search input and type filters for graph nodes
+ * Server-side search with virtualized infinite scroll for graph nodes
  */
 
+import { useRef, useCallback } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { useUIStore } from '@/stores';
-import { useGraphData } from '@/hooks/useGraphData';
+import { useNodeSearch } from '@/hooks/useNodeSearch';
 import { NODE_COLORS } from '@/lib/cytoscapeConfig';
 import type { NodeLabel, GraphNode } from '@codegraph/types';
 import { cn } from '@/lib/utils';
@@ -25,27 +26,43 @@ export interface SearchPanelProps {
 
 export function SearchPanel({ onNodeSelect, selectedProjectId }: SearchPanelProps) {
   const { searchQuery, setSearchQuery, nodeTypeFilters, toggleNodeTypeFilter, clearFilters } = useUIStore();
+  const parentRef = useRef<HTMLDivElement>(null);
 
-  // Get nodes from TanStack Query - must use same projectId as AppShell for cache consistency
-  const { data: graphData } = useGraphData(undefined, selectedProjectId);
-  const nodes = graphData?.nodes ?? [];
-  
-  // Filter nodes based on search and type filters
-  const filteredNodes = nodes.filter((node) => {
-    // Check type filter
-    if (!nodeTypeFilters.has(node.label)) return false;
-    
-    // Check search query
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return (
-        node.displayName.toLowerCase().includes(query) ||
-        node.filePath?.toLowerCase().includes(query)
-      );
-    }
-    
-    return true;
+  // Server-side search with pagination
+  const {
+    nodes,
+    totalCount,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useNodeSearch({
+    query: searchQuery,
+    types: Array.from(nodeTypeFilters) as NodeLabel[],
+    projectId: selectedProjectId ?? null,
+    limit: 50,
   });
+
+  // Virtualizer for efficient rendering
+  const virtualizer = useVirtualizer({
+    count: nodes.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 48, // Estimated row height
+    overscan: 10,
+  });
+
+  // Load more when scrolling near bottom
+  const handleScroll = useCallback(() => {
+    const container = parentRef.current;
+    if (!container) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const nearBottom = scrollTop + clientHeight >= scrollHeight - 200;
+
+    if (nearBottom && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
     <div className="h-full flex flex-col">
@@ -103,47 +120,92 @@ export function SearchPanel({ onNodeSelect, selectedProjectId }: SearchPanelProp
         </div>
       </div>
 
-      {/* Results */}
-      <div className="flex-1 min-h-0">
-        <div className="px-3 py-2 flex items-center justify-between text-xs text-slate-500 border-b border-slate-800">
-          <span>{filteredNodes.length} nodes</span>
-        </div>
-        <ScrollArea className="h-[calc(100%-32px)]">
-          <div className="p-2 space-y-1">
-            {filteredNodes.slice(0, 100).map((node) => (
-              <button
-                key={node.id}
-                onClick={() => onNodeSelect?.(node)}
-                className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-800 transition-colors group"
+      {/* Results count */}
+      <div className="px-3 py-2 flex items-center justify-between text-xs text-slate-500 border-b border-slate-800">
+        <span>
+          {isLoading ? 'Loading...' : `${nodes.length} of ${totalCount} nodes`}
+        </span>
+        {isFetchingNextPage && (
+          <span className="text-indigo-400">Loading more...</span>
+        )}
+      </div>
+
+      {/* Virtualized Results */}
+      <div
+        ref={parentRef}
+        className="flex-1 overflow-auto"
+        onScroll={handleScroll}
+      >
+        <div
+          className="relative w-full"
+          style={{ height: `${virtualizer.getTotalSize()}px` }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const node = nodes[virtualRow.index];
+            if (!node) return null;
+
+            return (
+              <div
+                key={virtualRow.key}
+                className="absolute top-0 left-0 w-full px-2"
+                style={{
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
               >
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: NODE_COLORS[node.label] }}
-                  />
-                  <span className="text-sm text-slate-300 truncate group-hover:text-white">
-                    {node.displayName}
-                  </span>
-                </div>
-                {node.filePath && (
-                  <div className="text-xs text-slate-600 truncate ml-4 mt-0.5">
-                    {node.filePath.split('/').slice(-2).join('/')}
+                <button
+                  onClick={() => onNodeSelect?.(node)}
+                  className="w-full h-full text-left px-2 py-1.5 rounded hover:bg-slate-800 transition-colors group"
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: NODE_COLORS[node.label] }}
+                    />
+                    <span className="text-sm text-slate-300 truncate group-hover:text-white">
+                      {node.displayName}
+                    </span>
                   </div>
-                )}
-              </button>
-            ))}
-            {filteredNodes.length > 100 && (
-              <div className="text-xs text-slate-500 text-center py-2">
-                Showing first 100 of {filteredNodes.length} nodes
+                  {node.filePath && (
+                    <div className="text-xs text-slate-600 truncate ml-4 mt-0.5">
+                      {node.filePath.split('/').slice(-2).join('/')}
+                    </div>
+                  )}
+                </button>
               </div>
-            )}
-            {filteredNodes.length === 0 && (
-              <div className="text-xs text-slate-500 text-center py-4">
-                No nodes match your search
-              </div>
-            )}
+            );
+          })}
+        </div>
+
+        {/* Empty state */}
+        {!isLoading && nodes.length === 0 && (
+          <div className="text-xs text-slate-500 text-center py-4">
+            {searchQuery ? 'No nodes match your search' : 'No nodes found'}
           </div>
-        </ScrollArea>
+        )}
+
+        {/* Loading skeleton */}
+        {isLoading && (
+          <div className="p-2 space-y-2">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="h-10 bg-slate-800/50 rounded animate-pulse" />
+            ))}
+          </div>
+        )}
+
+        {/* Load more trigger */}
+        {hasNextPage && !isFetchingNextPage && (
+          <div className="p-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => fetchNextPage()}
+              className="w-full text-xs text-slate-400"
+            >
+              Load more
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

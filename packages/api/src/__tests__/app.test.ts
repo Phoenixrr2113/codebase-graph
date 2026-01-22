@@ -173,4 +173,45 @@ describe('CodeGraph API', () => {
       expect(body).toHaveProperty('explanation');
     });
   });
+
+  describe('Nodes routes', () => {
+    it('GET /api/nodes should return paginated structure', async () => {
+      const res = await app.request('/api/nodes');
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toHaveProperty('nodes');
+      expect(body).toHaveProperty('pagination');
+      expect(body.pagination).toHaveProperty('page');
+      expect(body.pagination).toHaveProperty('limit');
+      expect(body.pagination).toHaveProperty('totalCount');
+      expect(body.pagination).toHaveProperty('totalPages');
+      expect(body.pagination).toHaveProperty('hasMore');
+    });
+
+    it('GET /api/nodes should accept page and limit params', async () => {
+      const res = await app.request('/api/nodes?page=1&limit=10');
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.pagination.page).toBe(1);
+      expect(body.pagination.limit).toBe(10);
+    });
+
+    it('GET /api/nodes should accept types filter', async () => {
+      const res = await app.request('/api/nodes?types=Function,Class');
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(Array.isArray(body.nodes)).toBe(true);
+    });
+
+    it('GET /api/nodes should accept search query', async () => {
+      const res = await app.request('/api/nodes?q=test');
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(Array.isArray(body.nodes)).toBe(true);
+    });
+  });
 });
