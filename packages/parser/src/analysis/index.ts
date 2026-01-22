@@ -11,3 +11,13 @@ export {
   COMPLEXITY_THRESHOLDS,
   type ComplexityMetrics,
 } from './complexity';
+
+export {
+  scanForVulnerabilities,
+  scanFile,
+  sortBySeverity,
+  severityToNumber,
+  type SecurityFinding,
+  type SecuritySeverity,
+  type ScanOptions,
+} from './security';
