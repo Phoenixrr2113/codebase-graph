@@ -21,3 +21,10 @@ export {
   type SecuritySeverity,
   type ScanOptions,
 } from './security';
+
+export {
+  scanForPaymentVulnerabilities,
+  scanFileForPaymentIssues,
+  getPaymentVulnerabilityTypes,
+  type PaymentScanOptions,
+} from './rules/payment';
