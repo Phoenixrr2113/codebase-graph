@@ -48,3 +48,22 @@ export {
   type CallerInfo,
   type TestInfo,
 } from './impact';
+
+export {
+  analyzeRefactoring,
+  classifyCouplingLevel,
+  calculateCouplingScore,
+  isSafeToExtract,
+  getExtractionCandidatesQuery,
+  getInternalCallsQuery,
+  getExtractionOrder,
+  getRefactoringSummary,
+  needsRefactoring,
+  DEFAULT_EXTRACTION_THRESHOLD,
+  COUPLING_THRESHOLDS,
+  type FunctionCoupling,
+  type Responsibility,
+  type RefactoringAnalysisResult,
+  type RefactoringAnalysisInput,
+  type RefactoringAnalysisOptions,
+} from './refactoring';
