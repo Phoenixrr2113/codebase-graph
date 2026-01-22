@@ -46,6 +46,9 @@ export interface FunctionNodeProps {
   params: string; // JSON serialized params
   returnType: string | null;
   docstring: string | null;
+  complexity: number | null;
+  cognitiveComplexity: number | null;
+  nestingDepth: number | null;
 }
 
 /**
@@ -147,6 +150,9 @@ export function functionToNodeProps(entity: FunctionEntity): FunctionNodeProps {
     params: JSON.stringify(entity.params),
     returnType: entity.returnType ?? null,
     docstring: entity.docstring ?? null,
+    complexity: entity.complexity ?? null,
+    cognitiveComplexity: entity.cognitiveComplexity ?? null,
+    nestingDepth: entity.nestingDepth ?? null,
   };
 }
 

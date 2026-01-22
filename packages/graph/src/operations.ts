@@ -50,7 +50,10 @@ const CYPHER = {
         fn.isArrow = $isArrow,
         fn.params = $params,
         fn.returnType = $returnType,
-        fn.docstring = $docstring
+        fn.docstring = $docstring,
+        fn.complexity = $complexity,
+        fn.cognitiveComplexity = $cognitiveComplexity,
+        fn.nestingDepth = $nestingDepth
     WITH fn
     MATCH (f:File {path: $filePath})
     MERGE (f)-[:CONTAINS]->(fn)
