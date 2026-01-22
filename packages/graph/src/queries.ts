@@ -115,6 +115,7 @@ function getLabelFromLabels(labels: string[]): NodeLabel {
     'Type',
     'Component',
     'Import',
+    'Commit',
   ];
 
   // First check for specific valid labels (File, Interface, etc.)
@@ -542,6 +543,7 @@ class GraphQueriesImpl implements GraphQueries {
       Type: 0,
       Component: 0,
       Import: 0,
+      Commit: 0,
     };
 
     let totalNodes = 0;
@@ -573,6 +575,9 @@ class GraphQueriesImpl implements GraphQueries {
       HAS_PROPERTY: 0,
       RENDERS: 0,
       USES_HOOK: 0,
+      INTRODUCED_IN: 0,
+      MODIFIED_IN: 0,
+      DELETED_IN: 0,
     };
 
     let totalEdges = 0;

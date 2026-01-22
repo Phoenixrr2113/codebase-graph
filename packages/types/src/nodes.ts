@@ -222,6 +222,26 @@ export interface ComponentEntity extends RangeEntity {
 }
 
 // ============================================================================
+// Commit Entity (Git History)
+// ============================================================================
+
+/** Represents a git commit in the repository history */
+export interface CommitEntity {
+  /** Unique identifier (commit hash) */
+  id?: string;
+  /** Git commit hash (SHA-1, 40 characters) */
+  hash: string;
+  /** Commit message */
+  message: string;
+  /** Author name */
+  author: string;
+  /** Author email */
+  email: string;
+  /** Commit date (ISO 8601) */
+  date: string;
+}
+
+// ============================================================================
 // Project Entity
 // ============================================================================
 
@@ -254,7 +274,8 @@ export type Entity =
   | VariableEntity
   | ImportEntity
   | TypeEntity
-  | ComponentEntity;
+  | ComponentEntity
+  | CommitEntity;
 
 /** Node label types matching FalkorDB schema */
 export type NodeLabel =
@@ -265,4 +286,5 @@ export type NodeLabel =
   | 'Variable'
   | 'Import'
   | 'Type'
-  | 'Component';
+  | 'Component'
+  | 'Commit';

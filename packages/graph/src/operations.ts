@@ -14,6 +14,7 @@ import {
   variableToNodeProps,
   typeToNodeProps,
   componentToNodeProps,
+  commitToNodeProps,
   type ParsedFileEntities,
   type FileEntity,
   type FunctionEntity,
@@ -22,6 +23,7 @@ import {
   type VariableEntity,
   type TypeEntity,
   type ComponentEntity,
+  type CommitEntity,
 } from './schema';
 import type { ProjectEntity } from '@codegraph/types';
 
@@ -169,6 +171,41 @@ const CYPHER = {
     RETURN r
   `,
 
+  // Commit operations
+  UPSERT_COMMIT: `
+    MERGE (c:Commit {hash: $hash})
+    SET c.message = $message,
+        c.author = $author,
+        c.email = $email,
+        c.date = $date
+    RETURN c
+  `,
+
+  // Temporal edge operations
+  CREATE_INTRODUCED_IN_EDGE: `
+    MATCH (entity) WHERE id(entity) = $entityId
+    MATCH (c:Commit {hash: $commitHash})
+    MERGE (entity)-[r:INTRODUCED_IN]->(c)
+    RETURN r
+  `,
+
+  CREATE_MODIFIED_IN_EDGE: `
+    MATCH (f:File {path: $filePath})
+    MATCH (c:Commit {hash: $commitHash})
+    MERGE (f)-[r:MODIFIED_IN]->(c)
+    SET r.linesAdded = $linesAdded,
+        r.linesRemoved = $linesRemoved,
+        r.complexityDelta = $complexityDelta
+    RETURN r
+  `,
+
+  CREATE_DELETED_IN_EDGE: `
+    MATCH (entity) WHERE id(entity) = $entityId
+    MATCH (c:Commit {hash: $commitHash})
+    MERGE (entity)-[r:DELETED_IN]->(c)
+    RETURN r
+  `,
+
   // Delete operations - cascade delete file and all contained entities
   DELETE_FILE_ENTITIES: `
     MATCH (f:File {path: $path})-[:CONTAINS]->(e)
@@ -291,6 +328,16 @@ export interface GraphOperations {
   getProjectByRoot(rootPath: string): Promise<ProjectEntity | null>;
   deleteProject(projectId: string): Promise<void>;
   linkProjectFile(projectId: string, filePath: string): Promise<void>;
+
+  // Commit operations
+  upsertCommit(commit: CommitEntity): Promise<void>;
+  createModifiedInEdge(
+    filePath: string,
+    commitHash: string,
+    linesAdded?: number,
+    linesRemoved?: number,
+    complexityDelta?: number
+  ): Promise<void>;
 }
 
 // ============================================================================
@@ -548,6 +595,33 @@ class GraphOperationsImpl implements GraphOperations {
   async linkProjectFile(projectId: string, filePath: string): Promise<void> {
     await this.client.query(CYPHER.LINK_PROJECT_FILE, {
       params: { projectId, filePath },
+    });
+  }
+
+  // Commit operations
+
+  @trace()
+  async upsertCommit(commit: CommitEntity): Promise<void> {
+    const props = commitToNodeProps(commit);
+    await this.client.query(CYPHER.UPSERT_COMMIT, { params: toParams(props) });
+  }
+
+  @trace()
+  async createModifiedInEdge(
+    filePath: string,
+    commitHash: string,
+    linesAdded?: number,
+    linesRemoved?: number,
+    complexityDelta?: number
+  ): Promise<void> {
+    await this.client.query(CYPHER.CREATE_MODIFIED_IN_EDGE, {
+      params: {
+        filePath,
+        commitHash,
+        linesAdded: linesAdded ?? null,
+        linesRemoved: linesRemoved ?? null,
+        complexityDelta: complexityDelta ?? null,
+      },
     });
   }
 
