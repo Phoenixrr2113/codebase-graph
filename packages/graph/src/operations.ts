@@ -206,6 +206,43 @@ const CYPHER = {
     RETURN r
   `,
 
+  // Dataflow edge operations
+  CREATE_READS_EDGE: `
+    MATCH (fn:Function {name: $functionName, filePath: $functionFile})
+    MATCH (v:Variable {name: $variableName, filePath: $variableFile})
+    MERGE (fn)-[r:READS]->(v)
+    SET r.line = $line
+    RETURN r
+  `,
+
+  CREATE_WRITES_EDGE: `
+    MATCH (fn:Function {name: $functionName, filePath: $functionFile})
+    MATCH (v:Variable {name: $variableName, filePath: $variableFile})
+    MERGE (fn)-[r:WRITES]->(v)
+    SET r.line = $line
+    RETURN r
+  `,
+
+  CREATE_FLOWS_TO_EDGE: `
+    MATCH (source) WHERE id(source) = $sourceId
+    MATCH (target) WHERE id(target) = $targetId
+    MERGE (source)-[r:FLOWS_TO]->(target)
+    SET r.transformation = $transformation,
+        r.tainted = $tainted,
+        r.sanitized = $sanitized
+    RETURN r
+  `,
+
+  CREATE_FLOWS_TO_EDGE_BY_NAME: `
+    MATCH (source {name: $sourceName, filePath: $sourceFile})
+    MATCH (target {name: $targetName, filePath: $targetFile})
+    MERGE (source)-[r:FLOWS_TO]->(target)
+    SET r.transformation = $transformation,
+        r.tainted = $tainted,
+        r.sanitized = $sanitized
+    RETURN r
+  `,
+
   // Delete operations - cascade delete file and all contained entities
   DELETE_FILE_ENTITIES: `
     MATCH (f:File {path: $path})-[:CONTAINS]->(e)
