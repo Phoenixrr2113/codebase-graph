@@ -623,6 +623,11 @@ class GraphQueriesImpl implements GraphQueries {
       INTRODUCED_IN: 0,
       MODIFIED_IN: 0,
       DELETED_IN: 0,
+      READS: 0,
+      WRITES: 0,
+      FLOWS_TO: 0,
+      EXPORTS: 0,
+      INSTANTIATES: 0,
     };
 
     let totalEdges = 0;
