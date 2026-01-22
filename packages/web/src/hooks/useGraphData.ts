@@ -112,3 +112,33 @@ export function useProjects() {
     },
   });
 }
+
+// ============================================================================
+// Focus-based Expansion Hooks
+// ============================================================================
+
+export const neighborsKeys = {
+  all: ['neighbors'] as const,
+  node: (id: string, direction: 'in' | 'out' | 'both', depth: number) =>
+    [...neighborsKeys.all, id, direction, depth] as const,
+};
+
+/**
+ * Fetch neighbors for a specific node (for graph expansion)
+ * Used for focus-based exploration: double-click a node to expand its connections
+ */
+export function useExpandNode(
+  nodeId: string | undefined,
+  direction: 'in' | 'out' | 'both' = 'both',
+  depth = 1
+) {
+  return useQuery<GraphData>({
+    queryKey: neighborsKeys.node(nodeId ?? '', direction, depth),
+    queryFn: async () => {
+      const { getNeighbors } = await import('@/services/api');
+      return getNeighbors(nodeId!, direction, undefined, depth);
+    },
+    enabled: !!nodeId,
+    staleTime: 60000, // Cache for 1 minute
+  });
+}

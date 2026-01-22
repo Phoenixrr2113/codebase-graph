@@ -17,6 +17,7 @@ import {
   search,
   source,
   projects,
+  nodes,
 } from './routes';
 
 /** Create and configure the Hono application */
@@ -52,6 +53,7 @@ export function createApp(): Hono {
   app.route('/api/search', search);
   app.route('/api/source', source);
   app.route('/api/projects', projects);
+  app.route('/api/nodes', nodes);
 
   // 404 handler for unmatched routes
   app.notFound(notFoundHandler);

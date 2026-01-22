@@ -12,3 +12,4 @@ export { query } from './query';
 export { search } from './search';
 export { source } from './source';
 export { projects } from './projects';
+export { nodes } from './nodes';
