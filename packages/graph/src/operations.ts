@@ -243,6 +243,21 @@ const CYPHER = {
     RETURN r
   `,
 
+  // Export edge operations
+  CREATE_EXPORTS_EDGE: `
+    MATCH (f:File {path: $filePath})
+    MATCH (symbol {name: $symbolName, filePath: $filePath})
+    MERGE (f)-[r:EXPORTS]->(symbol)
+    SET r.asName = $asName,
+        r.isDefault = $isDefault
+    RETURN r
+  `,
+
+  GET_FILE_EXPORTS: `
+    MATCH (f:File {path: $filePath})-[r:EXPORTS]->(symbol)
+    RETURN symbol.name as name, labels(symbol)[0] as type, r.asName as asName, r.isDefault as isDefault
+  `,
+
   // Delete operations - cascade delete file and all contained entities
   DELETE_FILE_ENTITIES: `
     MATCH (f:File {path: $path})-[:CONTAINS]->(e)

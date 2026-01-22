@@ -45,6 +45,19 @@ export interface ImportsSymbolEdge extends BaseEdge {
 }
 
 // ============================================================================
+// Export Edges
+// ============================================================================
+
+/** File exports a symbol (Function, Class, Interface, Variable, Type) */
+export interface ExportsEdge extends BaseEdge {
+  type: 'EXPORTS';
+  /** Export alias (for `export { foo as bar }`) */
+  asName?: string;
+  /** Whether this is the default export */
+  isDefault?: boolean;
+}
+
+// ============================================================================
 // Call Edges
 // ============================================================================
 
@@ -211,7 +224,8 @@ export type Edge =
   | DeletedInEdge
   | ReadsEdge
   | WritesEdge
-  | FlowsToEdge;
+  | FlowsToEdge
+  | ExportsEdge;
 
 /** Edge label types matching FalkorDB schema */
 export type EdgeLabel =
@@ -233,4 +247,5 @@ export type EdgeLabel =
   | 'DELETED_IN'
   | 'READS'
   | 'WRITES'
-  | 'FLOWS_TO';
+  | 'FLOWS_TO'
+  | 'EXPORTS';
