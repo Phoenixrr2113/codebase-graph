@@ -68,3 +68,15 @@ export type {
   RendersEdge,
   UsesHookEdge,
 } from '@codegraph/types';
+
+// Analysis module
+export {
+  calculateComplexity,
+  calculateCyclomatic,
+  calculateCognitive,
+  calculateNestingDepth,
+  classifyComplexity,
+  COMPLEXITY_THRESHOLDS,
+} from './analysis';
+
+export type { ComplexityMetrics } from './analysis';
