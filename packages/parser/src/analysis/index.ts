@@ -28,3 +28,23 @@ export {
   getPaymentVulnerabilityTypes,
   type PaymentScanOptions,
 } from './rules/payment';
+
+export {
+  analyzeImpact,
+  classifyRisk,
+  calculateRiskScore,
+  getDirectCallersQuery,
+  getTransitiveCallersQuery,
+  getAffectedTestsQuery,
+  isTestFile,
+  getAffectedFiles,
+  groupCallersByFile,
+  getImpactSummary,
+  RISK_WEIGHTS,
+  RISK_THRESHOLDS,
+  type ImpactAnalysisResult,
+  type ImpactAnalysisInput,
+  type ImpactAnalysisOptions,
+  type CallerInfo,
+  type TestInfo,
+} from './impact';
