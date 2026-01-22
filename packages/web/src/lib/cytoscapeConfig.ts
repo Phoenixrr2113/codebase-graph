@@ -19,6 +19,7 @@ export const NODE_COLORS: Record<NodeLabel, string> = {
   Variable: '#8b5cf6',  // Violet
   Type: '#ec4899',      // Pink
   Import: '#94a3b8',    // Slate (not in spec, using muted)
+  Commit: '#22c55e',    // Green (git history)
 };
 
 // ============================================================================
@@ -34,6 +35,7 @@ export const NODE_SHAPES: Record<NodeLabel, string> = {
   Variable: 'ellipse',
   Type: 'hexagon',
   Import: 'rectangle',
+  Commit: 'tag',
 };
 
 // ============================================================================
@@ -49,6 +51,7 @@ export const NODE_SIZES: Record<NodeLabel, { width: number; height: number }> = 
   Variable: { width: 20, height: 20 },
   Type: { width: 25, height: 25 },
   Import: { width: 25, height: 20 },
+  Commit: { width: 30, height: 25 },
 };
 
 // ============================================================================
@@ -69,6 +72,14 @@ export const EDGE_COLORS: Record<EdgeLabel, string> = {
   HAS_METHOD: '#f59e0b',
   HAS_PROPERTY: '#f59e0b',
   USES_HOOK: '#06b6d4',
+  INTRODUCED_IN: '#22c55e', // Green (git)
+  MODIFIED_IN: '#eab308',   // Yellow (git)
+  DELETED_IN: '#ef4444',    // Red (git)
+  READS: '#3b82f6',         // Blue (dataflow)
+  WRITES: '#f97316',        // Orange (dataflow)
+  FLOWS_TO: '#a855f7',      // Purple (dataflow)
+  EXPORTS: '#14b8a6',       // Teal
+  INSTANTIATES: '#f59e0b',  // Amber
 };
 
 // ============================================================================
