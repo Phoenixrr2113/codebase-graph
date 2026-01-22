@@ -258,6 +258,21 @@ const CYPHER = {
     RETURN symbol.name as name, labels(symbol)[0] as type, r.asName as asName, r.isDefault as isDefault
   `,
 
+  // Instantiation edge operations
+  CREATE_INSTANTIATES_EDGE: `
+    MATCH (fn:Function {name: $functionName, filePath: $functionFile})
+    MERGE (c:Class {name: $className, filePath: COALESCE($classFile, 'external')})
+    ON CREATE SET c:External
+    MERGE (fn)-[r:INSTANTIATES]->(c)
+    SET r.line = $line
+    RETURN r
+  `,
+
+  GET_CLASS_INSTANTIATIONS: `
+    MATCH (fn:Function)-[r:INSTANTIATES]->(c:Class {name: $className})
+    RETURN fn.name as functionName, fn.filePath as functionFile, r.line as line
+  `,
+
   // Delete operations - cascade delete file and all contained entities
   DELETE_FILE_ENTITIES: `
     MATCH (f:File {path: $path})-[:CONTAINS]->(e)

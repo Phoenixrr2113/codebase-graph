@@ -70,6 +70,13 @@ export interface CallsEdge extends BaseEdge {
   count?: number;
 }
 
+/** Function instantiates a class (new ClassName()) */
+export interface InstantiatesEdge extends BaseEdge {
+  type: 'INSTANTIATES';
+  /** Line number where instantiation occurs */
+  line: number;
+}
+
 // ============================================================================
 // Inheritance Edges
 // ============================================================================
@@ -225,7 +232,8 @@ export type Edge =
   | ReadsEdge
   | WritesEdge
   | FlowsToEdge
-  | ExportsEdge;
+  | ExportsEdge
+  | InstantiatesEdge;
 
 /** Edge label types matching FalkorDB schema */
 export type EdgeLabel =
@@ -248,4 +256,5 @@ export type EdgeLabel =
   | 'READS'
   | 'WRITES'
   | 'FLOWS_TO'
-  | 'EXPORTS';
+  | 'EXPORTS'
+  | 'INSTANTIATES';
