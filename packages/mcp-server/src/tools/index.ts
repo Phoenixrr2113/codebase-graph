@@ -17,6 +17,7 @@ import { complexityReportToolDefinition, getComplexityReport, type ComplexityRep
 import { repoMapToolDefinition, getRepoMap, type RepoMapInput } from './repoMap.js';
 import { queryGraphToolDefinition, queryGraph, type QueryGraphInput } from './queryGraph.js';
 import { symbolHistoryToolDefinition, getSymbolHistory, type SymbolHistoryInput } from './symbolHistory.js';
+import { analyzeRefactoringToolDefinition, analyzeFileForRefactoring, type AnalyzeRefactoringInput } from './analyzeRefactoring.js';
 
 // ============================================================================
 // Tool Definitions
@@ -60,6 +61,7 @@ export const tools: ToolDefinition[] = [
   repoMapToolDefinition,
   queryGraphToolDefinition,
   symbolHistoryToolDefinition,
+  analyzeRefactoringToolDefinition,
 ];
 
 // ============================================================================
@@ -166,6 +168,13 @@ const handlers: Record<string, ToolHandler> = {
       limit: (args.limit as number) || 20,
     };
     return getSymbolHistory(input);
+  },
+  analyze_file_for_refactoring: async (args) => {
+    const input: AnalyzeRefactoringInput = {
+      file: args.file as string,
+      threshold: (args.threshold as number) || 3,
+    };
+    return analyzeFileForRefactoring(input);
   },
 };
 

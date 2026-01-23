@@ -140,3 +140,26 @@ export type {
   SecuritySeverity,
   ScanOptions,
 } from './analysis';
+
+// Analysis module - Refactoring
+export {
+  analyzeRefactoring,
+  classifyCouplingLevel,
+  calculateCouplingScore,
+  isSafeToExtract,
+  getExtractionCandidatesQuery,
+  getInternalCallsQuery,
+  getExtractionOrder,
+  getRefactoringSummary,
+  needsRefactoring,
+  DEFAULT_EXTRACTION_THRESHOLD,
+  COUPLING_THRESHOLDS,
+} from './analysis';
+
+export type {
+  FunctionCoupling,
+  Responsibility,
+  RefactoringAnalysisResult,
+  RefactoringAnalysisInput,
+  RefactoringAnalysisOptions,
+} from './analysis';
