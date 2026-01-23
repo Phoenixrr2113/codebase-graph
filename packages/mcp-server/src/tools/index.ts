@@ -10,6 +10,9 @@ import { reindexToolDefinition, triggerReindex, type ReindexInput } from './rein
 import { findSymbolToolDefinition, findSymbol, type FindSymbolInput } from './findSymbol.js';
 import { searchCodeToolDefinition, searchCode, type SearchCodeInput } from './searchCode.js';
 import { explainCodeToolDefinition, explainCode, type ExplainCodeInput } from './explainCode.js';
+import { analyzeImpactToolDefinition, analyzeImpact, type AnalyzeImpactInput } from './analyzeImpact.js';
+import { findVulnerabilitiesToolDefinition, findVulnerabilities, type FindVulnerabilitiesInput } from './findVulnerabilities.js';
+import { traceDataFlowToolDefinition, traceDataFlow, type TraceDataFlowInput } from './traceDataFlow.js';
 
 // ============================================================================
 // Tool Definitions
@@ -46,6 +49,9 @@ export const tools: ToolDefinition[] = [
   findSymbolToolDefinition,
   searchCodeToolDefinition,
   explainCodeToolDefinition,
+  analyzeImpactToolDefinition,
+  findVulnerabilitiesToolDefinition,
+  traceDataFlowToolDefinition,
 ];
 
 // ============================================================================
@@ -97,6 +103,30 @@ const handlers: Record<string, ToolHandler> = {
       end_line: args.end_line as number | undefined,
     };
     return explainCode(input);
+  },
+  analyze_impact: async (args) => {
+    const input: AnalyzeImpactInput = {
+      symbol: args.symbol as string,
+      file: args.file as string | undefined,
+      depth: (args.depth as number) || 5,
+    };
+    return analyzeImpact(input);
+  },
+  find_vulnerabilities: async (args) => {
+    const input: FindVulnerabilitiesInput = {
+      scope: (args.scope as string) || 'all',
+      severity: (args.severity as 'critical' | 'high' | 'medium' | 'low' | 'all') || 'all',
+      category: (args.category as 'injection' | 'xss' | 'auth' | 'payment' | 'all') || 'all',
+    };
+    return findVulnerabilities(input);
+  },
+  trace_data_flow: async (args) => {
+    const input: TraceDataFlowInput = {
+      source: args.source as string,
+      sink: args.sink as string | undefined,
+      file: args.file as string | undefined,
+    };
+    return traceDataFlow(input);
   },
 };
 
