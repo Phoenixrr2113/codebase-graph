@@ -8,6 +8,8 @@
 import { indexStatusToolDefinition, getIndexStatus } from './indexStatus.js';
 import { reindexToolDefinition, triggerReindex, type ReindexInput } from './reindex.js';
 import { findSymbolToolDefinition, findSymbol, type FindSymbolInput } from './findSymbol.js';
+import { searchCodeToolDefinition, searchCode, type SearchCodeInput } from './searchCode.js';
+import { explainCodeToolDefinition, explainCode, type ExplainCodeInput } from './explainCode.js';
 
 // ============================================================================
 // Tool Definitions
@@ -42,6 +44,8 @@ export const tools: ToolDefinition[] = [
   indexStatusToolDefinition,
   reindexToolDefinition,
   findSymbolToolDefinition,
+  searchCodeToolDefinition,
+  explainCodeToolDefinition,
 ];
 
 // ============================================================================
@@ -76,6 +80,23 @@ const handlers: Record<string, ToolHandler> = {
       file: args.file as string | undefined,
     };
     return findSymbol(input);
+  },
+  search_code: async (args) => {
+    const input: SearchCodeInput = {
+      query: args.query as string,
+      type: (args.type as 'name' | 'fulltext' | 'pattern') || 'name',
+      scope: (args.scope as string) || 'all',
+      language: args.language as string | undefined,
+    };
+    return searchCode(input);
+  },
+  explain_code: async (args) => {
+    const input: ExplainCodeInput = {
+      file: args.file as string,
+      start_line: args.start_line as number | undefined,
+      end_line: args.end_line as number | undefined,
+    };
+    return explainCode(input);
   },
 };
 
