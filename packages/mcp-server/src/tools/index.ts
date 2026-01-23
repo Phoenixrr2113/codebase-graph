@@ -7,6 +7,7 @@
 
 import { indexStatusToolDefinition, getIndexStatus } from './indexStatus.js';
 import { reindexToolDefinition, triggerReindex, type ReindexInput } from './reindex.js';
+import { findSymbolToolDefinition, findSymbol, type FindSymbolInput } from './findSymbol.js';
 
 // ============================================================================
 // Tool Definitions
@@ -40,6 +41,7 @@ export const tools: ToolDefinition[] = [
   },
   indexStatusToolDefinition,
   reindexToolDefinition,
+  findSymbolToolDefinition,
 ];
 
 // ============================================================================
@@ -66,6 +68,14 @@ const handlers: Record<string, ToolHandler> = {
       scope: args.scope as string | undefined,
     };
     return triggerReindex(input);
+  },
+  find_symbol: async (args) => {
+    const input: FindSymbolInput = {
+      name: args.name as string,
+      kind: (args.kind as 'function' | 'class' | 'interface' | 'variable' | 'any') || 'any',
+      file: args.file as string | undefined,
+    };
+    return findSymbol(input);
   },
 };
 
