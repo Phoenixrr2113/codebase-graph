@@ -5,19 +5,19 @@
 
 // zod will be used in subsequent tasks for input validation
 
-import { indexStatusToolDefinition, getIndexStatus } from './indexStatus.js';
-import { reindexToolDefinition, triggerReindex, type ReindexInput } from './reindex.js';
-import { findSymbolToolDefinition, findSymbol, type FindSymbolInput } from './findSymbol.js';
-import { searchCodeToolDefinition, searchCode, type SearchCodeInput } from './searchCode.js';
-import { explainCodeToolDefinition, explainCode, type ExplainCodeInput } from './explainCode.js';
-import { analyzeImpactToolDefinition, analyzeImpact, type AnalyzeImpactInput } from './analyzeImpact.js';
-import { findVulnerabilitiesToolDefinition, findVulnerabilities, type FindVulnerabilitiesInput } from './findVulnerabilities.js';
-import { traceDataFlowToolDefinition, traceDataFlow, type TraceDataFlowInput } from './traceDataFlow.js';
-import { complexityReportToolDefinition, getComplexityReport, type ComplexityReportInput } from './complexityReport.js';
-import { repoMapToolDefinition, getRepoMap, type RepoMapInput } from './repoMap.js';
-import { queryGraphToolDefinition, queryGraph, type QueryGraphInput } from './queryGraph.js';
-import { symbolHistoryToolDefinition, getSymbolHistory, type SymbolHistoryInput } from './symbolHistory.js';
-import { analyzeRefactoringToolDefinition, analyzeFileForRefactoring, type AnalyzeRefactoringInput } from './analyzeRefactoring.js';
+import { indexStatusToolDefinition, getIndexStatus } from './indexStatus';
+import { reindexToolDefinition, triggerReindex, type ReindexInput } from './reindex';
+import { findSymbolToolDefinition, findSymbol, type FindSymbolInput } from './findSymbol';
+import { searchCodeToolDefinition, searchCode, type SearchCodeInput } from './searchCode';
+import { explainCodeToolDefinition, explainCode, type ExplainCodeInput } from './explainCode';
+import { analyzeImpactToolDefinition, analyzeImpact, type AnalyzeImpactInput } from './analyzeImpact';
+import { findVulnerabilitiesToolDefinition, findVulnerabilities, type FindVulnerabilitiesInput } from './findVulnerabilities';
+import { traceDataFlowToolDefinition, traceDataFlow, type TraceDataFlowInput } from './traceDataFlow';
+import { complexityReportToolDefinition, getComplexityReport, type ComplexityReportInput } from './complexityReport';
+import { repoMapToolDefinition, getRepoMap, type RepoMapInput } from './repoMap';
+import { queryGraphToolDefinition, queryGraph, type QueryGraphInput } from './queryGraph';
+import { symbolHistoryToolDefinition, getSymbolHistory, type SymbolHistoryInput } from './symbolHistory';
+import { analyzeRefactoringToolDefinition, analyzeFileForRefactoring, type AnalyzeRefactoringInput } from './analyzeRefactoring';
 
 // ============================================================================
 // Tool Definitions
