@@ -1,0 +1,2077 @@
+# ============================================================================
+# CODEMIND AI - BUILD PLAN v2 (SIMPLIFIED)
+# Codebase intelligence: tree-sitter + knowledge graphs + LLM
+# NO vector store - graph handles 90% of queries, tree-sitter handles the rest
+# ============================================================================
+
+project:
+  name: CodeMind AI
+  version: "2.0"
+  description: Deep codebase understanding through AST extraction, knowledge graphs, and LLM-powered queries
+  language: TypeScript
+  runtime: Bun (fallback: Node.js 20+)
+  
+  design_philosophy:
+    - Graph-first: Structure and relationships are the core value
+    - No embedding complexity: Full-text search + patterns cover semantic needs
+    - Fast indexing: 30-60 seconds for any codebase, not minutes
+    - Incremental by default: Only re-process what changed
+    - Works offline: No API dependencies for core functionality
+
+# ============================================================================
+# ARCHITECTURE (SIMPLIFIED)
+# ============================================================================
+
+architecture:
+  overview: |
+    Two-layer system: Knowledge Graph for structure/relationships,
+    Tree-sitter for live pattern matching and security scans.
+    No vector store, no embeddings, no external API dependencies.
+    
+  diagram: |
+    ┌─────────────────────────────────────────────────────────┐
+    │                     USER QUERY                           │
+    │  "What calls processPayment?" / "Find SQL injection"    │
+    └─────────────────────────┬───────────────────────────────┘
+                              │
+                              ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │                   QUERY ROUTER                           │
+    │  Decides: graph query vs tree-sitter scan vs hybrid     │
+    └───────┬─────────────────┬───────────────────────────────┘
+            │                 │                 
+            ▼                 ▼                 
+    ┌───────────────┐ ┌───────────────┐ 
+    │ KNOWLEDGE     │ │ TREE-SITTER   │ 
+    │ GRAPH         │ │ (LIVE)        │ 
+    │ (Memgraph)    │ │               │ 
+    │               │ │ • Pattern     │ 
+    │ • Structure   │ │   matching    │ 
+    │ • Relations   │ │ • Security    │ 
+    │ • History     │ │   scanning    │ 
+    │ • Metrics     │ │ • Ad-hoc AST  │ 
+    │ • Full-text   │ │   queries     │ 
+    │   search      │ │ • Fresh parse │ 
+    └───────┬───────┘ └───────┬───────┘ 
+            │                 │         
+            └────────┬────────┘         
+                     │                  
+                     ▼                  
+              ┌─────────────┐           
+              │ FILE SYSTEM │           
+              │ + GIT       │           
+              │             │           
+              │ • Source    │           
+              │ • Blame     │           
+              │ • History   │           
+              └─────────────┘           
+              
+  data_flow:
+    indexing:
+      - Walk filesystem (respecting .gitignore)
+      - Parse each file with tree-sitter
+      - Extract symbols and relationships
+      - Compute metrics (complexity, lines)
+      - Ingest into graph database
+      - Analyze git history for temporal data
+      - Total time: 30-60 seconds typical
+      
+    querying:
+      structural: Graph only (10-50ms)
+      pattern_matching: Tree-sitter live (50-100ms)
+      hybrid: Graph + tree-sitter + file read (100-200ms)
+      
+  query_routing:
+    description: Route queries to appropriate data source
+    
+    rules:
+      - pattern: "what/which/list functions/classes in X"
+        source: graph
+        example: "What functions are in PaymentService.ts?"
+        
+      - pattern: "what calls/imports/depends on X"
+        source: graph
+        example: "What calls processPayment?"
+        
+      - pattern: "when did X change / who wrote X"
+        source: graph + git
+        example: "When did CheckoutPage get so complex?"
+        
+      - pattern: "show me the code for X"
+        source: graph + filesystem
+        example: "Show me the validateAmount function"
+        
+      - pattern: "find all X pattern"
+        source: tree-sitter
+        example: "Find all console.log statements"
+        
+      - pattern: "security scan / find vulnerabilities"
+        source: tree-sitter + graph
+        example: "Find SQL injection vulnerabilities"
+        
+      - pattern: "trace data from X to Y"
+        source: graph + tree-sitter
+        example: "Trace user input to database queries"
+        
+      - pattern: "impact of changing X"
+        source: graph (transitive traversal)
+        example: "What breaks if I modify this function?"
+
+# ============================================================================
+# REFERENCE REPOSITORIES
+# ============================================================================
+
+reference_repos:
+  core_extraction:
+    - name: Aider-AI/aider
+      url: https://github.com/Aider-AI/aider
+      copy: RepoMap implementation, tags.scm queries, PageRank ranking
+      files:
+        - aider/repomap.py
+        - aider/queries/*.scm
+      
+    - name: wrale/mcp-server-tree-sitter
+      url: https://github.com/wrale/mcp-server-tree-sitter
+      copy: MCP server structure, symbol extraction, caching patterns
+      
+    - name: ctoth/mcp_server_code_extractor
+      url: https://github.com/ctoth/mcp_server_code_extractor
+      copy: Function/class extraction with line numbers, search patterns
+      
+    - name: pdavis68/RepoMapper
+      url: https://github.com/pdavis68/RepoMapper
+      copy: Standalone RepoMap, simpler architecture
+      
+    - name: aimasteracc/tree-sitter-analyzer
+      url: https://github.com/aimasteracc/tree-sitter-analyzer
+      copy: Complexity metrics, partial reads, CLI patterns
+
+  knowledge_graph:
+    - name: vitali87/code-graph-rag
+      url: https://github.com/vitali87/code-graph-rag
+      copy: GraphRAG with Tree-sitter, Cypher queries, MCP integration
+      
+    - name: ChrisRoyse/CodeGraph
+      url: https://github.com/ChrisRoyse/CodeGraph
+      copy: Neo4j schema, TypeScript compiler API
+      
+    - name: tree-sitter/tree-sitter-graph
+      url: https://github.com/tree-sitter/tree-sitter-graph
+      copy: DSL for building graphs from AST
+
+  security_analysis:
+    - name: semgrep/semgrep
+      url: https://github.com/semgrep/semgrep
+      copy: Taint analysis patterns, rule syntax
+      
+    - name: semgrep/semgrep-rules
+      url: https://github.com/semgrep/semgrep-rules
+      copy: 20,000+ security rules for pattern reference
+
+# ============================================================================
+# TECH STACK (SIMPLIFIED)
+# ============================================================================
+
+tech_stack:
+  runtime: 
+    primary: Bun
+    fallback: Node.js 20+
+    
+  parsing:
+    core:
+      - tree-sitter
+    languages:
+      - tree-sitter-typescript
+      - tree-sitter-javascript  
+      - tree-sitter-python
+      - tree-sitter-c-sharp
+      - tree-sitter-java
+      - tree-sitter-go
+      - tree-sitter-rust
+      - tree-sitter-json
+      - tree-sitter-yaml
+    
+  graph_database:
+    primary: 
+      name: Memgraph
+      reason: Fast, in-memory, Cypher-compatible, Docker-friendly
+      features:
+        - Full-text search built-in
+        - MAGE graph algorithms (PageRank, etc.)
+        - Bolt protocol (neo4j-driver compatible)
+    alternative:
+      name: Neo4j
+      reason: More mature, better tooling if needed
+      
+  # REMOVED: vector_store - not needed for core functionality
+      
+  agent_interface:
+    - package: "@modelcontextprotocol/sdk"
+      purpose: MCP server for Claude/Cursor integration
+    - package: "@anthropic-ai/sdk"
+      purpose: Claude API for LLM-powered explanations
+      
+  utilities:
+    - package: simple-git
+      purpose: Git operations for temporal analysis
+    - package: glob
+      purpose: File pattern matching
+    - package: tiktoken
+      purpose: Token counting for context assembly
+    - package: ignore
+      purpose: .gitignore parsing
+
+# ============================================================================
+# PROJECT STRUCTURE
+# ============================================================================
+
+project_structure:
+  root: codemind/
+  directories:
+    src/:
+      extractors/:
+        - base.ts           # Abstract extractor interface
+        - typescript.ts     # TypeScript/JavaScript extraction
+        - python.ts         # Python extraction
+        - csharp.ts         # C# extraction
+        - java.ts           # Java extraction
+        - react.ts          # React-specific patterns
+        - index.ts          # Language registry
+        
+      graph/:
+        - schema.ts         # Node and edge type definitions
+        - client.ts         # Memgraph connection + queries
+        - ingestion.ts      # Extraction results → Graph
+        - queries.ts        # Common Cypher query builders
+        - search.ts         # Full-text search helpers
+        - index.ts
+        
+      analysis/:
+        - complexity.ts     # Cyclomatic complexity, nesting depth
+        - dataflow.ts       # Taint tracking, source→sink
+        - security.ts       # Vulnerability pattern matching
+        - temporal.ts       # Git history analysis
+        - impact.ts         # Change impact analysis
+        - index.ts
+        
+      agent/:
+        - mcp-server.ts     # MCP server entry point
+        - tools.ts          # Tool definitions
+        - context.ts        # Token-aware context assembly
+        - repomap.ts        # Aider-style repo map generation
+        - router.ts         # Query routing logic
+        - index.ts
+        
+      utils/:
+        - parser.ts         # Parser factory and caching
+        - walker.ts         # File system walking with gitignore
+        - tokens.ts         # Token counting utilities
+        - index.ts
+        
+    queries/:
+      - typescript.scm    # Tree-sitter queries for TS
+      - python.scm
+      - csharp.scm
+      - java.scm
+      - common.scm        # Cross-language patterns
+      - security.scm      # Security vulnerability patterns
+      
+    rules/:
+      - security.yaml     # Security vulnerability rules
+      - payment.yaml      # Payment-specific rules
+      - react.yaml        # React anti-patterns
+      
+    tests/:
+      - extractors/
+      - graph/
+      - analysis/
+      - fixtures/         # Sample code for testing
+      
+  config_files:
+    - package.json
+    - tsconfig.json
+    - .env.example
+    - docker-compose.yaml  # Memgraph setup
+
+# ============================================================================
+# GRAPH DATABASE SCHEMA
+# ============================================================================
+
+graph_schema:
+  nodes:
+    File:
+      properties:
+        - path: string (unique, indexed)
+        - language: string (indexed)
+        - lines: int
+        - codeLines: int
+        - commentLines: int
+        - size: int
+        - hash: string (content hash for change detection)
+        - lastModified: datetime (filesystem mtime)
+        - lastIndexed: datetime (when we indexed it)
+        - indexVersion: string (schema version)
+        - parseError: boolean (true if parsing failed)
+        - extractionComplete: boolean (true if fully extracted)
+        
+    Metadata:
+      description: Graph-level metadata for index state tracking
+      properties:
+        - key: string (unique)
+        - value: string
+      instances:
+        - key: repoPath, value: absolute path to repo
+        - key: lastFullIndex, value: ISO datetime
+        - key: lastIncrementalIndex, value: ISO datetime
+        - key: lastCommitSynced, value: git commit hash
+        - key: schemaVersion, value: "1.0"
+        - key: fileCount, value: count as string
+        - key: symbolCount, value: count as string
+        
+    Function:
+      properties:
+        - id: string (unique: file:name:line)
+        - name: string (indexed, full-text)
+        - signature: string (full-text)
+        - async: boolean
+        - generator: boolean
+        - exported: boolean
+        - visibility: string
+        - complexity: int (indexed)
+        - cognitiveComplexity: int
+        - nestingDepth: int
+        - paramCount: int
+        - startLine: int
+        - endLine: int
+        - pure: boolean
+        
+    Class:
+      properties:
+        - id: string (unique)
+        - name: string (indexed, full-text)
+        - abstract: boolean
+        - exported: boolean
+        - visibility: string
+        - decorators: string[]
+        - startLine: int
+        - endLine: int
+        
+    Interface:
+      properties:
+        - id: string (unique)
+        - name: string (indexed, full-text)
+        - exported: boolean
+        - startLine: int
+        - endLine: int
+        
+    Variable:
+      properties:
+        - id: string (unique)
+        - name: string (indexed)
+        - kind: string (const/let/var)
+        - type: string
+        - exported: boolean
+        - scope: string
+        
+    Type:
+      properties:
+        - id: string (unique)
+        - name: string (indexed, full-text)
+        - kind: string (alias/literal/union/intersection)
+        - definition: string
+        
+    Component:
+      description: React component (extends Function/Class)
+      properties:
+        - id: string (unique)
+        - name: string (indexed)
+        - kind: string (function/class)
+        - hooks: string[]
+        - propsType: string
+        - hasState: boolean
+        - hasEffects: boolean
+        
+    Commit:
+      properties:
+        - hash: string (unique, indexed)
+        - message: string (full-text)
+        - author: string (indexed)
+        - email: string
+        - date: datetime (indexed)
+        
+  relationships:
+    structural:
+      - type: CONTAINS
+        from: File
+        to: [Function, Class, Interface, Variable, Type, Component]
+        
+      - type: EXPORTS
+        from: File
+        to: [Function, Class, Interface, Variable, Type]
+        properties:
+          - asName: string
+          
+      - type: IMPORTS
+        from: File
+        to: File
+        properties:
+          - symbols: string[]
+          - isTypeOnly: boolean
+          - isDefault: boolean
+          - isNamespace: boolean
+          
+    inheritance:
+      - type: EXTENDS
+        from: [Class, Interface]
+        to: [Class, Interface]
+        
+      - type: IMPLEMENTS
+        from: Class
+        to: Interface
+        
+    invocation:
+      - type: CALLS
+        from: [Function, Class]
+        to: [Function, Class]
+        properties:
+          - line: int
+          - column: int
+          - count: int
+          
+      - type: INSTANTIATES
+        from: Function
+        to: Class
+        properties:
+          - line: int
+          
+    data_flow:
+      - type: READS
+        from: Function
+        to: Variable
+        properties:
+          - line: int
+          
+      - type: WRITES
+        from: Function
+        to: Variable
+        properties:
+          - line: int
+          
+      - type: FLOWS_TO
+        from: [Variable, Function]
+        to: [Variable, Function]
+        properties:
+          - transformation: string
+          - tainted: boolean
+          - sanitized: boolean
+          
+    temporal:
+      - type: INTRODUCED_IN
+        from: [Function, Class, File]
+        to: Commit
+        
+      - type: MODIFIED_IN
+        from: [Function, Class, File]
+        to: Commit
+        properties:
+          - linesAdded: int
+          - linesRemoved: int
+          - complexityDelta: int
+          
+      - type: DELETED_IN
+        from: [Function, Class, File]
+        to: Commit
+        
+    react_specific:
+      - type: RENDERS
+        from: Component
+        to: Component
+        
+      - type: USES_HOOK
+        from: Component
+        to: Function
+        properties:
+          - hookName: string
+          
+      - type: USES_CONTEXT
+        from: Component
+        to: Variable
+        
+  indexes:
+    btree:
+      - File.path
+      - Function.name
+      - Function.complexity
+      - Class.name
+      - Commit.hash
+      - Commit.date
+      - Commit.author
+      
+    fulltext:
+      - name: symbol_search
+        on: [Function.name, Function.signature, Class.name, Interface.name, Type.name]
+      - name: commit_search
+        on: [Commit.message]
+
+# ============================================================================
+# INDEXING STRATEGY
+# ============================================================================
+
+indexing:
+  modes:
+    full_index:
+      description: Complete extraction and ingestion of entire codebase
+      when:
+        - First time indexing a repo
+        - User runs `codemind extract --full`
+        - Graph database was cleared/corrupted
+        - Major schema changes require re-extraction
+      process:
+        - Clear existing nodes for this repo
+        - Walk entire filesystem
+        - Parse all files
+        - Extract all symbols and relationships
+        - Compute all metrics
+        - Analyze full git history
+      time: 30-120 seconds depending on repo size
+      
+    incremental_index:
+      description: Only process changed files since last index
+      when:
+        - Default mode for `codemind extract`
+        - File watcher detects changes
+        - Pre-commit hook triggers
+        - MCP tool call with changes detected
+      process:
+        - Query graph for existing file hashes
+        - Compare to current filesystem state
+        - Identify: added, modified, deleted, renamed files
+        - Process only changed files
+        - Update relationships affected by changes
+        - Update git history for new commits only
+      time: 1-10 seconds typical
+      
+    on_demand:
+      description: Index specific files when queried but not in graph
+      when:
+        - Query references file not in graph
+        - User explicitly requests fresh parse
+        - File modified since last index (detected at query time)
+      process:
+        - Parse single file
+        - Extract symbols
+        - Ingest to graph
+        - Mark for relationship resolution on next incremental
+      time: <1 second per file
+      
+  change_detection:
+    method: content_hash
+    algorithm: SHA-256 of file contents
+    stored_in: File.hash property in graph
+    
+    detection_process:
+      - step: Get current files
+        action: |
+          Walk filesystem with .gitignore
+          Calculate hash for each file
+          Build map: {path -> hash}
+          
+      - step: Get indexed files
+        action: |
+          MATCH (f:File) 
+          WHERE f.repo = $repoPath
+          RETURN f.path, f.hash
+          
+      - step: Compare
+        action: |
+          added = current_files - indexed_files (by path)
+          deleted = indexed_files - current_files (by path)
+          modified = files where hash differs
+          unchanged = files where hash matches
+          
+      - step: Detect renames
+        action: |
+          For each (deleted, added) pair:
+            If deleted.hash == added.hash:
+              Mark as rename (deleted.path -> added.path)
+              
+    what_triggers_reindex:
+      content_change: File hash differs
+      metadata_only: mtime differs but hash same → skip reindex
+      
+  file_operations:
+    added_file:
+      process:
+        - Parse file
+        - Extract symbols
+        - Create File node
+        - Create Symbol nodes with CONTAINS edges
+        - Resolve IMPORTS to existing files
+        - Queue for CALLS resolution
+      relationships:
+        - Outgoing IMPORTS: resolved immediately
+        - Incoming IMPORTS: other files need re-check (deferred)
+        - CALLS: resolved in batch after all adds processed
+        
+    modified_file:
+      process:
+        - Re-parse file
+        - Extract symbols
+        - Diff against existing symbols in graph
+        - Update changed symbols (MERGE)
+        - Remove deleted symbols
+        - Add new symbols
+        - Re-resolve relationships
+      optimization: |
+        If only function body changed (same signature):
+          - Update metrics only
+          - Skip relationship re-resolution
+          
+    deleted_file:
+      process:
+        - Remove File node (CASCADE deletes CONTAINS symbols)
+        - Find orphaned relationship targets
+        - Mark incoming IMPORTS as broken (optional: keep as warning)
+        - Remove CALLS edges from deleted functions
+      query: |
+        MATCH (f:File {path: $path})
+        DETACH DELETE f
+        
+    renamed_file:
+      process:
+        - Detect via hash matching (deleted + added with same hash)
+        - Update File.path property
+        - Update all Symbol.file properties
+        - Update IMPORTS edges pointing to old path
+        - Preserve all other relationships and history
+      optimization: No re-parsing needed, just path updates
+      query: |
+        MATCH (f:File {path: $oldPath})
+        SET f.path = $newPath
+        WITH f
+        MATCH (f)-[:CONTAINS]->(s)
+        SET s.file = $newPath
+        
+  relationship_resolution:
+    imports:
+      when: File added or modified
+      process:
+        - Parse import statements
+        - Resolve relative paths
+        - Resolve node_modules paths
+        - Create/update IMPORTS edges
+        - Mark unresolved imports (external packages)
+        
+    calls:
+      when: After all file changes processed (batch)
+      process:
+        - For each function, find CALLS targets
+        - Match by name + import context
+        - Create CALLS edges with location info
+      challenge: |
+        Cross-file call resolution requires knowing all symbols.
+        Process in two passes:
+        1. Extract all symbols
+        2. Resolve all calls
+        
+    inheritance:
+      when: Class/interface added or modified
+      process:
+        - Parse extends/implements clauses
+        - Resolve to target Class/Interface nodes
+        - Create EXTENDS/IMPLEMENTS edges
+        
+  git_history_sync:
+    when:
+      - Full index: analyze all commits
+      - Incremental: only new commits since last sync
+      
+    tracking:
+      stored: Last synced commit hash in graph metadata
+      query: |
+        MATCH (m:Metadata {key: 'lastCommit'})
+        RETURN m.value
+        
+    process:
+      - Get commits since last sync
+      - For each commit:
+        - Get changed files
+        - Create Commit node if not exists
+        - Create MODIFIED_IN edges for changed files
+        - Calculate complexity delta if possible
+      - Update lastCommit metadata
+      
+    complexity_delta:
+      challenge: Need to parse old version to compare
+      options:
+        simple: Store only that file changed, not delta
+        accurate: Checkout old version, parse, compare (slow)
+        hybrid: Calculate delta only for high-value files
+      recommendation: Start with simple, add accurate for hotspot files
+      
+  triggers:
+    manual:
+      - `codemind extract` - incremental by default
+      - `codemind extract --full` - force full reindex
+      - `codemind extract --file path/to/file.ts` - single file
+      
+    git_hooks_recommended:
+      description: Best approach - index stays in sync with commits
+      post_commit:
+        script: |
+          #!/bin/bash
+          codemind extract --incremental
+        purpose: Keep graph in sync with commits automatically
+        
+      pre_push:
+        script: |
+          #!/bin/bash
+          codemind analyze security --scope changed --fail-on critical
+        purpose: Security scan before pushing, fail if critical issues
+        
+    ci_integration:
+      on_pr:
+        - Extract changed files
+        - Run impact analysis
+        - Comment with affected code summary
+      on_merge:
+        - Full incremental sync
+        - Update production graph (if applicable)
+        
+  cache_management:
+    parse_tree_cache:
+      type: LRU cache
+      size: 100 most recent parse trees
+      key: file path + content hash
+      eviction: Least recently used
+      purpose: Avoid re-parsing unchanged files during session
+      
+    graph_query_cache:
+      type: Optional query result cache
+      ttl: 60 seconds (or until next index update)
+      invalidation: Clear on any graph mutation
+      purpose: Speed up repeated queries during exploration
+      
+  state_tracking:
+    graph_metadata:
+      node: (m:Metadata)
+      properties:
+        - lastFullIndex: datetime
+        - lastIncrementalIndex: datetime
+        - lastCommitSynced: string (git hash)
+        - repoPath: string
+        - schemaVersion: string
+        - fileCount: int
+        - symbolCount: int
+        
+    per_file_state:
+      stored_on: File node
+      properties:
+        - hash: content hash at index time
+        - lastIndexed: datetime
+        - indexVersion: schema version when indexed
+        
+  error_handling:
+    parse_error:
+      action: Log warning, skip file, continue
+      stored: File node with parseError: true
+      retry: On next incremental if file changes
+      
+    partial_extraction:
+      action: Store what we got, mark incomplete
+      stored: File node with extractionComplete: false
+      
+    relationship_resolution_failure:
+      action: Create edge with resolved: false
+      example: IMPORTS edge to unknown module
+      
+    git_history_error:
+      action: Log, continue without history
+      stored: Metadata.gitHistoryComplete: false
+
+# ============================================================================
+# EXTRACTION LAYER
+# ============================================================================
+
+extraction:
+  triggers:
+    - CLI: `codemind extract ./path/to/repo`
+    - MCP tool: `extract_codebase`
+    - File watcher in watch mode
+    - Git hooks (post-commit, pre-push)
+    
+  performance_targets:
+    small_repo: # <100 files
+      extraction: <5 seconds
+      ingestion: <5 seconds
+      total: <10 seconds
+      
+    medium_repo: # 100-1000 files
+      extraction: <20 seconds
+      ingestion: <20 seconds
+      total: <40 seconds
+      
+    large_repo: # 1000-10000 files
+      extraction: <60 seconds
+      ingestion: <60 seconds
+      total: <2 minutes
+      
+  node_types_to_extract:
+    structural:
+      - files
+      - modules
+      - classes
+      - interfaces
+      - functions
+      - methods
+      - properties
+      - variables
+      - types
+      - enums
+      - parameters
+      
+    control_flow:
+      - conditionals
+      - loops
+      - jumps
+      - guards
+      - try_catch
+      
+    react_specific:
+      - components
+      - hooks
+      - props
+      - state
+      - context
+      - refs
+      
+  steps:
+    - step: Initialize
+      action: |
+        Load tree-sitter parsers for detected languages
+        Connect to graph database
+        Initialize file walker with .gitignore
+      time: ~1 second
+      
+    - step: Walk filesystem
+      action: |
+        Traverse repo respecting .gitignore
+        Build file list with metadata (size, hash, mtime)
+        Filter by language/pattern
+      time: ~2-5 seconds for 1000 files
+      
+    - step: Incremental check
+      action: |
+        Compare file hashes to existing graph
+        Skip unchanged files
+        Mark deleted files for removal
+      time: ~1 second
+      
+    - step: Parse files (parallel)
+      action: |
+        Parse each file with appropriate tree-sitter parser
+        Cache parse trees in LRU cache
+        Handle parse errors gracefully
+      parallelism: 4-8 workers
+      time: ~10-30 seconds for 1000 files
+      
+    - step: Extract symbols
+      action: |
+        Run .scm queries against each AST
+        Capture name, location, signature, modifiers
+        Build symbol table per file
+      time: ~5-15 seconds for 1000 files
+      
+    - step: Extract relationships
+      action: |
+        Run relationship queries against AST
+        Resolve cross-file references
+        Build dependency edges
+      time: ~5-10 seconds for 1000 files
+      
+    - step: Calculate metrics
+      action: |
+        Compute cyclomatic complexity per function
+        Calculate cognitive complexity
+        Count nesting depth
+        Compute lines of code
+      time: ~2-5 seconds for 1000 files
+      
+    - step: Ingest to graph
+      action: |
+        Batch upsert nodes (MERGE)
+        Batch upsert relationships
+        Remove stale nodes for deleted files
+      time: ~10-20 seconds for 1000 files
+      
+    - step: Git analysis (background)
+      action: |
+        Parse git log for file history
+        Create Commit nodes
+        Link symbols to commits
+      time: ~10-30 seconds (can run async)
+
+# ============================================================================
+# ANALYSIS CAPABILITIES
+# ============================================================================
+
+analysis:
+  complexity:
+    metrics:
+      cyclomatic:
+        description: Linearly independent paths through code
+        calculation: |
+          1 + (if/else if/case/for/while/do-while/catch/&&/||/?/??)
+        thresholds:
+          low: 1-10
+          medium: 11-20
+          high: 21-50
+          critical: 50+
+          
+      cognitive:
+        description: How hard to understand
+        calculation: |
+          +1 per break in linear flow
+          +1 per nesting level (cumulative)
+          +1 per boolean sequence
+        thresholds:
+          low: 1-15
+          medium: 16-30
+          high: 31+
+          
+      nesting_depth:
+        thresholds:
+          acceptable: 1-4
+          warning: 5-6
+          critical: 7+
+          
+    queries:
+      hotspots: |
+        MATCH (f:Function)
+        WHERE f.complexity > 20
+        RETURN f.name, f.file, f.complexity, f.nestingDepth
+        ORDER BY f.complexity DESC
+        LIMIT 20
+        
+      complexity_by_file: |
+        MATCH (file:File)-[:CONTAINS]->(f:Function)
+        WITH file, avg(f.complexity) as avgComplexity, max(f.complexity) as maxComplexity
+        RETURN file.path, avgComplexity, maxComplexity
+        ORDER BY avgComplexity DESC
+        
+  security:
+    approach: |
+      Combine graph-stored relationships with live tree-sitter scans.
+      Graph tracks data flow edges (FLOWS_TO with tainted property).
+      Tree-sitter validates specific patterns on demand.
+      
+    taint_sources:
+      user_input:
+        - request.body, request.query, request.params
+        - req.body, ctx.request.body
+        - event.body (Lambda)
+        - process.env
+        - fs.readFileSync
+        
+      api_response:
+        - fetch(...).then(r => r.json())
+        - axios.*.data
+        - response.data
+        
+    taint_sinks:
+      sql_injection:
+        patterns:
+          - db.query($TAINTED)
+          - connection.execute($TAINTED)
+          - knex.raw($TAINTED)
+          - prisma.$queryRaw($TAINTED)
+        severity: critical
+        
+      command_injection:
+        patterns:
+          - exec($TAINTED)
+          - spawn($TAINTED)
+          - child_process.exec($TAINTED)
+        severity: critical
+        
+      xss:
+        patterns:
+          - innerHTML = $TAINTED
+          - dangerouslySetInnerHTML={{__html: $TAINTED}}
+          - document.write($TAINTED)
+        severity: high
+        
+      path_traversal:
+        patterns:
+          - fs.readFile($TAINTED)
+          - fs.readFileSync($TAINTED)
+          - path.join(..., $TAINTED)
+        severity: high
+        
+    payment_rules:
+      unvalidated_amount:
+        description: Payment amount from user input without validation
+        sources: [request.body.amount, req.body.amount]
+        sinks:
+          - stripe.charges.create({amount: $})
+          - stripe.paymentIntents.create({amount: $})
+          - adyen.payments({amount: {value: $}})
+        severity: critical
+        
+      pci_data_logging:
+        description: Card data potentially logged
+        patterns:
+          - console.log(*cardNumber*)
+          - console.log(*cvv*)
+          - logger.*(pan)
+        severity: critical
+        
+      hardcoded_keys:
+        patterns:
+          - /sk_live_[a-zA-Z0-9]+/
+          - /sk_test_[a-zA-Z0-9]+/
+        severity: critical
+        
+  temporal:
+    metrics:
+      change_frequency: commits_touching_symbol / total_commits
+      code_age: days since last modification
+      author_count: unique authors
+      churn: lines added + lines removed
+      hotspot_score: complexity × change_frequency
+      
+    queries:
+      function_history: |
+        MATCH (f:Function {name: $name})-[m:MODIFIED_IN]->(c:Commit)
+        RETURN c.date, c.author, c.message, m.linesAdded, m.linesRemoved
+        ORDER BY c.date DESC
+        
+      file_ownership: |
+        MATCH (f:File {path: $path})-[m:MODIFIED_IN]->(c:Commit)
+        RETURN c.author, count(*) as commits, sum(m.linesAdded) as linesAdded
+        ORDER BY linesAdded DESC
+        
+      complexity_over_time: |
+        MATCH (f:Function {name: $name})-[m:MODIFIED_IN]->(c:Commit)
+        WHERE m.complexityDelta IS NOT NULL
+        RETURN c.date, m.complexityDelta
+        ORDER BY c.date
+        
+      hotspots: |
+        MATCH (f:Function)-[m:MODIFIED_IN]->(c:Commit)
+        WITH f, count(c) as changes
+        RETURN f.name, f.file, changes, f.complexity, 
+               changes * f.complexity as hotspotScore
+        ORDER BY hotspotScore DESC
+        LIMIT 20
+        
+  impact:
+    steps:
+      - Find target symbol in graph
+      - Get direct callers (CALLS relationship)
+      - Get transitive callers (CALLS*1..N)
+      - Find affected test files
+      - Calculate risk score
+      
+    risk_calculation: |
+      risk = (direct_callers × 2) + 
+             (transitive_callers × 0.5) + 
+             (no_test_coverage ? 10 : 0) +
+             (complexity > 20 ? 5 : 0)
+             
+    queries:
+      direct_impact: |
+        MATCH (target:Function {name: $name})<-[:CALLS]-(caller:Function)
+        RETURN caller.name, caller.file
+        
+      transitive_impact: |
+        MATCH path = (target:Function {name: $name})<-[:CALLS*1..5]-(caller:Function)
+        RETURN DISTINCT caller.name, caller.file, length(path) as depth
+        ORDER BY depth
+        
+      affected_tests: |
+        MATCH (target:Function {name: $name})<-[:CALLS*]-(test:Function)
+        WHERE test.file CONTAINS '.test.' OR test.file CONTAINS '.spec.'
+        RETURN DISTINCT test.name, test.file
+        
+  refactoring:
+    coupling_analysis: |
+      For each function in file, calculate:
+      - internal_calls: calls to functions in same file
+      - state_reads: reads of file-scoped variables
+      - coupling_score: internal_calls + state_reads
+      
+      Functions with coupling_score < 3 are safe to extract.
+      
+    extraction_candidates: |
+      MATCH (file:File {path: $path})-[:CONTAINS]->(fn:Function)
+      OPTIONAL MATCH (fn)-[:CALLS]->(internal:Function)
+      WHERE internal.file = file.path
+      OPTIONAL MATCH (fn)-[:READS]->(v:Variable)
+      WHERE v.file = file.path
+      WITH fn, count(DISTINCT internal) as internalCalls, 
+           count(DISTINCT v) as stateReads
+      RETURN fn.name, fn.startLine, fn.endLine,
+             internalCalls + stateReads as couplingScore
+      ORDER BY couplingScore ASC
+
+# ============================================================================
+# MCP AGENT INTERFACE
+# ============================================================================
+
+mcp_tools:
+  # Index management
+  get_index_status:
+    description: Check the current state of the code index
+    parameters:
+      repo: { type: string, description: "Repo path (default: current)" }
+    returns:
+      - lastFullIndex: datetime
+      - lastIncrementalIndex: datetime
+      - fileCount: int
+      - symbolCount: int
+      - staleFiles: int (files changed since last index)
+      - lastCommitSynced: string
+      - pendingCommits: int
+      
+  trigger_reindex:
+    description: Trigger a reindex of the codebase
+    parameters:
+      mode: { type: string, enum: [incremental, full], default: incremental }
+      scope: { type: string, description: "Specific file/directory (optional)" }
+    returns:
+      - filesProcessed: int
+      - symbolsUpdated: int
+      - duration: float
+      - errors: list
+      
+  # Symbol lookup
+  find_symbol:
+    description: Find a symbol by name and return its definition with source code
+    parameters:
+      name: { type: string, required: true }
+      kind: { type: string, enum: [function, class, interface, variable, any], default: any }
+      file: { type: string, description: "Limit search to specific file" }
+    returns: [name, kind, file, line, signature, code, complexity]
+    
+  # Search (replaces semantic search with full-text + pattern)
+  search_code:
+    description: Search for code by name, pattern, or text content
+    parameters:
+      query: { type: string, required: true }
+      type: { type: string, enum: [name, fulltext, pattern], default: name }
+      scope: { type: string, default: all }
+      language: { type: string }
+    returns: [results: [{file, line, match, context}], total]
+    implementation:
+      name: Graph full-text index search
+      fulltext: Graph full-text search on signatures/names
+      pattern: Tree-sitter live query
+      
+  # Impact analysis
+  analyze_impact:
+    description: Find all code affected by changing a symbol
+    parameters:
+      symbol: { type: string, required: true }
+      file: { type: string, description: "Disambiguate if multiple matches" }
+      depth: { type: int, default: 5 }
+    returns:
+      - direct_callers: list
+      - transitive_callers: list
+      - affected_files: list
+      - affected_tests: list
+      - risk_score: float
+      - recommendation: string
+      
+  # Data flow tracing
+  trace_data_flow:
+    description: Track how data flows from source to sink
+    parameters:
+      source: { type: string, description: "Starting point (e.g. request.body)" }
+      sink: { type: string, description: "Ending point (optional)" }
+      file: { type: string }
+    returns:
+      - paths: [{source, transformations[], sink}]
+      - vulnerabilities: list
+      - sanitizers_found: list
+      
+  # Security scanning
+  find_vulnerabilities:
+    description: Scan for security vulnerabilities
+    parameters:
+      scope: { type: string, default: all }
+      severity: { type: string, enum: [critical, high, medium, low, all], default: all }
+      category: { type: string, enum: [injection, xss, auth, payment, all], default: all }
+    returns:
+      - vulnerabilities: [{type, severity, file, line, code, description, fix}]
+      - summary: {critical, high, medium, low}
+      
+  # Complexity report
+  get_complexity_report:
+    description: Get complexity metrics for functions
+    parameters:
+      scope: { type: string, default: all }
+      threshold: { type: int, default: 10 }
+      sort_by: { type: string, enum: [complexity, cognitive, nesting], default: complexity }
+    returns:
+      - hotspots: [{name, file, complexity, cognitive, nesting, lines}]
+      - summary: {total_functions, high_complexity, average}
+      
+  # History
+  get_symbol_history:
+    description: Get change history for a symbol
+    parameters:
+      symbol: { type: string, required: true }
+      file: { type: string }
+      limit: { type: int, default: 20 }
+    returns:
+      - changes: [{date, author, message, linesAdded, linesRemoved}]
+      - authors: [{name, commits, lines}]
+      - age_days: int
+      - change_frequency: float
+      
+  # Repo map
+  get_repo_map:
+    description: Get a ranked map of important symbols for context
+    parameters:
+      max_tokens: { type: int, default: 2048 }
+      focus_files: { type: list, description: "Files to prioritize" }
+      focus_symbols: { type: list, description: "Symbols to prioritize" }
+    returns:
+      - map: string (formatted repo map)
+      - files_included: int
+      - symbols_included: int
+      
+  # Raw graph query
+  query_graph:
+    description: Run a raw Cypher query against the code graph
+    parameters:
+      cypher: { type: string, required: true }
+      params: { type: object }
+    returns: [results, columns]
+    
+  # Explain code with full context
+  explain_code:
+    description: Get explanation of code section with dependencies and usage
+    parameters:
+      file: { type: string, required: true }
+      start_line: { type: int, required: true }
+      end_line: { type: int, required: true }
+    returns:
+      - code: string
+      - dependencies: list (what this code uses)
+      - dependents: list (what uses this code)
+      - related_tests: list
+      - complexity: object
+      - recent_changes: list
+      
+  # Refactoring support
+  analyze_file_for_refactoring:
+    description: Analyze a file and suggest extraction points
+    parameters:
+      file: { type: string, required: true }
+    returns:
+      - responsibilities: [{name, lines, description}]
+      - extraction_candidates: [{function, coupling_score, can_extract, dependencies}]
+      - suggested_order: list
+      - warnings: list
+
+# ============================================================================
+# CLI COMMANDS
+# ============================================================================
+
+cli:
+  extract:
+    description: Extract and index codebase into graph database
+    usage: codemind extract <path> [options]
+    options:
+      --full: Force full reindex (ignore cache)
+      --incremental: Only process changed files (default)
+      --file <path>: Index single file only
+      --dry-run: Show what would be indexed without doing it
+      --no-git: Skip git history analysis
+      --languages: Comma-separated language filter
+      --exclude: Glob patterns to exclude
+      --output, -o: Output JSON instead of ingesting to graph
+      --verbose, -v: Show detailed progress
+    examples:
+      - codemind extract .                    # Incremental index current dir
+      - codemind extract . --full             # Full reindex
+      - codemind extract --file src/api.ts    # Single file
+      - codemind extract . --dry-run          # Preview changes
+      
+  status:
+    description: Show index status and health
+    usage: codemind status [options]
+    options:
+      --json: Output as JSON
+    output:
+      - Last indexed: timestamp
+      - Files indexed: count
+      - Symbols: count
+      - Stale files: count (changed since last index)
+      - Git sync: last commit synced
+      
+  analyze:
+    description: Run analysis on the codebase
+    usage: codemind analyze <type> [options]
+    types:
+      complexity: Show complexity hotspots
+      security: Run security scan
+      impact: Analyze change impact for a symbol
+      hotspots: Find risky areas (complexity × churn)
+      refactor: Analyze file for refactoring opportunities
+    options:
+      --scope: File or directory
+      --threshold: Minimum score to report
+      --format: table | json
+      
+  query:
+    description: Run a Cypher query against the graph
+    usage: codemind query "<cypher>" [options]
+    options:
+      --params: JSON parameters
+      --format: table | json | csv
+      
+  search:
+    description: Search for code
+    usage: codemind search <query> [options]
+    options:
+      --type: name | fulltext | pattern
+      --scope: File or directory filter
+      
+  serve:
+    description: Start the MCP server
+    usage: codemind serve [options]
+    options:
+      --transport: stdio | http (default: stdio)
+      --port: Port for HTTP transport (default: 3001)
+      
+  map:
+    description: Generate a repo map
+    usage: codemind map <path> [options]
+    options:
+      --tokens: Maximum tokens (default: 2048)
+      --focus: Files to prioritize
+      --output: Output file
+
+# ============================================================================
+# DOCKER CONTAINERIZATION
+# ============================================================================
+
+docker:
+  strategy:
+    description: |
+      Full containerization for cross-platform compatibility.
+      Tree-sitter native bindings are the main pain point on Windows.
+      Running everything in Docker eliminates "works on my machine" issues.
+      
+    architecture: |
+      ┌─────────────────────────────────────────────────────────────┐
+      │                     HOST MACHINE                             │
+      │  ┌─────────────────────────────────────────────────────┐    │
+      │  │              YOUR CODEBASE (mounted)                 │    │
+      │  │              /path/to/your/repo                      │    │
+      │  └─────────────────────────────────────────────────────┘    │
+      │                          │ volume mount                      │
+      │                          ▼                                   │
+      │  ┌─────────────────────────────────────────────────────┐    │
+      │  │              DOCKER NETWORK: codemind               │    │
+      │  │                                                     │    │
+      │  │  ┌─────────────┐      ┌─────────────────────────┐  │    │
+      │  │  │  memgraph   │◄────►│      codemind-app       │  │    │
+      │  │  │             │      │                         │  │    │
+      │  │  │ Port 7687   │      │ - Tree-sitter parsing   │  │    │
+      │  │  │ (internal)  │      │ - Symbol extraction     │  │    │
+      │  │  │             │      │ - MCP server            │  │    │
+      │  │  │             │      │ - CLI tools             │  │    │
+      │  │  └─────────────┘      │                         │  │    │
+      │  │                       │ Mounts: /repo (ro)      │  │    │
+      │  │                       │         /data (rw)      │  │    │
+      │  │                       └─────────────────────────┘  │    │
+      │  │                                 │                   │    │
+      │  └─────────────────────────────────│───────────────────┘    │
+      │                                    │                         │
+      │                    ┌───────────────┴───────────────┐         │
+      │                    │  Exposed: stdio (MCP)         │         │
+      │                    │  Optional: HTTP :3001         │         │
+      │                    └───────────────────────────────┘         │
+      └─────────────────────────────────────────────────────────────┘
+      
+  why_containerize:
+    cross_platform:
+      problem: Tree-sitter native bindings fail on Windows
+      solution: Linux container handles all native compilation
+      
+    consistency:
+      problem: Different Node versions, missing deps
+      solution: Dockerfile pins exact versions
+      
+    memgraph:
+      problem: Installing Memgraph locally is annoying
+      solution: Already containerized, just add to compose
+      
+    isolation:
+      problem: Don't want to pollute host with global packages
+      solution: Everything contained, easy cleanup
+      
+  compose_file:
+    path: docker-compose.yaml
+    content: |
+      version: '3.8'
+      
+      services:
+        memgraph:
+          image: memgraph/memgraph-mage:latest
+          container_name: codemind-memgraph
+          ports:
+            - "7687:7687"   # Bolt protocol (optional external access)
+            - "7444:7444"   # Memgraph Lab
+          volumes:
+            - memgraph_data:/var/lib/memgraph
+          environment:
+            - MEMGRAPH_USER=codemind
+            - MEMGRAPH_PASSWORD=codemind
+          command: ["--log-level=WARNING", "--memory-limit=1024"]
+          healthcheck:
+            test: ["CMD", "mgconsole", "-c", "RETURN 1"]
+            interval: 5s
+            timeout: 5s
+            retries: 5
+          networks:
+            - codemind-net
+            
+        memgraph-lab:
+          image: memgraph/lab:latest
+          container_name: codemind-lab
+          ports:
+            - "3000:3000"
+          depends_on:
+            memgraph:
+              condition: service_healthy
+          environment:
+            - QUICK_CONNECT_MG_HOST=memgraph
+          networks:
+            - codemind-net
+          profiles:
+            - lab  # Only start with --profile lab
+            
+        codemind:
+          build:
+            context: .
+            dockerfile: Dockerfile
+          container_name: codemind-app
+          depends_on:
+            memgraph:
+              condition: service_healthy
+          volumes:
+            # Mount your codebase - READ ONLY for safety
+            - ${REPO_PATH:-.}:/repo:ro
+            # Persist cache and config
+            - codemind_data:/data
+            # For MCP stdio mode - mount docker socket if needed
+          environment:
+            - MEMGRAPH_HOST=memgraph
+            - MEMGRAPH_PORT=7687
+            - MEMGRAPH_USER=codemind
+            - MEMGRAPH_PASSWORD=codemind
+            - REPO_PATH=/repo
+            - DATA_PATH=/data
+          networks:
+            - codemind-net
+          # For interactive CLI use
+          stdin_open: true
+          tty: true
+          
+      networks:
+        codemind-net:
+          driver: bridge
+          
+      volumes:
+        memgraph_data:
+        codemind_data:
+        
+  dockerfile:
+    path: Dockerfile
+    content: |
+      # Build stage - compile tree-sitter grammars
+      FROM node:20-bookworm AS builder
+      
+      WORKDIR /app
+      
+      # Install build dependencies for tree-sitter
+      RUN apt-get update && apt-get install -y \
+          build-essential \
+          python3 \
+          git \
+          && rm -rf /var/lib/apt/lists/*
+      
+      # Copy package files
+      COPY package*.json ./
+      
+      # Install dependencies (including native modules)
+      RUN npm ci
+      
+      # Copy source
+      COPY . .
+      
+      # Build TypeScript
+      RUN npm run build
+      
+      # Production stage - smaller image
+      FROM node:20-bookworm-slim
+      
+      WORKDIR /app
+      
+      # Install runtime dependencies only
+      RUN apt-get update && apt-get install -y \
+          git \
+          && rm -rf /var/lib/apt/lists/*
+      
+      # Copy built app and node_modules from builder
+      COPY --from=builder /app/dist ./dist
+      COPY --from=builder /app/node_modules ./node_modules
+      COPY --from=builder /app/package*.json ./
+      COPY --from=builder /app/queries ./queries
+      COPY --from=builder /app/rules ./rules
+      
+      # Create data directory
+      RUN mkdir -p /data /repo
+      
+      # Set permissions
+      RUN chown -R node:node /app /data
+      
+      USER node
+      
+      # Default command - can be overridden
+      ENTRYPOINT ["node", "dist/cli.js"]
+      CMD ["--help"]
+      
+  dockerfile_bun:
+    description: Alternative Dockerfile using Bun runtime (faster)
+    path: Dockerfile.bun
+    content: |
+      FROM oven/bun:1-debian AS builder
+      
+      WORKDIR /app
+      
+      # Install build deps for tree-sitter native modules
+      RUN apt-get update && apt-get install -y \
+          build-essential \
+          python3 \
+          git \
+          && rm -rf /var/lib/apt/lists/*
+      
+      COPY package*.json bun.lockb ./
+      RUN bun install --frozen-lockfile
+      
+      COPY . .
+      RUN bun run build
+      
+      FROM oven/bun:1-debian-slim
+      
+      WORKDIR /app
+      
+      RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+      
+      COPY --from=builder /app/dist ./dist
+      COPY --from=builder /app/node_modules ./node_modules
+      COPY --from=builder /app/package*.json ./
+      COPY --from=builder /app/queries ./queries
+      COPY --from=builder /app/rules ./rules
+      
+      RUN mkdir -p /data /repo
+      
+      ENTRYPOINT ["bun", "run", "dist/cli.js"]
+      CMD ["--help"]
+      
+  usage:
+    first_time_setup:
+      steps:
+        - description: Clone and build
+          commands: |
+            git clone https://github.com/yourusername/codemind.git
+            cd codemind
+            docker-compose build
+            
+        - description: Start services
+          commands: |
+            docker-compose up -d memgraph
+            # Wait for memgraph to be healthy
+            docker-compose up -d codemind
+            
+    indexing_a_repo:
+      description: Index any codebase by setting REPO_PATH
+      commands: |
+        # On Mac/Linux
+        REPO_PATH=/path/to/your/codebase docker-compose run --rm codemind extract /repo
+        
+        # On Windows PowerShell
+        $env:REPO_PATH="C:\path\to\your\codebase"
+        docker-compose run --rm codemind extract /repo
+        
+        # On Windows CMD
+        set REPO_PATH=C:\path\to\your\codebase
+        docker-compose run --rm codemind extract /repo
+        
+    cli_commands:
+      description: Run any CLI command via docker-compose
+      examples: |
+        # Extract/index
+        docker-compose run --rm codemind extract /repo
+        
+        # Check status
+        docker-compose run --rm codemind status
+        
+        # Run query
+        docker-compose run --rm codemind query "MATCH (f:Function) RETURN f.name LIMIT 10"
+        
+        # Analyze complexity
+        docker-compose run --rm codemind analyze complexity --threshold 15
+        
+        # Security scan
+        docker-compose run --rm codemind analyze security
+        
+    mcp_server:
+      stdio_mode:
+        description: For Claude Desktop / Cursor integration
+        config: |
+          # claude_desktop_config.json (Mac/Linux)
+          {
+            "mcpServers": {
+              "codemind": {
+                "command": "docker",
+                "args": [
+                  "compose", "-f", "/path/to/codemind/docker-compose.yaml",
+                  "run", "--rm", "-i", 
+                  "-e", "REPO_PATH=/path/to/your/codebase",
+                  "codemind", "serve", "--transport", "stdio"
+                ]
+              }
+            }
+          }
+          
+          # Windows version
+          {
+            "mcpServers": {
+              "codemind": {
+                "command": "docker",
+                "args": [
+                  "compose", "-f", "C:\\path\\to\\codemind\\docker-compose.yaml",
+                  "run", "--rm", "-i",
+                  "-e", "REPO_PATH=C:\\path\\to\\your\\codebase",
+                  "codemind", "serve", "--transport", "stdio"
+                ]
+              }
+            }
+          }
+          
+      http_mode:
+        description: Alternative - run as HTTP server
+        setup: |
+          # Add to docker-compose.yaml under codemind service:
+          ports:
+            - "3001:3001"
+          command: ["serve", "--transport", "http", "--port", "3001"]
+          
+    watch_mode:
+      description: NOT RECOMMENDED - use git hooks instead
+      rationale: |
+        File watching across Docker volume mounts is unreliable on Windows/Mac.
+        Git hooks (post-commit) are simpler and cover 99% of use cases.
+        If you need to analyze uncommitted changes, just run extract manually.
+      alternative: |
+        # Just run manually when needed
+        docker-compose run --rm codemind extract /repo
+        
+    git_hooks:
+      description: RECOMMENDED approach for keeping index in sync
+      setup: |
+        # Add to your repo's .git/hooks/post-commit
+        #!/bin/bash
+        docker-compose -f /path/to/codemind/docker-compose.yaml \
+          run --rm -e REPO_PATH="$(pwd)" codemind extract /repo --incremental
+          
+        # Make executable
+        chmod +x .git/hooks/post-commit
+        
+      windows_setup: |
+        # .git/hooks/post-commit (Git Bash runs this even on Windows)
+        #!/bin/bash
+        docker-compose -f /c/path/to/codemind/docker-compose.yaml \
+          run --rm -e REPO_PATH="$(pwd)" codemind extract /repo --incremental
+            
+    memgraph_lab:
+      description: Visual graph explorer (optional)
+      command: |
+        docker-compose --profile lab up -d
+        # Open http://localhost:3000
+        
+    cleanup:
+      commands: |
+        # Stop services
+        docker-compose down
+        
+        # Stop and remove volumes (deletes indexed data)
+        docker-compose down -v
+        
+        # Remove images
+        docker-compose down --rmi all
+        
+  convenience_scripts:
+    description: Wrapper scripts for easier usage
+    
+    codemind_sh:
+      path: codemind.sh
+      content: |
+        #!/bin/bash
+        # Convenience wrapper for CodeMind CLI
+        # Usage: ./codemind.sh <command> [args]
+        
+        SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+        REPO_PATH="${REPO_PATH:-$(pwd)}"
+        
+        docker-compose -f "$SCRIPT_DIR/docker-compose.yaml" \
+          run --rm \
+          -e REPO_PATH="$REPO_PATH" \
+          codemind "$@"
+          
+    codemind_ps1:
+      path: codemind.ps1
+      content: |
+        # PowerShell wrapper for Windows
+        # Usage: .\codemind.ps1 <command> [args]
+        
+        $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+        $RepoPath = if ($env:REPO_PATH) { $env:REPO_PATH } else { Get-Location }
+        
+        docker-compose -f "$ScriptDir\docker-compose.yaml" `
+          run --rm `
+          -e REPO_PATH="$RepoPath" `
+          codemind @args
+          
+    codemind_bat:
+      path: codemind.bat
+      content: |
+        @echo off
+        REM Windows batch wrapper
+        REM Usage: codemind.bat <command> [args]
+        
+        set SCRIPT_DIR=%~dp0
+        if "%REPO_PATH%"=="" set REPO_PATH=%cd%
+        
+        docker-compose -f "%SCRIPT_DIR%docker-compose.yaml" ^
+          run --rm ^
+          -e REPO_PATH="%REPO_PATH%" ^
+          codemind %*
+          
+  performance_notes:
+    volume_mounts:
+      issue: Docker volume mounts on Mac/Windows can be slow
+      mitigations:
+        - Use read-only mount (:ro) - faster
+        - For large repos, consider copying into container
+        - Use Docker's cached/delegated mount options on Mac
+        
+    file_watching:
+      issue: inotify doesn't work across VM boundary
+      mitigations:
+        - Use polling mode (--poll flag)
+        - Run watcher on host, trigger container
+        - Accept slightly delayed updates
+        
+    first_build:
+      note: |
+        First `docker-compose build` takes 2-5 minutes (downloading base images,
+        compiling tree-sitter). Subsequent builds use cache and are fast.
+        
+  troubleshooting:
+    memgraph_wont_start:
+      symptom: Container exits immediately
+      cause: Usually memory limits
+      fix: |
+        # Increase Docker memory limit in Docker Desktop settings
+        # Or reduce Memgraph memory: --memory-limit=512
+        
+    tree_sitter_build_fails:
+      symptom: npm install fails with node-gyp errors
+      cause: Missing build tools in container
+      fix: Dockerfile includes build-essential, should work. Check Docker logs.
+      
+    cant_connect_to_memgraph:
+      symptom: Connection refused on 7687
+      cause: Container not ready or wrong network
+      fix: |
+        # Check memgraph is healthy
+        docker-compose ps
+        # Check logs
+        docker-compose logs memgraph
+        
+    permission_denied_on_repo:
+      symptom: Can't read files in /repo
+      cause: Volume mount permissions
+      fix: |
+        # On Linux, may need to match UID
+        # Add to docker-compose.yaml:
+        user: "${UID:-1000}:${GID:-1000}"
+
+# ============================================================================
+# IMPLEMENTATION PHASES
+# ============================================================================
+
+implementation_phases:
+  # ============================================================================
+  # IMPLEMENTATION STATUS (as of January 2026)
+  # ============================================================================
+  # The current codebase at packages/* implements a WORKING version with:
+  # - Full TypeScript/JavaScript/TSX/JSX extraction
+  # - Full Python extraction (plugin-python)
+  # - Full C# extraction (plugin-csharp)
+  # - FalkorDB graph database (not Memgraph as planned here)
+  # - REST API via Hono (packages/api)
+  # - Web UI via Next.js + Cytoscape (packages/web)
+  # - WebSocket real-time updates
+  # - Focus-based graph exploration (1000 node limit)
+  # - Deep analysis for CALLS/RENDERS edges
+  # 
+  # The v2 plan below represents an EVOLUTION toward MCP-first architecture
+  # with CLI tools, Memgraph, and additional analysis features.
+  # ============================================================================
+  
+  phase_1_core:
+    name: "Core Extraction + Graph"
+    duration: "1-2 weeks"
+    status: "COMPLETE (via packages/parser, packages/graph)"
+    deliverables:
+      - Tree-sitter parsing for TypeScript/JavaScript
+      - Symbol extraction (functions, classes, interfaces)
+      - Relationship extraction (calls, imports, extends)
+      - Memgraph ingestion
+      - Basic CLI (extract, query)
+    success_criteria:
+      - Can extract PMI codebase in <2 minutes
+      - Can query "what calls X" in <100ms
+    notes: |
+      CURRENT STATE: Extraction works via @codegraph/parser package.
+      Graph uses FalkorDB (not Memgraph). CLI is API-based, not standalone.
+      
+  phase_2_analysis:
+    name: "Analysis Layer"
+    duration: "1-2 weeks"
+    status: "PARTIAL - Deep Analysis toggle exists, Git history NOT DONE"
+    deliverables:
+      - Complexity metrics
+      - Security rule matching
+      - Impact analysis
+      - Git history integration
+    success_criteria:
+      - Complexity scores match manual calculation
+      - Can detect OWASP Top 10 patterns
+      - Can trace function history
+    notes: |
+      CURRENT STATE: CALLS and RENDERS edges work with "Deep Analysis" toggle.
+      Complexity metrics and security scanning NOT YET IMPLEMENTED.
+      Git history integration NOT YET IMPLEMENTED.
+      
+  phase_3_mcp:
+    name: "MCP Server"
+    duration: "1 week"
+    status: "NOT STARTED"
+    deliverables:
+      - MCP server implementation
+      - All tools defined above
+      - Context assembly (repo map)
+    success_criteria:
+      - Works with Claude Desktop
+      - Works with Cursor
+      - Response time <500ms
+      
+  phase_4_polish:
+    name: "Polish + Additional Languages"
+    duration: "1 week"
+    status: "COMPLETE for Python/C#, tests partial"
+    deliverables:
+      - Python extractor
+      - C# extractor
+      - React-specific extraction
+      - Documentation
+      - Tests
+    success_criteria:
+      - 95%+ extraction rate
+      - Comprehensive test coverage
+      - README and usage docs
+    notes: |
+      CURRENT STATE: Python and C# plugins are fully implemented.
+      React Components and RENDERS edges work.
+      Test coverage exists but could be expanded.
+
+# ============================================================================
+# FUTURE ENHANCEMENTS (POST-MVP)
+# ============================================================================
+
+future_enhancements:
+  v1.1_quality_of_life:
+    - Watch mode with incremental updates
+    - VS Code extension
+    - Web UI for graph exploration
+    note: |
+      ALREADY IMPLEMENTED: A full web UI exists in packages/web (Next.js 16 + React 19 + Cytoscape.js)
+      with GraphCanvas, EntityDetail panel, SearchPanel, QueryPanel, and focus-based exploration.
+      The WebSocket-based real-time updates are also implemented in packages/api/src/websocket.ts.
+    
+  v1.2_additional_languages:
+    - Go extractor
+    - Rust extractor
+    - Java extractor
+    note: |
+      ALREADY IMPLEMENTED: TypeScript, JavaScript, Python, and C# are fully supported via
+      @codegraph/parser and the plugin-typescript, plugin-python, and plugin-csharp packages.
+    
+  v1.3_dotnet_project_support:
+    description: Parse .NET solution and project files for full project understanding
+    status: NOT STARTED
+    deliverables:
+      - Parse .sln files for project references and solution folders
+      - Parse .csproj files for:
+        - Target framework
+        - Package references (NuGet)
+        - Project references
+        - Compile items and embedded resources
+      - Create Solution and Project nodes in graph
+      - REFERENCES_PROJECT edges between projects
+      - REFERENCES_PACKAGE edges for NuGet dependencies
+    node_types:
+      Solution:
+        properties: [path, name]
+      Project:
+        properties: [path, name, targetFramework, projectType]
+      Package:
+        properties: [name, version]
+    edge_types:
+      - IN_PROJECT: File → Project
+      - REFERENCES_PROJECT: Project → Project
+      - REFERENCES_PACKAGE: Project → Package
+    implementation_notes: |
+      This extends the existing C# file parsing (which is complete) with
+      project-level structure understanding. Useful for:
+      - Understanding multi-project solutions
+      - Tracking NuGet dependencies
+      - Visualizing project dependency graphs
+      
+  v1.4_sitecore_helix_support:
+    description: Sitecore CMS and Helix architecture pattern support
+    status: NOT STARTED
+    prerequisites:
+      - v1.3 .NET project support (for project structure)
+      - C# extraction (COMPLETE)
+    helix_detection:
+      layer_folders:
+        - src/Foundation
+        - src/Feature
+        - src/Project
+      module_marker_files:
+        - "*.module.json"
+        - "module.json"
+      dependency_rules:
+        allowed:
+          - Project → Feature
+          - Project → Foundation
+          - Feature → Foundation
+        violations:
+          - Foundation → Feature (creates VIOLATES_HELIX edge)
+          - Foundation → Project
+          - Feature → Project
+    sitecore_node_types:
+      HelixLayer:
+        properties: [name, path]
+        values: [Foundation, Feature, Project]
+      HelixModule:
+        properties: [name, layer, path]
+      SitecoreTemplate:
+        properties: [id, name, path, baseTemplates]
+      GlassModel:
+        properties: [name, filePath, templateId, mappedFields]
+        detection_patterns:
+          - "[SitecoreType(TemplateId = \"...\")]"
+          - ": IGlassBase"
+          - ": GlassBase"
+      Pipeline:
+        properties: [name, patchFile]
+      PipelineProcessor:
+        properties: [name, filePath, pipeline, order]
+      Rendering:
+        properties: [name, id, datasourceTemplate, controller]
+      SxaComponent:
+        properties: [name, renderingVariants, filePath]
+      JssComponent:
+        properties: [name, filePath, props, placeholders]
+    sitecore_edge_types:
+      - IN_LAYER: HelixModule → HelixLayer
+      - DEPENDS_ON_MODULE: HelixModule → HelixModule
+      - MAPS_TO_TEMPLATE: GlassModel → SitecoreTemplate
+      - PROCESSES: PipelineProcessor → Pipeline
+      - USES_RENDERING: View/Component → Rendering
+      - HAS_DATASOURCE: Rendering → SitecoreTemplate
+      - CONTROLLER_FOR: Class → Rendering
+      - VIOLATES_HELIX: HelixModule → HelixModule
+    serialization_formats:
+      - scs (Sitecore CLI)
+      - yml (Unicorn)
+      - json (TDS)
+    value_adds:
+      - Helix violation detection
+      - Unused template detection
+      - Rendering coverage analysis
+      - Pipeline processor ordering visualization
+      - Glass model ↔ Template sync validation
+    example_queries:
+      helix_violations: |
+        MATCH (source:HelixModule)-[v:DEPENDS_ON_MODULE]->(target:HelixModule)
+        WHERE (source.layer = 'Foundation' AND target.layer IN ['Feature', 'Project'])
+           OR (source.layer = 'Feature' AND target.layer = 'Project')
+        RETURN source.name, target.name, source.layer, target.layer
+      orphan_glass_models: |
+        MATCH (g:GlassModel)
+        WHERE NOT (g)-[:MAPS_TO_TEMPLATE]->(:SitecoreTemplate)
+        RETURN g.name, g.templateId, g.filePath
+    
+  v2.0_optional_semantic_layer:
+    description: Add vector search if users actually request it
+    trigger: User feedback requesting fuzzy/semantic search
+    approach:
+      - Local embeddings only (Xenova/transformers)
+      - Optional install
+      - Background indexing, non-blocking
+      - Plugin architecture
+      
+  v2.1_advanced_analysis:
+    - Dead code detection
+    - Circular dependency detection
+    - API surface analysis
+    - Breaking change detection
+
+# ============================================================================
+# SUCCESS CRITERIA (OVERALL)
+# ============================================================================
+
+success_criteria:
+  performance:
+    - Index 1000 files in <60 seconds
+    - Query response <100ms for common patterns
+    - Incremental update <5 seconds
+    
+  accuracy:
+    - 95%+ symbol extraction rate
+    - Complexity metrics match manual calculation
+    - Relationship resolution >90%
+    
+  usability:
+    - Works with Claude Desktop and Cursor
+    - Useful for actual refactoring tasks
+    - Context assembly fits token budgets
+    
+  differentiators:
+    - Temporal analysis (unique value)
+    - Payment-specific security rules
+    - React-specific extraction
+    - No embedding/API dependencies

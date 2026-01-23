@@ -99,6 +99,51 @@ const CYPHER = {
     RETURN n, labels(n) as labels
     LIMIT $limit
   `,
+
+  // Dataflow queries
+  GET_VARIABLE_READERS: `
+    MATCH (fn:Function)-[r:READS]->(v:Variable {name: $variableName, filePath: $variableFile})
+    RETURN fn.name as functionName, fn.filePath as functionFile, r.line as line
+  `,
+
+  GET_VARIABLE_WRITERS: `
+    MATCH (fn:Function)-[r:WRITES]->(v:Variable {name: $variableName, filePath: $variableFile})
+    RETURN fn.name as functionName, fn.filePath as functionFile, r.line as line
+  `,
+
+  GET_FUNCTION_READS: `
+    MATCH (fn:Function {name: $functionName, filePath: $functionFile})-[r:READS]->(v:Variable)
+    RETURN v.name as variableName, v.filePath as variableFile, r.line as line
+  `,
+
+  GET_FUNCTION_WRITES: `
+    MATCH (fn:Function {name: $functionName, filePath: $functionFile})-[r:WRITES]->(v:Variable)
+    RETURN v.name as variableName, v.filePath as variableFile, r.line as line
+  `,
+
+  TRACE_DATA_FLOW: `
+    MATCH path = (source {name: $sourceName, filePath: $sourceFile})-[:FLOWS_TO*1..$maxDepth]->(target)
+    RETURN path, length(path) as depth,
+           [node in nodes(path) | {name: node.name, file: node.filePath}] as nodes,
+           [rel in relationships(path) | {tainted: rel.tainted, sanitized: rel.sanitized, transformation: rel.transformation}] as edges
+    ORDER BY depth
+    LIMIT $limit
+  `,
+
+  GET_TAINTED_FLOWS: `
+    MATCH path = (source)-[r:FLOWS_TO*]->(sink)
+    WHERE any(rel in r WHERE rel.tainted = true)
+      AND none(rel in r WHERE rel.sanitized = true)
+    RETURN path, source.name as sourceName, sink.name as sinkName
+    LIMIT $limit
+  `,
+
+  GET_SANITIZED_FLOWS: `
+    MATCH path = (source)-[r:FLOWS_TO*]->(sink)
+    WHERE any(rel in r WHERE rel.sanitized = true)
+    RETURN path, source.name as sourceName, sink.name as sinkName
+    LIMIT $limit
+  `,
 };
 
 // ============================================================================
@@ -115,6 +160,7 @@ function getLabelFromLabels(labels: string[]): NodeLabel {
     'Type',
     'Component',
     'Import',
+    'Commit',
   ];
 
   // First check for specific valid labels (File, Interface, etc.)
@@ -542,6 +588,7 @@ class GraphQueriesImpl implements GraphQueries {
       Type: 0,
       Component: 0,
       Import: 0,
+      Commit: 0,
     };
 
     let totalNodes = 0;
@@ -573,6 +620,14 @@ class GraphQueriesImpl implements GraphQueries {
       HAS_PROPERTY: 0,
       RENDERS: 0,
       USES_HOOK: 0,
+      INTRODUCED_IN: 0,
+      MODIFIED_IN: 0,
+      DELETED_IN: 0,
+      READS: 0,
+      WRITES: 0,
+      FLOWS_TO: 0,
+      EXPORTS: 0,
+      INSTANTIATES: 0,
     };
 
     let totalEdges = 0;

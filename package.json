@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --concurrency 15",
     "dev:api": "turbo run dev --filter=@codegraph/api",
     "dev:web": "turbo run dev --filter=@codegraph/web",
     "lint": "turbo run lint",
@@ -21,7 +21,7 @@
     "docker:db": "docker-compose up -d falkordb",
     "docker:logs": "docker-compose logs -f",
     "docker:reset": "docker-compose down -v && docker-compose up -d falkordb",
-    "start": "docker-compose up -d falkordb && turbo run dev",
+    "start": "docker-compose up -d falkordb && turbo run dev --concurrency 15",
     "stop": "docker-compose down",
     "typecheck": "turbo run build --filter=@codegraph/types"
   },

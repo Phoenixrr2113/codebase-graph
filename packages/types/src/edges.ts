@@ -45,6 +45,19 @@ export interface ImportsSymbolEdge extends BaseEdge {
 }
 
 // ============================================================================
+// Export Edges
+// ============================================================================
+
+/** File exports a symbol (Function, Class, Interface, Variable, Type) */
+export interface ExportsEdge extends BaseEdge {
+  type: 'EXPORTS';
+  /** Export alias (for `export { foo as bar }`) */
+  asName?: string;
+  /** Whether this is the default export */
+  isDefault?: boolean;
+}
+
+// ============================================================================
 // Call Edges
 // ============================================================================
 
@@ -55,6 +68,13 @@ export interface CallsEdge extends BaseEdge {
   line: number;
   /** Number of times this call occurs (for aggregation) */
   count?: number;
+}
+
+/** Function instantiates a class (new ClassName()) */
+export interface InstantiatesEdge extends BaseEdge {
+  type: 'INSTANTIATES';
+  /** Line number where instantiation occurs */
+  line: number;
 }
 
 // ============================================================================
@@ -134,6 +154,60 @@ export interface UsesHookEdge extends BaseEdge {
 }
 
 // ============================================================================
+// Temporal Edges (Git History)
+// ============================================================================
+
+/** Entity was introduced in a commit */
+export interface IntroducedInEdge extends BaseEdge {
+  type: 'INTRODUCED_IN';
+}
+
+/** Entity was modified in a commit */
+export interface ModifiedInEdge extends BaseEdge {
+  type: 'MODIFIED_IN';
+  /** Lines added in this commit */
+  linesAdded?: number;
+  /** Lines removed in this commit */
+  linesRemoved?: number;
+  /** Change in complexity */
+  complexityDelta?: number;
+}
+
+/** Entity was deleted in a commit */
+export interface DeletedInEdge extends BaseEdge {
+  type: 'DELETED_IN';
+}
+
+// ============================================================================
+// Dataflow Edges
+// ============================================================================
+
+/** Function reads from a variable */
+export interface ReadsEdge extends BaseEdge {
+  type: 'READS';
+  /** Line number where the read occurs */
+  line?: number;
+}
+
+/** Function writes to a variable */
+export interface WritesEdge extends BaseEdge {
+  type: 'WRITES';
+  /** Line number where the write occurs */
+  line?: number;
+}
+
+/** Data flows from one node to another (for taint tracking) */
+export interface FlowsToEdge extends BaseEdge {
+  type: 'FLOWS_TO';
+  /** Type of transformation applied (e.g., 'assignment', 'call_argument', 'return') */
+  transformation?: string;
+  /** Whether this flow carries tainted data */
+  tainted?: boolean;
+  /** Whether the data has been sanitized at this point */
+  sanitized?: boolean;
+}
+
+// ============================================================================
 // Union Types
 // ============================================================================
 
@@ -151,7 +225,15 @@ export type Edge =
   | HasMethodEdge
   | HasPropertyEdge
   | RendersEdge
-  | UsesHookEdge;
+  | UsesHookEdge
+  | IntroducedInEdge
+  | ModifiedInEdge
+  | DeletedInEdge
+  | ReadsEdge
+  | WritesEdge
+  | FlowsToEdge
+  | ExportsEdge
+  | InstantiatesEdge;
 
 /** Edge label types matching FalkorDB schema */
 export type EdgeLabel =
@@ -167,4 +249,12 @@ export type EdgeLabel =
   | 'HAS_METHOD'
   | 'HAS_PROPERTY'
   | 'RENDERS'
-  | 'USES_HOOK';
+  | 'USES_HOOK'
+  | 'INTRODUCED_IN'
+  | 'MODIFIED_IN'
+  | 'DELETED_IN'
+  | 'READS'
+  | 'WRITES'
+  | 'FLOWS_TO'
+  | 'EXPORTS'
+  | 'INSTANTIATES';

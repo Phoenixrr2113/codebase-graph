@@ -14,6 +14,7 @@ import {
   variableToNodeProps,
   typeToNodeProps,
   componentToNodeProps,
+  commitToNodeProps,
   type ParsedFileEntities,
   type FileEntity,
   type FunctionEntity,
@@ -22,6 +23,7 @@ import {
   type VariableEntity,
   type TypeEntity,
   type ComponentEntity,
+  type CommitEntity,
 } from './schema';
 import type { ProjectEntity } from '@codegraph/types';
 
@@ -50,7 +52,10 @@ const CYPHER = {
         fn.isArrow = $isArrow,
         fn.params = $params,
         fn.returnType = $returnType,
-        fn.docstring = $docstring
+        fn.docstring = $docstring,
+        fn.complexity = $complexity,
+        fn.cognitiveComplexity = $cognitiveComplexity,
+        fn.nestingDepth = $nestingDepth
     WITH fn
     MATCH (f:File {path: $filePath})
     MERGE (f)-[:CONTAINS]->(fn)
@@ -164,6 +169,108 @@ const CYPHER = {
     MERGE (parent)-[r:RENDERS]->(child)
     SET r.line = $line
     RETURN r
+  `,
+
+  // Commit operations
+  UPSERT_COMMIT: `
+    MERGE (c:Commit {hash: $hash})
+    SET c.message = $message,
+        c.author = $author,
+        c.email = $email,
+        c.date = $date
+    RETURN c
+  `,
+
+  // Temporal edge operations
+  CREATE_INTRODUCED_IN_EDGE: `
+    MATCH (entity) WHERE id(entity) = $entityId
+    MATCH (c:Commit {hash: $commitHash})
+    MERGE (entity)-[r:INTRODUCED_IN]->(c)
+    RETURN r
+  `,
+
+  CREATE_MODIFIED_IN_EDGE: `
+    MATCH (f:File {path: $filePath})
+    MATCH (c:Commit {hash: $commitHash})
+    MERGE (f)-[r:MODIFIED_IN]->(c)
+    SET r.linesAdded = $linesAdded,
+        r.linesRemoved = $linesRemoved,
+        r.complexityDelta = $complexityDelta
+    RETURN r
+  `,
+
+  CREATE_DELETED_IN_EDGE: `
+    MATCH (entity) WHERE id(entity) = $entityId
+    MATCH (c:Commit {hash: $commitHash})
+    MERGE (entity)-[r:DELETED_IN]->(c)
+    RETURN r
+  `,
+
+  // Dataflow edge operations
+  CREATE_READS_EDGE: `
+    MATCH (fn:Function {name: $functionName, filePath: $functionFile})
+    MATCH (v:Variable {name: $variableName, filePath: $variableFile})
+    MERGE (fn)-[r:READS]->(v)
+    SET r.line = $line
+    RETURN r
+  `,
+
+  CREATE_WRITES_EDGE: `
+    MATCH (fn:Function {name: $functionName, filePath: $functionFile})
+    MATCH (v:Variable {name: $variableName, filePath: $variableFile})
+    MERGE (fn)-[r:WRITES]->(v)
+    SET r.line = $line
+    RETURN r
+  `,
+
+  CREATE_FLOWS_TO_EDGE: `
+    MATCH (source) WHERE id(source) = $sourceId
+    MATCH (target) WHERE id(target) = $targetId
+    MERGE (source)-[r:FLOWS_TO]->(target)
+    SET r.transformation = $transformation,
+        r.tainted = $tainted,
+        r.sanitized = $sanitized
+    RETURN r
+  `,
+
+  CREATE_FLOWS_TO_EDGE_BY_NAME: `
+    MATCH (source {name: $sourceName, filePath: $sourceFile})
+    MATCH (target {name: $targetName, filePath: $targetFile})
+    MERGE (source)-[r:FLOWS_TO]->(target)
+    SET r.transformation = $transformation,
+        r.tainted = $tainted,
+        r.sanitized = $sanitized
+    RETURN r
+  `,
+
+  // Export edge operations
+  CREATE_EXPORTS_EDGE: `
+    MATCH (f:File {path: $filePath})
+    MATCH (symbol {name: $symbolName, filePath: $filePath})
+    MERGE (f)-[r:EXPORTS]->(symbol)
+    SET r.asName = $asName,
+        r.isDefault = $isDefault
+    RETURN r
+  `,
+
+  GET_FILE_EXPORTS: `
+    MATCH (f:File {path: $filePath})-[r:EXPORTS]->(symbol)
+    RETURN symbol.name as name, labels(symbol)[0] as type, r.asName as asName, r.isDefault as isDefault
+  `,
+
+  // Instantiation edge operations
+  CREATE_INSTANTIATES_EDGE: `
+    MATCH (fn:Function {name: $functionName, filePath: $functionFile})
+    MERGE (c:Class {name: $className, filePath: COALESCE($classFile, 'external')})
+    ON CREATE SET c:External
+    MERGE (fn)-[r:INSTANTIATES]->(c)
+    SET r.line = $line
+    RETURN r
+  `,
+
+  GET_CLASS_INSTANTIATIONS: `
+    MATCH (fn:Function)-[r:INSTANTIATES]->(c:Class {name: $className})
+    RETURN fn.name as functionName, fn.filePath as functionFile, r.line as line
   `,
 
   // Delete operations - cascade delete file and all contained entities
@@ -288,6 +395,16 @@ export interface GraphOperations {
   getProjectByRoot(rootPath: string): Promise<ProjectEntity | null>;
   deleteProject(projectId: string): Promise<void>;
   linkProjectFile(projectId: string, filePath: string): Promise<void>;
+
+  // Commit operations
+  upsertCommit(commit: CommitEntity): Promise<void>;
+  createModifiedInEdge(
+    filePath: string,
+    commitHash: string,
+    linesAdded?: number,
+    linesRemoved?: number,
+    complexityDelta?: number
+  ): Promise<void>;
 }
 
 // ============================================================================
@@ -545,6 +662,33 @@ class GraphOperationsImpl implements GraphOperations {
   async linkProjectFile(projectId: string, filePath: string): Promise<void> {
     await this.client.query(CYPHER.LINK_PROJECT_FILE, {
       params: { projectId, filePath },
+    });
+  }
+
+  // Commit operations
+
+  @trace()
+  async upsertCommit(commit: CommitEntity): Promise<void> {
+    const props = commitToNodeProps(commit);
+    await this.client.query(CYPHER.UPSERT_COMMIT, { params: toParams(props) });
+  }
+
+  @trace()
+  async createModifiedInEdge(
+    filePath: string,
+    commitHash: string,
+    linesAdded?: number,
+    linesRemoved?: number,
+    complexityDelta?: number
+  ): Promise<void> {
+    await this.client.query(CYPHER.CREATE_MODIFIED_IN_EDGE, {
+      params: {
+        filePath,
+        commitHash,
+        linesAdded: linesAdded ?? null,
+        linesRemoved: linesRemoved ?? null,
+        complexityDelta: complexityDelta ?? null,
+      },
     });
   }
 

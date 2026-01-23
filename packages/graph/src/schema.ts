@@ -12,6 +12,7 @@ import type {
   TypeEntity,
   ComponentEntity,
   ImportEntity,
+  CommitEntity,
   NodeLabel,
   EdgeLabel,
 } from '@codegraph/types';
@@ -46,6 +47,9 @@ export interface FunctionNodeProps {
   params: string; // JSON serialized params
   returnType: string | null;
   docstring: string | null;
+  complexity: number | null;
+  cognitiveComplexity: number | null;
+  nestingDepth: number | null;
 }
 
 /**
@@ -114,6 +118,17 @@ export interface ComponentNodeProps {
   propsType: string | null;
 }
 
+/**
+ * Commit node properties for Cypher operations
+ */
+export interface CommitNodeProps {
+  hash: string;
+  message: string;
+  author: string;
+  email: string;
+  date: string;
+}
+
 // ============================================================================
 // Entity to Node Property Mappers
 // ============================================================================
@@ -147,6 +162,9 @@ export function functionToNodeProps(entity: FunctionEntity): FunctionNodeProps {
     params: JSON.stringify(entity.params),
     returnType: entity.returnType ?? null,
     docstring: entity.docstring ?? null,
+    complexity: entity.complexity ?? null,
+    cognitiveComplexity: entity.cognitiveComplexity ?? null,
+    nestingDepth: entity.nestingDepth ?? null,
   };
 }
 
@@ -226,6 +244,19 @@ export function componentToNodeProps(entity: ComponentEntity): ComponentNodeProp
   };
 }
 
+/**
+ * Convert CommitEntity to Cypher-compatible node properties
+ */
+export function commitToNodeProps(entity: CommitEntity): CommitNodeProps {
+  return {
+    hash: entity.hash,
+    message: entity.message,
+    author: entity.author,
+    email: entity.email,
+    date: entity.date,
+  };
+}
+
 // ============================================================================
 // ID Generation
 // ============================================================================
@@ -289,6 +320,7 @@ export type {
   TypeEntity,
   ComponentEntity,
   ImportEntity,
+  CommitEntity,
   NodeLabel,
   EdgeLabel,
 };
