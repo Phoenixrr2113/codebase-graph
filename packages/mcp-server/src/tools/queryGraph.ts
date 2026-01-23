@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import { createClient, type GraphClient } from '@codegraph/graph';
+import { getGraphClient } from '../graphClient.js';
 
 // Input schema
 export const QueryGraphInputSchema = z.object({
@@ -55,15 +55,7 @@ export const queryGraphToolDefinition: ToolDefinition = {
   },
 };
 
-// Singleton graph client
-let graphClient: GraphClient | null = null;
 
-async function getGraphClient(): Promise<GraphClient> {
-  if (!graphClient) {
-    graphClient = await createClient();
-  }
-  return graphClient;
-}
 
 /**
  * Handler for query_graph tool

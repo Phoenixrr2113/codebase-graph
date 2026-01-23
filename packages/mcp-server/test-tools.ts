@@ -131,8 +131,46 @@ async function main() {
     console.error('Error:', e);
   }
 
+  // Test 7: Complexity Report
+  console.log('\n' + '='.repeat(60));
+  console.log('TEST 7: get_complexity_report');
+  console.log('='.repeat(60));
+  try {
+    const { getComplexityReport } = await import('./src/tools/complexityReport.js');
+    const result = await getComplexityReport({ threshold: 5, scope: 'all', sortBy: 'complexity' });
+    console.log('Total Functions:', result.summary.totalFunctions);
+    console.log('Over Threshold:', result.summary.overThreshold);
+    console.log('Max Complexity:', result.summary.maxComplexity);
+    console.log('Avg Complexity:', result.summary.avgComplexity);
+    console.log('Top 5 Hotspots:');
+    result.hotspots.slice(0, 5).forEach((h, i) => {
+      console.log(`  ${i + 1}. ${h.name} (complexity: ${h.complexity}, file: ${h.file?.split('/').pop()})`);
+    });
+    if (result.error) console.log('Error:', result.error);
+  } catch (e) {
+    console.error('Error:', e);
+  }
+
+  // Test 8: Search Code
+  console.log('\n' + '='.repeat(60));
+  console.log('TEST 8: search_code');
+  console.log('='.repeat(60));
+  try {
+    const { searchCode } = await import('./src/tools/searchCode.js');
+    const result = await searchCode({ query: 'Client', type: 'name', scope: 'all' });
+    console.log('Total Results:', result.total);
+    console.log('First 5 Results:');
+    result.results.slice(0, 5).forEach((r, i) => {
+      console.log(`  ${i + 1}. ${r.name} (${r.kind}) - ${r.file?.split('/').pop()}:${r.line}`);
+    });
+    if (result.error) console.log('Error:', result.error);
+  } catch (e) {
+    console.error('Error:', e);
+  }
+
   console.log('\n✅ Tests complete!');
   process.exit(0);
 }
 
 main().catch(console.error);
+

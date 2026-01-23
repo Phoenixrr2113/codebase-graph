@@ -2,9 +2,11 @@
  * MCP Tool: search_code
  *
  * Search for code by name, pattern, or text content.
+ * Queries graph for matching symbols.
  */
 
 import { z } from 'zod';
+import { getGraphClient } from '../graphClient.js';
 
 // Input schema
 export const SearchCodeInputSchema = z.object({
@@ -19,17 +21,18 @@ export type SearchCodeInput = z.infer<typeof SearchCodeInputSchema>;
 
 // Search result type
 export interface SearchResult {
+  name: string;
+  kind: string;
   file: string;
   line: number;
   match: string;
-  context: string;
 }
 
 // Output type
 export interface SearchCodeOutput {
   results: SearchResult[];
   total: number;
-  error?: string;
+  error?: string | undefined;
 }
 
 // Internal ToolDefinition type
@@ -87,16 +90,54 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
       };
     }
 
-    // TODO: Implement actual search based on type
-    // - name: Graph query on symbol names
-    // - fulltext: Graph full-text index search
-    // - pattern: Tree-sitter live query
-    
-    // Placeholder response until API integration
+    const client = await getGraphClient();
+    const scope = input.scope === 'all' ? '' : input.scope;
+
+    // Build Cypher query based on search type
+    let cypher: string;
+    const scopeFilter = scope ? 'AND n.filePath STARTS WITH $scope' : '';
+
+    if (input.type === 'name') {
+      // Exact or contains match on name
+      cypher = `
+        MATCH (n)
+        WHERE (n:Function OR n:Class OR n:Interface OR n:Variable OR n:Component)
+          AND n.name CONTAINS $query ${scopeFilter}
+        RETURN n.name as name, labels(n)[0] as kind, n.filePath as file, n.startLine as line
+        ORDER BY n.name
+        LIMIT 50
+      `;
+    } else {
+      // For fulltext and pattern, fall back to name search for now
+      // TODO: Implement fulltext index search when available
+      cypher = `
+        MATCH (n)
+        WHERE (n:Function OR n:Class OR n:Interface OR n:Variable OR n:Component)
+          AND toLower(n.name) CONTAINS toLower($query) ${scopeFilter}
+        RETURN n.name as name, labels(n)[0] as kind, n.filePath as file, n.startLine as line
+        ORDER BY n.name
+        LIMIT 50
+      `;
+    }
+
+    type ResultRow = { name: string; kind: string; file: string; line: number };
+
+    const result = await client.roQuery<ResultRow>(
+      cypher,
+      { params: { query: input.query, scope } }
+    );
+
+    const results: SearchResult[] = result.data.map(row => ({
+      name: row.name ?? 'unknown',
+      kind: (row.kind ?? 'unknown').toLowerCase(),
+      file: row.file ?? '',
+      line: row.line ?? 0,
+      match: row.name ?? '',
+    }));
+
     return {
-      results: [],
-      total: 0,
-      error: `Search functionality requires API integration (coming in MCP-INT-001). Query: "${input.query}" (${input.type})`,
+      results,
+      total: results.length,
     };
   } catch (error) {
     return {

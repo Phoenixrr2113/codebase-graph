@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import { createClient, type GraphClient } from '@codegraph/graph';
+import { getGraphClient } from '../graphClient.js';
 
 // Input schema
 export const IndexStatusInputSchema = z.object({
@@ -58,15 +58,7 @@ export const indexStatusToolDefinition: ToolDefinition = {
   },
 };
 
-// Singleton graph client
-let graphClient: GraphClient | null = null;
 
-async function getGraphClient(): Promise<GraphClient> {
-  if (!graphClient) {
-    graphClient = await createClient();
-  }
-  return graphClient;
-}
 
 /**
  * Handler for get_index_status tool
