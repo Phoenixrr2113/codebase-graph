@@ -114,7 +114,7 @@ describe('Payment Security Rules', () => {
   describe('Hardcoded Payment Keys Detection', () => {
     it('should detect hardcoded Stripe live secret key', async () => {
       const code = `
-        const stripe = require('stripe')('sk_live_1234567890abcdef1234567890abcdef');
+        const stripe = require('stripe')('sk_live_TESTKEY_FAKE_DO_NOT_USE_123');
       `;
       const findings = await scanPaymentCode(code);
       
@@ -124,7 +124,7 @@ describe('Payment Security Rules', () => {
 
     it('should detect hardcoded Stripe test secret key', async () => {
       const code = `
-        const stripe = new Stripe('sk_test_1234567890abcdef1234567890');
+        const stripe = new Stripe('sk_test_TESTKEY_FAKE_DO_NOT_USE_456');
       `;
       const findings = await scanPaymentCode(code);
       
@@ -133,7 +133,7 @@ describe('Payment Security Rules', () => {
 
     it('should detect hardcoded Stripe webhook secret', async () => {
       const code = `
-        const endpointSecret = 'whsec_1234567890abcdef1234567890abcdef';
+        const endpointSecret = 'whsec_TESTKEY_FAKE_DO_NOT_USE_789';
       `;
       const findings = await scanPaymentCode(code);
       
@@ -197,7 +197,7 @@ describe('Payment Security Rules', () => {
   describe('scanFileForPaymentIssues aggregation', () => {
     it('should return findings with categorized summary', async () => {
       const code = `
-        const stripe = require('stripe')('sk_test_1234567890abcdef1234567890');
+        const stripe = require('stripe')('sk_test_TESTKEY_FAKE_DO_NOT_USE_456');
         
         app.post('/pay', async (req, res) => {
           console.log('Card:', req.body.cardNumber);

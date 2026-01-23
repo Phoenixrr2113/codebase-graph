@@ -159,7 +159,7 @@ describe('Security Scanner', () => {
     it('should detect hardcoded API key', async () => {
       const code = `
         const config = {
-          apiKey: 'sk_live_1234567890abcdef1234567890abcdef'
+          apiKey: 'sk_live_TESTKEY_FAKE_DO_NOT_USE_123'
         };
       `;
       const findings = await scanCode(code);
@@ -170,7 +170,7 @@ describe('Security Scanner', () => {
 
     it('should detect hardcoded Stripe keys', async () => {
       const code = `
-        const stripe = require('stripe')('sk_test_1234567890abcdef1234567890');
+        const stripe = require('stripe')('sk_test_TESTKEY_FAKE_DO_NOT_USE_456');
       `;
       const findings = await scanCode(code);
 
