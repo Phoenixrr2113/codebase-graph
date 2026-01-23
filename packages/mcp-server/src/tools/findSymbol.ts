@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { createClient, type GraphClient } from '@codegraph/graph';
 
 // Input schema
 export const FindSymbolInputSchema = z.object({
@@ -22,17 +23,17 @@ export interface SymbolResult {
   kind: string;
   file: string;
   line: number;
-  signature: string;
-  code: string;
-  complexity?: number;
+  endLine?: number | undefined;
+  signature?: string | undefined;
+  complexity?: number | undefined;
 }
 
 // Output type
 export interface FindSymbolOutput {
   found: boolean;
   symbol: SymbolResult | null;
-  alternatives?: SymbolResult[];
-  error?: string;
+  alternatives?: SymbolResult[] | undefined;
+  error?: string | undefined;
 }
 
 // Internal ToolDefinition type
@@ -72,15 +73,21 @@ export const findSymbolToolDefinition: ToolDefinition = {
   },
 };
 
+// Singleton graph client
+let graphClient: GraphClient | null = null;
+
+async function getGraphClient(): Promise<GraphClient> {
+  if (!graphClient) {
+    graphClient = await createClient();
+  }
+  return graphClient;
+}
+
 /**
  * Handler for find_symbol tool
- * 
- * Queries the graph database for symbols matching the criteria.
- * In the full implementation, this will use the graph client to search.
  */
 export async function findSymbol(input: FindSymbolInput): Promise<FindSymbolOutput> {
   try {
-    // Validate input
     if (!input.name || input.name.trim() === '') {
       return {
         found: false,
@@ -89,33 +96,63 @@ export async function findSymbol(input: FindSymbolInput): Promise<FindSymbolOutp
       };
     }
 
+    const client = await getGraphClient();
+
     // Map kind to graph node labels
     const kindToLabel: Record<string, string> = {
       'function': 'Function',
       'class': 'Class',
       'interface': 'Interface',
       'variable': 'Variable',
-      'any': '*',
+      'any': '',
     };
 
-    const label = kindToLabel[input.kind] || '*';
+    const label = kindToLabel[input.kind] || '';
 
-    // Build Cypher query (for future use when API integration is complete)
-    const cypherQuery = `
-      MATCH (n${label !== '*' ? `:${label}` : ''})
-      WHERE n.name = $name
-      ${input.file ? 'AND n.filePath = $file' : ''}
-      RETURN n, labels(n) as labels
-      LIMIT 10
-    `;
-    void cypherQuery; // Mark as intentionally unused until API integration
+    // Build Cypher query
+    let cypher: string;
+    const params: Record<string, string | number | boolean | null | Array<unknown>> = { name: input.name };
 
-    // TODO: Execute query via graph client when MCP-API integration is complete
-    // For now, return a placeholder response
+    if (label && input.file) {
+      cypher = `MATCH (n:${label}) WHERE n.name = $name AND n.filePath CONTAINS $file RETURN n, labels(n) as labels LIMIT 10`;
+      params.file = input.file;
+    } else if (label) {
+      cypher = `MATCH (n:${label}) WHERE n.name = $name RETURN n, labels(n) as labels LIMIT 10`;
+    } else if (input.file) {
+      cypher = `MATCH (n) WHERE n.name = $name AND n.filePath CONTAINS $file AND (n:Function OR n:Class OR n:Interface OR n:Variable) RETURN n, labels(n) as labels LIMIT 10`;
+      params.file = input.file;
+    } else {
+      cypher = `MATCH (n) WHERE n.name = $name AND (n:Function OR n:Class OR n:Interface OR n:Variable) RETURN n, labels(n) as labels LIMIT 10`;
+    }
+
+    const result = await client.roQuery<{ n: Record<string, unknown>; labels: string[] }>(
+      cypher,
+      { params }
+    );
+
+    if (result.data.length === 0) {
+      return {
+        found: false,
+        symbol: null,
+        error: `No symbol found matching "${input.name}"`,
+      };
+    }
+
+    // Map results to SymbolResult
+    const symbols: SymbolResult[] = result.data.map(row => ({
+      name: row.n['name'] as string || 'unknown',
+      kind: (row.labels[0] || 'unknown').toLowerCase(),
+      file: row.n['filePath'] as string || '',
+      line: row.n['startLine'] as number || row.n['line'] as number || 0,
+      endLine: row.n['endLine'] as number | undefined,
+      signature: row.n['signature'] as string | undefined,
+      complexity: row.n['complexity'] as number | undefined,
+    }));
+
     return {
-      found: false,
-      symbol: null,
-      error: 'Symbol lookup requires API integration (coming in MCP-INT-001). Query prepared for: ' + input.name,
+      found: true,
+      symbol: symbols[0] ?? null,
+      alternatives: symbols.length > 1 ? symbols.slice(1) : undefined,
     };
   } catch (error) {
     return {

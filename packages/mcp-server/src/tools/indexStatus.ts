@@ -1,96 +1,142 @@
 /**
- * get_index_status MCP Tool
- * Returns the current state of the code index
+ * MCP Tool: get_index_status
+ *
+ * Returns current indexing status including file counts and last update time.
  */
 
-import { createLogger } from '@codegraph/logger';
+import { z } from 'zod';
+import { createClient, type GraphClient } from '@codegraph/graph';
 
-const logger = createLogger({ namespace: 'MCP:Tool:IndexStatus' });
+// Input schema
+export const IndexStatusInputSchema = z.object({
+  repo: z.string().optional().describe('Repository path to check status for'),
+});
 
-// ============================================================================
-// Types
-// ============================================================================
+export type IndexStatusInput = z.infer<typeof IndexStatusInputSchema>;
 
-export interface IndexStatusInput {
-  /** Repository path (default: current directory) */
-  repo?: string;
-}
-
+// Output type
 export interface IndexStatusOutput {
-  /** Timestamp of last full index */
-  lastFullIndex: string | null;
-  /** Timestamp of last incremental index */
-  lastIncrementalIndex: string | null;
-  /** Total number of indexed files */
-  fileCount: number;
-  /** Total number of indexed symbols */
-  symbolCount: number;
-  /** Number of files changed since last index */
-  staleFiles: number;
-  /** Last git commit that was synced */
-  lastCommitSynced: string | null;
-  /** Number of commits pending sync */
-  pendingCommits: number;
-  /** Index health status */
-  status: 'healthy' | 'stale' | 'uninitialized';
+  status: 'ready' | 'indexing' | 'error' | 'empty';
+  totalFiles: number;
+  totalFunctions: number;
+  totalClasses: number;
+  totalEdges: number;
+  lastIndexed?: string | undefined;
+  projects: Array<{
+    name: string;
+    path: string;
+    fileCount: number;
+    lastParsed?: string | undefined;
+  }>;
+  error?: string | undefined;
 }
 
-// ============================================================================
-// Tool Definition
-// ============================================================================
-
-export const indexStatusToolDefinition = {
-  name: 'get_index_status',
-  description: 'Check the current state of the code index. Returns file counts, symbol counts, staleness info, and git sync status.',
+// Internal ToolDefinition type
+interface ToolDefinition {
+  name: string;
+  description: string;
   inputSchema: {
-    type: 'object' as const,
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+}
+
+// Tool definition for MCP
+export const indexStatusToolDefinition: ToolDefinition = {
+  name: 'get_index_status',
+  description: 'Get the current status of the code index, including file counts and last update time.',
+  inputSchema: {
+    type: 'object',
     properties: {
       repo: {
         type: 'string',
-        description: 'Repository path (default: current directory)',
+        description: 'Repository path to check status for (optional)',
       },
     },
+    required: [],
   },
 };
 
-// ============================================================================
-// Tool Handler
-// ============================================================================
+// Singleton graph client
+let graphClient: GraphClient | null = null;
+
+async function getGraphClient(): Promise<GraphClient> {
+  if (!graphClient) {
+    graphClient = await createClient();
+  }
+  return graphClient;
+}
 
 /**
- * Get the current status of the code index
- * 
- * Note: This is a placeholder that returns mock data.
- * In the real implementation, it will query the graph database.
+ * Handler for get_index_status tool
  */
-export async function getIndexStatus(
-  input: IndexStatusInput
-): Promise<IndexStatusOutput> {
-  const repo = input.repo || process.cwd();
-  logger.info('Getting index status', { repo });
-
-  // TODO: Query actual graph database for these stats
-  // For now, return a structure that shows the expected output format
-  
+export async function getIndexStatus(input: IndexStatusInput): Promise<IndexStatusOutput> {
   try {
-    // In real implementation:
-    // 1. Query graph for file/symbol counts
-    // 2. Check file modification times vs index times
-    // 3. Check git log for commits since last sync
-    
-    // Placeholder response structure
+    const client = await getGraphClient();
+
+    // Query counts from the graph
+    const [fileResult, funcResult, classResult, projectResult] = await Promise.all([
+      client.roQuery<{ count: number }>('MATCH (f:File) RETURN count(f) as count'),
+      client.roQuery<{ count: number }>('MATCH (f:Function) RETURN count(f) as count'),
+      client.roQuery<{ count: number }>('MATCH (c:Class) RETURN count(c) as count'),
+      client.roQuery<{ name: string; path: string; fileCount: number; lastParsed: string }>(
+        input.repo
+          ? 'MATCH (p:Project) WHERE p.rootPath CONTAINS $repo RETURN p.name as name, p.rootPath as path, p.fileCount as fileCount, p.lastParsed as lastParsed'
+          : 'MATCH (p:Project) RETURN p.name as name, p.rootPath as path, p.fileCount as fileCount, p.lastParsed as lastParsed',
+        input.repo ? { params: { repo: input.repo } } : undefined
+      ),
+    ]);
+
+    // Get edge count separately
+    const edgeResult = await client.roQuery<{ count: number }>(
+      'MATCH ()-[r]->() RETURN count(r) as count'
+    );
+
+    const totalFiles = fileResult.data[0]?.count ?? 0;
+    const totalFunctions = funcResult.data[0]?.count ?? 0;
+    const totalClasses = classResult.data[0]?.count ?? 0;
+    const totalEdges = edgeResult.data[0]?.count ?? 0;
+
+    const projects = projectResult.data.map(p => ({
+      name: p.name ?? 'unknown',
+      path: p.path ?? '',
+      fileCount: p.fileCount ?? 0,
+      lastParsed: p.lastParsed,
+    }));
+
+    // Determine status
+    let status: 'ready' | 'indexing' | 'error' | 'empty' = 'ready';
+    if (totalFiles === 0) {
+      status = 'empty';
+    }
+
+    // Find most recent indexed time
+    const lastIndexed = projects.length > 0
+      ? projects.reduce((latest, p) =>
+        p.lastParsed && (!latest || p.lastParsed > latest) ? p.lastParsed : latest,
+        '' as string
+      )
+      : undefined;
+
     return {
-      lastFullIndex: null,
-      lastIncrementalIndex: null,
-      fileCount: 0,
-      symbolCount: 0,
-      staleFiles: 0,
-      lastCommitSynced: null,
-      pendingCommits: 0,
-      status: 'uninitialized',
+      status,
+      totalFiles,
+      totalFunctions,
+      totalClasses,
+      totalEdges,
+      lastIndexed: lastIndexed || undefined,
+      projects,
     };
   } catch (error) {
-    logger.error('Failed to get index status', { error });
-    throw error;
+    return {
+      status: 'error',
+      totalFiles: 0,
+      totalFunctions: 0,
+      totalClasses: 0,
+      totalEdges: 0,
+      projects: [],
+      error: error instanceof Error ? error.message : 'Unknown error checking index status',
+    };
   }
 }
