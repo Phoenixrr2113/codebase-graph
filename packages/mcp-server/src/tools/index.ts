@@ -16,6 +16,7 @@ import { traceDataFlowToolDefinition, traceDataFlow, type TraceDataFlowInput } f
 import { complexityReportToolDefinition, getComplexityReport, type ComplexityReportInput } from './complexityReport.js';
 import { repoMapToolDefinition, getRepoMap, type RepoMapInput } from './repoMap.js';
 import { queryGraphToolDefinition, queryGraph, type QueryGraphInput } from './queryGraph.js';
+import { symbolHistoryToolDefinition, getSymbolHistory, type SymbolHistoryInput } from './symbolHistory.js';
 
 // ============================================================================
 // Tool Definitions
@@ -58,6 +59,7 @@ export const tools: ToolDefinition[] = [
   complexityReportToolDefinition,
   repoMapToolDefinition,
   queryGraphToolDefinition,
+  symbolHistoryToolDefinition,
 ];
 
 // ============================================================================
@@ -156,6 +158,14 @@ const handlers: Record<string, ToolHandler> = {
       params: args.params as Record<string, unknown> | undefined,
     };
     return queryGraph(input);
+  },
+  get_symbol_history: async (args) => {
+    const input: SymbolHistoryInput = {
+      symbol: args.symbol as string,
+      file: args.file as string | undefined,
+      limit: (args.limit as number) || 20,
+    };
+    return getSymbolHistory(input);
   },
 };
 
