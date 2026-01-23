@@ -6,6 +6,7 @@
 // zod will be used in subsequent tasks for input validation
 
 import { indexStatusToolDefinition, getIndexStatus } from './indexStatus.js';
+import { reindexToolDefinition, triggerReindex, type ReindexInput } from './reindex.js';
 
 // ============================================================================
 // Tool Definitions
@@ -38,6 +39,7 @@ export const tools: ToolDefinition[] = [
     },
   },
   indexStatusToolDefinition,
+  reindexToolDefinition,
 ];
 
 // ============================================================================
@@ -57,6 +59,13 @@ const handlers: Record<string, ToolHandler> = {
   get_index_status: async (args) => {
     const input = args.repo ? { repo: args.repo as string } : {};
     return getIndexStatus(input);
+  },
+  trigger_reindex: async (args) => {
+    const input: ReindexInput = {
+      mode: (args.mode as 'incremental' | 'full') || 'incremental',
+      scope: args.scope as string | undefined,
+    };
+    return triggerReindex(input);
   },
 };
 
