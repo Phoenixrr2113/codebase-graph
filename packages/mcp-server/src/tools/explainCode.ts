@@ -2,10 +2,12 @@
  * MCP Tool: explain_code
  *
  * Get code with context: dependencies, dependents, tests, complexity.
+ * Queries graph for relationships and reads source file.
  */
 
 import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
+import { getGraphClient } from '../graphClient.js';
 
 // Input schema
 export const ExplainCodeInputSchema = z.object({
@@ -30,9 +32,9 @@ export interface ExplainCodeOutput {
   dependencies: DependencyInfo[];
   dependents: DependencyInfo[];
   relatedTests: string[];
-  complexity?: number;
-  recentChanges?: string[];
-  error?: string;
+  complexity?: number | undefined;
+  recentChanges?: string[] | undefined;
+  error?: string | undefined;
 }
 
 // Internal ToolDefinition type
@@ -107,15 +109,70 @@ export async function explainCode(input: ExplainCodeInput): Promise<ExplainCodeO
       code = lines.slice(start, end).join('\n');
     }
 
-    // TODO: Query graph for dependencies, dependents, tests, complexity
-    // This requires API integration (MCP-INT-001)
-    
+    const client = await getGraphClient();
+
+    // Query for imports (dependencies)
+    const importsQuery = `
+      MATCH (f:File {path: $filePath})-[:CONTAINS]->(s)-[:IMPORTS]->(target)
+      RETURN DISTINCT target.name as name, target.filePath as file, 1 as line, 'import' as type
+      LIMIT 20
+    `;
+
+    // Query for callers (dependents)
+    const callersQuery = `
+      MATCH (f:File {path: $filePath})-[:CONTAINS]->(fn:Function)<-[:CALLS]-(caller:Function)
+      RETURN DISTINCT caller.name as name, caller.filePath as file, caller.startLine as line, 'call' as type
+      LIMIT 20
+    `;
+
+    // Query for related tests
+    const testsQuery = `
+      MATCH (f:File {path: $filePath})-[:CONTAINS]->(fn:Function)<-[:CALLS*]-(test:Function)
+      WHERE test.filePath CONTAINS '.test.' OR test.filePath CONTAINS '.spec.'
+      RETURN DISTINCT test.filePath as file
+      LIMIT 10
+    `;
+
+    // Query for average complexity of functions in this file
+    const complexityQuery = `
+      MATCH (f:File {path: $filePath})-[:CONTAINS]->(fn:Function)
+      RETURN avg(fn.complexity) as avgComplexity
+    `;
+
+    type DepRow = { name: string; file: string; line: number; type: string };
+    type TestRow = { file: string };
+    type ComplexityRow = { avgComplexity: number };
+
+    const [importsResult, callersResult, testsResult, complexityResult] = await Promise.all([
+      client.roQuery<DepRow>(importsQuery, { params: { filePath: input.file } }),
+      client.roQuery<DepRow>(callersQuery, { params: { filePath: input.file } }),
+      client.roQuery<TestRow>(testsQuery, { params: { filePath: input.file } }),
+      client.roQuery<ComplexityRow>(complexityQuery, { params: { filePath: input.file } }),
+    ]);
+
+    const dependencies: DependencyInfo[] = importsResult.data.map(row => ({
+      name: row.name ?? 'unknown',
+      file: row.file ?? '',
+      line: row.line ?? 0,
+      type: row.type as 'import' | 'call' | 'extends' | 'implements',
+    }));
+
+    const dependents: DependencyInfo[] = callersResult.data.map(row => ({
+      name: row.name ?? 'unknown',
+      file: row.file ?? '',
+      line: row.line ?? 0,
+      type: row.type as 'import' | 'call' | 'extends' | 'implements',
+    }));
+
+    const relatedTests: string[] = testsResult.data.map(row => row.file).filter(Boolean);
+    const complexity = complexityResult.data[0]?.avgComplexity;
+
     return {
       code,
-      dependencies: [],
-      dependents: [],
-      relatedTests: [],
-      error: 'Dependency/dependent analysis requires API integration (coming in MCP-INT-001)',
+      dependencies,
+      dependents,
+      relatedTests,
+      complexity: complexity ? Math.round(complexity * 10) / 10 : undefined,
     };
   } catch (error) {
     return {

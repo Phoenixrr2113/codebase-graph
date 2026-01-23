@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import { createClient, type GraphClient } from '@codegraph/graph';
+import { getGraphClient } from '../graphClient.js';
 import {
   analyzeImpact as runImpactAnalysis,
   getDirectCallersQuery,
@@ -73,15 +73,7 @@ export const analyzeImpactToolDefinition: ToolDefinition = {
   },
 };
 
-// Singleton graph client
-let graphClient: GraphClient | null = null;
 
-async function getGraphClient(): Promise<GraphClient> {
-  if (!graphClient) {
-    graphClient = await createClient();
-  }
-  return graphClient;
-}
 
 /**
  * Handler for analyze_impact tool

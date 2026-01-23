@@ -2,9 +2,11 @@
  * MCP Tool: get_complexity_report
  *
  * Generate a complexity report showing complex code hotspots.
+ * Queries graph for Function nodes with high complexity.
  */
 
 import { z } from 'zod';
+import { getGraphClient } from '../graphClient.js';
 
 // Input schema
 export const ComplexityReportInputSchema = z.object({
@@ -34,7 +36,7 @@ export interface ComplexityReportOutput {
     maxComplexity: number;
     avgComplexity: number;
   };
-  error?: string;
+  error?: string | undefined;
 }
 
 // Internal ToolDefinition type
@@ -81,18 +83,66 @@ export const complexityReportToolDefinition: ToolDefinition = {
  */
 export async function getComplexityReport(input: ComplexityReportInput): Promise<ComplexityReportOutput> {
   try {
-    // TODO: Query graph for complexity metrics when API integration is complete
-    // This will use Function nodes with complexity properties
-    
+    const client = await getGraphClient();
+    const threshold = input.threshold ?? 10;
+    const scope = input.scope === 'all' ? '' : input.scope;
+
+    // Query for functions with complexity data
+    const scopeFilter = scope ? 'AND f.filePath STARTS WITH $scope' : '';
+    const query = `
+      MATCH (f:Function)
+      WHERE f.complexity >= $threshold ${scopeFilter}
+      RETURN f.name as name, 
+             f.filePath as file, 
+             f.complexity as complexity,
+             coalesce(f.cognitive, 0) as cognitive,
+             coalesce(f.nestingDepth, 0) as nesting,
+             coalesce(f.endLine - f.startLine + 1, 0) as lines
+      ORDER BY f.complexity DESC
+      LIMIT 50
+    `;
+
+    type HotspotRow = {
+      name: string;
+      file: string;
+      complexity: number;
+      cognitive: number;
+      nesting: number;
+      lines: number;
+    };
+
+    const result = await client.roQuery<HotspotRow>(
+      query,
+      { params: { threshold, scope } }
+    );
+
+    // Get total function count for summary
+    const countQuery = scope
+      ? 'MATCH (f:Function) WHERE f.filePath STARTS WITH $scope RETURN count(f) as total, max(f.complexity) as maxC, avg(f.complexity) as avgC'
+      : 'MATCH (f:Function) RETURN count(f) as total, max(f.complexity) as maxC, avg(f.complexity) as avgC';
+
+    const countResult = await client.roQuery<{ total: number; maxC: number; avgC: number }>(
+      countQuery,
+      scope ? { params: { scope } } : undefined
+    );
+
+    const hotspots: ComplexityHotspot[] = result.data.map(row => ({
+      name: row.name ?? 'unknown',
+      file: row.file ?? '',
+      complexity: row.complexity ?? 0,
+      cognitive: row.cognitive ?? 0,
+      nesting: row.nesting ?? 0,
+      lines: row.lines ?? 0,
+    }));
+
     return {
-      hotspots: [],
+      hotspots,
       summary: {
-        totalFunctions: 0,
-        overThreshold: 0,
-        maxComplexity: 0,
-        avgComplexity: 0,
+        totalFunctions: countResult.data[0]?.total ?? 0,
+        overThreshold: hotspots.length,
+        maxComplexity: countResult.data[0]?.maxC ?? 0,
+        avgComplexity: Math.round((countResult.data[0]?.avgC ?? 0) * 10) / 10,
       },
-      error: `Complexity report for scope "${input.scope}" (threshold: ${input.threshold}) requires API integration (coming in MCP-INT-001)`,
     };
   } catch (error) {
     return {
