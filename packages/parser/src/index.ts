@@ -69,7 +69,7 @@ export type {
   UsesHookEdge,
 } from '@codegraph/types';
 
-// Analysis module
+// Analysis module - Complexity
 export {
   calculateComplexity,
   calculateCyclomatic,
@@ -80,3 +80,63 @@ export {
 } from './analysis';
 
 export type { ComplexityMetrics } from './analysis';
+
+// Analysis module - Impact
+export {
+  analyzeImpact,
+  classifyRisk,
+  calculateRiskScore,
+  getDirectCallersQuery,
+  getTransitiveCallersQuery,
+  getAffectedTestsQuery,
+  isTestFile,
+  getAffectedFiles,
+  getImpactSummary,
+  RISK_WEIGHTS,
+  RISK_THRESHOLDS,
+} from './analysis';
+
+export type {
+  ImpactAnalysisResult,
+  ImpactAnalysisInput,
+  ImpactAnalysisOptions,
+  CallerInfo,
+  TestInfo,
+} from './analysis';
+
+// Analysis module - Dataflow
+export {
+  analyzeDataflow,
+  isTaintSource,
+  isTaintSink,
+  isSanitizer,
+  getTaintSourcePatterns,
+  getTaintSinkPatterns,
+  getSanitizerPatterns,
+  getDataflowSummary,
+} from './analysis';
+
+export type {
+  TaintSource,
+  TaintSink,
+  TaintSourceCategory,
+  TaintSinkCategory,
+  FlowStep,
+  DataFlowPath,
+  DataflowAnalysisResult,
+  DataflowAnalysisOptions,
+} from './analysis';
+
+// Analysis module - Security
+export {
+  scanForVulnerabilities,
+  scanFile,
+  sortBySeverity,
+  severityToNumber,
+} from './analysis';
+
+export type {
+  SecurityFinding,
+  SecuritySeverity,
+  ScanOptions,
+} from './analysis';
