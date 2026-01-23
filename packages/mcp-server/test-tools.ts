@@ -301,6 +301,33 @@ async function main() {
     }
   });
 
+  // Test 18: Find Symbol in Analysis Files (Debugging missing files)
+  await runTest('find_symbol (function: calculateComplexity)', async () => {
+    const result = await findSymbol({ name: 'calculateComplexity', kind: 'function' });
+    console.log('Found:', result.found);
+    if (result.symbol) {
+      console.log('Symbol:', result.symbol.name);
+      console.log('File:', result.symbol.file?.split('/').pop());
+      console.log('Line:', result.symbol.line);
+    } else {
+      console.log('❌ calculateComplexity not found (Analysis files missing?)');
+    }
+  });
+
+  // Test 19: Analyze Refactoring (on analysis file)
+  await runTest('analyze_file_for_refactoring (complexity.ts)', async () => {
+    // This tool reads from disk, so it should work even if file not in graph
+    const testFile = `${process.cwd()}/packages/parser/src/analysis/complexity.ts`;
+    const result = await analyzeFileForRefactoring({ file: testFile, threshold: 3 });
+    console.log('File:', result.file.split('/').pop());
+    console.log('Total Functions:', result.totalFunctions);
+    if (result.totalFunctions > 0) {
+      console.log('✅ Analysis tool works on disk file');
+    } else {
+      console.log('❌ Analysis tool failed to parse file');
+    }
+  });
+
   // Summary
   console.log(`\n${separator}`);
   console.log('📊 TEST SUMMARY');
