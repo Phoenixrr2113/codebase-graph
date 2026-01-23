@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { createClient, type GraphClient } from '@codegraph/graph';
 
 // Input schema
 export const QueryGraphInputSchema = z.object({
@@ -19,6 +20,7 @@ export interface QueryGraphOutput {
   success: boolean;
   data: unknown[];
   count: number;
+  metadata?: string[];
   error?: string;
 }
 
@@ -53,6 +55,16 @@ export const queryGraphToolDefinition: ToolDefinition = {
   },
 };
 
+// Singleton graph client
+let graphClient: GraphClient | null = null;
+
+async function getGraphClient(): Promise<GraphClient> {
+  if (!graphClient) {
+    graphClient = await createClient();
+  }
+  return graphClient;
+}
+
 /**
  * Handler for query_graph tool
  * 
@@ -84,13 +96,18 @@ export async function queryGraph(input: QueryGraphInput): Promise<QueryGraphOutp
       };
     }
 
-    // TODO: Execute query via graph client when API integration is complete
-    
+    // Execute query via graph client
+    const client = await getGraphClient();
+    const result = await client.roQuery<Record<string, unknown>>(
+      input.cypher,
+      input.params ? { params: input.params as Record<string, string | number | boolean | null | Array<unknown>> } : undefined
+    );
+
     return {
-      success: false,
-      data: [],
-      count: 0,
-      error: 'Graph query execution requires API integration (coming in MCP-INT-001)',
+      success: true,
+      data: result.data,
+      count: result.data.length,
+      metadata: result.metadata,
     };
   } catch (error) {
     return {
