@@ -1,164 +1,251 @@
 # CodeGraph
 
-Visual codebase knowledge graph that parses source code to extract entities and relationships, stores them in FalkorDB, and renders an interactive graph visualization.
+**Understand your codebase at a glance.** CodeGraph parses your source code, builds a knowledge graph of every function, class, and relationship, then lets you explore, analyze, and query it—visually or through AI assistants.
 
-![CodeGraph](https://img.shields.io/badge/FalkorDB-Graph%20Database-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue) ![Next.js](https://img.shields.io/badge/Next.js-16-black)
+![FalkorDB](https://img.shields.io/badge/FalkorDB-Graph%20Database-blue)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)
+![Next.js](https://img.shields.io/badge/Next.js-16-black)
+![React](https://img.shields.io/badge/React-19-61dafb)
+![MCP](https://img.shields.io/badge/MCP-14%20Tools-green)
+![Tree-sitter](https://img.shields.io/badge/Tree--sitter-WASM-orange)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-## Features
+## The Problem
 
-- **Multi-Language Parsing** - Plugin-based architecture supporting TypeScript, JavaScript, Python, and C#
-- **AST Extraction** - Tree-sitter based extraction of functions, classes, interfaces, types, variables, and React components
-- **Semantic Edges** - Automatically detects CALLS, IMPORTS, EXTENDS, IMPLEMENTS, CONTAINS, and RENDERS relationships
-- **Interactive Graph** - Cytoscape.js powered visualization with multiple layouts (Force, Hierarchical)
-- **Graph Controls** - Zoom, fit, layout switching, and spread button to disperse clustered nodes
-- **Deep Analysis** - Optional cross-file call resolution and external dependency tracking
-- **Real-time Updates** - WebSocket notifications for file changes (when watching)
-- **Entity Detail Panel** - Shows relationships, properties, and syntax-highlighted source preview
+Modern codebases are complex. When you need to:
+- **Understand impact** — "What breaks if I change this function?"
+- **Find security issues** — "Where is user input flowing to SQL queries?"
+- **Reduce complexity** — "Which functions are too complex and need refactoring?"
+- **Navigate relationships** — "What calls this? What does this depend on?"
+
+...you're usually stuck grep'ing through files, hoping you didn't miss something.
+
+## The Solution
+
+CodeGraph builds a **queryable knowledge graph** of your entire codebase:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Your Codebase → Parser → Graph DB → Insights              │
+│                                                             │
+│  • Functions, Classes, Components, Interfaces               │
+│  • CALLS, IMPORTS, EXTENDS, IMPLEMENTS relationships        │
+│  • Complexity metrics, security vulnerabilities             │
+│  • Git history integration                                  │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Quick Start
 
 ```bash
-# Install dependencies
-pnpm install
+# Clone and install
+git clone https://github.com/your-org/codegraph.git
+cd codegraph && pnpm install
 
-# Copy environment template
+# Configure FalkorDB (cloud or local)
 cp .env.template .env
+# Edit .env with your FalkorDB credentials
+
+# Start everything
+pnpm start  # Docker + API + Web
+
+# Or, if using FalkorDB Cloud:
+pnpm dev    # Just API + Web
 ```
 
-### Option A: FalkorDB Cloud (Recommended)
-Configure your `.env` with cloud credentials:
-```env
-FALKORDB_URL=your-instance.cloud:port
-FALKORDB_USERNAME=falkordb
-FALKORDB_PASSWORD=your-password
-```
+Open [http://localhost:3000](http://localhost:3000), add a project, and start exploring.
 
-Then start dev servers (no Docker required):
+## Usage Examples
+
+### 1. Visual Graph Exploration
+
+Parse any project and explore the interactive graph:
+- **Double-click** nodes to expand neighbors
+- **Search** by name to find any symbol
+- **Click** any node to see its source code, relationships, and metrics
+
+### 2. Impact Analysis via MCP
+
+Connect to Claude or Cursor with the MCP server:
+
 ```bash
-pnpm dev
+# In your MCP config, add:
+{
+  "codegraph": {
+    "command": "node",
+    "args": ["./packages/mcp-server/dist/index.js"]
+  }
+}
 ```
 
-### Option B: Local Docker
-Start FalkorDB container + dev servers:
-```bash
-pnpm start
+Then ask your AI assistant:
+> "What functions are affected if I change `processPayment`?"
+
+The `analyze_impact` tool returns direct callers, transitive dependencies, affected tests, and a risk score.
+
+### 3. Security Scanning
+
+Find vulnerabilities across your codebase:
+
+```typescript
+// MCP tool: find_vulnerabilities
+{
+  "vulnerabilities": [
+    {
+      "type": "SQL_INJECTION",
+      "severity": "CRITICAL",
+      "file": "src/db/users.ts",
+      "line": 45,
+      "description": "User input concatenated into SQL query",
+      "fix": "Use parameterized queries"
+    }
+  ]
+}
 ```
 
-Then open [http://localhost:3000](http://localhost:3000) and add a project to parse.
+### 4. Complexity Hotspots
+
+Identify functions that need refactoring:
+
+```typescript
+// MCP tool: get_complexity_report
+{
+  "hotspots": [
+    { "name": "processOrder", "complexity": 28, "cognitive": 34, "file": "src/orders.ts" },
+    { "name": "validateInput", "complexity": 22, "cognitive": 19, "file": "src/validation.ts" }
+  ]
+}
+```
+
+### 5. Direct Graph Queries
+
+Run Cypher queries for custom analysis:
+
+```cypher
+// Find all functions that call external APIs but have no tests
+MATCH (f:Function)-[:CALLS]->(e:External)
+WHERE NOT EXISTS { MATCH (t:File)-[:CONTAINS]->(test:Function)
+                   WHERE test.name CONTAINS 'test' AND (test)-[:CALLS]->(f) }
+RETURN f.name, f.file, e.name
+```
+
+## What Gets Extracted
+
+| Language | Entities | Relationships |
+|----------|----------|---------------|
+| TypeScript/JavaScript | Functions, Classes, Interfaces, Types, Components | CALLS, IMPORTS, RENDERS, EXPORTS, EXTENDS |
+| Python | Functions, Classes | CALLS, IMPORTS |
+| C# | Classes, Interfaces, Methods | CALLS, EXTENDS, IMPLEMENTS |
+
+**Analysis Capabilities:**
+- **Complexity** — Cyclomatic, cognitive, nesting depth
+- **Security** — OWASP Top 10 + payment-specific rules (Stripe, Adyen)
+- **Dataflow** — Taint tracking from sources to sinks
+- **Git History** — Commits linked to code changes
+
+## MCP Server (14 Tools)
+
+The MCP server enables AI assistants to query your codebase:
+
+| Category | Tools |
+|----------|-------|
+| Index | `get_index_status`, `trigger_reindex` |
+| Search | `find_symbol`, `search_code`, `query_graph` |
+| Analysis | `analyze_impact`, `find_vulnerabilities`, `get_complexity_report`, `trace_data_flow` |
+| Context | `explain_code`, `get_symbol_history`, `get_repo_map`, `analyze_file_for_refactoring` |
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Frontend (Next.js)                     │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │ Graph View  │  │ Entity      │  │  Source Preview     │  │
-│  │ (Cytoscape) │  │  Detail     │  │    Panel            │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-└────────────────────────────┬────────────────────────────────┘
-                             │ REST + WebSocket
-┌────────────────────────────┴────────────────────────────────┐
+│                      Frontend (Next.js 16)                  │
+│     Interactive Graph • Entity Detail • Source Preview      │
+└───────────────────────────────┬─────────────────────────────┘
+                                │ REST + WebSocket
+┌───────────────────────────────┴─────────────────────────────┐
 │                      API (Hono)                             │
-│  /api/parse  /api/graph  /api/search  /api/projects  /ws    │
-└────────────────────────────┬────────────────────────────────┘
-                             │
-┌────────────────────────────┴────────────────────────────────┐
+│   Parse Service • Analysis Engine • Git Integration         │
+└───────────────────────────────┬─────────────────────────────┘
+                                │
+┌───────────────────────────────┴─────────────────────────────┐
 │                    FalkorDB (Graph DB)                      │
-│  Nodes: File, Function, Class, Interface, Type, Component  │
-│  Edges: CONTAINS, CALLS, IMPORTS, EXTENDS, IMPLEMENTS      │
+│   Nodes: File, Function, Class, Component, Commit           │
+│   Edges: CALLS, IMPORTS, EXTENDS, RENDERS, FLOWS_TO         │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                    MCP Server (stdio)                       │
+│           14 tools for Claude, Cursor, etc.                 │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Packages
+## Configuration
 
-| Package | Description |
-|---------|-------------|
-| `@codegraph/types` | Shared TypeScript types for entities and edges |
-| `@codegraph/parser` | Tree-sitter AST parsing coordinator |
-| `@codegraph/plugin-typescript` | TypeScript/JavaScript/TSX/JSX language plugin |
-| `@codegraph/plugin-python` | Python language plugin with import resolution |
-| `@codegraph/plugin-csharp` | C# language plugin with namespace support |
-| `@codegraph/graph` | FalkorDB client, CRUD operations, and queries |
-| `@codegraph/logger` | Structured logging with tracing support |
-| `@codegraph/api` | Hono REST API server with WebSocket |
-| `@codegraph/web` | Next.js 16 / React 19 frontend |
+```env
+# FalkorDB Cloud (recommended)
+FALKORDB_URL=your-instance.cloud:port
+FALKORDB_USERNAME=falkordb
+FALKORDB_PASSWORD=your-password
 
-## Commands
+# Or local Docker
+FALKORDB_HOST=localhost
+FALKORDB_PORT=6379
 
-| Command | Description |
-|---------|-------------|
-| `pnpm install` | Install all dependencies |
-| `pnpm start` | Start FalkorDB + API + Web (recommended) |
-| `pnpm build` | Build all packages |
-| `pnpm dev` | Start API (3001) + Web (3000) dev servers |
-| `pnpm test` | Run all tests |
-| `pnpm clean` | Clean build artifacts |
+# Graph name
+FALKORDB_GRAPH=codegraph
+```
 
-## API Endpoints
+## Development
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| GET | `/api/projects` | List parsed projects |
-| POST | `/api/parse/project` | Parse a project directory |
-| DELETE | `/api/projects/:id` | Delete a project |
-| GET | `/api/graph/full` | Get full graph data |
-| GET | `/api/search?q=...` | Search entities by name |
-| GET | `/api/entity/:id` | Get entity details |
-| GET | `/api/neighbors/:id` | Get connected nodes |
-| GET | `/api/source?path=...` | Get source code content |
-| POST | `/api/query/cypher` | Execute Cypher query |
-| WS | `/ws` | Real-time file change events |
-
-## Graph Schema
-
-**Node Labels:**
-- `File` - Source file with path, loc, hash
-- `Function` - Function/method with params, async, arrow flags  
-- `Class` - Class with extends, implements
-- `Interface` - TypeScript interface
-- `Type` - Type alias or enum
-- `Variable` - const/let/var declaration
-- `Component` - React component
-- `External` - External dependency (library, framework)
-
-**Edge Types:**
-- `CONTAINS` - File contains entity
-- `IMPORTS` - File imports from file/namespace
-- `CALLS` - Function calls function
-- `EXTENDS` - Class extends class
-- `IMPLEMENTS` - Class implements interface
-- `RENDERS` - Component renders component
-
-## Supported Languages
-
-| Language | Extensions | Features |
-|----------|------------|----------|
-| TypeScript | `.ts`, `.tsx` | Full entity extraction, CALLS, RENDERS |
-| JavaScript | `.js`, `.jsx` | Full entity extraction, CALLS, RENDERS |
-| Python | `.py` | Classes, functions, imports with path resolution |
-| C# | `.cs` | Classes, interfaces, methods, EXTENDS, IMPLEMENTS |
+```bash
+pnpm install   # Install dependencies
+pnpm build     # Build all packages
+pnpm dev       # Start dev servers (API:3001, Web:3000)
+pnpm test      # Run tests
+```
 
 ## Tech Stack
 
-- **Frontend**: Next.js 16, React 19, Cytoscape.js 3.33, Tailwind CSS 4, Zustand 5
-- **API**: Hono, Node.js 20+, WebSocket
-- **Graph DB**: FalkorDB (Redis-compatible)
-- **Parsing**: Tree-sitter (WASM) with language-specific plugins
-- **Build**: Turborepo, pnpm workspaces, TypeScript 5.7
+- **Frontend**: Next.js 16, React 19, Cytoscape.js, Tailwind CSS 4
+- **API**: Hono, WebSocket
+- **Parsing**: Tree-sitter (WASM)
+- **Graph DB**: FalkorDB
+- **Build**: Turborepo, pnpm workspaces
 
-## Environment Variables
+## Roadmap
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `API_PORT` | 3001 | API server port |
-| `FALKORDB_URL` | - | Cloud connection URL (format: `hostname:port`) |
-| `FALKORDB_USERNAME` | - | Cloud authentication username |
-| `FALKORDB_PASSWORD` | - | Cloud authentication password |
-| `FALKORDB_HOST` | localhost | FalkorDB host (local/Docker fallback) |
-| `FALKORDB_PORT` | 6379 | FalkorDB port (local/Docker fallback) |
-| `FALKORDB_GRAPH` | codegraph | Graph name |
-| `WATCH_PATH` | - | Auto-watch project path |
+### Analytics & Dashboard
+- [ ] Analytics dashboard — visualize complexity trends, security issues, code health over time
+- [ ] Custom metrics — define your own rules and thresholds
+- [ ] Team metrics — code ownership, review patterns, knowledge silos
+
+### AI Integration
+- [ ] Conversational agent — ask questions about your codebase in natural language
+- [ ] Auto-generated documentation — AI-powered docs from code analysis
+- [ ] Refactoring suggestions — AI-assisted code improvements
+
+### Language & File Support
+- [ ] More languages — Go, Rust, Java, Ruby, PHP
+- [ ] Config files — package.json, tsconfig, Dockerfile analysis
+- [ ] Documentation — Markdown linking, API doc extraction
+
+### Infrastructure
+- [ ] YAML/ENV configuration — fully configurable via `codegraph.yml`
+- [ ] CI/CD GitHub Actions — run analysis on every PR
+- [ ] Cross-codebase analysis — analyze microservices as a unified graph
+- [ ] Better logging — structured logs, log levels, external sinks
+
+### Graph & UX
+- [ ] Enhanced graph UI — filtering, grouping, time-travel views
+- [ ] More node types — configs, tests, migrations, API routes
+- [ ] More edge types — USES_CONFIG, TESTED_BY, MIGRATES
+
+### Templates
+- [ ] Project starter template — new projects with CodeGraph baked in from day one
+- [ ] Pre-commit hooks — analyze before every commit
+- [ ] IDE extensions — VS Code, Cursor integration
+
+---
 
 ## License
 
