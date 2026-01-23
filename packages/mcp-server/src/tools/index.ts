@@ -13,6 +13,9 @@ import { explainCodeToolDefinition, explainCode, type ExplainCodeInput } from '.
 import { analyzeImpactToolDefinition, analyzeImpact, type AnalyzeImpactInput } from './analyzeImpact.js';
 import { findVulnerabilitiesToolDefinition, findVulnerabilities, type FindVulnerabilitiesInput } from './findVulnerabilities.js';
 import { traceDataFlowToolDefinition, traceDataFlow, type TraceDataFlowInput } from './traceDataFlow.js';
+import { complexityReportToolDefinition, getComplexityReport, type ComplexityReportInput } from './complexityReport.js';
+import { repoMapToolDefinition, getRepoMap, type RepoMapInput } from './repoMap.js';
+import { queryGraphToolDefinition, queryGraph, type QueryGraphInput } from './queryGraph.js';
 
 // ============================================================================
 // Tool Definitions
@@ -52,6 +55,9 @@ export const tools: ToolDefinition[] = [
   analyzeImpactToolDefinition,
   findVulnerabilitiesToolDefinition,
   traceDataFlowToolDefinition,
+  complexityReportToolDefinition,
+  repoMapToolDefinition,
+  queryGraphToolDefinition,
 ];
 
 // ============================================================================
@@ -127,6 +133,29 @@ const handlers: Record<string, ToolHandler> = {
       file: args.file as string | undefined,
     };
     return traceDataFlow(input);
+  },
+  get_complexity_report: async (args) => {
+    const input: ComplexityReportInput = {
+      scope: (args.scope as string) || 'all',
+      threshold: (args.threshold as number) || 10,
+      sortBy: (args.sortBy as 'complexity' | 'cognitive' | 'nesting') || 'complexity',
+    };
+    return getComplexityReport(input);
+  },
+  get_repo_map: async (args) => {
+    const input: RepoMapInput = {
+      maxTokens: (args.maxTokens as number) || 2048,
+      focusFiles: args.focusFiles as string[] | undefined,
+      focusSymbols: args.focusSymbols as string[] | undefined,
+    };
+    return getRepoMap(input);
+  },
+  query_graph: async (args) => {
+    const input: QueryGraphInput = {
+      cypher: args.cypher as string,
+      params: args.params as Record<string, unknown> | undefined,
+    };
+    return queryGraph(input);
   },
 };
 
