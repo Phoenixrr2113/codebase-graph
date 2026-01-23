@@ -60,8 +60,9 @@ describe('Parser', () => {
     });
 
     it('should return undefined for unsupported extensions', () => {
-      expect(getLanguageForExtension('.py')).toBeUndefined();
+      expect(getLanguageForExtension('.rs')).toBeUndefined();
       expect(getLanguageForExtension('.go')).toBeUndefined();
+      expect(getLanguageForExtension('.rb')).toBeUndefined();
     });
   });
 
@@ -225,8 +226,8 @@ describe('Parser', () => {
     it('should throw for unsupported file extensions', async () => {
       await initParser();
       
-      const filePath = join(testDir, 'script.py');
-      await writeFile(filePath, 'print("hello")', 'utf-8');
+      const filePath = join(testDir, 'script.rs');
+      await writeFile(filePath, 'fn main() {}', 'utf-8');
       
       try {
         await expect(parseFile(filePath)).rejects.toThrow('Unsupported file extension');

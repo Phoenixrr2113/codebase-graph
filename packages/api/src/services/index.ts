@@ -12,4 +12,9 @@ export {
   type FileEventType,
   type WatchServiceConfig,
 } from './watchService';
-
+export {
+  extractGitHistory,
+  getRepoInfo,
+  type GitSyncResult,
+  type GitSyncOptions,
+} from './gitService';

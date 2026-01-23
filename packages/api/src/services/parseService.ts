@@ -2,8 +2,8 @@
  * Parse service - orchestrates parsing and graph persistence
  */
 
-import type { ParseResult, ParseStats, FileEntity, ProjectEntity } from '@codegraph/types';
-import { initParser, parseFile, parseFiles, extractAllEntities, extractCalls, extractRenders, extractInheritance, type ExtractedEntities } from '@codegraph/parser';
+import type { ParseResult, ParseStats, FileEntity, ProjectEntity, FunctionEntity } from '@codegraph/types';
+import { initParser, parseFile, parseFiles, extractAllEntities, extractCalls, extractRenders, extractInheritance, calculateComplexity, type ExtractedEntities } from '@codegraph/parser';
 import {
   extractFunctions as extractPythonFunctions,
   extractClasses as extractPythonClasses,
@@ -36,6 +36,7 @@ import {
   PYTHON_EXTENSIONS,
   CSHARP_EXTENSIONS,
 } from '../config/constants';
+import { getAnalyticsService } from './analyticsService';
 
 const logger = createLogger({ namespace: 'API:Parse' });
 
@@ -129,6 +130,49 @@ function extractEntitiesForFile(rootNode: Parser.SyntaxNode, filePath: string): 
   return extractAllEntities(rootNode, filePath);
 }
 
+/** Node types that represent function declarations */
+const FUNCTION_TYPES = [
+  'function_declaration',
+  'function_expression',
+  'arrow_function',
+  'method_definition',
+  'generator_function_declaration',
+];
+
+/**
+ * Calculate and attach complexity metrics to all functions in extracted entities
+ * Walks the AST to find function nodes and matches them by startLine to the extracted functions
+ */
+function enrichFunctionsWithComplexity(
+  rootNode: Parser.SyntaxNode,
+  functions: FunctionEntity[]
+): void {
+  // Build a map of startLine -> function entity for quick lookup
+  const functionsByLine = new Map<number, FunctionEntity>();
+  for (const fn of functions) {
+    functionsByLine.set(fn.startLine, fn);
+  }
+
+  // Walk the AST to find function nodes
+  function walk(node: Parser.SyntaxNode): void {
+    if (FUNCTION_TYPES.includes(node.type)) {
+      const startLine = node.startPosition.row + 1; // Convert to 1-indexed
+      const functionEntity = functionsByLine.get(startLine);
+      if (functionEntity) {
+        const metrics = calculateComplexity(node);
+        functionEntity.complexity = metrics.cyclomatic;
+        functionEntity.cognitiveComplexity = metrics.cognitive;
+        functionEntity.nestingDepth = metrics.nestingDepth;
+      }
+    }
+    for (const child of node.children) {
+      walk(child);
+    }
+  }
+
+  walk(rootNode);
+}
+
 /**
  * Build ParsedFileEntities from extracted entities
  */
@@ -140,6 +184,11 @@ function buildParsedFileEntities(
   projectRoot?: string
 ): ParsedFileEntities {
   const { deepAnalysis = false, includeExternals = false } = options;
+
+  // Calculate and attach complexity metrics to functions if we have the AST
+  if (rootNode) {
+    enrichFunctionsWithComplexity(rootNode, extracted.functions);
+  }
 
   // Build import edges from import entities
   let importsEdges: { fromFilePath: string; toFilePath: string; specifiers: string[] }[] = [];
@@ -272,7 +321,7 @@ function buildParsedFileEntities(
         line: call.line,
       }));
     } else {
-    // TypeScript/JavaScript
+      // TypeScript/JavaScript
       logger.debug(`[Deep Analysis] Extracting calls for ${file.path}`);
       const calls = extractCalls(
         rootNode,
@@ -478,6 +527,16 @@ export const parseProject = traced('parseProject', async function parseProject(
       status: 'error',
       error: error instanceof Error ? error.message : 'Unknown parsing error',
     };
+  } finally {
+    // Trigger post-ingestion analytics (non-blocking)
+    try {
+      const analyticsService = getAnalyticsService();
+      analyticsService.onIngestionComplete(projectPath).catch(err => {
+        logger.warn('Post-ingestion analytics failed:', err);
+      });
+    } catch {
+      // Analytics service not available - ignore
+    }
   }
 });
 
