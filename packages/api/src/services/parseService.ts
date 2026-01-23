@@ -36,6 +36,7 @@ import {
   PYTHON_EXTENSIONS,
   CSHARP_EXTENSIONS,
 } from '../config/constants';
+import { getAnalyticsService } from './analyticsService';
 
 const logger = createLogger({ namespace: 'API:Parse' });
 
@@ -320,7 +321,7 @@ function buildParsedFileEntities(
         line: call.line,
       }));
     } else {
-    // TypeScript/JavaScript
+      // TypeScript/JavaScript
       logger.debug(`[Deep Analysis] Extracting calls for ${file.path}`);
       const calls = extractCalls(
         rootNode,
@@ -526,6 +527,16 @@ export const parseProject = traced('parseProject', async function parseProject(
       status: 'error',
       error: error instanceof Error ? error.message : 'Unknown parsing error',
     };
+  } finally {
+    // Trigger post-ingestion analytics (non-blocking)
+    try {
+      const analyticsService = getAnalyticsService();
+      analyticsService.onIngestionComplete(projectPath).catch(err => {
+        logger.warn('Post-ingestion analytics failed:', err);
+      });
+    } catch {
+      // Analytics service not available - ignore
+    }
   }
 });
 

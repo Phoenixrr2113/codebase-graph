@@ -3,7 +3,7 @@
  * Implements Model Context Protocol for AI assistant integration
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { Server } from '@modelcontextprotocol/sdk/server';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
@@ -11,7 +11,7 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { createLogger } from '@codegraph/logger';
-import { tools, handleToolCall } from './tools/index.js';
+import { tools, handleToolCall } from './tools';
 
 const logger = createLogger({ namespace: 'MCP:Server' });
 

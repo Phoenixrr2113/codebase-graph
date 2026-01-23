@@ -3,7 +3,7 @@
  * Run with: pnpm --filter @codegraph/mcp-server dev
  */
 
-import { createMCPServer } from './server.js';
+import { createMCPServer } from './server';
 import { createLogger } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'MCP:Main' });

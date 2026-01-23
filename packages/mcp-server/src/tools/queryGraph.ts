@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import { getGraphClient } from '../graphClient.js';
+import { getGraphClient } from '../graphClient';
 
 // Input schema
 export const QueryGraphInputSchema = z.object({

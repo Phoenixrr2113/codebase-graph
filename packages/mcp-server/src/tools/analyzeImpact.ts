@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import { getGraphClient } from '../graphClient.js';
+import { getGraphClient } from '../graphClient';
 import {
   analyzeImpact as runImpactAnalysis,
   getDirectCallersQuery,

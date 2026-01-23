@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
-import { getGraphClient } from '../graphClient.js';
+import { getGraphClient } from '../graphClient';
 
 // Input schema
 export const ExplainCodeInputSchema = z.object({
