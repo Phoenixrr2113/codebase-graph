@@ -5,6 +5,8 @@
 
 // zod will be used in subsequent tasks for input validation
 
+import { indexStatusToolDefinition, getIndexStatus } from './indexStatus.js';
+
 // ============================================================================
 // Tool Definitions
 // ============================================================================
@@ -35,6 +37,7 @@ export const tools: ToolDefinition[] = [
       properties: {},
     },
   },
+  indexStatusToolDefinition,
 ];
 
 // ============================================================================
@@ -50,6 +53,10 @@ const handlers: Record<string, ToolHandler> = {
       message: 'CodeGraph MCP Server is running',
       timestamp: new Date().toISOString(),
     };
+  },
+  get_index_status: async (args) => {
+    const input = args.repo ? { repo: args.repo as string } : {};
+    return getIndexStatus(input);
   },
 };
 
