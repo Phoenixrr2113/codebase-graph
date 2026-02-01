@@ -287,4 +287,9 @@ export type NodeLabel =
   | 'Import'
   | 'Type'
   | 'Component'
-  | 'Commit';
+  | 'Commit'
+  | 'MarkdownDocument'
+  | 'Section'
+  | 'CodeBlock'
+  | 'Link';
+

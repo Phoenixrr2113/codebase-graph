@@ -208,6 +208,32 @@ export interface FlowsToEdge extends BaseEdge {
 }
 
 // ============================================================================
+// Document Edges (Markdown)
+// ============================================================================
+
+/** Document has a section (heading) */
+export interface HasSectionEdge extends BaseEdge {
+  type: 'HAS_SECTION';
+}
+
+/** Section is a parent of another section (heading hierarchy) */
+export interface ParentSectionEdge extends BaseEdge {
+  type: 'PARENT_SECTION';
+}
+
+/** Section or document contains a code block */
+export interface ContainsCodeEdge extends BaseEdge {
+  type: 'CONTAINS_CODE';
+}
+
+/** Document links to another document, file, or URL */
+export interface LinksToEdge extends BaseEdge {
+  type: 'LINKS_TO';
+  /** Anchor/fragment if present (e.g., #section-id) */
+  anchor?: string;
+}
+
+// ============================================================================
 // Union Types
 // ============================================================================
 
@@ -233,7 +259,11 @@ export type Edge =
   | WritesEdge
   | FlowsToEdge
   | ExportsEdge
-  | InstantiatesEdge;
+  | InstantiatesEdge
+  | HasSectionEdge
+  | ParentSectionEdge
+  | ContainsCodeEdge
+  | LinksToEdge;
 
 /** Edge label types matching FalkorDB schema */
 export type EdgeLabel =
@@ -257,4 +287,8 @@ export type EdgeLabel =
   | 'WRITES'
   | 'FLOWS_TO'
   | 'EXPORTS'
-  | 'INSTANTIATES';
+  | 'INSTANTIATES'
+  | 'HAS_SECTION'
+  | 'PARENT_SECTION'
+  | 'CONTAINS_CODE'
+  | 'LINKS_TO';
