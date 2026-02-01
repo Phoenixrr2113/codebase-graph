@@ -1,0 +1,35 @@
+{
+  "name": "@codegraph/plugin-markdown",
+  "version": "0.1.0",
+  "description": "Markdown document plugin for CodeGraph - treats documents AS the graph",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codegraph/types": "workspace:*",
+    "@codegraph/logger": "workspace:*",
+    "unified": "^11.0.5",
+    "remark-parse": "^11.0.0",
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.0",
+    "gray-matter": "^4.0.3",
+    "unist-util-visit": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/mdast": "^4.0.4",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3"
+  }
+}
