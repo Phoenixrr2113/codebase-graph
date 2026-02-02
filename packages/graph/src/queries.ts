@@ -161,6 +161,10 @@ function getLabelFromLabels(labels: string[]): NodeLabel {
     'Component',
     'Import',
     'Commit',
+    'MarkdownDocument',
+    'Section',
+    'CodeBlock',
+    'Link',
   ];
 
   // First check for specific valid labels (File, Interface, etc.)
@@ -589,6 +593,10 @@ class GraphQueriesImpl implements GraphQueries {
       Component: 0,
       Import: 0,
       Commit: 0,
+      MarkdownDocument: 0,
+      Section: 0,
+      CodeBlock: 0,
+      Link: 0,
     };
 
     let totalNodes = 0;
@@ -628,6 +636,10 @@ class GraphQueriesImpl implements GraphQueries {
       FLOWS_TO: 0,
       EXPORTS: 0,
       INSTANTIATES: 0,
+      HAS_SECTION: 0,
+      PARENT_SECTION: 0,
+      CONTAINS_CODE: 0,
+      LINKS_TO: 0,
     };
 
     let totalEdges = 0;

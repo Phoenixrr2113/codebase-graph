@@ -20,6 +20,10 @@ export const NODE_COLORS: Record<NodeLabel, string> = {
   Type: '#ec4899',      // Pink
   Import: '#94a3b8',    // Slate (not in spec, using muted)
   Commit: '#22c55e',    // Green (git history)
+  MarkdownDocument: '#3b82f6', // Blue (docs)
+  Section: '#60a5fa',   // Light blue
+  CodeBlock: '#a78bfa', // Light violet
+  Link: '#2dd4bf',      // Teal
 };
 
 // ============================================================================
@@ -36,6 +40,10 @@ export const NODE_SHAPES: Record<NodeLabel, string> = {
   Type: 'hexagon',
   Import: 'rectangle',
   Commit: 'tag',
+  MarkdownDocument: 'round-rectangle',
+  Section: 'rectangle',
+  CodeBlock: 'round-rectangle',
+  Link: 'ellipse',
 };
 
 // ============================================================================
@@ -52,6 +60,10 @@ export const NODE_SIZES: Record<NodeLabel, { width: number; height: number }> = 
   Type: { width: 25, height: 25 },
   Import: { width: 25, height: 20 },
   Commit: { width: 30, height: 25 },
+  MarkdownDocument: { width: 40, height: 40 },
+  Section: { width: 30, height: 25 },
+  CodeBlock: { width: 25, height: 25 },
+  Link: { width: 20, height: 20 },
 };
 
 // ============================================================================
@@ -80,6 +92,10 @@ export const EDGE_COLORS: Record<EdgeLabel, string> = {
   FLOWS_TO: '#a855f7',      // Purple (dataflow)
   EXPORTS: '#14b8a6',       // Teal
   INSTANTIATES: '#f59e0b',  // Amber
+  HAS_SECTION: '#60a5fa',   // Light blue (docs)
+  PARENT_SECTION: '#93c5fd', // Lighter blue (docs)
+  CONTAINS_CODE: '#a78bfa', // Light violet (docs)
+  LINKS_TO: '#2dd4bf',      // Teal (docs)
 };
 
 // ============================================================================
