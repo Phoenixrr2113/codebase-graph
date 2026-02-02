@@ -9,3 +9,4 @@ export * from './edges';
 export * from './graph';
 export * from './plugin';
 export * from './document';
+export * from './nlp';
