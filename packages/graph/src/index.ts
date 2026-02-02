@@ -19,6 +19,9 @@ export { createOperations, type GraphOperations } from './operations';
 // Query exports
 export { createQueries, type GraphQueries } from './queries';
 
+// File tree exports
+export { buildFileTree, getIndexSummary, type FileTreeOptions } from './fileTree';
+
 // Schema exports
 export {
   // Node property types

@@ -11,7 +11,7 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { createLogger } from '@codegraph/logger';
-import { tools, handleToolCall } from './tools';
+import { getTools, handleToolCall, staticTools } from './tools/consolidated';
 
 const logger = createLogger({ namespace: 'MCP:Server' });
 
@@ -31,7 +31,7 @@ export class CodeGraphMCPServer {
     this.server = new Server(
       {
         name: 'codegraph-mcp-server',
-        version: '0.1.0',
+        version: '0.2.0',
       },
       {
         capabilities: {
@@ -47,12 +47,16 @@ export class CodeGraphMCPServer {
    * Set up MCP protocol handlers
    */
   private setupHandlers(): void {
-    // List available tools
+    // List available tools - with dynamic context when possible
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       logger.debug('Listing available tools');
-      return {
-        tools: tools as Tool[],
-      };
+      try {
+        const tools = await getTools();
+        return { tools: tools as Tool[] };
+      } catch (error) {
+        logger.warn('Using static tools', { error });
+        return { tools: staticTools as Tool[] };
+      }
     });
 
     // Handle tool calls
