@@ -1,0 +1,45 @@
+{
+  "name": "@codegraph/cli",
+  "version": "0.1.0",
+  "description": "CLI for CodeGraph - parse, analyze, and query code knowledge graphs",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "codegraph": "./dist/index.js",
+    "cg": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codegraph/graph": "workspace:*",
+    "@codegraph/parser": "workspace:*",
+    "@codegraph/logger": "workspace:*",
+    "@codegraph/types": "workspace:*",
+    "@codegraph/mcp-server": "workspace:*",
+    "commander": "^12.1.0",
+    "chalk": "^5.3.0",
+    "ora": "^8.0.1",
+    "glob": "^10.3.10"
+  },
+  "devDependencies": {
+    "@types/node": "^22.12.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.4"
+  },
+  "files": [
+    "dist"
+  ]
+}
