@@ -39,6 +39,9 @@ temp/
 
 # Codebase Graph
 .codebase-graph
+.codegraph
 
 # Agent
 .agent
+v2-tasks.yaml
+codeGraph-v2-plans.yml

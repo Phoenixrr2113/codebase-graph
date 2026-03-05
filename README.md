@@ -3,6 +3,7 @@
 **Understand your codebase at a glance.** CodeGraph parses your source code, builds a knowledge graph of every function, class, and relationship, then lets you explore, analyze, and query it—visually or through AI assistants.
 
 ![FalkorDB](https://img.shields.io/badge/FalkorDB-Graph%20Database-blue)
+![Kuzu](https://img.shields.io/badge/Kuzu-Embedded%20Graph-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
 ![React](https://img.shields.io/badge/React-19-61dafb)
@@ -37,20 +38,50 @@ CodeGraph builds a **queryable knowledge graph** of your entire codebase:
 
 ## Quick Start
 
+### Option A: Kuzu (Embedded, No Docker)
+
+The fastest way to get started. Kuzu runs in-process with zero infrastructure:
+
+```bash
+# Clone and install
+git clone https://github.com/your-org/codegraph.git
+cd codegraph && pnpm install && pnpm build
+
+# Extract your codebase (creates .codegraph/kuzu database)
+pnpm codegraph extract ./src
+
+# Query via MCP server or directly
+pnpm codegraph search "auth"
+```
+
+A `.codegraph/config.json` file is created automatically:
+
+```json
+{
+  "driver": "kuzu",
+  "databasePath": ".codegraph/kuzu",
+  "graphName": "codegraph"
+}
+```
+
+### Option B: FalkorDB (Client-Server, Docker)
+
+For production deployments or when you want a shared graph server:
+
 ```bash
 # Clone and install
 git clone https://github.com/your-org/codegraph.git
 cd codegraph && pnpm install
 
-# Configure FalkorDB (cloud or local)
+# Start FalkorDB via Docker
+pnpm docker:db
+
+# Configure connection
 cp .env.template .env
 # Edit .env with your FalkorDB credentials
 
 # Start everything
 pnpm start  # Docker + API + Web
-
-# Or, if using FalkorDB Cloud:
-pnpm dev    # Just API + Web
 ```
 
 Open [http://localhost:3000](http://localhost:3000), add a project, and start exploring.
@@ -168,7 +199,10 @@ The MCP server enables AI assistants to query your codebase:
 └───────────────────────────────┬─────────────────────────────┘
                                 │
 ┌───────────────────────────────┴─────────────────────────────┐
-│                    FalkorDB (Graph DB)                      │
+│              Graph Database (Driver Abstraction)             │
+│   ┌───────────────────┐    ┌────────────────────────┐       │
+│   │  FalkorDB Driver  │ OR │  Kuzu Driver (embedded) │      │
+│   └───────────────────┘    └────────────────────────┘       │
 │   Nodes: File, Function, Class, Component, Commit           │
 │   Edges: CALLS, IMPORTS, EXTENDS, RENDERS, FLOWS_TO         │
 └─────────────────────────────────────────────────────────────┘
@@ -179,21 +213,48 @@ The MCP server enables AI assistants to query your codebase:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+The graph layer is **driver-agnostic** via a `DatabaseDriver` + `CypherDialect` abstraction.
+Both backends share the same Cypher queries, operations, and MCP tools.
+
 ## Configuration
 
+### Config File (Recommended)
+
+Create `.codegraph/config.json` in your project root:
+
+```json
+{
+  "driver": "kuzu",
+  "databasePath": ".codegraph/kuzu",
+  "graphName": "codegraph"
+}
+```
+
+The config file is automatically discovered by searching the current directory and up to 5 parent directories. Relative paths in `databasePath` are resolved against the directory containing the config file.
+
+### Environment Variables
+
 ```env
-# FalkorDB Cloud (recommended)
+# Driver selection
+CODEGRAPH_DRIVER=kuzu          # or "falkordb" (default)
+CODEGRAPH_DB_PATH=.codegraph/kuzu  # Kuzu database directory
+
+# FalkorDB connection (when using FalkorDB driver)
 FALKORDB_URL=your-instance.cloud:port
 FALKORDB_USERNAME=falkordb
 FALKORDB_PASSWORD=your-password
-
-# Or local Docker
 FALKORDB_HOST=localhost
 FALKORDB_PORT=6379
-
-# Graph name
 FALKORDB_GRAPH=codegraph
 ```
+
+### Auto-Detection
+
+If no config file or environment variable is set, CodeGraph checks if a Kuzu database
+exists at `.codegraph/kuzu`. If found, it uses Kuzu automatically. Otherwise it falls
+back to FalkorDB.
+
+**Config priority:** Explicit arguments > `.codegraph/config.json` > Environment variables > Auto-detection
 
 ## Development
 
@@ -209,8 +270,9 @@ pnpm test      # Run tests
 - **Frontend**: Next.js 16, React 19, Cytoscape.js, Tailwind CSS 4
 - **API**: Hono, WebSocket
 - **Parsing**: Tree-sitter (WASM)
-- **Graph DB**: FalkorDB
+- **Graph DB**: FalkorDB (client-server) or Kuzu (embedded)
 - **Build**: Turborepo, pnpm workspaces
+- **Testing**: Vitest (33 integration tests against real database)
 
 ## Roadmap
 
@@ -230,7 +292,8 @@ pnpm test      # Run tests
 - [ ] Documentation — Markdown linking, API doc extraction
 
 ### Infrastructure
-- [ ] YAML/ENV configuration — fully configurable via `codegraph.yml`
+- [x] Config file support — `.codegraph/config.json` with auto-detection
+- [x] Swappable database backends — FalkorDB (Docker) or Kuzu (embedded, zero infra)
 - [ ] CI/CD GitHub Actions — run analysis on every PR
 - [ ] Cross-codebase analysis — analyze microservices as a unified graph
 - [ ] Better logging — structured logs, log levels, external sinks

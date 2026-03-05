@@ -91,15 +91,18 @@ export async function getSymbolHistory(input: SymbolHistoryInput): Promise<Symbo
     }
 
     const client = await getGraphClient();
+    const dialect = client.dialect;
+    const lc = dialect.labelCheckExpr.bind(dialect);
     const limit = input.limit ?? 20;
 
     // First find the symbol's file
     let filePath: string | undefined = input.file;
 
     if (!filePath) {
+      const labelFilter = `(${['Function', 'Class', 'Interface', 'Variable'].map(l => lc('n', l)).join(' OR ')})`;
       const symbolQuery = `
         MATCH (n)
-        WHERE (n:Function OR n:Class OR n:Interface OR n:Variable)
+        WHERE ${labelFilter}
           AND n.name = $symbol
         RETURN n.filePath as file
         LIMIT 1

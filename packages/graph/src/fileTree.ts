@@ -174,10 +174,14 @@ export async function buildFileTree(
  * Get stats summary for the codebase
  */
 export async function getIndexSummary(client: GraphClient): Promise<string> {
+  const firstLabelExpr = client.dialect.firstLabelExpr('n');
+  const lc = client.dialect.labelCheckExpr.bind(client.dialect);
+  const labelFilter = ['File', 'Function', 'Class', 'Interface', 'Component']
+    .map(l => lc('n', l)).join(' OR ');
   const statsQuery = `
     MATCH (n)
-    WHERE n:File OR n:Function OR n:Class OR n:Interface OR n:Component
-    RETURN labels(n)[0] as label, count(n) as count
+    WHERE ${labelFilter}
+    RETURN ${firstLabelExpr} as label, count(n) as count
   `;
 
   const result = await client.roQuery<{ label: string; count: number }>(statsQuery);

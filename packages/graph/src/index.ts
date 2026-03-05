@@ -1,6 +1,6 @@
 /**
  * @codegraph/graph
- * FalkorDB graph database operations for CodeGraph
+ * Graph database operations for CodeGraph — supports FalkorDB and Kuzu backends
  */
 
 // Client exports
@@ -8,10 +8,22 @@ export {
   createClient,
   type GraphClient,
   type FalkorConfig,
+  type GraphConfig,
   type QueryOptions,
   type QueryResult,
   GraphClientError,
 } from './client';
+
+// Driver exports
+export {
+  type DatabaseDriver,
+  type DriverConfig,
+  type CypherDialect,
+} from './driver';
+
+// Driver implementations (kuzu native module is NOT eagerly loaded — safe to import)
+export { FalkorDBDriver, falkorDialect } from './drivers/falkordb';
+export { KuzuDriver, kuzuDialect } from './drivers/kuzu';
 
 // Operations exports
 export { createOperations, type GraphOperations } from './operations';
@@ -44,6 +56,7 @@ export {
   generateNodeId,
   generateFileNodeId,
   generateEdgeId,
+  generatePrimaryKey,
   // Parsed file type
   type ParsedFileEntities,
 } from './schema';

@@ -4,9 +4,9 @@
  */
 
 import { z } from 'zod';
-import { createClient } from '@codegraph/graph';
 import { createLogger } from '@codegraph/logger';
 import { getActiveProjectPaths } from '../config';
+import { getGraphClient } from '../graphClient';
 
 const logger = createLogger({ namespace: 'MCP:Search' });
 
@@ -98,24 +98,27 @@ export async function search(input: SearchInput): Promise<SearchOutput> {
   logger.debug('Search called', { query: input.query, type: input.type });
 
   try {
-    const client = await createClient();
+    const client = await getGraphClient();
+    const dialect = client.dialect;
     const activePaths = await getActiveProjectPaths();
 
-    // Build type filter
+    // Build type filter using dialect-aware label checks
+    const lc = dialect.labelCheckExpr.bind(dialect);
+    const allTypes = ['File', 'Function', 'Class', 'Interface', 'Component', 'Variable', 'Type'];
     const typeFilter =
       input.type === 'all'
-        ? '(n:File OR n:Function OR n:Class OR n:Interface OR n:Component OR n:Variable OR n:Type)'
-        : `n:${input.type.charAt(0).toUpperCase() + input.type.slice(1)}`;
+        ? `(${allTypes.map(t => lc('n', t)).join(' OR ')})`
+        : lc('n', input.type.charAt(0).toUpperCase() + input.type.slice(1));
 
-    // Build project path filter
+    // Build project path filter — paths are stored as absolute by the extract command
     let pathFilter = '';
     if (activePaths.length > 0) {
-      // Filter to only include files within active project paths
       const pathConditions = activePaths.map((p) => `n.filePath STARTS WITH '${p}' OR n.path STARTS WITH '${p}'`);
       pathFilter = `AND (${pathConditions.join(' OR ')})`;
     }
 
-    // Search by name (case-insensitive)
+    // Search by name (case-insensitive) — use dialect-aware labels expression
+    const labelsExpr = dialect.labelsExpr('n');
     const query = `
       MATCH (n)
       WHERE ${typeFilter}
@@ -124,20 +127,23 @@ export async function search(input: SearchInput): Promise<SearchOutput> {
           OR toLower(n.path) CONTAINS toLower($term)
         )
         ${pathFilter}
-      RETURN n, labels(n) as labels
+      RETURN n, ${labelsExpr} as labels
       LIMIT $limit
     `;
 
     const result = await client.roQuery<{
       n: Record<string, unknown>;
-      labels: string[];
+      labels: string | string[];
     }>(query, { params: { term: input.query, limit: input.limit } });
 
     const results: SearchResult[] = (result.data ?? []).map((row) => {
-      const props = row.n['properties']
-        ? (row.n['properties'] as Record<string, unknown>)
-        : row.n;
-      const type = row.labels[0] ?? 'Unknown';
+      const normalized = dialect.normalizeNode(row.n);
+      const props = normalized.properties;
+      // labels may be a string (Kuzu) or array (FalkorDB)
+      const labelsArr = Array.isArray(row.labels) ? row.labels
+        : typeof row.labels === 'string' ? [row.labels]
+        : normalized.labels;
+      const type = labelsArr[0] ?? 'Unknown';
 
       return {
         name: (props['name'] as string) ?? (props['path'] as string) ?? 'unknown',

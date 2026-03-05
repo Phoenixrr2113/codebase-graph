@@ -283,10 +283,10 @@ export function getExtractionCandidatesQuery(filePath: string): string {
   return `
     MATCH (file:File {path: "${filePath}"})-[:CONTAINS]->(fn:Function)
     OPTIONAL MATCH (fn)-[:CALLS]->(internal:Function)
-    WHERE internal.file = file.path
+    WHERE internal.filePath = file.path
     OPTIONAL MATCH (fn)-[:READS]->(v:Variable)
-    WHERE v.file = file.path
-    WITH fn, count(DISTINCT internal) as internalCalls, 
+    WHERE v.filePath = file.path
+    WITH fn, count(DISTINCT internal) as internalCalls,
          count(DISTINCT v) as stateReads
     RETURN fn.name as name, fn.startLine as startLine, fn.endLine as endLine,
            internalCalls, stateReads,
@@ -302,7 +302,7 @@ export function getInternalCallsQuery(filePath: string): string {
   return `
     MATCH (file:File {path: "${filePath}"})-[:CONTAINS]->(caller:Function)
     MATCH (caller)-[:CALLS]->(callee:Function)
-    WHERE callee.file = file.path
+    WHERE callee.filePath = file.path
     RETURN caller.name as caller, callee.name as callee
   `.trim();
 }

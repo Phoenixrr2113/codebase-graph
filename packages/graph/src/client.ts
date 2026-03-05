@@ -1,14 +1,15 @@
 /**
- * @codegraph/graph - FalkorDB Client
- * Connection management and index creation for CodeGraph
+ * @codegraph/graph - Graph Client
+ * Connection management for CodeGraph — driver-agnostic
  */
 
-import { FalkorDB, type Graph, type FalkorDBOptions } from 'falkordb';
-import type { QueryOptions as FalkorQueryOptions } from 'falkordb/dist/src/commands';
+import type { Graph } from 'falkordb';
 import { trace } from '@codegraph/logger';
+import type { DatabaseDriver, DriverConfig, CypherDialect } from './driver';
+import { FalkorDBDriver } from './drivers/falkordb';
 
 /**
- * FalkorDB connection configuration
+ * FalkorDB connection configuration (backward-compatible alias)
  */
 export interface FalkorConfig {
   /** Full connection URL - takes priority if set (env: FALKORDB_URL) */
@@ -26,6 +27,24 @@ export interface FalkorConfig {
 }
 
 /**
+ * Unified graph config — supports both FalkorDB and Kuzu
+ */
+export interface GraphConfig {
+  driver?: 'falkordb' | 'kuzu';
+  // FalkorDB-specific
+  url?: string;
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  // Kuzu-specific
+  databasePath?: string;
+  readOnly?: boolean;
+  // Shared
+  graphName?: string;
+}
+
+/**
  * Query parameters type for graph operations
  */
 export type QueryParams = Record<string, string | number | boolean | null | Array<unknown>>;
@@ -39,7 +58,7 @@ export interface QueryOptions {
 }
 
 /**
- * Query result from FalkorDB
+ * Query result from graph database
  */
 export interface QueryResult<T> {
   data: T[];
@@ -60,29 +79,31 @@ export class GraphClientError extends Error {
 }
 
 /**
- * GraphClient interface for typed FalkorDB operations
+ * GraphClient interface for typed graph operations
  */
 export interface GraphClient {
-  /** The underlying FalkorDB Graph instance */
-  readonly graph: Graph;
+  /** The underlying FalkorDB Graph instance (null for non-FalkorDB drivers) */
+  readonly graph: Graph | null;
   /** Graph name */
   readonly graphName: string;
-  
+  /** Cypher dialect for this driver */
+  readonly dialect: CypherDialect;
+
   /**
    * Execute a Cypher query with optional parameters
    */
   query<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>>;
-  
+
   /**
    * Execute a read-only Cypher query (uses replica if available)
    */
   roQuery<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>>;
-  
+
   /**
-   * Ensure all required indexes exist
+   * Ensure all required indexes/schema exist
    */
   ensureIndexes(): Promise<void>;
-  
+
   /**
    * Close the client connection
    */
@@ -90,32 +111,35 @@ export interface GraphClient {
 }
 
 /**
- * Internal GraphClient implementation
+ * Driver-based GraphClient implementation
  */
 class GraphClientImpl implements GraphClient {
-  readonly graph: Graph;
   readonly graphName: string;
-  private indexesCreated = false;
+  private schemaCreated = false;
 
   constructor(
-    private readonly db: FalkorDB,
-    readonly config: Required<Pick<FalkorConfig, 'graphName'>>
+    private readonly driver: DatabaseDriver,
+    graphName: string,
   ) {
-    this.graphName = config.graphName;
-    this.graph = db.selectGraph(config.graphName);
+    this.graphName = graphName;
+  }
+
+  /** Backward-compatible graph accessor — returns FalkorDB Graph or null */
+  get graph(): Graph | null {
+    if (this.driver instanceof FalkorDBDriver) {
+      return this.driver.getGraph();
+    }
+    return null;
+  }
+
+  get dialect(): CypherDialect {
+    return this.driver.dialect;
   }
 
   @trace()
   async query<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
     try {
-      const queryOptions = options?.params 
-        ? { params: options.params, TIMEOUT: options.timeout }
-        : options?.timeout ? { TIMEOUT: options.timeout } : undefined;
-      const result = await this.graph.query<T>(cypher, queryOptions as unknown as FalkorQueryOptions);
-      return {
-        data: result.data ?? [],
-        metadata: result.metadata ?? [],
-      };
+      return await this.driver.query<T>(cypher, options?.params, options?.timeout);
     } catch (error) {
       throw new GraphClientError(
         `Query failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -127,14 +151,7 @@ class GraphClientImpl implements GraphClient {
   @trace()
   async roQuery<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
     try {
-      const queryOptions = options?.params 
-        ? { params: options.params, TIMEOUT: options.timeout }
-        : options?.timeout ? { TIMEOUT: options.timeout } : undefined;
-      const result = await this.graph.roQuery<T>(cypher, queryOptions as unknown as FalkorQueryOptions);
-      return {
-        data: result.data ?? [],
-        metadata: result.metadata ?? [],
-      };
+      return await this.driver.roQuery<T>(cypher, options?.params, options?.timeout);
     } catch (error) {
       throw new GraphClientError(
         `Read-only query failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -145,111 +162,162 @@ class GraphClientImpl implements GraphClient {
 
   @trace()
   async ensureIndexes(): Promise<void> {
-    if (this.indexesCreated) {
-      return;
-    }
-
+    if (this.schemaCreated) return;
     try {
-      // Per spec Section 6.1: Create indexes for performance
-      // File.path - exact/range index for file lookups
-      await this.graph.createNodeRangeIndex('File', 'path');
-      
-      // Function.name - fulltext index for search
-      await this.graph.createNodeFulltextIndex('Function', 'name');
-      
-      // Class.name - fulltext index for search
-      await this.graph.createNodeFulltextIndex('Class', 'name');
-      
-      // Component.name - fulltext index for search
-      await this.graph.createNodeFulltextIndex('Component', 'name');
-      
-      this.indexesCreated = true;
+      await this.driver.ensureSchema();
+      this.schemaCreated = true;
     } catch (error) {
-      // Indexes may already exist - FalkorDB returns error for duplicate indexes
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       if (!errorMessage.includes('Index already exists')) {
         throw new GraphClientError(`Index creation failed: ${errorMessage}`, 'INDEX_FAILED');
       }
-      this.indexesCreated = true;
+      this.schemaCreated = true;
     }
   }
 
   @trace()
   async close(): Promise<void> {
-    await this.db.close();
+    await this.driver.close();
   }
 }
 
 /**
- * Create a new FalkorDB client connection
- * 
- * @param config - Connection configuration (uses env vars as defaults)
- * @returns Connected GraphClient instance
- * 
+ * Create a new graph client connection.
+ *
+ * Supports both legacy FalkorConfig and new GraphConfig with driver selection.
+ * No args → defaults to FalkorDB using existing FALKORDB_* env vars.
+ * Set `driver: 'kuzu'` or env `CODEGRAPH_DRIVER=kuzu` for embedded Kuzu.
+ *
  * @example
  * ```typescript
- * const client = await createClient({
- *   host: 'localhost',
- *   port: 6379,
- *   graphName: 'codegraph'
- * });
- * 
- * await client.ensureIndexes();
- * const result = await client.query('MATCH (f:File) RETURN f.path');
- * await client.close();
+ * // FalkorDB (default, backward compatible)
+ * const client = await createClient();
+ *
+ * // FalkorDB explicit
+ * const client = await createClient({ host: 'localhost', port: 6379 });
+ *
+ * // Kuzu embedded
+ * const client = await createClient({ driver: 'kuzu', databasePath: '.codegraph/kuzu' });
  * ```
  */
-export async function createClient(config?: FalkorConfig): Promise<GraphClient> {
-  const graphName = config?.graphName ?? process.env['FALKORDB_GRAPH'] ?? 'codegraph';
-  const username = config?.username ?? process.env['FALKORDB_USERNAME'];
-  const password = config?.password ?? process.env['FALKORDB_PASSWORD'];
+/**
+ * Load config from .codegraph/config.json if it exists.
+ * Falls back to env vars and defaults.
+ */
+async function loadConfigFile(): Promise<Partial<GraphConfig>> {
+  try {
+    const { readFile } = await import('node:fs/promises');
+    const { resolve, isAbsolute } = await import('node:path');
 
-  // Check for URL-based connection (cloud) first, then fall back to host/port (Docker)
-  const url = config?.url ?? process.env['FALKORDB_URL'];
+    // Search for .codegraph/config.json in cwd and up to 5 parent dirs
+    let dir = process.cwd();
+    for (let i = 0; i < 6; i++) {
+      const configPath = resolve(dir, '.codegraph', 'config.json');
+      try {
+        const raw = await readFile(configPath, 'utf-8');
+        const config = JSON.parse(raw) as Partial<GraphConfig>;
 
-  let host: string;
-  let port: number;
-  let connectionLabel: string;
+        // Resolve relative databasePath against the dir that contains .codegraph/
+        if (config.databasePath && !isAbsolute(config.databasePath)) {
+          config.databasePath = resolve(dir, config.databasePath);
+        }
 
-  if (url) {
-    // Parse URL to extract host and port
-    // Expected format: hostname:port (e.g., node-f-0.instance-xyz.cloud:58963)
-    const urlParts = url.split(':');
-    if (urlParts.length >= 2) {
-      host = urlParts.slice(0, -1).join(':'); // Handle potential colons in hostname
-      port = parseInt(urlParts[urlParts.length - 1] ?? '6379', 10);
-    } else {
-      host = url;
-      port = 6379;
+        return config;
+      } catch {
+        // not found, try parent
+        const parent = resolve(dir, '..');
+        if (parent === dir) break; // reached root
+        dir = parent;
+      }
     }
-    connectionLabel = `cloud (${url})`;
-  } else {
-    // Fallback to host/port configuration (Docker/local)
-    host = config?.host ?? process.env['FALKORDB_HOST'] ?? 'localhost';
-    port = config?.port ?? parseInt(process.env['FALKORDB_PORT'] ?? '6379', 10);
-    connectionLabel = `${host}:${port}`;
+  } catch {
+    // fs not available or other error — return empty
   }
+  return {};
+}
 
-  const connectionOptions: FalkorDBOptions = {
-    socket: {
-      host,
-      port,
-    },
+/**
+ * Auto-detect driver: if a Kuzu database exists at the default path, use Kuzu.
+ * Otherwise fall back to FalkorDB.
+ */
+async function autoDetectDriver(): Promise<'falkordb' | 'kuzu'> {
+  try {
+    const { stat } = await import('node:fs/promises');
+    const { resolve } = await import('node:path');
+
+    // Search for .codegraph/kuzu in cwd and up to 5 parent dirs
+    let dir = process.cwd();
+    for (let i = 0; i < 6; i++) {
+      const kuzuPath = resolve(dir, '.codegraph', 'kuzu');
+      try {
+        const info = await stat(kuzuPath);
+        if (info.isFile() || info.isDirectory()) return 'kuzu';
+      } catch {
+        // not found, try parent
+      }
+      const parent = resolve(dir, '..');
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // doesn't exist
+  }
+  return 'falkordb';
+}
+
+export async function createClient(config?: FalkorConfig | GraphConfig): Promise<GraphClient> {
+  // Layer config: explicit arg > config file > env vars > auto-detect
+  const fileConfig = await loadConfigFile();
+
+  const explicitDriver = (config as GraphConfig)?.driver
+    ?? process.env['CODEGRAPH_DRIVER'] as 'falkordb' | 'kuzu' | undefined
+    ?? fileConfig.driver;
+
+  const driverType = explicitDriver ?? await autoDetectDriver();
+
+  const graphName = config?.graphName
+    ?? process.env['FALKORDB_GRAPH']
+    ?? fileConfig.graphName
+    ?? 'codegraph';
+
+  const driverConfig: DriverConfig = {
+    driver: driverType,
+    graphName,
+    // FalkorDB fields
+    url: config?.url ?? fileConfig.url,
+    host: (config as FalkorConfig)?.host ?? fileConfig.host,
+    port: (config as FalkorConfig)?.port ?? fileConfig.port,
+    username: (config as FalkorConfig)?.username ?? fileConfig.username,
+    password: (config as FalkorConfig)?.password ?? fileConfig.password,
+    // Kuzu fields
+    databasePath: (config as GraphConfig)?.databasePath
+      ?? process.env['CODEGRAPH_DB_PATH']
+      ?? fileConfig.databasePath,
+    readOnly: (config as GraphConfig)?.readOnly ?? fileConfig.readOnly,
   };
 
-  if (username) {
-    connectionOptions.username = username;
-  }
-  if (password) {
-    connectionOptions.password = password;
+  let driver: DatabaseDriver;
+
+  if (driverType === 'kuzu') {
+    // Lazy import to avoid requiring kuzu when using FalkorDB
+    const { KuzuDriver } = await import('./drivers/kuzu');
+    driver = new KuzuDriver();
+  } else {
+    driver = new FalkorDBDriver();
   }
 
   try {
-    const db = await FalkorDB.connect(connectionOptions);
-    return new GraphClientImpl(db, { graphName });
+    await driver.connect(driverConfig);
+    return new GraphClientImpl(driver, graphName);
   } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    const hint = driverType === 'falkordb'
+      ? '\nHint: Is FalkorDB running? Or set CODEGRAPH_DRIVER=kuzu for embedded mode.'
+      : driverType === 'kuzu' && !driverConfig.databasePath
+        ? '\nHint: Set CODEGRAPH_DB_PATH or add databasePath to .codegraph/config.json'
+        : '';
     throw new GraphClientError(
-      `Failed to connect to FalkorDB at ${connectionLabel}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      `Failed to connect (${driverType}): ${msg}${hint}`,
       'CONNECTION_FAILED'
     );
   }

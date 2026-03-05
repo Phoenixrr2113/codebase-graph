@@ -4,8 +4,9 @@
  */
 
 import { z } from 'zod';
-import { createClient, createQueries } from '@codegraph/graph';
+import { createQueries } from '@codegraph/graph';
 import { createLogger } from '@codegraph/logger';
+import { getGraphClient } from '../graphClient';
 
 const logger = createLogger({ namespace: 'MCP:GetContext' });
 
@@ -119,7 +120,8 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
   }
 
   try {
-    const client = await createClient();
+    const client = await getGraphClient();
+    const dialect = client.dialect;
     const queries = createQueries(client);
 
     // Get file context
@@ -186,29 +188,33 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
 
       const match = matches[0]!;
 
-      // Get symbol details
+      // Get symbol details — use dialect-aware label expression
+      const labelsExpr = dialect.labelsExpr('n');
       const detailQuery = `
         MATCH (n {name: $name})
         WHERE n.filePath CONTAINS $filePath OR n.path CONTAINS $filePath
-        RETURN n, labels(n) as labels
+        RETURN n, ${labelsExpr} as labels
         LIMIT 1
       `;
 
       const detailResult = await client.roQuery<{
         n: Record<string, unknown>;
-        labels: string[];
+        labels: string | string[];
       }>(detailQuery, { params: { name: input.symbol, filePath: match.filePath } });
 
       let entity: EntityContext | undefined;
       if (detailResult.data && detailResult.data.length > 0) {
         const row = detailResult.data[0]!;
-        const props = row.n['properties']
-          ? (row.n['properties'] as Record<string, unknown>)
-          : row.n;
+        const normalized = dialect.normalizeNode(row.n);
+        const props = normalized.properties;
+        // labels may be a string (Kuzu) or array (FalkorDB)
+        const labelsArr = Array.isArray(row.labels) ? row.labels
+          : typeof row.labels === 'string' ? [row.labels]
+          : normalized.labels;
 
         entity = {
           name: (props['name'] as string) ?? input.symbol,
-          type: row.labels[0] ?? 'Unknown',
+          type: labelsArr[0] ?? 'Unknown',
           filePath: (props['filePath'] as string) ?? (props['path'] as string) ?? '',
           startLine: props['startLine'] as number | undefined,
           endLine: props['endLine'] as number | undefined,
@@ -244,10 +250,11 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
           });
         }
 
-        // Get what this symbol calls
+        // Get what this symbol calls — use dialect-aware label expression
+        const firstLabelExpr = dialect.firstLabelExpr('target');
         const callsQuery = `
           MATCH (n {name: $name})-[r:CALLS]->(target)
-          RETURN target.name as name, labels(target)[0] as type, target.filePath as filePath
+          RETURN target.name as name, ${firstLabelExpr} as type, target.filePath as filePath
           LIMIT 20
         `;
         const callsResult = await client.roQuery<{

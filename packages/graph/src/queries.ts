@@ -5,6 +5,7 @@
  */
 
 import type { GraphClient } from './client';
+import type { CypherDialect } from './driver';
 import { trace } from '@codegraph/logger';
 import type {
   GraphData,
@@ -17,134 +18,6 @@ import type {
   NodeLabel,
   EdgeLabel,
 } from '@codegraph/types';
-
-// ============================================================================
-// Cypher Query Templates
-// ============================================================================
-
-const CYPHER = {
-  // Get full graph with limit
-  GET_FULL_GRAPH_NODES: `
-    MATCH (n)
-    WHERE n:File OR n:Function OR n:Class OR n:Interface OR n:Variable OR n:Type OR n:Component
-    RETURN n, labels(n) as labels
-    LIMIT $limit
-  `,
-
-  GET_FULL_GRAPH_EDGES: `
-    MATCH (a)-[r]->(b)
-    WHERE (a:File OR a:Function OR a:Class OR a:Interface OR a:Variable OR a:Type OR a:Component)
-      AND (b:File OR b:Function OR b:Class OR b:Interface OR b:Variable OR b:Type OR b:Component)
-    RETURN a, r, b, type(r) as edgeType
-    LIMIT $limit
-  `,
-
-  // Get file subgraph
-  GET_FILE_SUBGRAPH: `
-    MATCH (f:File {path: $path})-[:CONTAINS]->(e)
-    OPTIONAL MATCH (e)-[r]-(related)
-    RETURN f, e, r, related, labels(e) as labels, labels(related) as relatedLabels, type(r) as edgeType
-  `,
-
-  // Get function callers
-  GET_FUNCTION_CALLERS: `
-    MATCH (caller:Function)-[c:CALLS]->(target:Function {name: $name})
-    RETURN caller, c.line as line
-  `,
-
-  // Get dependency tree
-  GET_DEPENDENCY_TREE: `
-    MATCH path = (root:File {path: $path})-[:IMPORTS*1..$depth]->(dep:File)
-    RETURN path
-  `,
-
-  // Get graph statistics
-  GET_STATS_NODES: `
-    MATCH (n)
-    WHERE n:File OR n:Function OR n:Class OR n:Interface OR n:Variable OR n:Type OR n:Component
-    RETURN labels(n)[0] as label, count(n) as count
-  `,
-
-  GET_STATS_EDGES: `
-    MATCH ()-[r]->()
-    RETURN type(r) as label, count(r) as count
-  `,
-
-  GET_LARGEST_FILES: `
-    MATCH (f:File)-[:CONTAINS]->(e)
-    RETURN f.path as path, count(e) as entityCount
-    ORDER BY entityCount DESC
-    LIMIT 10
-  `,
-
-  GET_MOST_CONNECTED: `
-    MATCH (n)-[r]-()
-    WHERE n:Function OR n:Class OR n:Component
-    RETURN n.name as name, n.filePath as filePath, count(r) as connectionCount
-    ORDER BY connectionCount DESC
-    LIMIT 10
-  `,
-
-  // Search by name
-  SEARCH_FULLTEXT: `
-    CALL db.idx.fulltext.queryNodes($indexName, $term) YIELD node, score
-    RETURN node, labels(node) as labels, score
-    LIMIT $limit
-  `,
-
-  SEARCH_BY_NAME: `
-    MATCH (n)
-    WHERE (n:Function OR n:Class OR n:Interface OR n:Component OR n:Variable OR n:Type)
-      AND toLower(n.name) CONTAINS toLower($term)
-    RETURN n, labels(n) as labels
-    LIMIT $limit
-  `,
-
-  // Dataflow queries
-  GET_VARIABLE_READERS: `
-    MATCH (fn:Function)-[r:READS]->(v:Variable {name: $variableName, filePath: $variableFile})
-    RETURN fn.name as functionName, fn.filePath as functionFile, r.line as line
-  `,
-
-  GET_VARIABLE_WRITERS: `
-    MATCH (fn:Function)-[r:WRITES]->(v:Variable {name: $variableName, filePath: $variableFile})
-    RETURN fn.name as functionName, fn.filePath as functionFile, r.line as line
-  `,
-
-  GET_FUNCTION_READS: `
-    MATCH (fn:Function {name: $functionName, filePath: $functionFile})-[r:READS]->(v:Variable)
-    RETURN v.name as variableName, v.filePath as variableFile, r.line as line
-  `,
-
-  GET_FUNCTION_WRITES: `
-    MATCH (fn:Function {name: $functionName, filePath: $functionFile})-[r:WRITES]->(v:Variable)
-    RETURN v.name as variableName, v.filePath as variableFile, r.line as line
-  `,
-
-  TRACE_DATA_FLOW: `
-    MATCH path = (source {name: $sourceName, filePath: $sourceFile})-[:FLOWS_TO*1..$maxDepth]->(target)
-    RETURN path, length(path) as depth,
-           [node in nodes(path) | {name: node.name, file: node.filePath}] as nodes,
-           [rel in relationships(path) | {tainted: rel.tainted, sanitized: rel.sanitized, transformation: rel.transformation}] as edges
-    ORDER BY depth
-    LIMIT $limit
-  `,
-
-  GET_TAINTED_FLOWS: `
-    MATCH path = (source)-[r:FLOWS_TO*]->(sink)
-    WHERE any(rel in r WHERE rel.tainted = true)
-      AND none(rel in r WHERE rel.sanitized = true)
-    RETURN path, source.name as sourceName, sink.name as sinkName
-    LIMIT $limit
-  `,
-
-  GET_SANITIZED_FLOWS: `
-    MATCH path = (source)-[r:FLOWS_TO*]->(sink)
-    WHERE any(rel in r WHERE rel.sanitized = true)
-    RETURN path, source.name as sourceName, sink.name as sinkName
-    LIMIT $limit
-  `,
-};
 
 // ============================================================================
 // Type Guards and Helpers
@@ -183,11 +56,14 @@ function getLabelFromLabels(labels: string[]): NodeLabel {
 }
 
 /**
- * Extract node properties from FalkorDB result
- * FalkorDB returns nodes as { id, labels, properties: {...} }
+ * Extract node properties using the dialect normalizer.
+ * Falls back to direct access for backward compatibility.
  */
-function extractNodeProps(node: Record<string, unknown>): Record<string, unknown> {
-  // If node has a 'properties' object, use that; otherwise assume flat structure
+function extractNodeProps(node: Record<string, unknown>, dialect?: CypherDialect): Record<string, unknown> {
+  if (dialect) {
+    return dialect.normalizeNode(node).properties;
+  }
+  // Legacy FalkorDB format: { properties: {...} }
   if (node['properties'] && typeof node['properties'] === 'object') {
     return node['properties'] as Record<string, unknown>;
   }
@@ -195,19 +71,24 @@ function extractNodeProps(node: Record<string, unknown>): Record<string, unknown
 }
 
 /**
- * Extract labels from FalkorDB node
+ * Extract labels using the dialect normalizer.
+ * Falls back to direct access for backward compatibility.
  */
-function extractLabels(node: Record<string, unknown>, providedLabels: string[]): string[] {
-  // FalkorDB returns labels in the node object
+function extractLabels(node: Record<string, unknown>, providedLabels: string[], dialect?: CypherDialect): string[] {
+  if (dialect) {
+    const normalized = dialect.normalizeNode(node);
+    return normalized.labels.length > 0 ? normalized.labels : providedLabels;
+  }
+  // Legacy FalkorDB format
   if (node['labels'] && Array.isArray(node['labels'])) {
     return node['labels'] as string[];
   }
   return providedLabels;
 }
 
-function nodeToGraphNode(node: Record<string, unknown>, labels: string[]): GraphNode {
-  const actualLabels = extractLabels(node, labels);
-  const props = extractNodeProps(node);
+function nodeToGraphNode(node: Record<string, unknown>, labels: string[], dialect?: CypherDialect): GraphNode {
+  const actualLabels = extractLabels(node, labels, dialect);
+  const props = extractNodeProps(node, dialect);
   const label = getLabelFromLabels(actualLabels);
   const id = generateNodeIdFromProps(label, props);
 
@@ -257,6 +138,158 @@ function edgeToGraphEdge(
 }
 
 // ============================================================================
+// Cypher Template Builders (dialect-aware)
+// ============================================================================
+
+function buildCypherTemplates(dialect: CypherDialect) {
+  const labelsExpr = dialect.labelsExpr;
+  const firstLabel = dialect.firstLabelExpr;
+  const typeExpr = dialect.typeExpr;
+  const lc = dialect.labelCheckExpr.bind(dialect);
+  const lcase = dialect.labelCaseExpr.bind(dialect);
+
+  /** Build OR-separated label checks for WHERE clauses */
+  function labelOr(alias: string, labels: string[]): string {
+    return labels.map(l => lc(alias, l)).join(' OR ');
+  }
+
+  return {
+    GET_FULL_GRAPH_NODES: (rootPath?: string) => {
+      const pathFilter = rootPath
+        ? `AND (CASE WHEN ${lcase('n', 'File')} THEN n.path ELSE n.filePath END) STARTS WITH $rootPath`
+        : '';
+
+      return `
+        MATCH (n)
+        WHERE (${labelOr('n', ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'External'])})
+          ${pathFilter}
+        RETURN n, ${labelsExpr('n')} as labels
+        LIMIT $limit
+      `;
+    },
+
+    GET_FULL_GRAPH_EDGES: (rootPath?: string) => {
+      const edgesPathFilter = rootPath
+        ? `AND (CASE WHEN ${lcase('a', 'File')} THEN a.path ELSE a.filePath END) STARTS WITH $rootPath
+           AND ((CASE WHEN ${lcase('b', 'File')} THEN b.path ELSE b.filePath END) STARTS WITH $rootPath
+                OR b.filePath = 'external'
+                OR (${lc('b', 'File')} AND b.path STARTS WITH 'external:'))`
+        : '';
+
+      return `
+        MATCH (a)-[r]->(b)
+        WHERE (${labelOr('a', ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component'])})
+          AND (${labelOr('b', ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'External'])})
+          ${edgesPathFilter}
+        RETURN a, r, b, ${typeExpr('r')} as edgeType, ${labelsExpr('b')} as toLabels
+        LIMIT $limit
+      `;
+    },
+
+    GET_FILE_SUBGRAPH: `
+      MATCH (f:File {path: $path})-[:CONTAINS]->(e)
+      OPTIONAL MATCH (e)-[r]-(related)
+      RETURN f, e, r, related, ${labelsExpr('e')} as labels, ${labelsExpr('related')} as relatedLabels, ${typeExpr('r')} as edgeType
+    `,
+
+    GET_FUNCTION_CALLERS: `
+      MATCH (caller:Function)-[c:CALLS]->(target:Function {name: $name})
+      RETURN caller, c.line as line
+    `,
+
+    GET_DEPENDENCY_TREE: `
+      MATCH path = (root:File {path: $path})-[:IMPORTS*1..$depth]->(dep:File)
+      RETURN path
+    `,
+
+    GET_STATS_NODES: `
+      MATCH (n)
+      WHERE ${labelOr('n', ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component'])}
+      RETURN ${firstLabel('n')} as label, count(n) as count
+    `,
+
+    GET_STATS_EDGES: `
+      MATCH ()-[r]->()
+      RETURN ${typeExpr('r')} as label, count(r) as count
+    `,
+
+    GET_LARGEST_FILES: `
+      MATCH (f:File)-[:CONTAINS]->(e)
+      RETURN f.path as path, count(e) as entityCount
+      ORDER BY entityCount DESC
+      LIMIT 10
+    `,
+
+    GET_MOST_CONNECTED: `
+      MATCH (n)-[r]-()
+      WHERE ${labelOr('n', ['Function', 'Class', 'Component'])}
+      RETURN n.name as name, n.filePath as filePath, count(r) as connectionCount
+      ORDER BY connectionCount DESC
+      LIMIT 10
+    `,
+
+    SEARCH_BY_NAME: `
+      MATCH (n)
+      WHERE (${labelOr('n', ['Function', 'Class', 'Interface', 'Component', 'Variable', 'Type'])})
+        AND toLower(n.name) CONTAINS toLower($term)
+      RETURN n, ${labelsExpr('n')} as labels
+      LIMIT $limit
+    `,
+
+    // Dataflow queries
+    GET_VARIABLE_READERS: `
+      MATCH (fn:Function)-[r:READS]->(v:Variable {name: $variableName, filePath: $variableFile})
+      RETURN fn.name as functionName, fn.filePath as functionFile, r.line as line
+    `,
+
+    GET_VARIABLE_WRITERS: `
+      MATCH (fn:Function)-[r:WRITES]->(v:Variable {name: $variableName, filePath: $variableFile})
+      RETURN fn.name as functionName, fn.filePath as functionFile, r.line as line
+    `,
+
+    GET_FUNCTION_READS: `
+      MATCH (fn:Function {name: $functionName, filePath: $functionFile})-[r:READS]->(v:Variable)
+      RETURN v.name as variableName, v.filePath as variableFile, r.line as line
+    `,
+
+    GET_FUNCTION_WRITES: `
+      MATCH (fn:Function {name: $functionName, filePath: $functionFile})-[r:WRITES]->(v:Variable)
+      RETURN v.name as variableName, v.filePath as variableFile, r.line as line
+    `,
+
+    TRACE_DATA_FLOW: `
+      MATCH path = (source {name: $sourceName, filePath: $sourceFile})-[:FLOWS_TO*1..$maxDepth]->(target)
+      RETURN path, length(path) as depth,
+             [node in nodes(path) | {name: node.name, file: node.filePath}] as nodes,
+             [rel in relationships(path) | {tainted: rel.tainted, sanitized: rel.sanitized, transformation: rel.transformation}] as edges
+      ORDER BY depth
+      LIMIT $limit
+    `,
+
+    GET_TAINTED_FLOWS: `
+      MATCH path = (source)-[r:FLOWS_TO*]->(sink)
+      WHERE any(rel in r WHERE rel.tainted = true)
+        AND none(rel in r WHERE rel.sanitized = true)
+      RETURN path, source.name as sourceName, sink.name as sinkName
+      LIMIT $limit
+    `,
+
+    GET_SANITIZED_FLOWS: `
+      MATCH path = (source)-[r:FLOWS_TO*]->(sink)
+      WHERE any(rel in r WHERE rel.sanitized = true)
+      RETURN path, source.name as sourceName, sink.name as sinkName
+      LIMIT $limit
+    `,
+
+    GET_INDEX_SUMMARY: `
+      MATCH (n)
+      WHERE ${labelOr('n', ['File', 'Function', 'Class', 'Interface', 'Component'])}
+      RETURN ${firstLabel('n')} as label, count(n) as count
+    `,
+  };
+}
+
+// ============================================================================
 // Query Operations Interface
 // ============================================================================
 
@@ -302,7 +335,13 @@ export interface GraphQueries {
 // ============================================================================
 
 class GraphQueriesImpl implements GraphQueries {
-  constructor(private readonly client: GraphClient) { }
+  private readonly dialect: CypherDialect;
+  private readonly templates: ReturnType<typeof buildCypherTemplates>;
+
+  constructor(private readonly client: GraphClient) {
+    this.dialect = client.dialect;
+    this.templates = buildCypherTemplates(this.dialect);
+  }
 
   @trace()
   async getFullGraph(limit = 1000, rootPath?: string): Promise<GraphData> {
@@ -310,67 +349,34 @@ class GraphQueriesImpl implements GraphQueries {
     const edges: GraphEdge[] = [];
     const nodeIds = new Set<string>();
 
-    // Build dynamic query with optional rootPath filter
-    // File nodes use 'path', other entities use 'filePath'
-    // External nodes are NOT fetched eagerly - they're added when processing edges
-    const pathFilter = rootPath
-      ? `AND (CASE WHEN n:File THEN n.path ELSE n.filePath END) STARTS WITH $rootPath`
-      : '';
-
-    const nodesQuery = `
-      MATCH (n)
-      WHERE (n:File OR n:Function OR n:Class OR n:Interface OR n:Variable OR n:Type OR n:Component OR n:External)
-        ${pathFilter}
-      RETURN n, labels(n) as labels
-      LIMIT $limit
-    `;
-
     // Get nodes
     const nodesResult = await this.client.roQuery<{
       n: Record<string, unknown>;
       labels: string[];
-    }>(nodesQuery, { params: { limit, ...(rootPath && { rootPath }) } });
+    }>(this.templates.GET_FULL_GRAPH_NODES(rootPath), { params: { limit, ...(rootPath && { rootPath }) } });
 
     for (const row of nodesResult.data ?? []) {
-      const node = nodeToGraphNode(row.n, row.labels);
+      const node = nodeToGraphNode(row.n, row.labels, this.dialect);
       if (!nodeIds.has(node.id)) {
         nodes.push(node);
         nodeIds.add(node.id);
       }
     }
 
-    // Get edges - filter by rootPath if provided, but allow external nodes as targets
-    const edgesPathFilter = rootPath
-      ? `AND (CASE WHEN a:File THEN a.path ELSE a.filePath END) STARTS WITH $rootPath
-         AND ((CASE WHEN b:File THEN b.path ELSE b.filePath END) STARTS WITH $rootPath
-              OR b.filePath = 'external'
-              OR (b:File AND b.path STARTS WITH 'external:'))`
-      : '';
-
-    const edgesQuery = `
-      MATCH (a)-[r]->(b)
-      WHERE (a:File OR a:Function OR a:Class OR a:Interface OR a:Variable OR a:Type OR a:Component)
-        AND (b:File OR b:Function OR b:Class OR b:Interface OR b:Variable OR b:Type OR b:Component OR b:External)
-        ${edgesPathFilter}
-      RETURN a, r, b, type(r) as edgeType, labels(b) as toLabels
-      LIMIT $limit
-    `;
-
+    // Get edges
     const edgesResult = await this.client.roQuery<{
       a: Record<string, unknown>;
       r: Record<string, unknown>;
       b: Record<string, unknown>;
       edgeType: string;
       toLabels: string[];
-    }>(edgesQuery, { params: { limit, ...(rootPath && { rootPath }) } });
-
+    }>(this.templates.GET_FULL_GRAPH_EDGES(rootPath), { params: { limit, ...(rootPath && { rootPath }) } });
 
     for (const row of edgesResult.data ?? []) {
-      // Extract properties from FalkorDB node format
-      const fromProps = extractNodeProps(row.a);
-      const toProps = extractNodeProps(row.b);
-      const fromLabels = extractLabels(row.a, []);
-      const toLabels = row.toLabels ?? extractLabels(row.b, []);
+      const fromProps = extractNodeProps(row.a, this.dialect);
+      const toProps = extractNodeProps(row.b, this.dialect);
+      const fromLabels = extractLabels(row.a, [], this.dialect);
+      const toLabels = row.toLabels ?? extractLabels(row.b, [], this.dialect);
 
       // Get source node from our nodes array
       const fromNode = nodes.find((n) => {
@@ -389,12 +395,11 @@ class GraphQueriesImpl implements GraphQueries {
       });
 
       // If target is External and not in nodes, add it
-      // This handles External Interface nodes (filePath = 'external') and External File nodes (path starts with 'external:')
       const isExternalTarget = toLabels.includes('External') ||
         (typeof toProps['path'] === 'string' && toProps['path'].startsWith('external:'));
 
       if (!toNode && isExternalTarget) {
-        const externalNode = nodeToGraphNode(row.b, toLabels);
+        const externalNode = nodeToGraphNode(row.b, toLabels, this.dialect);
         if (!nodeIds.has(externalNode.id)) {
           nodes.push(externalNode);
           nodeIds.add(externalNode.id);
@@ -415,8 +420,6 @@ class GraphQueriesImpl implements GraphQueries {
       }
     }
 
-
-
     return { nodes, edges };
   }
 
@@ -434,13 +437,13 @@ class GraphQueriesImpl implements GraphQueries {
       labels: string[];
       relatedLabels: string[] | null;
       edgeType: string | null;
-    }>(CYPHER.GET_FILE_SUBGRAPH, { params: { path: filePath } });
+    }>(this.templates.GET_FILE_SUBGRAPH, { params: { path: filePath } });
 
     let centerId: string | undefined;
 
     for (const row of result.data ?? []) {
       // Add file node
-      const fileNode = nodeToGraphNode(row.f, ['File']);
+      const fileNode = nodeToGraphNode(row.f, ['File'], this.dialect);
       if (!nodeIds.has(fileNode.id)) {
         nodes.push(fileNode);
         nodeIds.add(fileNode.id);
@@ -449,7 +452,7 @@ class GraphQueriesImpl implements GraphQueries {
 
       // Add contained entity
       if (row.e) {
-        const entityNode = nodeToGraphNode(row.e, row.labels);
+        const entityNode = nodeToGraphNode(row.e, row.labels, this.dialect);
         if (!nodeIds.has(entityNode.id)) {
           nodes.push(entityNode);
           nodeIds.add(entityNode.id);
@@ -467,15 +470,17 @@ class GraphQueriesImpl implements GraphQueries {
 
       // Add related entities and edges
       if (row.related && row.relatedLabels && row.edgeType && row.r) {
-        const relatedNode = nodeToGraphNode(row.related, row.relatedLabels);
+        const relatedNode = nodeToGraphNode(row.related, row.relatedLabels, this.dialect);
         if (!nodeIds.has(relatedNode.id)) {
           nodes.push(relatedNode);
           nodeIds.add(relatedNode.id);
         }
 
+        const entityProps = extractNodeProps(row.e, this.dialect);
+        const relatedProps = extractNodeProps(row.related, this.dialect);
         const edge = edgeToGraphEdge(
-          row.e,
-          row.related,
+          entityProps,
+          relatedProps,
           row.edgeType,
           row.r,
           row.labels,
@@ -489,7 +494,6 @@ class GraphQueriesImpl implements GraphQueries {
       }
     }
 
-    // If no centerId found, use an empty object without it (SubgraphData extends GraphData)
     if (centerId !== undefined) {
       return { nodes, edges, centerId };
     }
@@ -501,20 +505,21 @@ class GraphQueriesImpl implements GraphQueries {
     const result = await this.client.roQuery<{
       caller: Record<string, unknown>;
       line: number;
-    }>(CYPHER.GET_FUNCTION_CALLERS, { params: { name: funcName } });
+    }>(this.templates.GET_FUNCTION_CALLERS, { params: { name: funcName } });
 
     return (result.data ?? []).map((row): FunctionEntity => {
-      const returnType = row.caller['returnType'] as string | undefined;
-      const docstring = row.caller['docstring'] as string | undefined;
+      const props = extractNodeProps(row.caller, this.dialect);
+      const returnType = props['returnType'] as string | undefined;
+      const docstring = props['docstring'] as string | undefined;
       const entity: FunctionEntity = {
-        name: row.caller['name'] as string,
-        filePath: row.caller['filePath'] as string,
-        startLine: row.caller['startLine'] as number,
-        endLine: row.caller['endLine'] as number,
-        isExported: row.caller['isExported'] as boolean,
-        isAsync: row.caller['isAsync'] as boolean,
-        isArrow: row.caller['isArrow'] as boolean,
-        params: JSON.parse((row.caller['params'] as string) ?? '[]') as FunctionEntity['params'],
+        name: props['name'] as string,
+        filePath: props['filePath'] as string,
+        startLine: props['startLine'] as number,
+        endLine: props['endLine'] as number,
+        isExported: props['isExported'] as boolean,
+        isAsync: props['isAsync'] as boolean,
+        isArrow: props['isArrow'] as boolean,
+        params: JSON.parse((props['params'] as string) ?? '[]') as FunctionEntity['params'],
       };
       if (returnType !== undefined) {
         entity.returnType = returnType;
@@ -533,12 +538,11 @@ class GraphQueriesImpl implements GraphQueries {
     const nodeIds = new Set<string>();
 
     // FalkorDB doesn't support variable-length path parameters
-    // We need to run multiple depth queries
     const depthParam = Math.min(depth, 10);
 
     const result = await this.client.roQuery<{
       path: Array<Record<string, unknown>>;
-    }>(CYPHER.GET_DEPENDENCY_TREE.replace('$depth', String(depthParam)), {
+    }>(this.templates.GET_DEPENDENCY_TREE.replace('$depth', String(depthParam)), {
       params: { path: filePath },
     });
 
@@ -546,7 +550,7 @@ class GraphQueriesImpl implements GraphQueries {
       const pathNodes = row.path;
       for (let i = 0; i < pathNodes.length; i++) {
         const node = pathNodes[i]!;
-        const graphNode = nodeToGraphNode(node, ['File']);
+        const graphNode = nodeToGraphNode(node, ['File'], this.dialect);
         if (!nodeIds.has(graphNode.id)) {
           nodes.push(graphNode);
           nodeIds.add(graphNode.id);
@@ -555,8 +559,9 @@ class GraphQueriesImpl implements GraphQueries {
         // Create edge to next node in path
         if (i < pathNodes.length - 1) {
           const nextNode = pathNodes[i + 1]!;
+          const nextProps = extractNodeProps(nextNode, this.dialect);
           const fromId = graphNode.id;
-          const toId = generateNodeIdFromProps('File', nextNode);
+          const toId = generateNodeIdFromProps('File', nextProps);
           const edgeId = `IMPORTS:${fromId}->${toId}`;
 
           if (!edges.some((e) => e.id === edgeId)) {
@@ -581,7 +586,7 @@ class GraphQueriesImpl implements GraphQueries {
     const nodesResult = await this.client.roQuery<{
       label: string;
       count: number;
-    }>(CYPHER.GET_STATS_NODES);
+    }>(this.templates.GET_STATS_NODES);
 
     const nodesByType: Record<NodeLabel, number> = {
       File: 0,
@@ -612,7 +617,7 @@ class GraphQueriesImpl implements GraphQueries {
     const edgesResult = await this.client.roQuery<{
       label: string;
       count: number;
-    }>(CYPHER.GET_STATS_EDGES);
+    }>(this.templates.GET_STATS_EDGES);
 
     const edgesByType: Record<EdgeLabel, number> = {
       CONTAINS: 0,
@@ -655,7 +660,7 @@ class GraphQueriesImpl implements GraphQueries {
     const largestFilesResult = await this.client.roQuery<{
       path: string;
       entityCount: number;
-    }>(CYPHER.GET_LARGEST_FILES);
+    }>(this.templates.GET_LARGEST_FILES);
 
     const largestFiles = (largestFilesResult.data ?? []).map((row) => ({
       path: row.path,
@@ -667,7 +672,7 @@ class GraphQueriesImpl implements GraphQueries {
       name: string;
       filePath: string;
       connectionCount: number;
-    }>(CYPHER.GET_MOST_CONNECTED);
+    }>(this.templates.GET_MOST_CONNECTED);
 
     const mostConnected = (mostConnectedResult.data ?? []).map((row) => ({
       name: row.name,
@@ -687,16 +692,18 @@ class GraphQueriesImpl implements GraphQueries {
 
   @trace()
   async search(term: string, types?: NodeLabel[], limit = 50): Promise<SearchResult[]> {
-    // Use simple name matching (fulltext search may not be available on all indexes)
+    // Use simple name matching (fulltext search may not be available on all backends)
     const result = await this.client.roQuery<{
       n: Record<string, unknown>;
       labels: string[];
-    }>(CYPHER.SEARCH_BY_NAME, { params: { term, limit } });
+    }>(this.templates.SEARCH_BY_NAME, { params: { term, limit } });
 
     const results: SearchResult[] = [];
 
     for (const row of result.data ?? []) {
-      const label = getLabelFromLabels(row.labels);
+      const props = extractNodeProps(row.n, this.dialect);
+      const nodeLabels = extractLabels(row.n, row.labels, this.dialect);
+      const label = getLabelFromLabels(nodeLabels);
 
       // Filter by types if specified
       if (types && !types.includes(label)) {
@@ -704,11 +711,11 @@ class GraphQueriesImpl implements GraphQueries {
       }
 
       results.push({
-        id: generateNodeIdFromProps(label, row.n),
-        name: (row.n['name'] as string) ?? (row.n['path'] as string) ?? 'unknown',
+        id: generateNodeIdFromProps(label, props),
+        name: (props['name'] as string) ?? (props['path'] as string) ?? 'unknown',
         type: label,
-        filePath: (row.n['filePath'] as string) ?? (row.n['path'] as string) ?? '',
-        line: (row.n['startLine'] as number) ?? (row.n['line'] as number),
+        filePath: (props['filePath'] as string) ?? (props['path'] as string) ?? '',
+        line: (props['startLine'] as number) ?? (props['line'] as number),
       });
     }
 

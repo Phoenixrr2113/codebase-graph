@@ -5,7 +5,8 @@
  */
 
 import { z } from 'zod';
-import { createOperations, createClient } from '@codegraph/graph';
+import { createOperations } from '@codegraph/graph';
+import { getGraphClient } from '../graphClient';
 import { createLogger } from '@codegraph/logger';
 import {
   loadConfig,
@@ -99,7 +100,7 @@ Examples:
 
 async function getAvailableProjects(): Promise<ProjectInfo[]> {
   try {
-    const client = await createClient();
+    const client = await getGraphClient();
     const ops = createOperations(client);
     const projects = await ops.getProjects();
 

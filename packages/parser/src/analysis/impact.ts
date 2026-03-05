@@ -221,7 +221,7 @@ export function calculateRiskScore(
 export function getDirectCallersQuery(symbolName: string): string {
   return `
     MATCH (target:Function {name: "${symbolName}"})<-[:CALLS]-(caller:Function)
-    RETURN caller.name as name, caller.file as file, 1 as depth
+    RETURN caller.name as name, caller.filePath as file, 1 as depth
   `.trim();
 }
 
@@ -229,12 +229,12 @@ export function getDirectCallersQuery(symbolName: string): string {
  * Generate Cypher query for transitive callers
  */
 export function getTransitiveCallersQuery(
-  symbolName: string, 
+  symbolName: string,
   maxDepth: number = 5
 ): string {
   return `
     MATCH path = (target:Function {name: "${symbolName}"})<-[:CALLS*1..${maxDepth}]-(caller:Function)
-    RETURN DISTINCT caller.name as name, caller.file as file, length(path) as depth
+    RETURN DISTINCT caller.name as name, caller.filePath as file, length(path) as depth
     ORDER BY depth
   `.trim();
 }
@@ -245,8 +245,8 @@ export function getTransitiveCallersQuery(
 export function getAffectedTestsQuery(symbolName: string): string {
   return `
     MATCH (target:Function {name: "${symbolName}"})<-[:CALLS*]-(test:Function)
-    WHERE test.file CONTAINS '.test.' OR test.file CONTAINS '.spec.'
-    RETURN DISTINCT test.name as name, test.file as file
+    WHERE test.filePath CONTAINS '.test.' OR test.filePath CONTAINS '.spec.'
+    RETURN DISTINCT test.name as name, test.filePath as file
   `.trim();
 }
 

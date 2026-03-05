@@ -3,7 +3,7 @@ import { createLogger } from '@codegraph/logger';
 import { createClient, createOperations } from '@codegraph/graph';
 import { initParser, parseFile, extractAllEntities, disposeParser } from '@codegraph/parser';
 import { glob } from 'glob';
-import { resolve, relative } from 'path';
+import { resolve } from 'path';
 import { statSync } from 'fs';
 import { createHash } from 'crypto';
 
@@ -90,21 +90,24 @@ export const extractCommand = new Command('extract')
           graphName: options.graph,
         });
 
+        await client.ensureIndexes();
         const ops = createOperations(client);
         
         let nodesCreated = 0;
 
         for (const { path: filePath, entities } of parsedFiles) {
-          const relPath = relative(absPath, filePath);
+          // Store absolute paths so MCP search path filters work correctly
+          const storedPath = filePath; // already absolute from glob
+          const fileName = storedPath.split('/').pop() ?? storedPath;
           const stat = statSync(filePath);
           const content = await import('fs').then(fs => fs.readFileSync(filePath, 'utf-8'));
           const hash = createHash('md5').update(content).digest('hex');
           const loc = content.split('\n').length;
-          
+
           await ops.upsertFile({
-            path: relPath,
-            name: relPath.split('/').pop() ?? relPath,
-            extension: relPath.split('.').pop() ?? '',
+            path: storedPath,
+            name: fileName,
+            extension: fileName.split('.').pop() ?? '',
             loc,
             lastModified: stat.mtime.toISOString(),
             hash,
@@ -112,15 +115,15 @@ export const extractCommand = new Command('extract')
           nodesCreated++;
 
           for (const fn of entities.functions) {
-            await ops.upsertFunction({ ...fn, filePath: relPath });
+            await ops.upsertFunction({ ...fn, filePath: storedPath });
             nodesCreated++;
           }
           for (const cls of entities.classes) {
-            await ops.upsertClass({ ...cls, filePath: relPath });
+            await ops.upsertClass({ ...cls, filePath: storedPath });
             nodesCreated++;
           }
           for (const iface of entities.interfaces) {
-            await ops.upsertInterface({ ...iface, filePath: relPath });
+            await ops.upsertInterface({ ...iface, filePath: storedPath });
             nodesCreated++;
           }
         }

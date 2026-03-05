@@ -6,6 +6,7 @@
 import Parser from 'tree-sitter';
 import type { FunctionEntity, FunctionParam } from '@codegraph/types';
 import { findNodesOfTypes, getLocation, generateEntityId } from './types';
+import { calculateComplexity } from '../analysis/complexity';
 
 /** Node types that represent function declarations */
 const FUNCTION_TYPES = [
@@ -61,6 +62,9 @@ function parseFunctionNode(
   
   const id = generateEntityId(filePath, 'function', name, location.startLine);
   
+  // Calculate complexity metrics from the AST node
+  const metrics = calculateComplexity(node);
+
   // Build entity with optional properties only when defined
   const entity: FunctionEntity = {
     id,
@@ -72,12 +76,15 @@ function parseFunctionNode(
     isAsync,
     isArrow,
     params,
+    complexity: metrics.cyclomatic,
+    cognitiveComplexity: metrics.cognitive,
+    nestingDepth: metrics.nestingDepth,
   };
-  
+
   if (isGenerator) entity.isGenerator = isGenerator;
   if (returnType) entity.returnType = returnType;
   if (docstring) entity.docstring = docstring;
-  
+
   return entity;
 }
 

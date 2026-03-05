@@ -91,19 +91,23 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
     }
 
     const client = await getGraphClient();
+    const dialect = client.dialect;
+    const lc = dialect.labelCheckExpr.bind(dialect);
+    const firstLabel = dialect.firstLabelExpr('n');
     const scope = input.scope === 'all' ? '' : input.scope;
 
-    // Build Cypher query based on search type
+    // Build Cypher query based on search type — use dialect-aware expressions
     let cypher: string;
     const scopeFilter = scope ? 'AND n.filePath STARTS WITH $scope' : '';
+    const labelFilter = `(${['Function', 'Class', 'Interface', 'Variable', 'Component'].map(l => lc('n', l)).join(' OR ')})`;
 
     if (input.type === 'name') {
       // Exact or contains match on name
       cypher = `
         MATCH (n)
-        WHERE (n:Function OR n:Class OR n:Interface OR n:Variable OR n:Component)
+        WHERE ${labelFilter}
           AND n.name CONTAINS $query ${scopeFilter}
-        RETURN n.name as name, labels(n)[0] as kind, n.filePath as file, n.startLine as line
+        RETURN n.name as name, ${firstLabel} as kind, n.filePath as file, n.startLine as line
         ORDER BY n.name
         LIMIT 50
       `;
@@ -112,9 +116,9 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
       // TODO: Implement fulltext index search when available
       cypher = `
         MATCH (n)
-        WHERE (n:Function OR n:Class OR n:Interface OR n:Variable OR n:Component)
+        WHERE ${labelFilter}
           AND toLower(n.name) CONTAINS toLower($query) ${scopeFilter}
-        RETURN n.name as name, labels(n)[0] as kind, n.filePath as file, n.startLine as line
+        RETURN n.name as name, ${firstLabel} as kind, n.filePath as file, n.startLine as line
         ORDER BY n.name
         LIMIT 50
       `;
@@ -122,9 +126,13 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
 
     type ResultRow = { name: string; kind: string; file: string; line: number };
 
+    // Only pass params that are actually referenced in the query
+    const params: Record<string, string | number | boolean | null | Array<unknown>> = { query: input.query };
+    if (scope) params.scope = scope;
+
     const result = await client.roQuery<ResultRow>(
       cypher,
-      { params: { query: input.query, scope } }
+      { params }
     );
 
     const results: SearchResult[] = result.data.map(row => ({

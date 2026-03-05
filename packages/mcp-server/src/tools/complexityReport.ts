@@ -92,12 +92,13 @@ export async function getComplexityReport(input: ComplexityReportInput): Promise
     const query = `
       MATCH (f:Function)
       WHERE f.complexity >= $threshold ${scopeFilter}
-      RETURN f.name as name, 
-             f.filePath as file, 
+      RETURN f.name as name,
+             f.filePath as file,
              f.complexity as complexity,
-             coalesce(f.cognitive, 0) as cognitive,
+             coalesce(f.cognitiveComplexity, 0) as cognitive,
              coalesce(f.nestingDepth, 0) as nesting,
-             coalesce(f.endLine - f.startLine + 1, 0) as lines
+             CASE WHEN f.endLine IS NOT NULL AND f.startLine IS NOT NULL
+                  THEN f.endLine - f.startLine + 1 ELSE 0 END as lines
       ORDER BY f.complexity DESC
       LIMIT 50
     `;
@@ -111,9 +112,13 @@ export async function getComplexityReport(input: ComplexityReportInput): Promise
       lines: number;
     };
 
+    // Only include params that are actually referenced in the query
+    const queryParams: Record<string, string | number | boolean | null | Array<unknown>> = { threshold };
+    if (scope) queryParams.scope = scope;
+
     const result = await client.roQuery<HotspotRow>(
       query,
-      { params: { threshold, scope } }
+      { params: queryParams }
     );
 
     // Get total function count for summary

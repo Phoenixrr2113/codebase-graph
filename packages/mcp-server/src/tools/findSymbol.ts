@@ -89,6 +89,9 @@ export async function findSymbol(input: FindSymbolInput): Promise<FindSymbolOutp
     }
 
     const client = await getGraphClient();
+    const dialect = client.dialect;
+    const lc = dialect.labelCheckExpr.bind(dialect);
+    const labelsExpr = dialect.labelsExpr('n');
 
     // Map kind to graph node labels
     const kindToLabel: Record<string, string> = {
@@ -101,23 +104,24 @@ export async function findSymbol(input: FindSymbolInput): Promise<FindSymbolOutp
 
     const label = kindToLabel[input.kind] || '';
 
-    // Build Cypher query
+    // Build Cypher query — use dialect-aware label expressions
     let cypher: string;
     const params: Record<string, string | number | boolean | null | Array<unknown>> = { name: input.name };
+    const anyLabelFilter = `(${['Function', 'Class', 'Interface', 'Variable'].map(l => lc('n', l)).join(' OR ')})`;
 
     if (label && input.file) {
-      cypher = `MATCH (n:${label}) WHERE n.name = $name AND n.filePath CONTAINS $file RETURN n, labels(n) as labels LIMIT 10`;
+      cypher = `MATCH (n:${label}) WHERE n.name = $name AND n.filePath CONTAINS $file RETURN n, ${labelsExpr} as labels LIMIT 10`;
       params.file = input.file;
     } else if (label) {
-      cypher = `MATCH (n:${label}) WHERE n.name = $name RETURN n, labels(n) as labels LIMIT 10`;
+      cypher = `MATCH (n:${label}) WHERE n.name = $name RETURN n, ${labelsExpr} as labels LIMIT 10`;
     } else if (input.file) {
-      cypher = `MATCH (n) WHERE n.name = $name AND n.filePath CONTAINS $file AND (n:Function OR n:Class OR n:Interface OR n:Variable) RETURN n, labels(n) as labels LIMIT 10`;
+      cypher = `MATCH (n) WHERE n.name = $name AND n.filePath CONTAINS $file AND ${anyLabelFilter} RETURN n, ${labelsExpr} as labels LIMIT 10`;
       params.file = input.file;
     } else {
-      cypher = `MATCH (n) WHERE n.name = $name AND (n:Function OR n:Class OR n:Interface OR n:Variable) RETURN n, labels(n) as labels LIMIT 10`;
+      cypher = `MATCH (n) WHERE n.name = $name AND ${anyLabelFilter} RETURN n, ${labelsExpr} as labels LIMIT 10`;
     }
 
-    const result = await client.roQuery<{ n: Record<string, unknown>; labels: string[] }>(
+    const result = await client.roQuery<{ n: Record<string, unknown>; labels: string | string[] }>(
       cypher,
       { params }
     );
@@ -130,16 +134,23 @@ export async function findSymbol(input: FindSymbolInput): Promise<FindSymbolOutp
       };
     }
 
-    // Map results to SymbolResult
-    const symbols: SymbolResult[] = result.data.map(row => ({
-      name: row.n['name'] as string || 'unknown',
-      kind: (row.labels[0] || 'unknown').toLowerCase(),
-      file: row.n['filePath'] as string || '',
-      line: row.n['startLine'] as number || row.n['line'] as number || 0,
-      endLine: row.n['endLine'] as number | undefined,
-      signature: row.n['signature'] as string | undefined,
-      complexity: row.n['complexity'] as number | undefined,
-    }));
+    // Map results to SymbolResult — use dialect-aware normalization
+    const symbols: SymbolResult[] = result.data.map(row => {
+      const normalized = dialect.normalizeNode(row.n);
+      const props = normalized.properties;
+      const labelsArr = Array.isArray(row.labels) ? row.labels
+        : typeof row.labels === 'string' ? [row.labels]
+        : normalized.labels;
+      return {
+        name: props['name'] as string || 'unknown',
+        kind: (labelsArr[0] || 'unknown').toLowerCase(),
+        file: props['filePath'] as string || '',
+        line: props['startLine'] as number || props['line'] as number || 0,
+        endLine: props['endLine'] as number | undefined,
+        signature: props['signature'] as string | undefined,
+        complexity: props['complexity'] as number | undefined,
+      };
+    });
 
     return {
       found: true,
