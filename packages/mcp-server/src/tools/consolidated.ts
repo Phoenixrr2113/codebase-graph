@@ -20,10 +20,16 @@ import {
   checkSetupRequired,
   type ConfigureProjectsInput
 } from './configureProjects';
+import {
+  reindexToolDefinition,
+  triggerReindex,
+  type ReindexInput,
+} from './reindex';
 import { getShortSchema } from '../schema';
 import { buildFileTree, getIndexSummary } from '@codegraph/graph';
 import { getGraphClient } from '../graphClient';
-import { needsSetup, getActiveProjectPaths } from '../config';
+import { needsSetup, getActiveProjectPaths, updateLastUsed, isStale } from '../config';
+import { indexProject } from '../indexer';
 import { createLogger } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'MCP:Tools' });
@@ -121,6 +127,7 @@ ${fileTree}
       ...queryGraphToolDefinition,
       description: queryGraphToolDefinition.description + '\n\nNote: Use search and get_context for most tasks. Query is for advanced use.',
     },
+    reindexToolDefinition,
   ];
 }
 
@@ -140,11 +147,50 @@ export const staticTools: ToolDefinition[] = [
   searchToolDefinition,
   getContextToolDefinition,
   queryGraphToolDefinition,
+  reindexToolDefinition,
 ];
 
 // ============================================================================
 // Tool Handlers
 // ============================================================================
+
+/**
+ * Check staleness and trigger background re-index if needed.
+ * Non-blocking — current request returns immediately with existing data.
+ */
+let stalenessCheckInProgress = false;
+
+async function checkAndTriggerStalenessReindex(): Promise<void> {
+  if (stalenessCheckInProgress) return;
+
+  try {
+    const stale = await isStale();
+    if (!stale) return;
+
+    stalenessCheckInProgress = true;
+    logger.info('Context is stale, triggering background re-index');
+
+    const activePaths = await getActiveProjectPaths();
+    if (activePaths.length === 0) return;
+
+    // Run re-index in background (non-blocking)
+    Promise.all(
+      activePaths.map(async (rootPath) => {
+        try {
+          const result = await indexProject(rootPath);
+          logger.info(`Staleness re-index complete: ${result.projectName} (${result.stats.files} files)`);
+        } catch (err) {
+          logger.warn(`Staleness re-index failed for ${rootPath}:`, err);
+        }
+      })
+    ).finally(() => {
+      stalenessCheckInProgress = false;
+    });
+  } catch (err) {
+    stalenessCheckInProgress = false;
+    logger.warn('Staleness check failed:', err);
+  }
+}
 
 const handlers: Record<string, ToolHandler> = {
   ping: async () => ({
@@ -199,6 +245,14 @@ const handlers: Record<string, ToolHandler> = {
     };
     return queryGraph(input);
   },
+
+  trigger_reindex: async (args) => {
+    const input: ReindexInput = {
+      mode: (args.mode as 'incremental' | 'full') || 'incremental',
+      scope: args.scope as string | undefined,
+    };
+    return triggerReindex(input);
+  },
 };
 
 // ============================================================================
@@ -228,6 +282,14 @@ export async function handleToolCall(
 
   if (!handler) {
     throw new Error(`Unknown tool: ${name}. Available: ${Object.keys(handlers).join(', ')}`);
+  }
+
+  // Track lastUsed for staleness detection
+  updateLastUsed().catch(() => {}); // Non-blocking
+
+  // On query/search/get_context calls, check for staleness and trigger background re-index
+  if (['search', 'get_context', 'query'].includes(name)) {
+    checkAndTriggerStalenessReindex(); // Non-blocking
   }
 
   return handler(args);

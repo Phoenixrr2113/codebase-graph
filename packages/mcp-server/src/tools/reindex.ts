@@ -2,10 +2,16 @@
  * MCP Tool: trigger_reindex
  *
  * Triggers a reindex of the codebase, either incrementally or full.
+ * Uses @codegraph/parser's extraction pipeline for actual parsing.
  */
 
 import { z } from 'zod';
 import { stat } from 'node:fs/promises';
+import { indexProject, indexSingleFile } from '../indexer';
+import { getActiveProjectPaths } from '../config';
+import { createLogger } from '@codegraph/logger';
+
+const logger = createLogger({ namespace: 'MCP:Reindex' });
 
 // Input schema
 export const ReindexInputSchema = z.object({
@@ -38,7 +44,7 @@ interface ToolDefinition {
 // Tool definition for MCP
 export const reindexToolDefinition: ToolDefinition = {
   name: 'trigger_reindex',
-  description: 'Trigger a reindex of the codebase. Supports incremental (changed files only) or full mode.',
+  description: 'Trigger a reindex of the codebase. Supports incremental (changed files only) or full mode. If no scope is specified, re-indexes all active projects.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -50,7 +56,7 @@ export const reindexToolDefinition: ToolDefinition = {
       },
       scope: {
         type: 'string',
-        description: 'Specific file or directory path to reindex (optional)',
+        description: 'Specific file or directory path to reindex. If omitted, reindexes all active projects.',
       },
     },
     required: [],
@@ -59,9 +65,6 @@ export const reindexToolDefinition: ToolDefinition = {
 
 /**
  * Handler for trigger_reindex tool
- * 
- * In the full implementation, this calls parseProject/parseSingleFile from @codegraph/api.
- * The actual integration will be completed when MCP server connects to the API via HTTP or IPC.
  */
 export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput> {
   const startTime = Date.now();
@@ -71,47 +74,88 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
     // If scope is provided, determine if it's a file or directory
     if (input.scope) {
       const scopeStat = await stat(input.scope);
-      const duration = Date.now() - startTime;
 
       if (scopeStat.isFile()) {
-        // TODO: In full implementation, call parseSingleFile via API
+        // Single file reindex
+        logger.info(`Re-indexing single file: ${input.scope}`);
+        const result = await indexSingleFile(input.scope);
+
         return {
-          success: true,
-          filesProcessed: 1,
-          symbolsUpdated: 0,
-          duration,
-          errors: ['Reindex functionality requires API integration (coming in MCP-INT-001)'],
+          success: result.success,
+          filesProcessed: result.success ? 1 : 0,
+          symbolsUpdated: result.entities,
+          duration: Date.now() - startTime,
+          errors: result.error ? [result.error] : [],
         };
+
       } else if (scopeStat.isDirectory()) {
-        // TODO: In full implementation, call parseProject via API
+        // Directory reindex
+        logger.info(`Re-indexing directory: ${input.scope} (mode: ${input.mode})`);
+        const result = await indexProject(input.scope, {
+          force: input.mode === 'full',
+          deepAnalysis: true,
+        });
+
         return {
-          success: true,
-          filesProcessed: 0,
-          symbolsUpdated: 0,
-          duration,
-          errors: ['Reindex functionality requires API integration (coming in MCP-INT-001)'],
+          success: result.success,
+          filesProcessed: result.stats.files,
+          symbolsUpdated: result.stats.entities,
+          duration: result.stats.durationMs,
+          errors: result.errorMessages,
         };
+
       } else {
-        errors.push(`Scope path is neither a file nor directory: ${input.scope}`);
         return {
           success: false,
           filesProcessed: 0,
           symbolsUpdated: 0,
-          duration,
-          errors,
+          duration: Date.now() - startTime,
+          errors: [`Scope path is neither a file nor directory: ${input.scope}`],
         };
       }
-    } else {
-      // No scope provided
-      errors.push('No scope provided. Please specify a file or directory path to reindex.');
+    }
+
+    // No scope provided — re-index all active projects
+    const activePaths = await getActiveProjectPaths();
+
+    if (activePaths.length === 0) {
       return {
         success: false,
         filesProcessed: 0,
         symbolsUpdated: 0,
         duration: Date.now() - startTime,
-        errors,
+        errors: ['No active projects configured. Use configure_projects to set up projects first.'],
       };
     }
+
+    logger.info(`Re-indexing ${activePaths.length} active project(s) (mode: ${input.mode})`);
+
+    let totalFiles = 0;
+    let totalEntities = 0;
+
+    for (const rootPath of activePaths) {
+      try {
+        const result = await indexProject(rootPath, {
+          force: input.mode === 'full',
+          deepAnalysis: true,
+        });
+        totalFiles += result.stats.files;
+        totalEntities += result.stats.entities;
+        errors.push(...result.errorMessages);
+      } catch (err) {
+        const msg = `Failed to index ${rootPath}: ${err instanceof Error ? err.message : err}`;
+        errors.push(msg);
+        logger.error(msg);
+      }
+    }
+
+    return {
+      success: true,
+      filesProcessed: totalFiles,
+      symbolsUpdated: totalEntities,
+      duration: Date.now() - startTime,
+      errors,
+    };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error during reindex';
     errors.push(errorMessage);

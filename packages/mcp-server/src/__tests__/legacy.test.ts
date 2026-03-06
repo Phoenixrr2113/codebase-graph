@@ -262,16 +262,28 @@ describe('analyze_refactoring', () => {
 // ─── trigger_reindex ─────────────────────────────────────────────────────────
 
 describe('trigger_reindex', () => {
-  it('returns expected error when no scope provided', async () => {
+  it('returns error for non-existent scope path', async () => {
     const result = (await handleToolCall('trigger_reindex', {
       mode: 'incremental',
+      scope: '/nonexistent/path/to/project',
     })) as Record<string, unknown>;
 
-    // Without a scope, it should return an error about needing a path
+    // Should fail because path doesn't exist
     expect(result.success).toBe(false);
     const errors = result.errors as string[];
-    expect(errors.some((e: string) => e.includes('No scope provided'))).toBe(true);
+    expect(errors.length).toBeGreaterThan(0);
   });
+
+  it('can index a single file', async () => {
+    const result = (await handleToolCall('trigger_reindex', {
+      mode: 'full',
+      scope: KNOWN_FILE,
+    })) as Record<string, unknown>;
+
+    expect(result.success).toBe(true);
+    expect(result.filesProcessed).toBe(1);
+    expect((result.symbolsUpdated as number)).toBeGreaterThan(0);
+  }, 30000);
 });
 
 // ─── unknown tool ────────────────────────────────────────────────────────────

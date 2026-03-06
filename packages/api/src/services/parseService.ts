@@ -1,41 +1,30 @@
 /**
  * Parse service - orchestrates parsing and graph persistence
+ *
+ * Core extraction logic (entity extraction, complexity, edge building) lives
+ * in @codegraph/parser's pipeline module. This service is a thin orchestrator
+ * that handles file discovery, Project node management, and graph persistence.
  */
 
-import type { ParseResult, ParseStats, FileEntity, ProjectEntity, FunctionEntity } from '@codegraph/types';
-import { initParser, parseFile, parseFiles, extractAllEntities, extractCalls, extractRenders, extractInheritance, calculateComplexity, type ExtractedEntities } from '@codegraph/parser';
+import type { ParseResult, ParseStats, ProjectEntity } from '@codegraph/types';
 import {
-  extractFunctions as extractPythonFunctions,
-  extractClasses as extractPythonClasses,
-  extractImports as extractPythonImports,
-  extractVariables as extractPythonVariables,
-  extractInheritance as extractPythonInheritance,
-  extractCalls as extractPythonCalls,
-  resolvePythonImport,
-} from '@codegraph/plugin-python';
-import {
-  extractFunctions as extractCSharpFunctions,
-  extractClasses as extractCSharpClasses,
-  extractInterfaces as extractCSharpInterfaces,
-  extractVariables as extractCSharpVariables,
-  extractImports as extractCSharpImports,
-  extractTypes as extractCSharpTypes,
-  extractInheritance as extractCSharpInheritance,
-  extractCalls as extractCSharpCalls,
-} from '@codegraph/plugin-csharp';
-import type Parser from 'tree-sitter';
-import { createClient, createOperations, type ParsedFileEntities, type GraphOperations } from '@codegraph/graph';
-import { createLogger, traced } from '@codegraph/logger';
-import fastGlob from 'fast-glob';
-import { stat, readFile } from 'node:fs/promises';
-import { basename, extname } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
-import {
+  initParser,
+  parseFile,
+  parseFiles,
+  createFileEntity,
+  extractEntitiesForFile,
+  buildParsedFileEntities,
+  countEntities,
+  countEdges,
   SUPPORTED_EXTENSIONS,
   DEFAULT_IGNORE_PATTERNS,
-  PYTHON_EXTENSIONS,
-  CSHARP_EXTENSIONS,
-} from '../config/constants';
+} from '@codegraph/parser';
+import { createClient, createOperations, type GraphOperations } from '@codegraph/graph';
+import { createLogger, traced } from '@codegraph/logger';
+import fastGlob from 'fast-glob';
+import { stat } from 'node:fs/promises';
+import { basename } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { getAnalyticsService } from './analyticsService';
 
 const logger = createLogger({ namespace: 'API:Parse' });
@@ -54,355 +43,10 @@ const getGraphOps = traced('getGraphOps', async function getGraphOps(): Promise<
   return graphOps;
 });
 
-/**
- * Create a FileEntity from file metadata
- */
-const createFileEntity = traced('createFileEntity', async function createFileEntity(filePath: string): Promise<FileEntity> {
-  const fileStat = await stat(filePath);
-  const content = await readFile(filePath, 'utf-8');
-  const loc = content.split('\n').length;
-  const hash = createHash('sha256').update(content).digest('hex').slice(0, 16);
-
-  return {
-    path: filePath,
-    name: basename(filePath),
-    extension: extname(filePath).slice(1), // Remove leading dot
-    loc,
-    lastModified: fileStat.mtime.toISOString(),
-    hash,
-  };
-});
-
-/** Parse options for deep analysis */
+/** Parse options for deep analysis (re-exported from parser as PipelineOptions) */
 export interface ParseOptions {
   deepAnalysis?: boolean;
   includeExternals?: boolean;
-}
-
-/**
- * Check if file is a Python file
- */
-function isPythonFile(filePath: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  return PYTHON_EXTENSIONS.includes(ext);
-}
-
-/**
- * Check if file is a C# file
- */
-function isCSharpFile(filePath: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  return CSHARP_EXTENSIONS.includes(ext);
-}
-
-/**
- * Extract entities from a file based on its language
- * Uses TypeScript extractors for TS/JS files, Python extractors for .py files, C# extractors for .cs files
- */
-function extractEntitiesForFile(rootNode: Parser.SyntaxNode, filePath: string): ExtractedEntities {
-  if (isPythonFile(filePath)) {
-    // Use Python extractors - note: Python doesn't have interfaces, types, or components
-    return {
-      functions: extractPythonFunctions(rootNode as any, filePath),
-      classes: extractPythonClasses(rootNode as any, filePath),
-      variables: extractPythonVariables(rootNode as any, filePath),
-      imports: extractPythonImports(rootNode as any, filePath),
-      interfaces: [], // Not applicable for Python
-      types: [], // Not applicable for Python
-      components: [], // Not applicable for Python
-    };
-  }
-
-  if (isCSharpFile(filePath)) {
-    // Use C# extractors
-    return {
-      functions: extractCSharpFunctions(rootNode as any, filePath),
-      classes: extractCSharpClasses(rootNode as any, filePath),
-      interfaces: extractCSharpInterfaces(rootNode as any, filePath),
-      variables: extractCSharpVariables(rootNode as any, filePath),
-      imports: extractCSharpImports(rootNode as any, filePath),
-      types: extractCSharpTypes(rootNode as any, filePath),
-      components: [], // Not applicable for C#
-    };
-  }
-
-  // Use TypeScript/JavaScript extractors
-  return extractAllEntities(rootNode, filePath);
-}
-
-/** Node types that represent function declarations */
-const FUNCTION_TYPES = [
-  'function_declaration',
-  'function_expression',
-  'arrow_function',
-  'method_definition',
-  'generator_function_declaration',
-];
-
-/**
- * Calculate and attach complexity metrics to all functions in extracted entities
- * Walks the AST to find function nodes and matches them by startLine to the extracted functions
- */
-function enrichFunctionsWithComplexity(
-  rootNode: Parser.SyntaxNode,
-  functions: FunctionEntity[]
-): void {
-  // Build a map of startLine -> function entity for quick lookup
-  const functionsByLine = new Map<number, FunctionEntity>();
-  for (const fn of functions) {
-    functionsByLine.set(fn.startLine, fn);
-  }
-
-  // Walk the AST to find function nodes
-  function walk(node: Parser.SyntaxNode): void {
-    if (FUNCTION_TYPES.includes(node.type)) {
-      const startLine = node.startPosition.row + 1; // Convert to 1-indexed
-      const functionEntity = functionsByLine.get(startLine);
-      if (functionEntity) {
-        const metrics = calculateComplexity(node);
-        functionEntity.complexity = metrics.cyclomatic;
-        functionEntity.cognitiveComplexity = metrics.cognitive;
-        functionEntity.nestingDepth = metrics.nestingDepth;
-      }
-    }
-    for (const child of node.children) {
-      walk(child);
-    }
-  }
-
-  walk(rootNode);
-}
-
-/**
- * Build ParsedFileEntities from extracted entities
- */
-function buildParsedFileEntities(
-  file: FileEntity,
-  extracted: ExtractedEntities,
-  rootNode?: Parser.SyntaxNode,
-  options: ParseOptions = {},
-  projectRoot?: string
-): ParsedFileEntities {
-  const { deepAnalysis = false, includeExternals = false } = options;
-
-  // Calculate and attach complexity metrics to functions if we have the AST
-  if (rootNode) {
-    enrichFunctionsWithComplexity(rootNode, extracted.functions);
-  }
-
-  // Build import edges from import entities
-  let importsEdges: { fromFilePath: string; toFilePath: string; specifiers: string[] }[] = [];
-
-  if (isPythonFile(file.path) && projectRoot) {
-    // Python: Resolve module names to file paths
-    for (const imp of extracted.imports) {
-      const resolvedPath = resolvePythonImport(imp.source, file.path, projectRoot);
-      if (resolvedPath) {
-        importsEdges.push({
-          fromFilePath: file.path,
-          toFilePath: resolvedPath,
-          specifiers: imp.specifiers.map((s) => s.name),
-        });
-      }
-    }
-
-  } else if (isCSharpFile(file.path)) {
-    // C#: Create edges to external namespace nodes
-    // C# using directives reference namespaces, not files
-    // We create External nodes for each namespace (similar to IMPLEMENTS pattern)
-    for (const imp of extracted.imports) {
-      importsEdges.push({
-        fromFilePath: file.path,
-        toFilePath: `external:${imp.source}`, // e.g., "external:System.Collections.Generic"
-        specifiers: imp.specifiers.map((s) => s.name),
-      });
-    }
-
-  } else {
-    // TypeScript/JavaScript: Use resolvedPath from parser
-    importsEdges = extracted.imports
-      .filter((imp) => imp.resolvedPath)
-      .map((imp) => ({
-        fromFilePath: file.path,
-        toFilePath: imp.resolvedPath!,
-        specifiers: imp.specifiers.map((s) => s.name),
-      }));
-  }
-
-  // Build extends/implements edges
-  let extendsEdges: { childId: string; parentId: string }[] = [];
-  let implementsEdges: { classId: string; interfaceId: string }[] = [];
-
-  if (isPythonFile(file.path)) {
-    // Python: Use plugin's extractInheritance  
-    const inheritanceRefs = extractPythonInheritance(rootNode as any, file.path);
-
-    for (const ref of inheritanceRefs) {
-      const cls = extracted.classes.find(c => c.name === ref.childName);
-      if (cls) {
-        extendsEdges.push({
-          childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-          parentId: `Class:external:${ref.parentName}`,
-        });
-      }
-    }
-  } else if (isCSharpFile(file.path)) {
-    // C#: Use plugin's extractInheritance
-    const inheritanceRefs = extractCSharpInheritance(rootNode as any, file.path);
-
-    for (const ref of inheritanceRefs) {
-      const cls = extracted.classes.find(c => c.name === ref.childName);
-      const iface = extracted.interfaces.find(i => i.name === ref.childName);
-
-      if (ref.type === 'extends') {
-        if (cls) {
-          extendsEdges.push({
-            childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-            parentId: `Class:external:${ref.parentName}`,
-          });
-        } else if (iface) {
-          // Interface extending interface
-          extendsEdges.push({
-            childId: `Interface:${file.path}:${iface.name}:${iface.startLine}`,
-            parentId: `Interface:external:${ref.parentName}`,
-          });
-        }
-      } else if (ref.type === 'implements' && cls) {
-        implementsEdges.push({
-          classId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-          interfaceId: `Interface:external:${ref.parentName}`,
-        });
-      }
-    }
-  } else {
-    // TypeScript/JavaScript: Use full inheritance extraction with import resolution
-    const inheritance = extractInheritance(
-      file.path,
-      extracted.classes,
-      extracted.interfaces,
-      extracted.imports,
-      includeExternals
-    );
-
-    extendsEdges = inheritance.extends.map((ext) => ({
-      childId: `Class:${ext.childFilePath}:${ext.childName}:${ext.childStartLine}`,
-      parentId: ext.parentFilePath
-        ? `Class:${ext.parentFilePath}:${ext.parentName}`
-        : `Class:external:${ext.parentName}`,
-    }));
-
-    implementsEdges = inheritance.implements.map((impl) => ({
-      classId: `Class:${impl.classFilePath}:${impl.className}:${impl.classStartLine}`,
-      interfaceId: impl.interfaceFilePath
-        ? `Interface:${impl.interfaceFilePath}:${impl.interfaceName}`
-        : `Interface:external:${impl.interfaceName}`,
-    }));
-  }
-
-  // Build call edges (only if deep analysis enabled and we have rootNode)
-  let callEdges: ParsedFileEntities['callEdges'] = [];
-  if (deepAnalysis && rootNode) {
-    if (isPythonFile(file.path)) {
-      // Python: Use plugin's extractCalls
-      const pythonCalls = extractPythonCalls(rootNode as unknown as import('@codegraph/types').SyntaxNode, file.path);
-      callEdges = pythonCalls.map((call) => ({
-        callerId: `Function:${call.filePath}:${call.callerName}`,
-        calleeId: `Function:${call.filePath}:${call.calleeName}`,
-        line: call.line,
-      }));
-    } else if (isCSharpFile(file.path)) {
-      // C#: Use plugin's extractCalls
-      logger.debug(`[Deep Analysis] Extracting C# calls for ${file.path}`);
-      const csharpCalls = extractCSharpCalls(rootNode as unknown as import('@codegraph/types').SyntaxNode, file.path);
-      logger.debug(`[Deep Analysis] Found ${csharpCalls.length} C# call references in ${file.path}`);
-      callEdges = csharpCalls.map((call) => ({
-        callerId: `Function:${call.filePath}:${call.callerName}`,
-        calleeId: `Function:${call.filePath}:${call.calleeName}`,
-        line: call.line,
-      }));
-    } else {
-      // TypeScript/JavaScript
-      logger.debug(`[Deep Analysis] Extracting calls for ${file.path}`);
-      const calls = extractCalls(
-        rootNode,
-        file.path,
-        extracted.functions,
-        extracted.imports,
-        includeExternals
-      );
-      logger.debug(`[Deep Analysis] Found ${calls.length} call references in ${file.path}`);
-      callEdges = calls.map((call) => ({
-        callerId: `Function:${call.callerFilePath}:${call.callerName}`,
-        calleeId: call.calleeFilePath
-          ? `Function:${call.calleeFilePath}:${call.calleeName}`
-          : `Function:external:${call.calleeName}`,
-        line: call.line,
-      }));
-    }
-  }
-
-  // Build render edges (only if deep analysis enabled and we have rootNode)
-  let rendersEdges: ParsedFileEntities['rendersEdges'] = [];
-  if (deepAnalysis && rootNode) {
-    const renders = extractRenders(
-      rootNode,
-      file.path,
-      extracted.components,
-      extracted.imports,
-      includeExternals
-    );
-    rendersEdges = renders.map((render) => ({
-      parentId: `Component:${render.parentFilePath}:${render.parentName}`,
-      childId: render.childFilePath
-        ? `Component:${render.childFilePath}:${render.childName}`
-        : `Component:external:${render.childName}`,
-      line: render.line,
-    }));
-  }
-
-  return {
-    file,
-    functions: extracted.functions,
-    classes: extracted.classes,
-    interfaces: extracted.interfaces,
-    variables: extracted.variables,
-    types: extracted.types,
-    components: extracted.components,
-    imports: extracted.imports,
-    callEdges,
-    importsEdges,
-    extendsEdges,
-    implementsEdges,
-    rendersEdges,
-  };
-}
-
-/**
- * Count total entities in extracted result
- */
-function countEntities(extracted: ExtractedEntities): number {
-  return (
-    extracted.imports.length +
-    extracted.functions.length +
-    extracted.classes.length +
-    extracted.variables.length +
-    extracted.types.length +
-    extracted.interfaces.length +
-    extracted.components.length
-  );
-}
-
-/**
- * Count total edges in parsed file entities
- */
-function countEdges(parsed: ParsedFileEntities): number {
-  return (
-    parsed.callEdges.length +
-    parsed.importsEdges.length +
-    parsed.extendsEdges.length +
-    parsed.implementsEdges.length +
-    parsed.rendersEdges.length
-  );
 }
 
 export const parseProject = traced('parseProject', async function parseProject(

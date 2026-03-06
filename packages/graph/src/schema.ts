@@ -308,27 +308,10 @@ export function generateEdgeId(label: EdgeLabel, fromId: string, toId: string): 
 }
 
 // ============================================================================
-// Parsed File Result Type (for batch operations)
+// Parsed File Result Type (canonical definition in @codegraph/types)
 // ============================================================================
 
-/**
- * Result of parsing a single file - all entities and edges
- */
-export interface ParsedFileEntities {
-  file: FileEntity;
-  functions: FunctionEntity[];
-  classes: ClassEntity[];
-  interfaces: InterfaceEntity[];
-  variables: VariableEntity[];
-  types: TypeEntity[];
-  components: ComponentEntity[];
-  imports: ImportEntity[];
-  callEdges: Array<{ callerId: string; calleeId: string; line: number }>;
-  importsEdges: Array<{ fromFilePath: string; toFilePath: string; specifiers?: string[] }>;
-  extendsEdges: Array<{ childId: string; parentId: string }>;
-  implementsEdges: Array<{ classId: string; interfaceId: string }>;
-  rendersEdges: Array<{ parentId: string; childId: string; line: number }>;
-}
+export type { ParsedFileEntities } from '@codegraph/types';
 
 // ============================================================================
 // Type Re-exports

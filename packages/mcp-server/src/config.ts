@@ -24,6 +24,8 @@ export interface MCPContextConfig {
   lastUpdated: string;
   /** Has user completed initial setup? */
   setupComplete: boolean;
+  /** When a tool was last invoked (for staleness detection) */
+  lastUsed?: string;
 }
 
 export interface ProjectInfo {
@@ -105,6 +107,39 @@ export async function setActiveProjects(projects: string[]): Promise<void> {
     setupComplete: true,
   };
   await saveConfig(config);
+}
+
+/**
+ * Update lastUsed timestamp
+ */
+export async function updateLastUsed(): Promise<void> {
+  const config = await loadConfig();
+  if (config) {
+    config.lastUsed = new Date().toISOString();
+    await saveConfig(config);
+  }
+}
+
+/**
+ * Get lastUsed timestamp
+ */
+export async function getLastUsed(): Promise<string | null> {
+  const config = await loadConfig();
+  return config?.lastUsed ?? null;
+}
+
+/** Default staleness threshold: 24 hours in milliseconds */
+export const STALENESS_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Check if the MCP context is stale (hasn't been used recently).
+ * Returns true if lastUsed is older than the threshold.
+ */
+export async function isStale(thresholdMs: number = STALENESS_THRESHOLD_MS): Promise<boolean> {
+  const lastUsed = await getLastUsed();
+  if (!lastUsed) return true; // Never used = stale
+  const elapsed = Date.now() - new Date(lastUsed).getTime();
+  return elapsed > thresholdMs;
 }
 
 /**

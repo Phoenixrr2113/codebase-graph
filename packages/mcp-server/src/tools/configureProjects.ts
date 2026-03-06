@@ -14,6 +14,7 @@ import {
   needsSetup,
   type ProjectInfo,
 } from '../config';
+import { indexProject, isProjectIndexed, type IndexResult } from '../indexer';
 
 const logger = createLogger({ namespace: 'MCP:ConfigureProjects' });
 
@@ -45,6 +46,8 @@ export interface ConfigureProjectsOutput {
   message: string;
   /** Whether setup is required before other tools work */
   setupRequired?: boolean;
+  /** Indexing results for newly indexed projects (set/add actions) */
+  indexingResults?: IndexResult[];
 }
 
 // ============================================================================
@@ -135,12 +138,32 @@ function resolveProjectPaths(inputs: string[], available: ProjectInfo[]): string
   });
 }
 
+/**
+ * Auto-index any project paths that are not yet in the graph.
+ * Returns indexing results for newly indexed projects.
+ */
+async function autoIndexNewProjects(paths: string[]): Promise<IndexResult[]> {
+  const results: IndexResult[] = [];
+  for (const rootPath of paths) {
+    // Only index if it looks like an absolute path and isn't already indexed
+    if (rootPath.startsWith('/')) {
+      const indexed = await isProjectIndexed(rootPath);
+      if (!indexed) {
+        logger.info(`Auto-indexing new project: ${rootPath}`);
+        const result = await indexProject(rootPath);
+        results.push(result);
+      }
+    }
+  }
+  return results;
+}
+
 export async function configureProjects(
   input: ConfigureProjectsInput
 ): Promise<ConfigureProjectsOutput> {
   logger.debug('ConfigureProjects called', { action: input.action });
 
-  const available = await getAvailableProjects();
+  let available = await getAvailableProjects();
   const config = await loadConfig();
   const isSetupNeeded = await needsSetup();
 
@@ -155,7 +178,7 @@ export async function configureProjects(
         message: `Found ${available.length} indexed project(s).`,
       };
 
-    case 'set':
+    case 'set': {
       if (!input.projects || input.projects.length === 0) {
         return {
           setupComplete: !isSetupNeeded,
@@ -165,15 +188,32 @@ export async function configureProjects(
         };
       }
       const resolvedSet = resolveProjectPaths(input.projects, available);
+
+      // Auto-index any new projects
+      const indexResults = await autoIndexNewProjects(resolvedSet);
+      if (indexResults.length > 0) {
+        // Refresh available projects after indexing
+        available = await getAvailableProjects();
+      }
+
       await setActiveProjects(resolvedSet);
-      return {
+
+      const indexSummary = indexResults.length > 0
+        ? `\nAuto-indexed ${indexResults.length} new project(s): ${indexResults.map(r => `${r.projectName} (${r.stats.files} files, ${r.stats.entities} entities)`).join(', ')}`
+        : '';
+      const setResult: ConfigureProjectsOutput = {
         setupComplete: true,
         availableProjects: available,
         activeProjects: resolvedSet,
-        message: `Active projects set to: ${resolvedSet.map(p => p.split('/').pop()).join(', ')}`,
+        message: `Active projects set to: ${resolvedSet.map(p => p.split('/').pop()).join(', ')}${indexSummary}`,
       };
+      if (indexResults.length > 0) {
+        setResult.indexingResults = indexResults;
+      }
+      return setResult;
+    }
 
-    case 'add':
+    case 'add': {
       if (!input.projects || input.projects.length === 0) {
         return {
           setupComplete: !isSetupNeeded,
@@ -183,14 +223,30 @@ export async function configureProjects(
         };
       }
       const resolvedAdd = resolveProjectPaths(input.projects, available);
+
+      // Auto-index any new projects
+      const indexResults = await autoIndexNewProjects(resolvedAdd);
+      if (indexResults.length > 0) {
+        available = await getAvailableProjects();
+      }
+
       const newActive = [...new Set([...currentActive, ...resolvedAdd])];
       await setActiveProjects(newActive);
-      return {
+
+      const indexSummary = indexResults.length > 0
+        ? `\nAuto-indexed ${indexResults.length} new project(s): ${indexResults.map(r => `${r.projectName} (${r.stats.files} files, ${r.stats.entities} entities)`).join(', ')}`
+        : '';
+      const addResult: ConfigureProjectsOutput = {
         setupComplete: true,
         availableProjects: available,
         activeProjects: newActive,
-        message: `Added: ${resolvedAdd.map(p => p.split('/').pop()).join(', ')}. Active: ${newActive.map(p => p.split('/').pop()).join(', ')}`,
+        message: `Added: ${resolvedAdd.map(p => p.split('/').pop()).join(', ')}. Active: ${newActive.map(p => p.split('/').pop()).join(', ')}${indexSummary}`,
       };
+      if (indexResults.length > 0) {
+        addResult.indexingResults = indexResults;
+      }
+      return addResult;
+    }
 
     case 'remove':
       if (!input.projects || input.projects.length === 0) {

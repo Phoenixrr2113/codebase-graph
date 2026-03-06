@@ -1,11 +1,22 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
 import { createClient, createOperations } from '@codegraph/graph';
-import { initParser, parseFile, extractAllEntities, disposeParser } from '@codegraph/parser';
+import {
+  initParser,
+  parseFile,
+  disposeParser,
+  createFileEntity,
+  extractEntitiesForFile,
+  buildParsedFileEntities,
+  countEntities,
+  countEdges,
+  SUPPORTED_EXTENSIONS,
+  DEFAULT_IGNORE_PATTERNS,
+} from '@codegraph/parser';
+import type { ProjectEntity } from '@codegraph/types';
 import { glob } from 'glob';
-import { resolve } from 'path';
-import { statSync } from 'fs';
-import { createHash } from 'crypto';
+import { resolve, basename } from 'path';
+import { randomUUID } from 'crypto';
 
 const logger = createLogger({ namespace: 'cli:extract' });
 
@@ -15,21 +26,27 @@ export const extractCommand = new Command('extract')
   .option('-g, --graph <name>', 'Graph name', 'codegraph')
   .option('-h, --host <host>', 'FalkorDB host', 'localhost')
   .option('-p, --port <port>', 'FalkorDB port', '6379')
-  .option('--include <patterns>', 'Include glob patterns (comma-separated)', '**/*.ts,**/*.tsx,**/*.js,**/*.jsx')
-  .option('--exclude <patterns>', 'Exclude glob patterns (comma-separated)', '**/node_modules/**,**/dist/**,**/.git/**')
+  .option('--include <patterns>', 'Include glob patterns (comma-separated)')
+  .option('--exclude <patterns>', 'Exclude glob patterns (comma-separated)')
+  .option('--deep', 'Enable deep analysis (call/render edges, complexity)')
   .option('--dry-run', 'Parse without writing to database')
   .action(async (targetPath, options) => {
     const startTime = Date.now();
     const absPath = resolve(targetPath);
-    
+
     logger.info(`Extracting from: ${absPath}`);
     logger.info(`Graph: ${options.graph} @ ${options.host}:${options.port}`);
 
     try {
       await initParser();
 
-      const includePatterns = options.include.split(',') as string[];
-      const excludePatterns = options.exclude.split(',') as string[];
+      // Use parser's supported extensions if user didn't specify custom patterns
+      const includePatterns = options.include
+        ? (options.include as string).split(',')
+        : SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
+      const excludePatterns = options.exclude
+        ? (options.exclude as string).split(',')
+        : [...DEFAULT_IGNORE_PATTERNS];
 
       const files: string[] = [];
       for (const pattern of includePatterns) {
@@ -49,37 +66,53 @@ export const extractCommand = new Command('extract')
       }
 
       console.log(`Parsing ${files.length} files...`);
-      
-      let totalEntities = 0;
-      const parsedFiles: Array<{
-        path: string;
-        entities: ReturnType<typeof extractAllEntities>;
+
+      // Parse and extract all files
+      const parsed: Array<{
+        filePath: string;
+        result: Awaited<ReturnType<typeof buildParsedFileEntities>>;
+        entityCount: number;
+        edgeCount: number;
       }> = [];
+
+      let totalEntities = 0;
+      let totalEdges = 0;
+      let parseErrors = 0;
 
       for (const file of files) {
         try {
-          const result = await parseFile(file);
-          
-          if (result.tree) {
-            const entities = extractAllEntities(result.tree.rootNode, file);
-            totalEntities += 
-              entities.functions.length +
-              entities.classes.length +
-              entities.interfaces.length +
-              entities.variables.length +
-              entities.types.length +
-              entities.components.length +
-              entities.imports.length;
-            
-            parsedFiles.push({ path: file, entities });
-          }
+          const syntaxTree = await parseFile(file);
+          const extracted = extractEntitiesForFile(syntaxTree.rootNode, file);
+          const fileEntity = await createFileEntity(file);
+
+          const pipelineOptions = {
+            deepAnalysis: !!options.deep,
+            includeExternals: false,
+          };
+
+          const parsedFile = buildParsedFileEntities(
+            fileEntity,
+            extracted,
+            syntaxTree.rootNode,
+            pipelineOptions,
+            absPath, // project root for Python import resolution
+          );
+
+          const entityCount = 1 + countEntities(extracted); // +1 for file
+          const edgeCount = countEdges(parsedFile) + countEntities(extracted); // CONTAINS edges
+
+          totalEntities += entityCount;
+          totalEdges += edgeCount;
+
+          parsed.push({ filePath: file, result: parsedFile, entityCount, edgeCount });
         } catch (err) {
+          parseErrors++;
           logger.warn(`Failed to parse ${file}: ${err}`);
         }
       }
 
-      console.log(`\nParsed ${parsedFiles.length} files`);
-      console.log(`Extracted ${totalEntities} entities`);
+      console.log(`\nParsed ${parsed.length} files (${parseErrors} errors)`);
+      console.log(`Extracted ${totalEntities} entities, ${totalEdges} edges`);
 
       if (options.dryRun) {
         console.log('\n[Dry run] Skipping database write');
@@ -92,43 +125,38 @@ export const extractCommand = new Command('extract')
 
         await client.ensureIndexes();
         const ops = createOperations(client);
-        
+
+        // Create Project node
+        const now = new Date().toISOString();
+        const existingProject = await ops.getProjectByRoot(absPath);
+        const project: ProjectEntity = existingProject ?? {
+          id: randomUUID(),
+          name: basename(absPath),
+          rootPath: absPath,
+          createdAt: now,
+          lastParsed: now,
+          fileCount: parsed.length,
+        };
+        project.lastParsed = now;
+        project.fileCount = parsed.length;
+        await ops.upsertProject(project);
+
+        // Batch upsert all parsed files + link to project
         let nodesCreated = 0;
-
-        for (const { path: filePath, entities } of parsedFiles) {
-          // Store absolute paths so MCP search path filters work correctly
-          const storedPath = filePath; // already absolute from glob
-          const fileName = storedPath.split('/').pop() ?? storedPath;
-          const stat = statSync(filePath);
-          const content = await import('fs').then(fs => fs.readFileSync(filePath, 'utf-8'));
-          const hash = createHash('md5').update(content).digest('hex');
-          const loc = content.split('\n').length;
-
-          await ops.upsertFile({
-            path: storedPath,
-            name: fileName,
-            extension: fileName.split('.').pop() ?? '',
-            loc,
-            lastModified: stat.mtime.toISOString(),
-            hash,
-          });
-          nodesCreated++;
-
-          for (const fn of entities.functions) {
-            await ops.upsertFunction({ ...fn, filePath: storedPath });
-            nodesCreated++;
-          }
-          for (const cls of entities.classes) {
-            await ops.upsertClass({ ...cls, filePath: storedPath });
-            nodesCreated++;
-          }
-          for (const iface of entities.interfaces) {
-            await ops.upsertInterface({ ...iface, filePath: storedPath });
-            nodesCreated++;
-          }
+        for (const { filePath, result } of parsed) {
+          await ops.batchUpsert(result);
+          await ops.linkProjectFile(project.id, filePath);
+          nodesCreated += result.functions.length +
+            result.classes.length +
+            result.interfaces.length +
+            result.variables.length +
+            result.types.length +
+            result.components.length +
+            result.imports.length + 1; // +1 for file
         }
 
-        console.log(`\nStored in graph "${options.graph}": ${nodesCreated} nodes`);
+        console.log(`\nStored in graph "${options.graph}": ${nodesCreated} nodes, ${totalEdges} edges`);
+        console.log(`Project: ${project.name} (${project.id})`);
 
         await client.close();
       }

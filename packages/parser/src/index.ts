@@ -163,3 +163,25 @@ export type {
   RefactoringAnalysisInput,
   RefactoringAnalysisOptions,
 } from './analysis';
+
+// Extraction pipeline
+export {
+  createFileEntity,
+  extractEntitiesForFile,
+  enrichFunctionsWithComplexity,
+  buildParsedFileEntities,
+  countEntities,
+  countEdges,
+  getLanguageCategory,
+  isPythonFile,
+  isCSharpFile,
+  SUPPORTED_EXTENSIONS,
+  DEFAULT_IGNORE_PATTERNS,
+  PYTHON_EXTENSIONS,
+  CSHARP_EXTENSIONS,
+} from './pipeline';
+
+export type { PipelineOptions } from './pipeline';
+
+// Re-export ParsedFileEntities from @codegraph/types
+export type { ParsedFileEntities } from '@codegraph/types';
