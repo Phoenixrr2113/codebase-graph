@@ -5,7 +5,7 @@
 
 import type { DatabaseDriver, DriverConfig, CypherDialect } from '../driver';
 import type { QueryParams } from '../client';
-import { ALL_DDL } from './kuzu-schema';
+import { ALL_DDL, VECTOR_INDEX_STMTS } from './kuzu-schema';
 
 // ============================================================================
 // Kuzu Dialect
@@ -131,6 +131,8 @@ export class KuzuDriver implements DatabaseDriver {
 
   async ensureSchema(): Promise<void> {
     if (!this.conn) throw new Error('KuzuDriver: not connected');
+
+    // 1. Create all node + relationship tables
     for (const ddl of ALL_DDL) {
       try {
         await this.conn.query(ddl);
@@ -138,6 +140,23 @@ export class KuzuDriver implements DatabaseDriver {
         const msg = error instanceof Error ? error.message : '';
         // Skip "already exists" errors
         if (!msg.includes('already exists')) throw error;
+      }
+    }
+
+    // 2. Create vector indexes for knowledge graph (HNSW)
+    // These must run after tables exist. Index creation may error
+    // if the index already exists, so we swallow those errors.
+    for (const stmt of VECTOR_INDEX_STMTS) {
+      try {
+        await this.conn.query(stmt);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : '';
+        // Skip "already exists" or "index already exists" errors
+        if (!msg.includes('already exists') && !msg.includes('already created')) {
+          // Log but don't throw — vector indexes are non-critical for schema creation
+          // They're needed for semantic search but the tables still work without them
+          console.warn(`KuzuDriver: vector index warning: ${msg}`);
+        }
       }
     }
   }

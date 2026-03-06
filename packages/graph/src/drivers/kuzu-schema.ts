@@ -129,7 +129,29 @@ export const NODE_TABLES = [
 ];
 
 // ============================================================================
-// Relationship Tables
+// Knowledge Graph Node Tables (NLC Merger)
+// ============================================================================
+
+export const KNOWLEDGE_NODE_TABLES = [
+  // Entity — knowledge graph node (NLC's 28 entity types stored as `type` property)
+  // Follows Graphiti pattern: generic node table, type as property
+  `CREATE NODE TABLE IF NOT EXISTS Entity (
+    id STRING PRIMARY KEY,
+    text STRING,
+    type STRING,
+    confidence DOUBLE,
+    embedding FLOAT[1536],
+    createdAt INT64,
+    lastAccessedAt INT64,
+    accessCount INT64,
+    relevanceScore DOUBLE,
+    sampleIds STRING[],
+    properties STRING
+  )`,
+];
+
+// ============================================================================
+// Code Graph Relationship Tables
 // ============================================================================
 
 export const REL_TABLES = [
@@ -180,7 +202,50 @@ export const REL_TABLES = [
 ];
 
 // ============================================================================
+// Knowledge Graph Relationship Tables (NLC Merger)
+// ============================================================================
+
+export const KNOWLEDGE_REL_TABLES = [
+  // RELATES_TO — single edge table for all knowledge relationships (Graphiti pattern)
+  // NLC's 52 relationship types stored as `type` property, not separate tables
+  // Bi-temporal model: valid_at/invalid_at (event time) + created_at/expired_at (system time)
+  `CREATE REL TABLE IF NOT EXISTS RELATES_TO (
+    FROM Entity TO Entity,
+    type STRING,
+    confidence DOUBLE,
+    fact STRING,
+    fact_embedding FLOAT[1536],
+    valid_at INT64,
+    invalid_at INT64,
+    created_at INT64,
+    expired_at INT64,
+    sampleIds STRING[],
+    properties STRING
+  )`,
+];
+
+// ============================================================================
+// Vector Index Statements (Kuzu 0.11.3 native HNSW extension)
+// ============================================================================
+// NOTE: These must run AFTER the tables are created. Kuzu's HNSW index
+// uses the pre-installed vector extension. Index creation is idempotent-ish —
+// calling CREATE_VECTOR_INDEX on an existing index may error, so we wrap
+// these in try/catch at the driver level.
+
+export const VECTOR_INDEX_STMTS = [
+  // Syntax: CREATE_VECTOR_INDEX(tableName, indexName, columnName)
+  // Note: Only NODE tables support vector indexes in Kuzu 0.11.x
+  // RELATES_TO is a REL table — vector search on edges is deferred
+  `CALL CREATE_VECTOR_INDEX('Entity', 'entity_embedding_idx', 'embedding')`,
+];
+
+// ============================================================================
 // All DDL in order
 // ============================================================================
 
-export const ALL_DDL = [...NODE_TABLES, ...REL_TABLES];
+export const ALL_DDL = [
+  ...NODE_TABLES,
+  ...KNOWLEDGE_NODE_TABLES,
+  ...REL_TABLES,
+  ...KNOWLEDGE_REL_TABLES,
+];

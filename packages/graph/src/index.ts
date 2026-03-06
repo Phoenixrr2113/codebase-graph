@@ -25,11 +25,33 @@ export {
 export { FalkorDBDriver, falkorDialect } from './drivers/falkordb';
 export { KuzuDriver, kuzuDialect } from './drivers/kuzu';
 
+// Schema DDL exports
+export {
+  NODE_TABLES,
+  KNOWLEDGE_NODE_TABLES,
+  REL_TABLES,
+  KNOWLEDGE_REL_TABLES,
+  VECTOR_INDEX_STMTS,
+  ALL_DDL,
+} from './drivers/kuzu-schema';
+
 // Operations exports
 export { createOperations, type GraphOperations } from './operations';
 
 // Query exports
 export { createQueries, type GraphQueries } from './queries';
+
+// Knowledge graph exports (NLC merger)
+export {
+  createKnowledgeOperations,
+  type KnowledgeOperations,
+  type KnowledgeEntity,
+  type KnowledgeRelationship,
+  type DecayConfig,
+  type MemoryStats,
+  type EntitySearchResult,
+  type RelationshipResult,
+} from './knowledge-operations';
 
 // File tree exports
 export { buildFileTree, getIndexSummary, type FileTreeOptions } from './fileTree';
