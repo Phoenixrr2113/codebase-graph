@@ -162,14 +162,16 @@ describe('analyze_impact', () => {
 // ─── get_repo_map ────────────────────────────────────────────────────────────
 
 describe('get_repo_map', () => {
-  it('returns expected stub error (requires API integration)', async () => {
+  it('returns a repo map with symbols and files', async () => {
     const result = (await handleToolCall('get_repo_map', {
       maxTokens: 1024,
     })) as Record<string, unknown>;
 
-    // This tool intentionally returns an error since it needs LLM API
-    const errStr = String(result.error ?? '');
-    expect(errStr).toContain('requires API integration');
+    expect(result.error).toBeUndefined();
+    expect(typeof result.map).toBe('string');
+    expect(result.filesIncluded).toBeGreaterThan(0);
+    expect(result.symbolsIncluded).toBeGreaterThan(0);
+    expect((result.map as string)).toContain('# Repository Map');
   });
 });
 
