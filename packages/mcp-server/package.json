@@ -21,6 +21,7 @@
   "dependencies": {
     "@codegraph/graph": "workspace:*",
     "@codegraph/logger": "workspace:*",
+    "@codegraph/nlp": "workspace:*",
     "@codegraph/parser": "workspace:*",
     "@codegraph/types": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.0.0",

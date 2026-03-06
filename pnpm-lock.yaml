@@ -345,6 +345,9 @@ importers:
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger
+      '@codegraph/nlp':
+        specifier: workspace:*
+        version: link:../nlp
       '@codegraph/parser':
         specifier: workspace:*
         version: link:../parser

@@ -58,6 +58,9 @@ import { traceDataFlowToolDefinition, traceDataFlow, type TraceDataFlowInput } f
 import { symbolHistoryToolDefinition, getSymbolHistory, type SymbolHistoryInput } from './symbolHistory';
 import { repoMapToolDefinition, getRepoMap, type RepoMapInput } from './repoMap';
 
+// Knowledge graph tools
+import { knowledgeToolDefinitions, knowledgeHandlers } from './knowledge';
+
 // Infrastructure
 import { getShortSchema } from '../schema';
 import { buildFileTree, getIndexSummary } from '@codegraph/graph';
@@ -224,6 +227,9 @@ ${fileTree}
     findVulnerabilitiesToolDefinition,
     traceDataFlowToolDefinition,
     symbolHistoryToolDefinition,
+
+    // ---- Knowledge graph tools ----
+    ...knowledgeToolDefinitions,
   ];
 }
 
@@ -264,6 +270,9 @@ export const staticTools: ToolDefinition[] = [
   findVulnerabilitiesToolDefinition,
   traceDataFlowToolDefinition,
   symbolHistoryToolDefinition,
+
+  // Knowledge graph
+  ...knowledgeToolDefinitions,
 ];
 
 // ============================================================================
@@ -542,6 +551,9 @@ const handlers: Record<string, ToolHandler> = {
     };
     return getSymbolHistory(input);
   },
+
+  // ==== Knowledge graph tools ====
+  ...knowledgeHandlers,
 };
 
 // ============================================================================
