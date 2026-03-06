@@ -12,6 +12,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { createLogger } from '@codegraph/logger';
 import { getTools, handleToolCall, staticTools } from './tools/consolidated';
+import { initialSync } from './configSync';
 
 const logger = createLogger({ namespace: 'MCP:Server' });
 
@@ -105,8 +106,13 @@ export class CodeGraphMCPServer {
 
     logger.info('CodeGraph MCP Server started', {
       name: 'codegraph-mcp-server',
-      version: '0.1.0',
+      version: '0.2.0',
       transport: 'stdio',
+    });
+
+    // Sync config → graph on startup (index new projects, delete removed ones)
+    initialSync().catch(err => {
+      logger.warn('Initial config sync failed (non-fatal)', { error: err });
     });
   }
 

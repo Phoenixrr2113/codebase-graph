@@ -7,7 +7,7 @@
 
 import { homedir } from 'os';
 import { join } from 'path';
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { readFile, writeFile, mkdir, rename } from 'fs/promises';
 import { existsSync } from 'fs';
 import { createLogger } from '@codegraph/logger';
 
@@ -26,6 +26,8 @@ export interface MCPContextConfig {
   setupComplete: boolean;
   /** When a tool was last invoked (for staleness detection) */
   lastUsed?: string;
+  /** Projects previously synced into the graph by MCP (survives restarts) */
+  managedProjects?: string[];
 }
 
 export interface ProjectInfo {
@@ -70,7 +72,10 @@ export async function saveConfig(config: MCPContextConfig): Promise<void> {
     if (!existsSync(CONFIG_DIR)) {
       await mkdir(CONFIG_DIR, { recursive: true });
     }
-    await writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+    // Atomic write: write to temp file, then rename
+    const tmpFile = CONFIG_FILE + '.tmp';
+    await writeFile(tmpFile, JSON.stringify(config, null, 2));
+    await rename(tmpFile, CONFIG_FILE);
     logger.info('Config saved', { projects: config.activeProjects });
   } catch (error) {
     logger.error('Failed to save config', { error });

@@ -1,7 +1,10 @@
 /**
  * MCP Tool: configure_projects
- * 
- * List available projects and configure which are active in context.
+ *
+ * View and manage which codebases are active in context.
+ * The user can also edit ~/.codegraph/mcp-context.json directly —
+ * the MCP server watches for config changes and auto-syncs
+ * (indexing new projects, deleting removed ones).
  */
 
 import { z } from 'zod';
@@ -14,7 +17,7 @@ import {
   needsSetup,
   type ProjectInfo,
 } from '../config';
-import { indexProject, isProjectIndexed, type IndexResult } from '../indexer';
+import { syncConfigToGraph } from '../configSync';
 
 const logger = createLogger({ namespace: 'MCP:ConfigureProjects' });
 
@@ -46,8 +49,6 @@ export interface ConfigureProjectsOutput {
   message: string;
   /** Whether setup is required before other tools work */
   setupRequired?: boolean;
-  /** Indexing results for newly indexed projects (set/add actions) */
-  indexingResults?: IndexResult[];
 }
 
 // ============================================================================
@@ -66,19 +67,23 @@ interface ToolDefinition {
 
 export const configureProjectsToolDefinition: ToolDefinition = {
   name: 'configure_projects',
-  description: `Manage which codebases are active in your context.
+  description: `View and manage which codebases are in context.
+
+Projects are auto-indexed when added and auto-deleted when removed.
+The user can also edit ~/.codegraph/mcp-context.json directly.
 
 Actions:
 - \`status\` (default): Show current config and available projects
-- \`list\`: List all indexed projects  
+- \`list\`: List all indexed projects
 - \`set\`: Replace active projects with specified list
 - \`add\`: Add projects to active list
-- \`remove\`: Remove projects from active list
+- \`remove\`: Remove projects (also deletes their graph data)
 
 Examples:
 - { "action": "status" } - show current setup
-- { "action": "set", "projects": ["codebase-graph"] } - set active projects
-- { "action": "add", "projects": ["my-project"] } - add to active`,
+- { "action": "set", "projects": ["/path/to/project"] } - set active projects
+- { "action": "add", "projects": ["/path/to/project"] } - add to active
+- { "action": "remove", "projects": ["/path/to/project"] } - remove and delete`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -98,7 +103,7 @@ Examples:
 };
 
 // ============================================================================
-// Handler
+// Helpers
 // ============================================================================
 
 async function getAvailableProjects(): Promise<ProjectInfo[]> {
@@ -124,11 +129,9 @@ async function getAvailableProjects(): Promise<ProjectInfo[]> {
  */
 function resolveProjectPaths(inputs: string[], available: ProjectInfo[]): string[] {
   return inputs.map(input => {
-    // If it looks like a full path, use as-is
     if (input.startsWith('/')) {
       return input;
     }
-    // Otherwise find matching project by name
     const match = available.find(p =>
       p.name === input ||
       p.name.toLowerCase() === input.toLowerCase() ||
@@ -138,36 +141,19 @@ function resolveProjectPaths(inputs: string[], available: ProjectInfo[]): string
   });
 }
 
-/**
- * Auto-index any project paths that are not yet in the graph.
- * Returns indexing results for newly indexed projects.
- */
-async function autoIndexNewProjects(paths: string[]): Promise<IndexResult[]> {
-  const results: IndexResult[] = [];
-  for (const rootPath of paths) {
-    // Only index if it looks like an absolute path and isn't already indexed
-    if (rootPath.startsWith('/')) {
-      const indexed = await isProjectIndexed(rootPath);
-      if (!indexed) {
-        logger.info(`Auto-indexing new project: ${rootPath}`);
-        const result = await indexProject(rootPath);
-        results.push(result);
-      }
-    }
-  }
-  return results;
-}
+// ============================================================================
+// Handler
+// ============================================================================
 
 export async function configureProjects(
   input: ConfigureProjectsInput
 ): Promise<ConfigureProjectsOutput> {
   logger.debug('ConfigureProjects called', { action: input.action });
 
-  let available = await getAvailableProjects();
   const config = await loadConfig();
   const isSetupNeeded = await needsSetup();
-
   const currentActive = config?.activeProjects ?? [];
+  let available = await getAvailableProjects();
 
   switch (input.action) {
     case 'list':
@@ -187,30 +173,24 @@ export async function configureProjects(
           message: 'Please specify projects to set as active.',
         };
       }
-      const resolvedSet = resolveProjectPaths(input.projects, available);
+      const resolved = resolveProjectPaths(input.projects, available);
+      await setActiveProjects(resolved);
 
-      // Auto-index any new projects
-      const indexResults = await autoIndexNewProjects(resolvedSet);
-      if (indexResults.length > 0) {
-        // Refresh available projects after indexing
-        available = await getAvailableProjects();
-      }
+      // Sync: indexes new projects, deletes removed ones
+      const syncResult = await syncConfigToGraph();
+      available = await getAvailableProjects();
 
-      await setActiveProjects(resolvedSet);
+      const parts: string[] = [`Active projects set to: ${resolved.map(p => p.split('/').pop()).join(', ')}`];
+      if (syncResult.indexed.length > 0) parts.push(`Indexed: ${syncResult.indexed.map(p => p.split('/').pop()).join(', ')}`);
+      if (syncResult.deleted.length > 0) parts.push(`Deleted: ${syncResult.deleted.map(p => p.split('/').pop()).join(', ')}`);
+      if (syncResult.errors.length > 0) parts.push(`Errors: ${syncResult.errors.length}`);
 
-      const indexSummary = indexResults.length > 0
-        ? `\nAuto-indexed ${indexResults.length} new project(s): ${indexResults.map(r => `${r.projectName} (${r.stats.files} files, ${r.stats.entities} entities)`).join(', ')}`
-        : '';
-      const setResult: ConfigureProjectsOutput = {
+      return {
         setupComplete: true,
         availableProjects: available,
-        activeProjects: resolvedSet,
-        message: `Active projects set to: ${resolvedSet.map(p => p.split('/').pop()).join(', ')}${indexSummary}`,
+        activeProjects: resolved,
+        message: parts.join('. '),
       };
-      if (indexResults.length > 0) {
-        setResult.indexingResults = indexResults;
-      }
-      return setResult;
     }
 
     case 'add': {
@@ -222,33 +202,25 @@ export async function configureProjects(
           message: 'Please specify projects to add.',
         };
       }
-      const resolvedAdd = resolveProjectPaths(input.projects, available);
-
-      // Auto-index any new projects
-      const indexResults = await autoIndexNewProjects(resolvedAdd);
-      if (indexResults.length > 0) {
-        available = await getAvailableProjects();
-      }
-
-      const newActive = [...new Set([...currentActive, ...resolvedAdd])];
+      const resolved = resolveProjectPaths(input.projects, available);
+      const newActive = [...new Set([...currentActive, ...resolved])];
       await setActiveProjects(newActive);
 
-      const indexSummary = indexResults.length > 0
-        ? `\nAuto-indexed ${indexResults.length} new project(s): ${indexResults.map(r => `${r.projectName} (${r.stats.files} files, ${r.stats.entities} entities)`).join(', ')}`
-        : '';
-      const addResult: ConfigureProjectsOutput = {
+      const syncResult = await syncConfigToGraph();
+      available = await getAvailableProjects();
+
+      const parts: string[] = [`Added: ${resolved.map(p => p.split('/').pop()).join(', ')}`];
+      if (syncResult.indexed.length > 0) parts.push(`Indexed: ${syncResult.indexed.map(p => p.split('/').pop()).join(', ')}`);
+
+      return {
         setupComplete: true,
         availableProjects: available,
         activeProjects: newActive,
-        message: `Added: ${resolvedAdd.map(p => p.split('/').pop()).join(', ')}. Active: ${newActive.map(p => p.split('/').pop()).join(', ')}${indexSummary}`,
+        message: parts.join('. '),
       };
-      if (indexResults.length > 0) {
-        addResult.indexingResults = indexResults;
-      }
-      return addResult;
     }
 
-    case 'remove':
+    case 'remove': {
       if (!input.projects || input.projects.length === 0) {
         return {
           setupComplete: !isSetupNeeded,
@@ -257,14 +229,25 @@ export async function configureProjects(
           message: 'Please specify projects to remove.',
         };
       }
-      const remaining = currentActive.filter(p => !input.projects!.includes(p));
+      const resolved = resolveProjectPaths(input.projects, available);
+      const resolvedSet = new Set(resolved);
+      const remaining = currentActive.filter(p => !resolvedSet.has(p));
       await setActiveProjects(remaining);
+
+      const syncResult = await syncConfigToGraph();
+      available = await getAvailableProjects();
+
+      const parts: string[] = [`Removed: ${input.projects.join(', ')}`];
+      if (syncResult.deleted.length > 0) parts.push(`Deleted from graph: ${syncResult.deleted.map(p => p.split('/').pop()).join(', ')}`);
+      parts.push(`Active: ${remaining.map(p => p.split('/').pop()).join(', ') || '(none)'}`);
+
       return {
         setupComplete: true,
         availableProjects: available,
         activeProjects: remaining,
-        message: `Removed: ${input.projects.join(', ')}. Active: ${remaining.join(', ') || '(none)'}`,
+        message: parts.join('. '),
       };
+    }
 
     case 'status':
     default:
@@ -274,14 +257,14 @@ export async function configureProjects(
           availableProjects: available,
           activeProjects: [],
           setupRequired: true,
-          message: `🔧 Setup Required\n\nFound ${available.length} indexed project(s):\n${available.map((p, i) => `  [${i + 1}] ${p.name} (${p.fileCount} files)`).join('\n')}\n\nUse configure_projects with action: "set" and projects: ["project-name"] to select which to include in your context.`,
+          message: `Setup Required\n\nFound ${available.length} indexed project(s):\n${available.map((p, i) => `  [${i + 1}] ${p.name} (${p.fileCount} files)`).join('\n')}\n\nAdd project paths to ~/.codegraph/mcp-context.json or use configure_projects with action: "set" and projects: ["/path/to/project"]`,
         };
       }
       return {
         setupComplete: true,
         availableProjects: available,
         activeProjects: currentActive,
-        message: `Active projects: ${currentActive.join(', ') || '(all)'}`,
+        message: `Active projects: ${currentActive.map(p => p.split('/').pop()).join(', ') || '(all)'}`,
       };
   }
 }
