@@ -114,7 +114,7 @@ export type ExtractorConfig = {
   languageModel: LanguageModel | undefined;
 };
 
-const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
+const DEFAULT_MODEL = 'google/gemini-2.5-flash-preview';
 
 export class EntityExtractor {
   private config: { model: string; temperature: number };
@@ -179,6 +179,100 @@ export class EntityExtractor {
       logger.error('extractBatch failed', error);
       throw error;
     }
+  }
+
+  /**
+   * Few-shot extraction — uses labeled examples to guide the LLM.
+   * Ported from NLC's SmartLLM. Provides higher-quality extraction
+   * when you have human-labeled ground truth to learn from.
+   */
+  async extractWithExamples(
+    sample: Sample,
+    examples: AnnotatedSample[]
+  ): Promise<AnnotatedSample> {
+    logger.debug(`extractWithExamples: sample=${sample.id}, ${examples.length} examples`);
+
+    if (examples.length === 0) {
+      // Fall back to zero-shot if no examples
+      return this.extract(sample);
+    }
+
+    const prompt = this.buildFewShotPrompt(sample.text, examples);
+
+    try {
+      const { text } = await generateText({
+        model: this.model,
+        prompt,
+        temperature: this.config.temperature,
+      });
+
+      logger.debug(`LLM response: ${text.slice(0, 500)}`);
+
+      const { entities, relationships } = this.parseResponse(text, sample.text);
+
+      return {
+        ...sample,
+        entities,
+        relationships,
+        annotatedBy: 'auto',
+        annotatedAt: new Date().toISOString(),
+        modelVersion: this.config.model,
+      };
+    } catch (error) {
+      logger.error('extractWithExamples failed', error);
+      throw error;
+    }
+  }
+
+  private buildFewShotPrompt(text: string, examples: AnnotatedSample[]): string {
+    const examplesText = examples
+      .map((ex, i) => {
+        const entities = ex.entities
+          .map((e) => `  - [${e.type}] "${e.text}" (${e.start}-${e.end})`)
+          .join('\n');
+
+        const relationships = ex.relationships
+          .map((r) => {
+            const head = ex.entities.find((e) => e.id === r.headEntityId);
+            const tail = ex.entities.find((e) => e.id === r.tailEntityId);
+            return `  - "${head?.text}" --${r.type}--> "${tail?.text}"`;
+          })
+          .join('\n');
+
+        return `### Example ${i + 1}:\nText: "${ex.text}"\nEntities:\n${entities}\nRelationships:\n${relationships}`;
+      })
+      .join('\n\n');
+
+    return `You are an expert at extracting structured knowledge from natural language text.
+
+## Entity Types
+${ENTITY_TYPES.join(', ')}
+
+## Relationship Types
+${RELATIONSHIP_TYPES.join(', ')}
+
+## Human-Labeled Examples (Ground Truth)
+
+${examplesText}
+
+## Your Task
+
+Label the following text using the same format as the examples above.
+
+### Text to Label:
+"${text}"
+
+### Output (JSON only, no explanation):
+{
+  "entities": [
+    { "text": "<exact text from sample>", "type": "<EntityType>" }
+  ],
+  "relationships": [
+    { "headText": "<entity text>", "tailText": "<entity text>", "type": "<RelationshipType>" }
+  ]
+}
+
+Respond with valid JSON only.`;
   }
 
   private buildPrompt(text: string): string {

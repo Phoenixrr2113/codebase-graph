@@ -1,32 +1,12 @@
 /**
  * @codegraph/nlp
  *
- * Natural language processing for entity/relationship extraction.
- * Supports auto-labeling with LLMs and importing from various sources.
+ * Entity/relationship extraction from natural language text via OpenRouter LLMs.
+ * Supports zero-shot and few-shot extraction, with a bridge to store results
+ * directly in the knowledge graph (Kuzu).
  */
 
-export {
-  loadSamples,
-  saveSamples,
-  loadAnnotations,
-  saveAnnotations,
-  appendSample,
-  appendAnnotation,
-} from './storage';
-
-export {
-  parseClaudeExport,
-  filterHumanMessages,
-  filterByMinLength,
-  createSample,
-  createSamplesFromStrings,
-  createSamplesFromJsonl,
-  createSamplesFromJson,
-  filterByLength,
-  filterByMetadata,
-} from './importers';
-export type { ClaudeExport, ClaudeMessage, MessageInput } from './importers';
-
+// Core extractor
 export {
   EntityExtractor,
   ENTITY_TYPES,
@@ -36,9 +16,11 @@ export {
 } from './extractor';
 export type { ExtractorConfig } from './extractor';
 
-export { autoLabel, autoLabelFromFiles, labelSingle } from './auto-label';
-export type { AutoLabelConfig } from './auto-label';
+// Extract-and-store bridge (extraction → knowledge graph)
+export { extractAndStore, extractAndStoreBatch } from './extract-and-store';
+export type { ExtractAndStoreConfig, ExtractAndStoreResult } from './extract-and-store';
 
+// Re-export types for convenience
 export type {
   Sample,
   AnnotatedSample,
