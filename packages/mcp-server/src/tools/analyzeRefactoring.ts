@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import { getGraphClient } from '../graphClient';
+import { getGraphClient } from '@codegraph/core';
 import {
   analyzeRefactoring,
   getExtractionCandidatesQuery,
@@ -14,6 +14,7 @@ import {
   getRefactoringSummary,
   type RefactoringAnalysisInput,
 } from '@codegraph/parser';
+import type { ToolDefinition } from './consolidated';
 
 // Input schema
 export const AnalyzeRefactoringInputSchema = z.object({
@@ -50,17 +51,6 @@ export interface AnalyzeRefactoringOutput {
   couplingLevel: 'low' | 'medium' | 'high';
   summary: string;
   error?: string | undefined;
-}
-
-// Internal ToolDefinition type
-interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
 }
 
 // Tool definition for MCP

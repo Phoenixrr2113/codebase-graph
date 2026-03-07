@@ -19,11 +19,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@codegraph/core": "workspace:*",
     "@codegraph/graph": "workspace:*",
     "@codegraph/logger": "workspace:*",
     "@codegraph/nlp": "workspace:*",
     "@codegraph/parser": "workspace:*",
-    "@codegraph/types": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "glob": "^10.3.10",
     "zod": "^3.23.8"

@@ -23,14 +23,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@codegraph/core": "workspace:*",
     "@codegraph/graph": "workspace:*",
     "@codegraph/parser": "workspace:*",
     "@codegraph/logger": "workspace:*",
     "@codegraph/types": "workspace:*",
-    "@codegraph/mcp-server": "workspace:*",
     "commander": "^12.1.0",
-    "chalk": "^5.3.0",
-    "ora": "^8.0.1",
     "glob": "^10.3.10"
   },
   "devDependencies": {

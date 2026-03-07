@@ -10,7 +10,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { handleToolCall } from '../tools/consolidated';
 import { teardownGraphClient, assertNoError } from './helpers';
-import { resetKnowledgeOps } from '../knowledgeClient';
+import { resetKnowledgeOps } from '@codegraph/core';
 
 afterAll(async () => {
   resetKnowledgeOps();

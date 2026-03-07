@@ -4,7 +4,8 @@
  */
 
 import simpleGit, { type SimpleGit, type LogResult, type DefaultLogFields } from 'simple-git';
-import { createClient, createOperations, type GraphClient } from '@codegraph/graph';
+import { createOperations, type GraphClient } from '@codegraph/graph';
+import { getClient } from '../model/graphClient';
 import type { CommitEntity } from '@codegraph/types';
 import { createLogger, traced } from '@codegraph/logger';
 
@@ -87,7 +88,7 @@ export const extractGitHistory = traced('extractGitHistory', async function extr
     }
 
     // Get graph operations
-    const client = await createClient();
+    const client = await getClient();
     const ops = createOperations(client);
 
     // Get last synced commit from graph metadata

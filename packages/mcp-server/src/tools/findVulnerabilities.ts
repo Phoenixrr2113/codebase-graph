@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat as fsStat } from 'node:fs/promises';
 import { glob } from 'glob';
 import {
   initParser,
@@ -15,6 +15,7 @@ import {
   sortBySeverity,
   type SecurityFinding,
 } from '@codegraph/parser';
+import type { ToolDefinition } from './consolidated';
 
 // Input schema
 export const FindVulnerabilitiesInputSchema = z.object({
@@ -47,17 +48,6 @@ export interface FindVulnerabilitiesOutput {
   };
   filesScanned: number;
   error?: string | undefined;
-}
-
-// Internal ToolDefinition type
-interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
 }
 
 // Tool definition for MCP
@@ -108,8 +98,8 @@ export async function findVulnerabilities(input: FindVulnerabilitiesInput): Prom
     // Find files to scan
     let files: string[];
     try {
-      const stat = await import('node:fs/promises').then(fs => fs.stat(scope));
-      if (stat.isFile()) {
+      const fileStat = await fsStat(scope);
+      if (fileStat.isFile()) {
         files = [scope];
       } else {
         // Glob for TypeScript/JavaScript files

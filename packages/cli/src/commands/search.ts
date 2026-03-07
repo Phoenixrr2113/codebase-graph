@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
-import { createClient, createQueries } from '@codegraph/graph';
+import { createQueries } from '@codegraph/graph';
+import { connectGraph } from '../graphConnection';
 import type { SearchResult, NodeLabel } from '@codegraph/types';
 
 const logger = createLogger({ namespace: 'cli:search' });
@@ -18,11 +19,7 @@ export const searchCommand = new Command('search')
     logger.info(`Searching: "${query}"`);
 
     try {
-      const client = await createClient({
-        host: options.host,
-        port: parseInt(options.port),
-        graphName: options.graph,
-      });
+      const client = await connectGraph(options);
 
       const queries = createQueries(client);
       const limit = parseInt(options.limit);

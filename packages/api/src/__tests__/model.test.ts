@@ -5,10 +5,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock the graph client
+const mockClient = {
+  roQuery: vi.fn().mockResolvedValue({ data: [], metadata: null }),
+  close: vi.fn().mockResolvedValue(undefined),
+};
+
+vi.mock('@codegraph/core', () => ({
+  getGraphClient: vi.fn().mockResolvedValue(mockClient),
+  closeGraphClient: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@codegraph/graph', () => ({
-  createClient: vi.fn().mockResolvedValue({
-    roQuery: vi.fn().mockResolvedValue({ data: [], metadata: null }),
-  }),
+  createClient: vi.fn().mockResolvedValue(mockClient),
   createOperations: vi.fn().mockReturnValue({
     getProjects: vi.fn().mockResolvedValue([]),
     deleteProject: vi.fn().mockResolvedValue(undefined),

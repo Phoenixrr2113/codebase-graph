@@ -12,7 +12,7 @@
  * - get_knowledge_stats: Memory statistics (counts, relevance, age)
  */
 
-import { getKnowledgeOps } from '../knowledgeClient';
+import { getKnowledgeOps } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
 import type { ToolDefinition } from './consolidated';
 

@@ -7,9 +7,9 @@
 
 import { z } from 'zod';
 import { stat } from 'node:fs/promises';
-import { indexProject, indexSingleFile } from '../indexer';
-import { getActiveProjectPaths } from '../config';
+import { indexProject, indexSingleFile, getActiveProjectPaths } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
+import type { ToolDefinition } from './consolidated';
 
 const logger = createLogger({ namespace: 'MCP:Reindex' });
 
@@ -28,17 +28,6 @@ export interface ReindexOutput {
   symbolsUpdated: number;
   duration: number;
   errors: string[];
-}
-
-// Internal ToolDefinition type to avoid SDK type issues
-interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
 }
 
 // Tool definition for MCP

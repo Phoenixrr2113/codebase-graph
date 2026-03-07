@@ -12,7 +12,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { createLogger } from '@codegraph/logger';
 import { getTools, handleToolCall, staticTools } from './tools/consolidated';
-import { initialSync } from './configSync';
+import { initialSync } from '@codegraph/core';
 
 const logger = createLogger({ namespace: 'MCP:Server' });
 
@@ -32,7 +32,7 @@ export class CodeGraphMCPServer {
     this.server = new Server(
       {
         name: 'codegraph-mcp-server',
-        version: '0.2.0',
+        version: '0.1.0',
       },
       {
         capabilities: {
@@ -106,7 +106,7 @@ export class CodeGraphMCPServer {
 
     logger.info('CodeGraph MCP Server started', {
       name: 'codegraph-mcp-server',
-      version: '0.2.0',
+      version: '0.1.0',
       transport: 'stdio',
     });
 

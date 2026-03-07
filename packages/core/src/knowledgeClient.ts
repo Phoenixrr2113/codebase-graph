@@ -1,5 +1,5 @@
 /**
- * Shared Knowledge Operations for MCP Tools
+ * Shared Knowledge Operations for CodeGraph
  *
  * Singleton pattern — reuses the shared GraphClient to create
  * a KnowledgeOperations instance for knowledge graph tools.

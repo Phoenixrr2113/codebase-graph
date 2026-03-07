@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
-import { createClient, createQueries } from '@codegraph/graph';
+import { createQueries } from '@codegraph/graph';
+import { connectGraph } from '../graphConnection';
 
 const logger = createLogger({ namespace: 'cli:analyze' });
 
@@ -17,11 +18,7 @@ export const analyzeCommand = new Command('analyze')
     logger.info(`Analyzing: ${type} ${target}`);
 
     try {
-      const client = await createClient({
-        host: options.host,
-        port: parseInt(options.port),
-        graphName: options.graph,
-      });
+      const client = await connectGraph(options);
 
       const queries = createQueries(client);
       let result: unknown;

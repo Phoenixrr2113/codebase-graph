@@ -62,11 +62,11 @@ import { repoMapToolDefinition, getRepoMap, type RepoMapInput } from './repoMap'
 import { knowledgeToolDefinitions, knowledgeHandlers } from './knowledge';
 
 // Infrastructure
-import { getShortSchema } from '../schema';
+import {
+  getShortSchema, getGraphClient, needsSetup,
+  getActiveProjectPaths, updateLastUsed, isStale, indexProject,
+} from '@codegraph/core';
 import { buildFileTree, getIndexSummary } from '@codegraph/graph';
-import { getGraphClient } from '../graphClient';
-import { needsSetup, getActiveProjectPaths, updateLastUsed, isStale } from '../config';
-import { indexProject } from '../indexer';
 import { createLogger } from '@codegraph/logger';
 import { readFile } from 'node:fs/promises';
 

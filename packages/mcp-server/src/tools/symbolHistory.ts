@@ -6,7 +6,8 @@
  */
 
 import { z } from 'zod';
-import { getGraphClient } from '../graphClient';
+import { getGraphClient } from '@codegraph/core';
+import type { ToolDefinition } from './consolidated';
 
 // Input schema
 export const SymbolHistoryInputSchema = z.object({
@@ -36,17 +37,6 @@ export interface SymbolHistoryOutput {
   ageDays: number;
   changeFrequency: number;
   error?: string | undefined;
-}
-
-// Internal ToolDefinition type
-interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
 }
 
 // Tool definition for MCP

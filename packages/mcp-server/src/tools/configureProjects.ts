@@ -9,15 +9,12 @@
 
 import { z } from 'zod';
 import { createOperations } from '@codegraph/graph';
-import { getGraphClient } from '../graphClient';
-import { createLogger } from '@codegraph/logger';
 import {
-  loadConfig,
-  setActiveProjects,
-  needsSetup,
-  type ProjectInfo,
-} from '../config';
-import { syncConfigToGraph } from '../configSync';
+  getGraphClient, loadConfig, setActiveProjects,
+  needsSetup, syncConfigToGraph, type ProjectInfo,
+} from '@codegraph/core';
+import { createLogger } from '@codegraph/logger';
+import type { ToolDefinition } from './consolidated';
 
 const logger = createLogger({ namespace: 'MCP:ConfigureProjects' });
 
@@ -54,16 +51,6 @@ export interface ConfigureProjectsOutput {
 // ============================================================================
 // Tool Definition
 // ============================================================================
-
-interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
-}
 
 export const configureProjectsToolDefinition: ToolDefinition = {
   name: 'configure_projects',

@@ -1,5 +1,5 @@
 {
-  "name": "@codegraph/parser",
+  "name": "@codegraph/core",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,19 +14,16 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest",
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@codegraph/graph": "workspace:*",
     "@codegraph/logger": "workspace:*",
+    "@codegraph/parser": "workspace:*",
     "@codegraph/types": "workspace:*",
-    "@codegraph/plugin-typescript": "workspace:*",
-    "@codegraph/plugin-python": "workspace:*",
-    "@codegraph/plugin-csharp": "workspace:*",
-    "tree-sitter": "^0.21.1"
+    "glob": "^10.3.10"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
-    "vitest": "^3.0.0"
+    "typescript": "^5.7.3"
   }
 }

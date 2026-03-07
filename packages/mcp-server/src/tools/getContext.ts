@@ -6,7 +6,8 @@
 import { z } from 'zod';
 import { createQueries } from '@codegraph/graph';
 import { createLogger } from '@codegraph/logger';
-import { getGraphClient } from '../graphClient';
+import { getGraphClient } from '@codegraph/core';
+import type { ToolDefinition } from './consolidated';
 
 const logger = createLogger({ namespace: 'MCP:GetContext' });
 
@@ -56,16 +57,6 @@ export interface GetContextOutput {
 // ============================================================================
 // Tool Definition
 // ============================================================================
-
-interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
-}
 
 export const getContextToolDefinition: ToolDefinition = {
   name: 'get_context',

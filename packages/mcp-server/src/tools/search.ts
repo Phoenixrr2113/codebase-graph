@@ -5,8 +5,8 @@
 
 import { z } from 'zod';
 import { createLogger } from '@codegraph/logger';
-import { getActiveProjectPaths } from '../config';
-import { getGraphClient } from '../graphClient';
+import { getActiveProjectPaths, getGraphClient } from '@codegraph/core';
+import type { ToolDefinition } from './consolidated';
 
 const logger = createLogger({ namespace: 'MCP:Search' });
 
@@ -43,16 +43,6 @@ export interface SearchOutput {
 // ============================================================================
 // Tool Definition
 // ============================================================================
-
-interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
-}
 
 export const searchToolDefinition: ToolDefinition = {
   name: 'search',

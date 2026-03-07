@@ -1,7 +1,7 @@
 /**
- * MCP Context Configuration Manager
- * 
- * Manages which projects are active in the MCP context.
+ * CodeGraph Context Configuration Manager
+ *
+ * Manages which projects are active in the CodeGraph context.
  * Persists to ~/.codegraph/mcp-context.json
  */
 
@@ -11,7 +11,7 @@ import { readFile, writeFile, mkdir, rename } from 'fs/promises';
 import { existsSync } from 'fs';
 import { createLogger } from '@codegraph/logger';
 
-const logger = createLogger({ namespace: 'MCP:Config' });
+const logger = createLogger({ namespace: 'Core:Config' });
 
 // ============================================================================
 // Types

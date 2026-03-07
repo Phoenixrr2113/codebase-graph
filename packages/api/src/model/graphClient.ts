@@ -1,23 +1,21 @@
 /**
  * Graph client singleton - shared database connection
- * Provides dependency injection pattern for routes and services
+ * Delegates to @codegraph/core's singleton for the underlying client,
+ * and caches operations/queries wrappers on top.
  * @module model/graphClient
  */
 
 import {
-  createClient as createFalkorClient,
   createOperations as createGraphOperations,
   createQueries as createGraphQueries,
   type GraphClient,
   type GraphOperations,
   type GraphQueries,
 } from '@codegraph/graph';
+import { getGraphClient, closeGraphClient } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'API:Model' });
-
-/** Cached client instance */
-let clientInstance: GraphClient | null = null;
 
 /** Cached operations instance */
 let opsInstance: GraphOperations | null = null;
@@ -26,23 +24,19 @@ let opsInstance: GraphOperations | null = null;
 let queriesInstance: GraphQueries | null = null;
 
 /**
- * Get or create the shared graph client
- * Uses singleton pattern to avoid multiple connections
- * 
+ * Get the shared graph client
+ * Delegates to core's singleton to avoid duplicate connections
+ *
  * @returns Connected graph client
  */
 export async function getClient(): Promise<GraphClient> {
-  if (!clientInstance) {
-    logger.debug('Creating new graph client connection');
-    clientInstance = await createFalkorClient();
-  }
-  return clientInstance;
+  return getGraphClient();
 }
 
 /**
  * Get or create the shared graph operations instance
  * Used for CRUD operations on entities
- * 
+ *
  * @returns Graph operations instance
  */
 export async function getOperations(): Promise<GraphOperations> {
@@ -56,7 +50,7 @@ export async function getOperations(): Promise<GraphOperations> {
 /**
  * Get or create the shared graph queries instance
  * Used for read-only graph queries
- * 
+ *
  * @returns Graph queries instance
  */
 export async function getQueries(): Promise<GraphQueries> {
@@ -68,12 +62,12 @@ export async function getQueries(): Promise<GraphQueries> {
 }
 
 /**
- * Reset all cached instances
+ * Reset all cached instances and close the underlying connection
  * Useful for testing or reconnection scenarios
  */
-export function resetClient(): void {
-  clientInstance = null;
+export async function resetClient(): Promise<void> {
   opsInstance = null;
   queriesInstance = null;
+  await closeGraphClient();
   logger.debug('Graph client reset');
 }

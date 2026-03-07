@@ -1,8 +1,8 @@
 /**
- * Shared Graph Client for MCP Tools
- * 
+ * Shared Graph Client for CodeGraph
+ *
  * Singleton pattern to avoid creating multiple FalkorDB connections.
- * All MCP tools should import getGraphClient from this module.
+ * All packages should import getGraphClient from this module.
  */
 
 import { createClient, type GraphClient } from '@codegraph/graph';
@@ -22,7 +22,7 @@ export async function getGraphClient(): Promise<GraphClient> {
 
 /**
  * Close the graph client connection.
- * Call this when shutting down the MCP server.
+ * Call this when shutting down.
  */
 export async function closeGraphClient(): Promise<void> {
   if (graphClient) {

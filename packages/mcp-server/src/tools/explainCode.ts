@@ -7,7 +7,8 @@
 
 import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
-import { getGraphClient } from '../graphClient';
+import { getGraphClient } from '@codegraph/core';
+import type { ToolDefinition } from './consolidated';
 
 // Input schema
 export const ExplainCodeInputSchema = z.object({
@@ -35,17 +36,6 @@ export interface ExplainCodeOutput {
   complexity?: number | undefined;
   recentChanges?: string[] | undefined;
   error?: string | undefined;
-}
-
-// Internal ToolDefinition type
-interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
 }
 
 // Tool definition for MCP

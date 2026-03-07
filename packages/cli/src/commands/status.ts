@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
-import { createClient, createQueries } from '@codegraph/graph';
+import { createQueries } from '@codegraph/graph';
+import { connectGraph } from '../graphConnection';
 import type { GraphStats } from '@codegraph/types';
 
 const logger = createLogger({ namespace: 'cli:status' });
@@ -15,11 +16,7 @@ export const statusCommand = new Command('status')
     logger.info(`Checking status: ${options.graph} @ ${options.host}:${options.port}`);
 
     try {
-      const client = await createClient({
-        host: options.host,
-        port: parseInt(options.port),
-        graphName: options.graph,
-      });
+      const client = await connectGraph(options);
 
       const queries = createQueries(client);
       const stats: GraphStats = await queries.getStats();

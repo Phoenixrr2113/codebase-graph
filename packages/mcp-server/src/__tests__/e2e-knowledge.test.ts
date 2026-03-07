@@ -20,7 +20,7 @@ import { MockLanguageModelV3 } from 'ai/test';
 import { extractAndStore } from '@codegraph/nlp';
 import { handleToolCall } from '../tools/consolidated';
 import { teardownGraphClient, assertNoError } from './helpers';
-import { resetKnowledgeOps, getKnowledgeOps } from '../knowledgeClient';
+import { resetKnowledgeOps, getKnowledgeOps } from '@codegraph/core';
 
 afterAll(async () => {
   resetKnowledgeOps();

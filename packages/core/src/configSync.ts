@@ -16,7 +16,7 @@ import { loadConfig, saveConfig } from './config';
 import { indexProject, isProjectIndexed } from './indexer';
 import { createLogger } from '@codegraph/logger';
 
-const logger = createLogger({ namespace: 'MCP:ConfigSync' });
+const logger = createLogger({ namespace: 'Core:ConfigSync' });
 
 // ============================================================================
 // State

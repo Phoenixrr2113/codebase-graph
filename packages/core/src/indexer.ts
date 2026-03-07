@@ -1,11 +1,8 @@
 /**
- * MCP Server Indexer
+ * Core Indexer
  *
- * Uses @codegraph/parser's extraction pipeline to index projects directly
- * from the MCP server. Used by:
- * - configure_projects (auto-index on set/add)
- * - trigger_reindex (on-demand re-indexing)
- * - staleness checks (background re-index after idle)
+ * Uses @codegraph/parser's extraction pipeline to index projects into the graph.
+ * Shared by MCP server, API, and CLI.
  */
 
 import {
@@ -19,7 +16,7 @@ import {
   SUPPORTED_EXTENSIONS,
   DEFAULT_IGNORE_PATTERNS,
 } from '@codegraph/parser';
-import { createOperations } from '@codegraph/graph';
+import { createOperations, type GraphClient } from '@codegraph/graph';
 import type { ProjectEntity } from '@codegraph/types';
 import { getGraphClient } from './graphClient';
 import { createLogger } from '@codegraph/logger';
@@ -28,7 +25,7 @@ import { basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { glob } from 'glob';
 
-const logger = createLogger({ namespace: 'MCP:Indexer' });
+const logger = createLogger({ namespace: 'Core:Indexer' });
 
 // ============================================================================
 // Types
@@ -66,10 +63,18 @@ export async function indexProject(
     force?: boolean;
     /** Enable deep analysis for call/render edges (default: true) */
     deepAnalysis?: boolean;
+    /** Include external library references (default: false) */
+    includeExternals?: boolean;
+    /** Additional ignore patterns (merged with DEFAULT_IGNORE_PATTERNS) */
+    ignorePatterns?: string[];
+    /** Custom include patterns (overrides SUPPORTED_EXTENSIONS-based globs) */
+    includePatterns?: string[];
+    /** Use this client instead of the shared singleton */
+    client?: GraphClient;
   } = {},
 ): Promise<IndexResult> {
   const startTime = Date.now();
-  const { deepAnalysis = true } = options;
+  const { deepAnalysis = true, includeExternals = false } = options;
   const errorMessages: string[] = [];
 
   try {
@@ -89,10 +94,11 @@ export async function indexProject(
     await initParser();
 
     // Discover source files
-    const patterns = SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
+    const patterns = options.includePatterns ?? SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
+    const ignoreList = [...DEFAULT_IGNORE_PATTERNS, ...(options.ignorePatterns ?? [])];
     const files = await glob(patterns, {
       cwd: rootPath,
-      ignore: [...DEFAULT_IGNORE_PATTERNS],
+      ignore: ignoreList,
       absolute: true,
     });
 
@@ -109,8 +115,8 @@ export async function indexProject(
     }
 
     // Get graph operations
-    const client = await getGraphClient();
-    const ops = createOperations(client);
+    const graphClient = options.client ?? await getGraphClient();
+    const ops = createOperations(graphClient);
 
     // Create or update Project node
     const now = new Date().toISOString();
@@ -139,7 +145,7 @@ export async function indexProject(
           fileEntity,
           extracted,
           syntaxTree.rootNode,
-          { deepAnalysis, includeExternals: false },
+          { deepAnalysis, includeExternals },
           rootPath,
         );
 
@@ -201,6 +207,7 @@ export async function indexProject(
 export async function indexSingleFile(
   filePath: string,
   projectRoot?: string,
+  client?: GraphClient,
 ): Promise<{ success: boolean; entities: number; edges: number; error?: string }> {
   try {
     await initParser();
@@ -215,8 +222,8 @@ export async function indexSingleFile(
       projectRoot,
     );
 
-    const client = await getGraphClient();
-    const ops = createOperations(client);
+    const graphClient = client ?? await getGraphClient();
+    const ops = createOperations(graphClient);
     await ops.batchUpsert(parsed);
 
     const entityCount = 1 + countEntities(extracted);

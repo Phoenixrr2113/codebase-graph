@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
-import { createClient, createQueries } from '@codegraph/graph';
+import { createQueries } from '@codegraph/graph';
+import { connectGraph } from '../graphConnection';
 import { writeFileSync } from 'fs';
 
 const logger = createLogger({ namespace: 'cli:map' });
@@ -18,11 +19,7 @@ export const mapCommand = new Command('map')
     logger.info(`Generating map for: ${pathPrefix || '(all)'}`);
 
     try {
-      const client = await createClient({
-        host: options.host,
-        port: parseInt(options.port),
-        graphName: options.graph,
-      });
+      const client = await connectGraph(options);
 
       const queries = createQueries(client);
       const result = await queries.getFullGraph(parseInt(options.limit), pathPrefix || undefined);

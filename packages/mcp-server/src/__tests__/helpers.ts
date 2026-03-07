@@ -2,11 +2,15 @@
  * Shared test helpers for MCP tool tests
  */
 
-import { closeGraphClient } from '../graphClient';
+import { closeGraphClient } from '@codegraph/core';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-/** Known source directory stored in the test database (absolute paths) */
-export const SRC_DIR = '/path/to/user/Desktop/codebase-graph/packages/graph/src';
-export const MCP_DIR = '/path/to/user/Desktop/codebase-graph/packages/mcp-server/src';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/** Known source directory stored in the test database (derived dynamically) */
+export const SRC_DIR = resolve(__dirname, '../../../graph/src');
+export const MCP_DIR = resolve(__dirname, '..');
 
 /** Known symbol that exists in the database */
 export const KNOWN_SYMBOL = 'createClient';

@@ -4,7 +4,7 @@
  */
 
 import { createMCPServer } from './server';
-import { closeGraphClient } from './graphClient';
+import { closeGraphClient } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'MCP:Main' });

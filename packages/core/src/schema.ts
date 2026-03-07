@@ -1,5 +1,5 @@
 /**
- * MCP Server Schema Documentation
+ * CodeGraph Schema Documentation
  * Static documentation of CodeGraph node and edge types for LLM context
  */
 

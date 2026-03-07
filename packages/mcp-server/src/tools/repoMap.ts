@@ -7,7 +7,8 @@
  */
 
 import { z } from 'zod';
-import { getGraphClient } from '../graphClient';
+import { getGraphClient } from '@codegraph/core';
+import type { ToolDefinition } from './consolidated';
 
 // Input schema
 export const RepoMapInputSchema = z.object({
@@ -24,17 +25,6 @@ export interface RepoMapOutput {
   filesIncluded: number;
   symbolsIncluded: number;
   error?: string;
-}
-
-// Internal ToolDefinition type
-interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
 }
 
 // Tool definition for MCP

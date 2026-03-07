@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
-import { createClient, createOperations } from '@codegraph/graph';
+import { indexProject } from '@codegraph/core';
 import {
   initParser,
   parseFile,
@@ -13,10 +13,9 @@ import {
   SUPPORTED_EXTENSIONS,
   DEFAULT_IGNORE_PATTERNS,
 } from '@codegraph/parser';
-import type { ProjectEntity } from '@codegraph/types';
 import { glob } from 'glob';
-import { resolve, basename } from 'path';
-import { randomUUID } from 'crypto';
+import { resolve } from 'path';
+import { connectGraph } from '../graphConnection';
 
 const logger = createLogger({ namespace: 'cli:extract' });
 
@@ -38,9 +37,7 @@ export const extractCommand = new Command('extract')
     logger.info(`Graph: ${options.graph} @ ${options.host}:${options.port}`);
 
     try {
-      await initParser();
-
-      // Use parser's supported extensions if user didn't specify custom patterns
+      // Build include/exclude patterns from CLI options
       const includePatterns = options.include
         ? (options.include as string).split(',')
         : SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
@@ -48,115 +45,83 @@ export const extractCommand = new Command('extract')
         ? (options.exclude as string).split(',')
         : [...DEFAULT_IGNORE_PATTERNS];
 
-      const files: string[] = [];
-      for (const pattern of includePatterns) {
-        const matches = await glob(pattern, {
-          cwd: absPath,
-          ignore: excludePatterns,
-          absolute: true,
-        });
-        files.push(...matches);
-      }
-
-      logger.info(`Found ${files.length} files to parse`);
-
-      if (files.length === 0) {
-        console.log('No files found matching the patterns');
-        return;
-      }
-
-      console.log(`Parsing ${files.length} files...`);
-
-      // Parse and extract all files
-      const parsed: Array<{
-        filePath: string;
-        result: Awaited<ReturnType<typeof buildParsedFileEntities>>;
-        entityCount: number;
-        edgeCount: number;
-      }> = [];
-
-      let totalEntities = 0;
-      let totalEdges = 0;
-      let parseErrors = 0;
-
-      for (const file of files) {
-        try {
-          const syntaxTree = await parseFile(file);
-          const extracted = extractEntitiesForFile(syntaxTree.rootNode, file);
-          const fileEntity = await createFileEntity(file);
-
-          const pipelineOptions = {
-            deepAnalysis: !!options.deep,
-            includeExternals: false,
-          };
-
-          const parsedFile = buildParsedFileEntities(
-            fileEntity,
-            extracted,
-            syntaxTree.rootNode,
-            pipelineOptions,
-            absPath, // project root for Python import resolution
-          );
-
-          const entityCount = 1 + countEntities(extracted); // +1 for file
-          const edgeCount = countEdges(parsedFile) + countEntities(extracted); // CONTAINS edges
-
-          totalEntities += entityCount;
-          totalEdges += edgeCount;
-
-          parsed.push({ filePath: file, result: parsedFile, entityCount, edgeCount });
-        } catch (err) {
-          parseErrors++;
-          logger.warn(`Failed to parse ${file}: ${err}`);
-        }
-      }
-
-      console.log(`\nParsed ${parsed.length} files (${parseErrors} errors)`);
-      console.log(`Extracted ${totalEntities} entities, ${totalEdges} edges`);
-
       if (options.dryRun) {
+        // Dry-run: parse files without writing to database
+        await initParser();
+
+        const files: string[] = [];
+        for (const pattern of includePatterns) {
+          const matches = await glob(pattern, {
+            cwd: absPath,
+            ignore: excludePatterns,
+            absolute: true,
+          });
+          files.push(...matches);
+        }
+
+        logger.info(`Found ${files.length} files to parse`);
+
+        if (files.length === 0) {
+          console.log('No files found matching the patterns');
+          return;
+        }
+
+        console.log(`Parsing ${files.length} files...`);
+
+        let totalEntities = 0;
+        let totalEdges = 0;
+        let parseErrors = 0;
+        let successCount = 0;
+
+        for (const file of files) {
+          try {
+            const syntaxTree = await parseFile(file);
+            const extracted = extractEntitiesForFile(syntaxTree.rootNode, file);
+            const fileEntity = await createFileEntity(file);
+            const parsedFile = buildParsedFileEntities(
+              fileEntity,
+              extracted,
+              syntaxTree.rootNode,
+              { deepAnalysis: !!options.deep, includeExternals: false },
+              absPath,
+            );
+
+            totalEntities += 1 + countEntities(extracted);
+            totalEdges += countEdges(parsedFile) + countEntities(extracted);
+            successCount++;
+          } catch (err) {
+            parseErrors++;
+            logger.warn(`Failed to parse ${file}: ${err}`);
+          }
+        }
+
+        console.log(`\nParsed ${successCount} files (${parseErrors} errors)`);
+        console.log(`Extracted ${totalEntities} entities, ${totalEdges} edges`);
         console.log('\n[Dry run] Skipping database write');
       } else {
-        const client = await createClient({
-          host: options.host,
-          port: parseInt(options.port),
-          graphName: options.graph,
-        });
-
+        // Normal mode: use core's indexProject for full pipeline
+        const client = await connectGraph(options);
         await client.ensureIndexes();
-        const ops = createOperations(client);
 
-        // Create Project node
-        const now = new Date().toISOString();
-        const existingProject = await ops.getProjectByRoot(absPath);
-        const project: ProjectEntity = existingProject ?? {
-          id: randomUUID(),
-          name: basename(absPath),
-          rootPath: absPath,
-          createdAt: now,
-          lastParsed: now,
-          fileCount: parsed.length,
+        const indexOpts: Parameters<typeof indexProject>[1] = {
+          deepAnalysis: !!options.deep,
+          ignorePatterns: excludePatterns,
+          client,
         };
-        project.lastParsed = now;
-        project.fileCount = parsed.length;
-        await ops.upsertProject(project);
-
-        // Batch upsert all parsed files + link to project
-        let nodesCreated = 0;
-        for (const { filePath, result } of parsed) {
-          await ops.batchUpsert(result);
-          await ops.linkProjectFile(project.id, filePath);
-          nodesCreated += result.functions.length +
-            result.classes.length +
-            result.interfaces.length +
-            result.variables.length +
-            result.types.length +
-            result.components.length +
-            result.imports.length + 1; // +1 for file
+        if (options.include) {
+          indexOpts!.includePatterns = includePatterns;
         }
+        const result = await indexProject(absPath, indexOpts);
 
-        console.log(`\nStored in graph "${options.graph}": ${nodesCreated} nodes, ${totalEdges} edges`);
-        console.log(`Project: ${project.name} (${project.id})`);
+        if (result.success) {
+          console.log(`\nStored in graph "${options.graph}": ${result.stats.entities} entities, ${result.stats.edges} edges`);
+          console.log(`Project: ${result.projectName} (${result.projectId})`);
+          if (result.stats.errors > 0) {
+            console.log(`${result.stats.errors} files failed to parse`);
+          }
+        } else {
+          console.error(`Indexing failed: ${result.errorMessages.join('; ')}`);
+        }
 
         await client.close();
       }

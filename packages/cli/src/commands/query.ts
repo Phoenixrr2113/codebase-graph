@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
-import { createClient } from '@codegraph/graph';
+import { connectGraph } from '../graphConnection';
 
 const logger = createLogger({ namespace: 'cli:query' });
 
@@ -16,11 +16,7 @@ export const queryCommand = new Command('query')
     logger.info(`Executing query: ${cypher.slice(0, 100)}`);
 
     try {
-      const client = await createClient({
-        host: options.host,
-        port: parseInt(options.port),
-        graphName: options.graph,
-      });
+      const client = await connectGraph(options);
 
       const params = options.params ? JSON.parse(options.params) : {};
       const result = await client.roQuery<Record<string, unknown>>(cypher, { params });

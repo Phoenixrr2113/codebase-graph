@@ -13,6 +13,7 @@ import {
   analyzeDataflow,
   type DataflowAnalysisResult,
 } from '@codegraph/parser';
+import type { ToolDefinition } from './consolidated';
 
 // Input schema
 export const TraceDataFlowInputSchema = z.object({
@@ -37,17 +38,6 @@ export interface TraceDataFlowOutput {
   sanitizersFound: string[];
   summary?: string | undefined;
   error?: string | undefined;
-}
-
-// Internal ToolDefinition type
-interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
 }
 
 // Tool definition for MCP

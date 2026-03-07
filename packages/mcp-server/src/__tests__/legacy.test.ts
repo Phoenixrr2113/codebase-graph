@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, afterAll } from 'vitest';
-import { handleToolCall } from '../tools/index';
+import { handleToolCall } from '../tools/consolidated';
 import {
   SRC_DIR,
   KNOWN_SYMBOL,
@@ -175,15 +175,15 @@ describe('get_repo_map', () => {
   });
 });
 
-// ─── query_graph (legacy) ────────────────────────────────────────────────────
+// ─── query (Cypher) ──────────────────────────────────────────────────────────
 
-describe('query_graph (legacy)', () => {
+describe('query (Cypher)', () => {
   it('executes Cypher and returns data', async () => {
-    const result = (await handleToolCall('query_graph', {
+    const result = (await handleToolCall('query', {
       cypher: 'MATCH (n:Function) RETURN n.name as name LIMIT 5',
     })) as Record<string, unknown>;
 
-    assertNoError(result, 'query_graph');
+    assertNoError(result, 'query');
     expect(result.success).toBe(true);
     const data = result.data as unknown[];
     expect(data.length).toBeGreaterThan(0);
