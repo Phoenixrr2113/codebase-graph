@@ -25,7 +25,6 @@
   "dependencies": {
     "@codegraph/core": "workspace:*",
     "@codegraph/graph": "workspace:*",
-    "@codegraph/parser": "workspace:*",
     "@codegraph/logger": "workspace:*",
     "@codegraph/types": "workspace:*",
     "commander": "^12.1.0",

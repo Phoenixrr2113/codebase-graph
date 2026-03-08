@@ -4,17 +4,14 @@
  * Run a raw Cypher query against the code graph.
  */
 
-import { z } from 'zod';
 import { getGraphClient } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
-export const QueryGraphInputSchema = z.object({
-  cypher: z.string().describe('Cypher query to execute'),
-  params: z.record(z.unknown()).optional().describe('Query parameters'),
-});
-
-export type QueryGraphInput = z.infer<typeof QueryGraphInputSchema>;
+export interface QueryGraphInput {
+  cypher: string;
+  params?: Record<string, unknown>;
+}
 
 // Output type
 export interface QueryGraphOutput {

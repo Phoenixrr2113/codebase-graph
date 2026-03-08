@@ -13,8 +13,6 @@ import type {
   GraphEdge,
   SubgraphData,
   GraphStats,
-  SearchResult,
-  FunctionEntity,
   NodeLabel,
   EdgeLabel,
 } from '@codegraph/types';
@@ -192,11 +190,6 @@ function buildCypherTemplates(dialect: CypherDialect) {
       RETURN f, e, r, related, ${labelsExpr('e')} as labels, ${labelsExpr('related')} as relatedLabels, ${typeExpr('r')} as edgeType
     `,
 
-    GET_FUNCTION_CALLERS: `
-      MATCH (caller:Function)-[c:CALLS]->(target:Function {name: $name})
-      RETURN caller, c.line as line
-    `,
-
     GET_DEPENDENCY_TREE: `
       MATCH path = (root:File {path: $path})-[:IMPORTS*1..$depth]->(dep:File)
       RETURN path
@@ -227,65 +220,6 @@ function buildCypherTemplates(dialect: CypherDialect) {
       ORDER BY connectionCount DESC
       LIMIT 10
     `,
-
-    SEARCH_BY_NAME: `
-      MATCH (n)
-      WHERE (${labelOr('n', ['Function', 'Class', 'Interface', 'Component', 'Variable', 'Type'])})
-        AND toLower(n.name) CONTAINS toLower($term)
-      RETURN n, ${labelsExpr('n')} as labels
-      LIMIT $limit
-    `,
-
-    // Dataflow queries
-    GET_VARIABLE_READERS: `
-      MATCH (fn:Function)-[r:READS]->(v:Variable {name: $variableName, filePath: $variableFile})
-      RETURN fn.name as functionName, fn.filePath as functionFile, r.line as line
-    `,
-
-    GET_VARIABLE_WRITERS: `
-      MATCH (fn:Function)-[r:WRITES]->(v:Variable {name: $variableName, filePath: $variableFile})
-      RETURN fn.name as functionName, fn.filePath as functionFile, r.line as line
-    `,
-
-    GET_FUNCTION_READS: `
-      MATCH (fn:Function {name: $functionName, filePath: $functionFile})-[r:READS]->(v:Variable)
-      RETURN v.name as variableName, v.filePath as variableFile, r.line as line
-    `,
-
-    GET_FUNCTION_WRITES: `
-      MATCH (fn:Function {name: $functionName, filePath: $functionFile})-[r:WRITES]->(v:Variable)
-      RETURN v.name as variableName, v.filePath as variableFile, r.line as line
-    `,
-
-    TRACE_DATA_FLOW: `
-      MATCH path = (source {name: $sourceName, filePath: $sourceFile})-[:FLOWS_TO*1..$maxDepth]->(target)
-      RETURN path, length(path) as depth,
-             [node in nodes(path) | {name: node.name, file: node.filePath}] as nodes,
-             [rel in relationships(path) | {tainted: rel.tainted, sanitized: rel.sanitized, transformation: rel.transformation}] as edges
-      ORDER BY depth
-      LIMIT $limit
-    `,
-
-    GET_TAINTED_FLOWS: `
-      MATCH path = (source)-[r:FLOWS_TO*]->(sink)
-      WHERE any(rel in r WHERE rel.tainted = true)
-        AND none(rel in r WHERE rel.sanitized = true)
-      RETURN path, source.name as sourceName, sink.name as sinkName
-      LIMIT $limit
-    `,
-
-    GET_SANITIZED_FLOWS: `
-      MATCH path = (source)-[r:FLOWS_TO*]->(sink)
-      WHERE any(rel in r WHERE rel.sanitized = true)
-      RETURN path, source.name as sourceName, sink.name as sinkName
-      LIMIT $limit
-    `,
-
-    GET_INDEX_SUMMARY: `
-      MATCH (n)
-      WHERE ${labelOr('n', ['File', 'Function', 'Class', 'Interface', 'Component'])}
-      RETURN ${firstLabel('n')} as label, count(n) as count
-    `,
   };
 }
 
@@ -310,11 +244,6 @@ export interface GraphQueries {
   getFileSubgraph(filePath: string): Promise<SubgraphData>;
 
   /**
-   * Get all functions that call a given function
-   */
-  getFunctionCallers(funcName: string): Promise<FunctionEntity[]>;
-
-  /**
    * Get import dependency tree from a file
    */
   getDependencyTree(filePath: string, depth?: number): Promise<GraphData>;
@@ -323,11 +252,6 @@ export interface GraphQueries {
    * Get graph statistics
    */
   getStats(): Promise<GraphStats>;
-
-  /**
-   * Search for entities by name
-   */
-  search(term: string, types?: NodeLabel[], limit?: number): Promise<SearchResult[]>;
 }
 
 // ============================================================================
@@ -501,37 +425,6 @@ class GraphQueriesImpl implements GraphQueries {
   }
 
   @trace()
-  async getFunctionCallers(funcName: string): Promise<FunctionEntity[]> {
-    const result = await this.client.roQuery<{
-      caller: Record<string, unknown>;
-      line: number;
-    }>(this.templates.GET_FUNCTION_CALLERS, { params: { name: funcName } });
-
-    return (result.data ?? []).map((row): FunctionEntity => {
-      const props = extractNodeProps(row.caller, this.dialect);
-      const returnType = props['returnType'] as string | undefined;
-      const docstring = props['docstring'] as string | undefined;
-      const entity: FunctionEntity = {
-        name: props['name'] as string,
-        filePath: props['filePath'] as string,
-        startLine: props['startLine'] as number,
-        endLine: props['endLine'] as number,
-        isExported: props['isExported'] as boolean,
-        isAsync: props['isAsync'] as boolean,
-        isArrow: props['isArrow'] as boolean,
-        params: JSON.parse((props['params'] as string) ?? '[]') as FunctionEntity['params'],
-      };
-      if (returnType !== undefined) {
-        entity.returnType = returnType;
-      }
-      if (docstring !== undefined) {
-        entity.docstring = docstring;
-      }
-      return entity;
-    });
-  }
-
-  @trace()
   async getDependencyTree(filePath: string, depth = 5): Promise<GraphData> {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
@@ -690,37 +583,6 @@ class GraphQueriesImpl implements GraphQueries {
     };
   }
 
-  @trace()
-  async search(term: string, types?: NodeLabel[], limit = 50): Promise<SearchResult[]> {
-    // Use simple name matching (fulltext search may not be available on all backends)
-    const result = await this.client.roQuery<{
-      n: Record<string, unknown>;
-      labels: string[];
-    }>(this.templates.SEARCH_BY_NAME, { params: { term, limit } });
-
-    const results: SearchResult[] = [];
-
-    for (const row of result.data ?? []) {
-      const props = extractNodeProps(row.n, this.dialect);
-      const nodeLabels = extractLabels(row.n, row.labels, this.dialect);
-      const label = getLabelFromLabels(nodeLabels);
-
-      // Filter by types if specified
-      if (types && !types.includes(label)) {
-        continue;
-      }
-
-      results.push({
-        id: generateNodeIdFromProps(label, props),
-        name: (props['name'] as string) ?? (props['path'] as string) ?? 'unknown',
-        type: label,
-        filePath: (props['filePath'] as string) ?? (props['path'] as string) ?? '',
-        line: (props['startLine'] as number) ?? (props['line'] as number),
-      });
-    }
-
-    return results;
-  }
 }
 
 // ============================================================================
@@ -737,9 +599,6 @@ class GraphQueriesImpl implements GraphQueries {
  *
  * const graph = await queries.getFullGraph(500);
  * console.log(`Loaded ${graph.nodes.length} nodes`);
- *
- * const callers = await queries.getFunctionCallers('processPayment');
- * console.log(`Found ${callers.length} callers`);
  *
  * const stats = await queries.getStats();
  * console.log(`Total nodes: ${stats.totalNodes}`);

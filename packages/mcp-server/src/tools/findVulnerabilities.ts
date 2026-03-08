@@ -2,10 +2,9 @@
  * MCP Tool: find_vulnerabilities
  *
  * Scan for security vulnerabilities using tree-sitter pattern matching.
- * Uses @codegraph/parser security scanner.
+ * Uses @codegraph/core security scanner.
  */
 
-import { z } from 'zod';
 import { readFile, stat as fsStat } from 'node:fs/promises';
 import { glob } from 'glob';
 import {
@@ -14,17 +13,15 @@ import {
   scanForVulnerabilities,
   sortBySeverity,
   type SecurityFinding,
-} from '@codegraph/parser';
+} from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
-export const FindVulnerabilitiesInputSchema = z.object({
-  scope: z.string().default('all').describe('Scope to scan'),
-  severity: z.enum(['critical', 'high', 'medium', 'low', 'all']).default('all'),
-  category: z.enum(['injection', 'xss', 'auth', 'payment', 'all']).default('all'),
-});
-
-export type FindVulnerabilitiesInput = z.infer<typeof FindVulnerabilitiesInputSchema>;
+export interface FindVulnerabilitiesInput {
+  scope?: string;
+  severity?: 'critical' | 'high' | 'medium' | 'low' | 'all';
+  category?: 'injection' | 'xss' | 'auth' | 'payment' | 'all';
+}
 
 // Vulnerability type
 export interface Vulnerability {
@@ -93,7 +90,7 @@ const SEVERITY_RANK: Record<string, number> = {
  */
 export async function findVulnerabilities(input: FindVulnerabilitiesInput): Promise<FindVulnerabilitiesOutput> {
   try {
-    const scope = input.scope === 'all' ? process.cwd() : input.scope;
+    const scope = (!input.scope || input.scope === 'all') ? process.cwd() : input.scope;
 
     // Find files to scan
     let files: string[];
@@ -121,6 +118,8 @@ export async function findVulnerabilities(input: FindVulnerabilitiesInput): Prom
     // Initialize parser
     await initParser();
 
+    const severity = input.severity ?? 'all';
+    const category = input.category ?? 'all';
     const allFindings: SecurityFinding[] = [];
     let filesScanned = 0;
 
@@ -140,7 +139,7 @@ export async function findVulnerabilities(input: FindVulnerabilitiesInput): Prom
 
         const findings = scanForVulnerabilities(tree.rootNode, {
           filePath,
-          includeLowSeverity: input.severity === 'all' || input.severity === 'low',
+          includeLowSeverity: severity === 'all' || severity === 'low',
         });
 
         allFindings.push(...findings);
@@ -154,20 +153,20 @@ export async function findVulnerabilities(input: FindVulnerabilitiesInput): Prom
     const sorted = sortBySeverity(allFindings);
 
     // Filter by minimum severity
-    const minSeverity = SEVERITY_RANK[input.severity] ?? 0;
-    const filtered = input.severity === 'all'
+    const minSeverity = SEVERITY_RANK[severity] ?? 0;
+    const filtered = severity === 'all'
       ? sorted
       : sorted.filter(f => (SEVERITY_RANK[f.severity] ?? 0) >= minSeverity);
 
     // Filter by category
-    const categoryFiltered = input.category === 'all'
+    const categoryFiltered = category === 'all'
       ? filtered
       : filtered.filter(f => {
         const typeLC = f.type.toLowerCase();
-        if (input.category === 'injection') return typeLC.includes('injection');
-        if (input.category === 'xss') return typeLC.includes('xss');
-        if (input.category === 'auth') return typeLC.includes('auth') || typeLC.includes('password');
-        if (input.category === 'payment') return typeLC.includes('payment') || typeLC.includes('stripe');
+        if (category === 'injection') return typeLC.includes('injection');
+        if (category === 'xss') return typeLC.includes('xss');
+        if (category === 'auth') return typeLC.includes('auth') || typeLC.includes('password');
+        if (category === 'payment') return typeLC.includes('payment') || typeLC.includes('stripe');
         return true;
       });
 

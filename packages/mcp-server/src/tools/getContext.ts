@@ -3,26 +3,20 @@
  * Get detailed context for a specific file or symbol
  */
 
-import { z } from 'zod';
 import { createQueries } from '@codegraph/graph';
-import { createLogger } from '@codegraph/logger';
-import { getGraphClient } from '@codegraph/core';
+import { codeGraphService, getGraphClient } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
-
-const logger = createLogger({ namespace: 'MCP:GetContext' });
 
 // ============================================================================
 // Schema
 // ============================================================================
 
-export const GetContextInputSchema = z.object({
-  file: z.string().optional().describe('File path to get context for'),
-  symbol: z.string().optional().describe('Symbol name to get context for'),
-  includeRelationships: z.boolean().default(true).describe('Include related entities'),
-  maxDepth: z.number().default(2).describe('Depth of relationship traversal'),
-});
-
-export type GetContextInput = z.infer<typeof GetContextInputSchema>;
+export interface GetContextInput {
+  file?: string;
+  symbol?: string;
+  includeRelationships?: boolean;
+  maxDepth?: number;
+}
 
 export interface EntityContext {
   name: string;
@@ -101,25 +95,17 @@ Examples:
 // ============================================================================
 
 export async function getContext(input: GetContextInput): Promise<GetContextOutput> {
-  logger.debug('GetContext called', { file: input.file, symbol: input.symbol });
-
   if (!input.file && !input.symbol) {
-    return {
-      relationships: [],
-      error: 'Either file or symbol must be specified',
-    };
+    return { relationships: [], error: 'Either file or symbol must be specified' };
   }
 
   try {
-    const client = await getGraphClient();
-    const dialect = client.dialect;
-    const queries = createQueries(client);
-
-    // Get file context
+    // File context — uses graph subgraph query (visualization-oriented, stays in @codegraph/graph)
     if (input.file && !input.symbol) {
+      const client = await getGraphClient();
+      const queries = createQueries(client);
       const subgraph = await queries.getFileSubgraph(input.file);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const entities: EntityContext[] = subgraph.nodes
         .filter((n) => n.label !== 'File')
         .map((n) => {
@@ -152,86 +138,51 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
         }
       }
 
-      return {
-        file: {
-          path: input.file,
-          entities,
-        },
-        relationships,
-      };
+      return { file: { path: input.file, entities }, relationships };
     }
 
-    // Get symbol context
+    // Symbol context — uses CodeGraphService
     if (input.symbol) {
-      const searchResults = await queries.search(input.symbol, undefined, 10);
+      // Find the symbol and its file
+      const findOpts: { file?: string } = {};
+      if (input.file) findOpts.file = input.file;
+      const findResult = await codeGraphService.findSymbol(input.symbol, findOpts);
 
-      // Filter by file if specified
-      const matches = input.file
-        ? searchResults.filter((r) => r.filePath.includes(input.file!))
-        : searchResults;
-
-      if (matches.length === 0) {
+      if (!findResult.symbol) {
         return {
           relationships: [],
           error: `Symbol "${input.symbol}" not found${input.file ? ` in ${input.file}` : ''}`,
         };
       }
 
-      const match = matches[0]!;
+      // Get detailed symbol info
+      const detail = await codeGraphService.getSymbolDetail(
+        input.symbol,
+        findResult.symbol.file,
+      );
 
-      // Get symbol details — use dialect-aware label expression
-      const labelsExpr = dialect.labelsExpr('n');
-      const detailQuery = `
-        MATCH (n {name: $name})
-        WHERE n.filePath CONTAINS $filePath OR n.path CONTAINS $filePath
-        RETURN n, ${labelsExpr} as labels
-        LIMIT 1
-      `;
-
-      const detailResult = await client.roQuery<{
-        n: Record<string, unknown>;
-        labels: string | string[];
-      }>(detailQuery, { params: { name: input.symbol, filePath: match.filePath } });
-
-      let entity: EntityContext | undefined;
-      if (detailResult.data && detailResult.data.length > 0) {
-        const row = detailResult.data[0]!;
-        const normalized = dialect.normalizeNode(row.n);
-        const props = normalized.properties;
-        // labels may be a string (Kuzu) or array (FalkorDB)
-        const labelsArr = Array.isArray(row.labels) ? row.labels
-          : typeof row.labels === 'string' ? [row.labels]
-          : normalized.labels;
-
-        entity = {
-          name: (props['name'] as string) ?? input.symbol,
-          type: labelsArr[0] ?? 'Unknown',
-          filePath: (props['filePath'] as string) ?? (props['path'] as string) ?? '',
-          startLine: props['startLine'] as number | undefined,
-          endLine: props['endLine'] as number | undefined,
-          docstring: props['docstring'] as string | undefined,
-          returnType: props['returnType'] as string | undefined,
-          complexity: props['complexity'] as number | undefined,
-        };
-
-        // Parse params if present
-        if (props['params'] && entity) {
-          try {
-            entity.params =
-              typeof props['params'] === 'string'
-                ? JSON.parse(props['params'])
-                : (props['params'] as Array<{ name: string; type?: string }>);
-          } catch {
-            // Ignore parse errors
+      const entity: EntityContext | undefined = detail
+        ? {
+            name: detail.name,
+            type: detail.type,
+            filePath: detail.filePath,
+            startLine: detail.startLine,
+            endLine: detail.endLine,
+            docstring: detail.docstring,
+            params: detail.params,
+            returnType: detail.returnType,
+            complexity: detail.complexity,
           }
-        }
-      }
+        : undefined;
 
       // Get relationships
       const relationships: RelatedEntity[] = [];
       if (input.includeRelationships) {
-        // Get callers
-        const callers = await queries.getFunctionCallers(input.symbol);
+        const [callers, calls] = await Promise.all([
+          codeGraphService.getFunctionCallers(input.symbol),
+          codeGraphService.getSymbolCalls(input.symbol),
+        ]);
+
         for (const caller of callers) {
           relationships.push({
             name: caller.name,
@@ -241,38 +192,21 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
           });
         }
 
-        // Get what this symbol calls — use dialect-aware label expression
-        const firstLabelExpr = dialect.firstLabelExpr('target');
-        const callsQuery = `
-          MATCH (n {name: $name})-[r:CALLS]->(target)
-          RETURN target.name as name, ${firstLabelExpr} as type, target.filePath as filePath
-          LIMIT 20
-        `;
-        const callsResult = await client.roQuery<{
-          name: string;
-          type: string;
-          filePath: string;
-        }>(callsQuery, { params: { name: input.symbol } });
-
-        for (const row of callsResult.data ?? []) {
+        for (const call of calls) {
           relationships.push({
-            name: row.name,
-            type: row.type,
+            name: call.name,
+            type: call.type,
             relationship: 'CALLS',
-            filePath: row.filePath,
+            filePath: call.filePath,
           });
         }
       }
 
-      return {
-        entity,
-        relationships,
-      };
+      return { entity, relationships };
     }
 
     return { relationships: [] };
   } catch (error) {
-    logger.error('GetContext failed', { error });
     return {
       relationships: [],
       error: error instanceof Error ? error.message : 'Unknown error',

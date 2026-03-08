@@ -11,7 +11,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { getAnalyticsService } from '../services/analyticsService';
 import { getAnalyticsCache } from '../services/analyticsCache';
-import { getAnalyticsScheduler } from '../services/analyticsScheduler';
+import { getAnalyticsScheduler, type SchedulerConfig } from '../services/analyticsScheduler';
 import { createLogger } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'API:Analytics' });
@@ -341,7 +341,7 @@ analytics.put('/schedule', zValidator('json', scheduleConfigSchema), async (c) =
     const config = c.req.valid('json');
     
     const scheduler = getAnalyticsScheduler();
-    scheduler.updateConfig(config as any);
+    scheduler.updateConfig(config as Partial<SchedulerConfig>);
     
     return c.json({ 
       success: true, 

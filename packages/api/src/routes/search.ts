@@ -5,22 +5,23 @@
  */
 
 import { Hono } from 'hono';
-import type { SearchResult, NodeLabel } from '@codegraph/graph';
-import { getQueries, getOperations } from '../model';
+import type { SearchResult, NodeLabel } from '@codegraph/types';
+import { codeGraphService } from '@codegraph/core';
+import { getOperations } from '../model';
 
 const search = new Hono();
 
 /**
  * GET /api/search
  * Search entities by name using fuzzy matching
- * 
+ *
  * @query q - Search query string (required)
  * @query types - Comma-separated node types to filter (e.g., "Function,Class")
  * @query limit - Maximum results to return (default: 50)
  * @query page - Page number for pagination (default: 1)
  * @query projectId - Project ID to filter by
  * @returns Search results with query echo, count, and pagination
- * 
+ *
  * @example
  * GET /api/search?q=processPayment&types=Function&limit=10&projectId=abc-123
  */
@@ -61,10 +62,30 @@ search.get('/', async (c) => {
     rootPath = project?.rootPath;
   }
 
-  const queries = await getQueries();
-  // Note: The underlying search doesn't support pagination yet, 
-  // so we fetch more and slice. For true pagination, use /api/nodes.
-  const allResults = await queries.search(q, types, limit * page);
+  // Map multi-type filter to service single-type (or 'all' with client-side filtering)
+  let serviceType: 'all' | 'file' | 'function' | 'class' | 'interface' | 'component' = 'all';
+  if (types && types.length === 1) {
+    serviceType = types[0]!.toLowerCase() as typeof serviceType;
+  }
+
+  const result = await codeGraphService.search(q, { type: serviceType, limit: limit * page });
+
+  // Map service results to SearchResult format (with generated id)
+  let allResults: SearchResult[] = result.results.map(r => {
+    const sr: SearchResult = {
+      id: r.type === 'File' ? `File:${r.filePath}` : `${r.type}:${r.filePath}:${r.name}:${r.line ?? 0}`,
+      name: r.name,
+      type: r.type as NodeLabel,
+      filePath: r.filePath,
+    };
+    if (r.line !== undefined) sr.line = r.line;
+    return sr;
+  });
+
+  // Filter by types client-side if multiple types specified
+  if (types && types.length > 1) {
+    allResults = allResults.filter(r => types.includes(r.type));
+  }
 
   // Filter by rootPath if specified
   const filteredResults = rootPath
@@ -92,4 +113,3 @@ search.get('/', async (c) => {
 });
 
 export { search };
-

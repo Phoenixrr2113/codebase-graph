@@ -6,6 +6,9 @@
 import type { DatabaseDriver, DriverConfig, CypherDialect } from '../driver';
 import type { QueryParams } from '../client';
 import { ALL_DDL, VECTOR_INDEX_STMTS } from './kuzu-schema';
+import { createLogger } from '@codegraph/logger';
+
+const logger = createLogger({ namespace: 'Graph:Kuzu' });
 
 // ============================================================================
 // Kuzu Dialect
@@ -155,7 +158,7 @@ export class KuzuDriver implements DatabaseDriver {
         if (!msg.includes('already exists') && !msg.includes('already created')) {
           // Log but don't throw — vector indexes are non-critical for schema creation
           // They're needed for semantic search but the tables still work without them
-          console.warn(`KuzuDriver: vector index warning: ${msg}`);
+          logger.warn('Vector index warning', { message: msg });
         }
       }
     }

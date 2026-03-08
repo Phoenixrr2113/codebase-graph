@@ -34,6 +34,7 @@ export async function getNeighbors(
   depth: number = 1
 ): Promise<NeighborsResult> {
   const client = await getClient();
+  const dialect = client.dialect;
 
   // Parse the generated ID to extract the actual path/name
   // File IDs: "File:/path/to/file.ts"
@@ -55,7 +56,7 @@ export async function getNeighbors(
 
   // Add edge type filter if specified
   const edgeTypeFilter = edgeTypes && edgeTypes.length > 0
-    ? `AND type(r) IN [${edgeTypes.map(t => `'${t}'`).join(', ')}]`
+    ? `AND ${dialect.typeExpr('r')} IN [${edgeTypes.map(t => `'${t}'`).join(', ')}]`
     : '';
 
   // Build WHERE clause to match center node by path or name+filePath+line
@@ -97,7 +98,7 @@ export async function getNeighbors(
     WHERE ${centerMatch}
     MATCH ${cypherMatch}
     WHERE neighbor.path IS NOT NULL OR neighbor.name IS NOT NULL ${edgeTypeFilter}
-    RETURN DISTINCT neighbor, labels(neighbor) as neighborLabels, r, type(r) as rType
+    RETURN DISTINCT neighbor, ${dialect.labelsExpr('neighbor')} as neighborLabels, r, ${dialect.typeExpr('r')} as rType
     LIMIT $limit
   `, { params: queryParams });
 

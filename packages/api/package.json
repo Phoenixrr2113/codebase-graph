@@ -16,7 +16,6 @@
     "@codegraph/core": "workspace:*",
     "@codegraph/graph": "workspace:*",
     "@codegraph/logger": "workspace:*",
-    "@codegraph/parser": "workspace:*",
     "@codegraph/types": "workspace:*",
     "glob": "^10.3.10",
     "@hono/node-server": "^1.19.8",

@@ -2,27 +2,24 @@
  * MCP Tool: trace_data_flow
  *
  * Track how data flows from source to sink.
- * Uses @codegraph/parser dataflow analysis with tree-sitter.
+ * Uses @codegraph/core dataflow analysis with tree-sitter.
  */
 
-import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
 import {
   initParser,
   parseCode,
   analyzeDataflow,
   type DataflowAnalysisResult,
-} from '@codegraph/parser';
+} from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
-export const TraceDataFlowInputSchema = z.object({
-  source: z.string().describe('Starting point (e.g. request.body)'),
-  sink: z.string().optional().describe('Ending point (optional)'),
-  file: z.string().optional().describe('File to analyze'),
-});
-
-export type TraceDataFlowInput = z.infer<typeof TraceDataFlowInputSchema>;
+export interface TraceDataFlowInput {
+  source: string;
+  sink?: string;
+  file?: string;
+}
 
 // Data flow path type
 export interface DataFlowPath {

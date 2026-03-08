@@ -7,7 +7,6 @@
  * (indexing new projects, deleting removed ones).
  */
 
-import { z } from 'zod';
 import { createOperations } from '@codegraph/graph';
 import {
   getGraphClient, loadConfig, setActiveProjects,
@@ -22,18 +21,10 @@ const logger = createLogger({ namespace: 'MCP:ConfigureProjects' });
 // Schema
 // ============================================================================
 
-export const ConfigureProjectsInputSchema = z.object({
-  action: z
-    .enum(['list', 'set', 'add', 'remove', 'status'])
-    .default('status')
-    .describe('Action to perform'),
-  projects: z
-    .array(z.string())
-    .optional()
-    .describe('Project names or paths for set/add/remove actions'),
-});
-
-export type ConfigureProjectsInput = z.infer<typeof ConfigureProjectsInputSchema>;
+export interface ConfigureProjectsInput {
+  action?: 'list' | 'set' | 'add' | 'remove' | 'status';
+  projects?: string[];
+}
 
 export interface ConfigureProjectsOutput {
   /** Current setup status */

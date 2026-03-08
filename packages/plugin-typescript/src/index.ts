@@ -1,9 +1,8 @@
 /**
  * @codegraph/plugin-typescript
  * TypeScript/JavaScript/React language plugin for CodeGraph
- * 
- * Phase 1: Provides grammar lookup only
- * Phase 2: Will include extractors (future migration)
+ *
+ * Provides grammar lookup and entity extraction for TS/JS/React files.
  */
 
 import TypeScript from 'tree-sitter-typescript';
@@ -64,3 +63,82 @@ export const grammars = {
   javascript: tsLanguage,
   jsx: tsxLanguage,
 };
+
+// Import extractors for plugin object
+import {
+  extractImports as _extractImports,
+  extractFunctions as _extractFunctions,
+  extractClasses as _extractClasses,
+  extractVariables as _extractVariables,
+  extractTypes as _extractTypes,
+  extractInterfaces as _extractInterfaces,
+  extractComponents as _extractComponents,
+  extractCalls as _extractCalls,
+  extractRenders as _extractRenders,
+  extractInheritance as _extractInheritance,
+  extractAllEntities as _extractAllEntities,
+} from './extractors';
+
+// Plugin object implementing LanguagePlugin interface
+export const typescriptPlugin = {
+  id: 'typescript',
+  displayName: 'TypeScript/JavaScript',
+  extensions: ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'],
+  getGrammar() {
+    // Default to TypeScript grammar; use getGrammarForExtension for specific extensions
+    return tsLanguage;
+  },
+  extractors: {
+    extractFunctions: _extractFunctions,
+    extractClasses: _extractClasses,
+    extractVariables: _extractVariables,
+    extractImports: _extractImports,
+    extractInterfaces: _extractInterfaces,
+    extractTypes: _extractTypes,
+    extractComponents: _extractComponents,
+    extractCalls: _extractCalls,
+    extractRenders: _extractRenders,
+    extractInheritance: _extractInheritance,
+  },
+  extractAllEntities: _extractAllEntities,
+};
+
+// Entity extractors
+export {
+  extractImports,
+  extractFunctions,
+  extractClasses,
+  extractVariables,
+  extractTypes,
+  extractInterfaces,
+  extractComponents,
+  extractCalls,
+  extractRenders,
+  extractInheritance,
+  extractAllEntities,
+  getLocation,
+  findNodesOfType,
+  generateEntityId,
+} from './extractors';
+
+export type {
+  ExtractedEntities,
+  SourceLocation,
+  CallReference,
+  RenderReference,
+  ExtendsReference,
+  ImplementsReference,
+  InheritanceResult,
+} from './extractors';
+
+// Complexity metrics (used by function extractor and analysis pipeline)
+export {
+  calculateComplexity,
+  calculateCyclomatic,
+  calculateCognitive,
+  calculateNestingDepth,
+  classifyComplexity,
+  COMPLEXITY_THRESHOLDS,
+} from './complexity';
+
+export type { ComplexityMetrics } from './complexity';

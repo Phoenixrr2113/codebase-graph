@@ -1,7 +1,7 @@
 /**
  * Core Indexer
  *
- * Uses @codegraph/parser's extraction pipeline to index projects into the graph.
+ * Uses the internal pipeline module to index projects into the graph.
  * Shared by MCP server, API, and CLI.
  */
 
@@ -15,7 +15,7 @@ import {
   countEdges,
   SUPPORTED_EXTENSIONS,
   DEFAULT_IGNORE_PATTERNS,
-} from '@codegraph/parser';
+} from './pipeline';
 import { createOperations, type GraphClient } from '@codegraph/graph';
 import type { ProjectEntity } from '@codegraph/types';
 import { getGraphClient } from './graphClient';

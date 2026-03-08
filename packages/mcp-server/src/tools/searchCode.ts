@@ -5,20 +5,16 @@
  * Queries graph for matching symbols.
  */
 
-import { z } from 'zod';
-import { getGraphClient } from '@codegraph/core';
+import { codeGraphService } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
-export const SearchCodeInputSchema = z.object({
-  query: z.string().describe('Search query'),
-  type: z.enum(['name', 'fulltext', 'pattern']).default('name')
-    .describe('Search type: name (exact match), fulltext (text search), pattern (AST pattern)'),
-  scope: z.string().default('all').describe('Limit search to specific scope'),
-  language: z.string().optional().describe('Filter by programming language'),
-});
-
-export type SearchCodeInput = z.infer<typeof SearchCodeInputSchema>;
+export interface SearchCodeInput {
+  query: string;
+  type?: 'name' | 'fulltext' | 'pattern';
+  scope?: string;
+  language?: string;
+}
 
 // Search result type
 export interface SearchResult {
@@ -73,70 +69,20 @@ export const searchCodeToolDefinition: ToolDefinition = {
 export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutput> {
   try {
     if (!input.query || input.query.trim() === '') {
-      return {
-        results: [],
-        total: 0,
-        error: 'Search query is required',
-      };
+      return { results: [], total: 0, error: 'Search query is required' };
     }
 
-    const client = await getGraphClient();
-    const dialect = client.dialect;
-    const lc = dialect.labelCheckExpr.bind(dialect);
-    const firstLabel = dialect.firstLabelExpr('n');
-    const scope = input.scope === 'all' ? '' : input.scope;
+    const serviceResults = await codeGraphService.searchCode(input.query, {
+      ...(input.type != null && { type: input.type }),
+      ...(input.scope != null && { scope: input.scope }),
+    });
 
-    // Build Cypher query based on search type — use dialect-aware expressions
-    let cypher: string;
-    const scopeFilter = scope ? 'AND n.filePath STARTS WITH $scope' : '';
-    const labelFilter = `(${['Function', 'Class', 'Interface', 'Variable', 'Component'].map(l => lc('n', l)).join(' OR ')})`;
-
-    if (input.type === 'name') {
-      // Exact or contains match on name
-      cypher = `
-        MATCH (n)
-        WHERE ${labelFilter}
-          AND n.name CONTAINS $query ${scopeFilter}
-        RETURN n.name as name, ${firstLabel} as kind, n.filePath as file, n.startLine as line
-        ORDER BY n.name
-        LIMIT 50
-      `;
-    } else {
-      // For fulltext and pattern, fall back to name search for now
-      // TODO: Implement fulltext index search when available
-      cypher = `
-        MATCH (n)
-        WHERE ${labelFilter}
-          AND toLower(n.name) CONTAINS toLower($query) ${scopeFilter}
-        RETURN n.name as name, ${firstLabel} as kind, n.filePath as file, n.startLine as line
-        ORDER BY n.name
-        LIMIT 50
-      `;
-    }
-
-    type ResultRow = { name: string; kind: string; file: string; line: number };
-
-    // Only pass params that are actually referenced in the query
-    const params: Record<string, string | number | boolean | null | Array<unknown>> = { query: input.query };
-    if (scope) params.scope = scope;
-
-    const result = await client.roQuery<ResultRow>(
-      cypher,
-      { params }
-    );
-
-    const results: SearchResult[] = result.data.map(row => ({
-      name: row.name ?? 'unknown',
-      kind: (row.kind ?? 'unknown').toLowerCase(),
-      file: row.file ?? '',
-      line: row.line ?? 0,
-      match: row.name ?? '',
+    const results: SearchResult[] = serviceResults.map(r => ({
+      ...r,
+      match: r.name,
     }));
 
-    return {
-      results,
-      total: results.length,
-    };
+    return { results, total: results.length };
   } catch (error) {
     return {
       results: [],

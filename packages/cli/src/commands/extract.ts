@@ -12,7 +12,7 @@ import {
   countEdges,
   SUPPORTED_EXTENSIONS,
   DEFAULT_IGNORE_PATTERNS,
-} from '@codegraph/parser';
+} from '@codegraph/core';
 import { glob } from 'glob';
 import { resolve } from 'path';
 import { connectGraph } from '../graphConnection';

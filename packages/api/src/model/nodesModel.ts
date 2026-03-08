@@ -89,17 +89,18 @@ export async function getNodes(options: NodesQueryOptions = {}): Promise<Paginat
   const effectiveLimit = Math.min(limit, MAX_LIMIT);
   const skip = (page - 1) * effectiveLimit;
   const client = await getClient();
+  const dialect = client.dialect;
 
   // Build type filter
   const typeLabels = types && types.length > 0
     ? types
     : ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component'];
 
-  const typeCondition = typeLabels.map(t => `n:${t}`).join(' OR ');
+  const typeCondition = typeLabels.map(t => dialect.labelCheckExpr('n', t)).join(' OR ');
 
   // Build path filter for project scoping
   const pathFilter = rootPath
-    ? `AND (CASE WHEN n:File THEN n.path ELSE n.filePath END) STARTS WITH $rootPath`
+    ? `AND (CASE WHEN ${dialect.labelCaseExpr('n', 'File')} THEN n.path ELSE n.filePath END) STARTS WITH $rootPath`
     : '';
 
   // Build search filter
@@ -125,8 +126,8 @@ export async function getNodes(options: NodesQueryOptions = {}): Promise<Paginat
   const dataQuery = `
     MATCH (n)
     WHERE (${typeCondition}) ${pathFilter} ${searchFilter}
-    RETURN n, labels(n) as labels
-    ORDER BY CASE WHEN n:File THEN n.path ELSE n.name END
+    RETURN n, ${dialect.labelsExpr('n')} as labels
+    ORDER BY CASE WHEN ${dialect.labelCaseExpr('n', 'File')} THEN n.path ELSE n.name END
     SKIP $skip
     LIMIT $limit
   `;

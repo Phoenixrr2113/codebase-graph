@@ -2,27 +2,17 @@
  * MCP Tool: analyze_file_for_refactoring
  *
  * Analyze a file for refactoring opportunities.
- * Uses @codegraph/parser refactoring analysis module.
+ * Uses @codegraph/core refactoring analysis module.
  */
 
-import { z } from 'zod';
-import { getGraphClient } from '@codegraph/core';
-import {
-  analyzeRefactoring,
-  getExtractionCandidatesQuery,
-  getInternalCallsQuery,
-  getRefactoringSummary,
-  type RefactoringAnalysisInput,
-} from '@codegraph/parser';
+import { codeGraphService } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
-export const AnalyzeRefactoringInputSchema = z.object({
-  file: z.string().describe('File path to analyze'),
-  threshold: z.number().default(3).describe('Coupling score threshold for extraction'),
-});
-
-export type AnalyzeRefactoringInput = z.infer<typeof AnalyzeRefactoringInputSchema>;
+export interface AnalyzeRefactoringInput {
+  file: string;
+  threshold?: number;
+}
 
 // Extraction candidate type
 export interface ExtractionCandidate {
@@ -81,98 +71,28 @@ export async function analyzeFileForRefactoring(input: AnalyzeRefactoringInput):
   try {
     if (!input.file || input.file.trim() === '') {
       return {
-        file: '',
-        totalFunctions: 0,
-        extractionCandidates: [],
-        responsibilities: [],
-        averageCouplingScore: 0,
-        couplingLevel: 'low',
-        summary: '',
-        error: 'File path is required',
+        file: '', totalFunctions: 0, extractionCandidates: [], responsibilities: [],
+        averageCouplingScore: 0, couplingLevel: 'low', summary: '', error: 'File path is required',
       };
     }
 
-    const client = await getGraphClient();
-    const threshold = input.threshold ?? 3;
-
-    // Query graph for function coupling data
-    const candidatesQuery = getExtractionCandidatesQuery(input.file);
-    const callsQuery = getInternalCallsQuery(input.file);
-
-    type FunctionRow = {
-      name: string;
-      startLine: number;
-      endLine: number;
-      internalCalls: number;
-      stateReads: number;
-    };
-
-    type CallRow = {
-      caller: string;
-      callee: string;
-    };
-
-    const [functionsResult, callsResult] = await Promise.all([
-      client.roQuery<FunctionRow>(candidatesQuery),
-      client.roQuery<CallRow>(callsQuery),
-    ]);
-
-    // Build input for analysis
-    const analysisInput: RefactoringAnalysisInput = {
-      file: input.file,
-      functions: functionsResult.data.map(f => ({
-        name: f.name ?? 'unknown',
-        startLine: f.startLine ?? 0,
-        endLine: f.endLine ?? 0,
-        internalCalls: f.internalCalls ?? 0,
-        stateReads: f.stateReads ?? 0,
-      })),
-      callRelationships: callsResult.data.map(c => ({
-        caller: c.caller ?? '',
-        callee: c.callee ?? '',
-      })),
-    };
-
-    // Run analysis
-    const result = analyzeRefactoring(analysisInput, {
-      extractionThreshold: threshold,
-      detectResponsibilities: true,
-    });
-
-    // Map results to output format
-    const extractionCandidates: ExtractionCandidate[] = result.extractionCandidates.map(c => ({
-      name: c.name,
-      couplingScore: c.couplingScore,
-      internalCalls: c.internalCalls,
-      stateReads: c.stateReads,
-      startLine: c.startLine,
-      endLine: c.endLine,
-    }));
-
-    const responsibilities: DetectedResponsibility[] = result.responsibilities.map(r => ({
-      name: r.name,
-      functions: r.functions,
-      extractionOrder: r.extractionOrder,
-    }));
+    const refactoringOpts: { threshold?: number } = {};
+    if (input.threshold != null) refactoringOpts.threshold = input.threshold;
+    const result = await codeGraphService.analyzeRefactoring(input.file, refactoringOpts);
 
     return {
-      file: input.file,
+      file: result.file,
       totalFunctions: result.totalFunctions,
-      extractionCandidates,
-      responsibilities,
-      averageCouplingScore: Math.round(result.averageCouplingScore * 10) / 10,
+      extractionCandidates: result.extractionCandidates,
+      responsibilities: result.responsibilities,
+      averageCouplingScore: result.averageCouplingScore,
       couplingLevel: result.couplingLevel,
-      summary: getRefactoringSummary(result),
+      summary: result.summary,
     };
   } catch (error) {
     return {
-      file: input.file,
-      totalFunctions: 0,
-      extractionCandidates: [],
-      responsibilities: [],
-      averageCouplingScore: 0,
-      couplingLevel: 'low',
-      summary: '',
+      file: input.file, totalFunctions: 0, extractionCandidates: [], responsibilities: [],
+      averageCouplingScore: 0, couplingLevel: 'low', summary: '',
       error: error instanceof Error ? error.message : 'Unknown error analyzing file for refactoring',
     };
   }

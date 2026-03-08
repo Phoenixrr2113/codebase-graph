@@ -216,9 +216,6 @@ importers:
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger
-      '@codegraph/parser':
-        specifier: workspace:*
-        version: link:../parser
       '@codegraph/types':
         specifier: workspace:*
         version: link:../types
@@ -274,9 +271,6 @@ importers:
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger
-      '@codegraph/parser':
-        specifier: workspace:*
-        version: link:../parser
       '@codegraph/types':
         specifier: workspace:*
         version: link:../types
@@ -308,19 +302,34 @@ importers:
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger
-      '@codegraph/parser':
+      '@codegraph/plugin-csharp':
         specifier: workspace:*
-        version: link:../parser
+        version: link:../plugin-csharp
+      '@codegraph/plugin-markdown':
+        specifier: workspace:*
+        version: link:../plugin-markdown
+      '@codegraph/plugin-python':
+        specifier: workspace:*
+        version: link:../plugin-python
+      '@codegraph/plugin-typescript':
+        specifier: workspace:*
+        version: link:../plugin-typescript
       '@codegraph/types':
         specifier: workspace:*
         version: link:../types
       glob:
         specifier: ^10.3.10
         version: 10.5.0
+      tree-sitter:
+        specifier: ^0.21.1
+        version: 0.21.1
     devDependencies:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
   packages/graph:
     dependencies:
@@ -364,12 +373,9 @@ importers:
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger
-      '@codegraph/nlp':
+      '@codegraph/plugin-nlp':
         specifier: workspace:*
-        version: link:../nlp
-      '@codegraph/parser':
-        specifier: workspace:*
-        version: link:../parser
+        version: link:../plugin-nlp
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.0
         version: 1.25.3(hono@4.11.4)(zod@3.25.76)
@@ -394,65 +400,6 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.0.4
-        version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
-
-  packages/nlp:
-    dependencies:
-      '@codegraph/graph':
-        specifier: workspace:*
-        version: link:../graph
-      '@codegraph/logger':
-        specifier: workspace:*
-        version: link:../logger
-      '@codegraph/types':
-        specifier: workspace:*
-        version: link:../types
-      '@openrouter/ai-sdk-provider':
-        specifier: ^1.5.4
-        version: 1.5.4(ai@6.0.116(zod@3.25.76))(zod@3.25.76)
-      ai:
-        specifier: ^6.0.0
-        version: 6.0.116(zod@3.25.76)
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.7
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-      vitest:
-        specifier: ^4.0.0
-        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
-
-  packages/parser:
-    dependencies:
-      '@codegraph/logger':
-        specifier: workspace:*
-        version: link:../logger
-      '@codegraph/plugin-csharp':
-        specifier: workspace:*
-        version: link:../plugin-csharp
-      '@codegraph/plugin-python':
-        specifier: workspace:*
-        version: link:../plugin-python
-      '@codegraph/plugin-typescript':
-        specifier: workspace:*
-        version: link:../plugin-typescript
-      '@codegraph/types':
-        specifier: workspace:*
-        version: link:../types
-      tree-sitter:
-        specifier: ^0.21.1
-        version: 0.21.1
-    devDependencies:
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
   packages/plugin-csharp:
@@ -513,6 +460,37 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
+
+  packages/plugin-nlp:
+    dependencies:
+      '@codegraph/graph':
+        specifier: workspace:*
+        version: link:../graph
+      '@codegraph/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@codegraph/types':
+        specifier: workspace:*
+        version: link:../types
+      '@openrouter/ai-sdk-provider':
+        specifier: ^1.5.4
+        version: 1.5.4(ai@6.0.116(zod@3.25.76))(zod@3.25.76)
+      ai:
+        specifier: ^6.0.0
+        version: 6.0.116(zod@3.25.76)
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.7
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.0
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
   packages/plugin-python:
     dependencies:

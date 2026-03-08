@@ -4,19 +4,15 @@
  * Find a symbol by name and return its definition with source code.
  */
 
-import { z } from 'zod';
-import { getGraphClient } from '@codegraph/core';
+import { codeGraphService } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
-export const FindSymbolInputSchema = z.object({
-  name: z.string().describe('Symbol name to search for'),
-  kind: z.enum(['function', 'class', 'interface', 'variable', 'any']).default('any')
-    .describe('Type of symbol to search for'),
-  file: z.string().optional().describe('Limit search to a specific file'),
-});
-
-export type FindSymbolInput = z.infer<typeof FindSymbolInputSchema>;
+export interface FindSymbolInput {
+  name: string;
+  kind?: 'function' | 'class' | 'interface' | 'variable' | 'any';
+  file?: string;
+}
 
 // Symbol result type
 export interface SymbolResult {
@@ -71,81 +67,22 @@ export const findSymbolToolDefinition: ToolDefinition = {
 export async function findSymbol(input: FindSymbolInput): Promise<FindSymbolOutput> {
   try {
     if (!input.name || input.name.trim() === '') {
-      return {
-        found: false,
-        symbol: null,
-        error: 'Symbol name is required',
-      };
+      return { found: false, symbol: null, error: 'Symbol name is required' };
     }
 
-    const client = await getGraphClient();
-    const dialect = client.dialect;
-    const lc = dialect.labelCheckExpr.bind(dialect);
-    const labelsExpr = dialect.labelsExpr('n');
+    const opts: { kind?: 'function' | 'class' | 'interface' | 'variable' | 'any'; file?: string } = {};
+    if (input.kind != null) opts.kind = input.kind;
+    if (input.file) opts.file = input.file;
+    const result = await codeGraphService.findSymbol(input.name, opts);
 
-    // Map kind to graph node labels
-    const kindToLabel: Record<string, string> = {
-      'function': 'Function',
-      'class': 'Class',
-      'interface': 'Interface',
-      'variable': 'Variable',
-      'any': '',
-    };
-
-    const label = kindToLabel[input.kind] || '';
-
-    // Build Cypher query — use dialect-aware label expressions
-    let cypher: string;
-    const params: Record<string, string | number | boolean | null | Array<unknown>> = { name: input.name };
-    const anyLabelFilter = `(${['Function', 'Class', 'Interface', 'Variable'].map(l => lc('n', l)).join(' OR ')})`;
-
-    if (label && input.file) {
-      cypher = `MATCH (n:${label}) WHERE n.name = $name AND n.filePath CONTAINS $file RETURN n, ${labelsExpr} as labels LIMIT 10`;
-      params.file = input.file;
-    } else if (label) {
-      cypher = `MATCH (n:${label}) WHERE n.name = $name RETURN n, ${labelsExpr} as labels LIMIT 10`;
-    } else if (input.file) {
-      cypher = `MATCH (n) WHERE n.name = $name AND n.filePath CONTAINS $file AND ${anyLabelFilter} RETURN n, ${labelsExpr} as labels LIMIT 10`;
-      params.file = input.file;
-    } else {
-      cypher = `MATCH (n) WHERE n.name = $name AND ${anyLabelFilter} RETURN n, ${labelsExpr} as labels LIMIT 10`;
+    if (!result.symbol) {
+      return { found: false, symbol: null, error: `No symbol found matching "${input.name}"` };
     }
-
-    const result = await client.roQuery<{ n: Record<string, unknown>; labels: string | string[] }>(
-      cypher,
-      { params }
-    );
-
-    if (result.data.length === 0) {
-      return {
-        found: false,
-        symbol: null,
-        error: `No symbol found matching "${input.name}"`,
-      };
-    }
-
-    // Map results to SymbolResult — use dialect-aware normalization
-    const symbols: SymbolResult[] = result.data.map(row => {
-      const normalized = dialect.normalizeNode(row.n);
-      const props = normalized.properties;
-      const labelsArr = Array.isArray(row.labels) ? row.labels
-        : typeof row.labels === 'string' ? [row.labels]
-        : normalized.labels;
-      return {
-        name: props['name'] as string || 'unknown',
-        kind: (labelsArr[0] || 'unknown').toLowerCase(),
-        file: props['filePath'] as string || '',
-        line: props['startLine'] as number || props['line'] as number || 0,
-        endLine: props['endLine'] as number | undefined,
-        signature: props['signature'] as string | undefined,
-        complexity: props['complexity'] as number | undefined,
-      };
-    });
 
     return {
       found: true,
-      symbol: symbols[0] ?? null,
-      alternatives: symbols.length > 1 ? symbols.slice(1) : undefined,
+      symbol: result.symbol,
+      alternatives: result.alternatives,
     };
   } catch (error) {
     return {

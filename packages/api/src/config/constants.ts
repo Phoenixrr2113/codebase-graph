@@ -1,8 +1,7 @@
 /**
  * Shared constants for the API package
  *
- * Re-exported from @codegraph/parser for backward compatibility.
- * The canonical definitions now live in packages/parser/src/pipeline.ts.
+ * Re-exported from @codegraph/core.
  */
 
 export {
@@ -10,5 +9,5 @@ export {
   DEFAULT_IGNORE_PATTERNS,
   PYTHON_EXTENSIONS,
   CSHARP_EXTENSIONS,
-} from '@codegraph/parser';
+} from '@codegraph/core';
 

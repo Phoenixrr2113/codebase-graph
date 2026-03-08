@@ -334,13 +334,15 @@ function extractParameters(funcNode: SyntaxNode): { name: string; type?: string;
     if (child.type === 'parameter') {
       const nameNode = child.childForFieldName('name');
       const typeNode = child.childForFieldName('type');
-      const defaultValueNode = child.childForFieldName('default_value');
+      // In tree-sitter-c-sharp, optional parameters have an '=' token as a direct child
+      // followed by the default value expression. There is no 'default_value' field name.
+      const hasDefaultValue = child.children.some((c: SyntaxNode) => c.type === '=');
 
       if (nameNode) {
         params.push({
           name: nameNode.text,
           type: typeNode?.text,
-          optional: defaultValueNode !== null,
+          optional: hasDefaultValue,
         });
       }
     }
@@ -431,21 +433,35 @@ export function extractImports(root: SyntaxNode, filePath: string): ImportEntity
     const isStatic = node.children.some((c: SyntaxNode) => c.type === 'static');
 
     // Check for alias (using Alias = Namespace)
-    const nameEqualsNode = node.children.find((c: SyntaxNode) => c.type === 'name_equals');
+    // In tree-sitter-c-sharp, aliased using directives have an '=' token as a direct child.
+    // The alias name is the identifier before '=', and the target is after '='.
+    const hasEquals = node.children.some((c: SyntaxNode) => c.type === '=');
     let alias: string | undefined;
-    if (nameEqualsNode) {
-      const aliasIdentifier = nameEqualsNode.children.find((c: SyntaxNode) => c.type === 'identifier');
+    let nameNode: SyntaxNode | undefined;
+
+    if (hasEquals && !isStatic) {
+      // Aliased using: the first identifier is the alias, the qualified_name/identifier after '=' is the target
+      const aliasIdentifier = node.children.find((c: SyntaxNode) => c.type === 'identifier');
       if (aliasIdentifier) {
         alias = aliasIdentifier.text;
       }
+      // The target comes after the '=' token
+      const equalsIndex = node.children.findIndex((c: SyntaxNode) => c.type === '=');
+      for (let i = equalsIndex + 1; i < node.children.length; i++) {
+        const child = node.children[i];
+        if (child.type === 'identifier' || child.type === 'qualified_name' || child.type === 'alias_qualified_name') {
+          nameNode = child;
+          break;
+        }
+      }
+    } else {
+      // Non-aliased using: get the namespace/type being imported
+      nameNode = node.children.find((c: SyntaxNode) =>
+        c.type === 'identifier' ||
+        c.type === 'qualified_name' ||
+        c.type === 'alias_qualified_name'
+      );
     }
-
-    // Get the namespace/type being imported
-    const nameNode = node.children.find((c: SyntaxNode) =>
-      c.type === 'identifier' ||
-      c.type === 'qualified_name' ||
-      c.type === 'alias_qualified_name'
-    );
 
     if (!nameNode) continue;
 

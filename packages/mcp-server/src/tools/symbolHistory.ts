@@ -5,18 +5,15 @@
  * Queries graph for Commit nodes connected via temporal edges.
  */
 
-import { z } from 'zod';
-import { getGraphClient } from '@codegraph/core';
+import { codeGraphService } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
-export const SymbolHistoryInputSchema = z.object({
-  symbol: z.string().describe('Symbol name to get history for'),
-  file: z.string().optional().describe('File path to disambiguate symbol'),
-  limit: z.number().default(20).describe('Maximum number of commits to return'),
-});
-
-export type SymbolHistoryInput = z.infer<typeof SymbolHistoryInputSchema>;
+export interface SymbolHistoryInput {
+  symbol: string;
+  file?: string;
+  limit?: number;
+}
 
 // Change info type
 export interface ChangeInfo {
@@ -70,41 +67,15 @@ export const symbolHistoryToolDefinition: ToolDefinition = {
 export async function getSymbolHistory(input: SymbolHistoryInput): Promise<SymbolHistoryOutput> {
   try {
     if (!input.symbol || input.symbol.trim() === '') {
-      return {
-        symbol: '',
-        changes: [],
-        authors: [],
-        ageDays: 0,
-        changeFrequency: 0,
-        error: 'Symbol name is required',
-      };
+      return { symbol: '', changes: [], authors: [], ageDays: 0, changeFrequency: 0, error: 'Symbol name is required' };
     }
 
-    const client = await getGraphClient();
-    const dialect = client.dialect;
-    const lc = dialect.labelCheckExpr.bind(dialect);
-    const limit = input.limit ?? 20;
+    const opts: { file?: string; limit?: number } = {};
+    if (input.limit != null) opts.limit = input.limit;
+    if (input.file) opts.file = input.file;
+    const result = await codeGraphService.getSymbolHistory(input.symbol, opts);
 
-    // First find the symbol's file
-    let filePath: string | undefined = input.file;
-
-    if (!filePath) {
-      const labelFilter = `(${['Function', 'Class', 'Interface', 'Variable'].map(l => lc('n', l)).join(' OR ')})`;
-      const symbolQuery = `
-        MATCH (n)
-        WHERE ${labelFilter}
-          AND n.name = $symbol
-        RETURN n.filePath as file
-        LIMIT 1
-      `;
-      const symbolResult = await client.roQuery<{ file: string }>(
-        symbolQuery,
-        { params: { symbol: input.symbol } }
-      );
-      filePath = symbolResult.data[0]?.file;
-    }
-
-    if (!filePath) {
+    if (result.changes.length === 0 && !result.file) {
       return {
         symbol: input.symbol,
         changes: [],
@@ -115,65 +86,13 @@ export async function getSymbolHistory(input: SymbolHistoryInput): Promise<Symbo
       };
     }
 
-    // Query commits that modified the file containing this symbol
-    const historyQuery = `
-      MATCH (f:File {path: $filePath})-[r:MODIFIED_IN]->(c:Commit)
-      RETURN c.hash as commitHash,
-             c.message as message,
-             c.author as author,
-             c.date as date,
-             r.linesAdded as linesAdded,
-             r.linesRemoved as linesRemoved
-      ORDER BY c.date DESC
-      LIMIT $limit
-    `;
-
-    type HistoryRow = {
-      commitHash: string;
-      message: string;
-      author: string;
-      date: string;
-      linesAdded?: number;
-      linesRemoved?: number;
-    };
-
-    const result = await client.roQuery<HistoryRow>(
-      historyQuery,
-      { params: { filePath, limit } }
-    );
-
-    const changes: ChangeInfo[] = result.data.map(row => ({
-      date: row.date ?? '',
-      author: row.author ?? 'unknown',
-      message: row.message ?? '',
-      commitHash: row.commitHash ?? '',
-      linesAdded: row.linesAdded,
-      linesRemoved: row.linesRemoved,
-    }));
-
-    // Calculate unique authors
-    const authors = [...new Set(changes.map(c => c.author))];
-
-    // Calculate age in days (from oldest commit to now)
-    let ageDays = 0;
-    if (changes.length > 0) {
-      const oldestDate = changes[changes.length - 1]?.date;
-      if (oldestDate) {
-        const date = new Date(oldestDate);
-        ageDays = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
-      }
-    }
-
-    // Calculate change frequency (commits per month)
-    const changeFrequency = ageDays > 0 ? Math.round((changes.length / ageDays) * 30 * 10) / 10 : 0;
-
     return {
       symbol: input.symbol,
-      file: filePath,
-      changes,
-      authors,
-      ageDays,
-      changeFrequency,
+      file: result.file,
+      changes: result.changes,
+      authors: result.authors,
+      ageDays: result.ageDays,
+      changeFrequency: result.changeFrequency,
     };
   } catch (error) {
     return {

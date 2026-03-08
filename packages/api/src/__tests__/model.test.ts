@@ -4,10 +4,24 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Mock dialect matching FalkorDB behavior
+const mockDialect = {
+  driverType: 'falkordb' as const,
+  labelsExpr: (alias: string) => `labels(${alias})`,
+  firstLabelExpr: (alias: string) => `labels(${alias})[0]`,
+  typeExpr: (alias: string) => `type(${alias})`,
+  labelCheckExpr: (alias: string, label: string) => `${alias}:${label}`,
+  labelCaseExpr: (alias: string, label: string) => `${alias}:${label}`,
+  supportsOnCreateOnMatch: true,
+  normalizeNode: (raw: unknown) => ({ labels: [], properties: raw as Record<string, unknown> }),
+  normalizeEdge: (raw: unknown) => ({ type: '', properties: raw as Record<string, unknown> }),
+};
+
 // Mock the graph client
 const mockClient = {
   roQuery: vi.fn().mockResolvedValue({ data: [], metadata: null }),
   close: vi.fn().mockResolvedValue(undefined),
+  dialect: mockDialect,
 };
 
 vi.mock('@codegraph/core', () => ({
@@ -26,7 +40,6 @@ vi.mock('@codegraph/graph', () => ({
     getFullGraph: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
     getFileSubgraph: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
     getStats: vi.fn().mockResolvedValue({ totalNodes: 0, totalEdges: 0 }),
-    search: vi.fn().mockResolvedValue([]),
   }),
 }));
 

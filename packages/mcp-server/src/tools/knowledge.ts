@@ -12,7 +12,7 @@
  * - get_knowledge_stats: Memory statistics (counts, relevance, age)
  */
 
-import { getKnowledgeOps } from '@codegraph/core';
+import { knowledgeService } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
 import type { ToolDefinition } from './consolidated';
 
@@ -207,21 +207,11 @@ export const knowledgeToolDefinitions: ToolDefinition[] = [
 
 export async function handleStoreEntity(args: Record<string, unknown>) {
   try {
-    const ops = await getKnowledgeOps();
-    const entity: { text: string; type: string; confidence: number; properties?: Record<string, unknown> } = {
-      text: args.text as string,
-      type: args.type as string,
-      confidence: (args.confidence as number) ?? 0.9,
-    };
-    if (args.properties) entity.properties = args.properties as Record<string, unknown>;
-    const id = await ops.createEntity(entity);
-
-    return {
-      stored: true,
-      entityId: id,
-      text: args.text,
-      type: args.type,
-    };
+    const opts: { confidence?: number; properties?: Record<string, unknown> } = {};
+    if (args.confidence != null) opts.confidence = args.confidence as number;
+    if (args.properties != null) opts.properties = args.properties as Record<string, unknown>;
+    const result = await knowledgeService.storeEntity(args.text as string, args.type as string, opts);
+    return { stored: true, ...result };
   } catch (error) {
     logger.error('store_entity failed', error);
     return { error: error instanceof Error ? error.message : 'Unknown error' };
@@ -230,24 +220,14 @@ export async function handleStoreEntity(args: Record<string, unknown>) {
 
 export async function handleStoreRelationship(args: Record<string, unknown>) {
   try {
-    const ops = await getKnowledgeOps();
-    const rel: { headText: string; headType: string; tailText: string; tailType: string; type: string; confidence: number; fact?: string } = {
-      headText: args.headText as string,
-      headType: args.headType as string,
-      tailText: args.tailText as string,
-      tailType: args.tailType as string,
-      type: args.type as string,
-      confidence: (args.confidence as number) ?? 0.9,
-    };
-    if (args.fact) rel.fact = args.fact as string;
-    await ops.createRelationship(rel);
-
-    return {
-      stored: true,
-      head: `${args.headText} (${args.headType})`,
-      tail: `${args.tailText} (${args.tailType})`,
-      type: args.type,
-    };
+    const opts: { confidence?: number; fact?: string } = {};
+    if (args.confidence != null) opts.confidence = args.confidence as number;
+    if (args.fact != null) opts.fact = args.fact as string;
+    return await knowledgeService.storeRelationship(
+      args.headText as string, args.headType as string,
+      args.tailText as string, args.tailType as string,
+      args.type as string, opts,
+    );
   } catch (error) {
     logger.error('store_relationship failed', error);
     return { error: error instanceof Error ? error.message : 'Unknown error' };
@@ -256,43 +236,11 @@ export async function handleStoreRelationship(args: Record<string, unknown>) {
 
 export async function handleStoreFact(args: Record<string, unknown>) {
   try {
-    // Dynamic import to avoid requiring @codegraph/nlp when not using this tool
-    const { extractAndStore } = await import('@codegraph/nlp');
-    const ops = await getKnowledgeOps();
-
-    const text = args.text as string;
-    if (!text || text.trim().length === 0) {
-      return { error: 'Text is required' };
-    }
-
-    const config: Record<string, unknown> = {};
-    if (args.model) {
-      config.extractor = { model: args.model as string };
-    }
-
-    const result = await extractAndStore(text, ops, config);
-
-    return {
-      stored: true,
-      entities: result.entities,
-      relationships: result.relationships,
-      sampleId: result.sampleId,
-      extracted: {
-        entities: result.annotated.entities.map(e => ({
-          text: e.text,
-          type: e.type,
-        })),
-        relationships: result.annotated.relationships.map(r => {
-          const head = result.annotated.entities.find(e => e.id === r.headEntityId);
-          const tail = result.annotated.entities.find(e => e.id === r.tailEntityId);
-          return {
-            head: head?.text,
-            tail: tail?.text,
-            type: r.type,
-          };
-        }),
-      },
-    };
+    // Dynamic import to avoid requiring @codegraph/plugin-nlp when not using this tool
+    const { extractAndStore } = await import('@codegraph/plugin-nlp');
+    const opts: { model?: string } = {};
+    if (args.model != null) opts.model = args.model as string;
+    return await knowledgeService.storeFact(args.text as string, extractAndStore, opts);
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     if (msg.includes('OPENROUTER_API_KEY') || msg.includes('API key')) {
@@ -305,13 +253,11 @@ export async function handleStoreFact(args: Record<string, unknown>) {
 
 export async function handleQueryKnowledge(args: Record<string, unknown>) {
   try {
-    const ops = await getKnowledgeOps();
-    const query: { type?: string; textContains?: string; limit?: number } = {
-      limit: (args.limit as number) ?? 20,
-    };
-    if (args.type) query.type = args.type as string;
-    if (args.textContains) query.textContains = args.textContains as string;
-    const results = await ops.searchEntities(query);
+    const query: { type?: string; textContains?: string; limit?: number } = {};
+    if (args.type != null) query.type = args.type as string;
+    if (args.textContains != null) query.textContains = args.textContains as string;
+    if (args.limit != null) query.limit = args.limit as number;
+    const results = await knowledgeService.queryKnowledge(query);
 
     return {
       count: results.length,
@@ -333,34 +279,11 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
 
 export async function handleRecall(args: Record<string, unknown>) {
   try {
-    const ops = await getKnowledgeOps();
-
-    // Touch the entity to refresh its relevance (it's being accessed)
-    const text = args.text as string;
-    const type = args.type as string | undefined;
-    if (type) {
-      await ops.touchEntity(text, type);
-    }
-
-    const relQuery: { entityText?: string; entityType?: string; relationType?: string; limit?: number } = {
-      entityText: text,
-      limit: (args.limit as number) ?? 50,
-    };
-    if (type) relQuery.entityType = type;
-    if (args.relationType) relQuery.relationType = args.relationType as string;
-    const rels = await ops.getRelationships(relQuery);
-
-    return {
-      entity: text,
-      relationshipCount: rels.length,
-      relationships: rels.map(r => ({
-        head: `${r.headText} (${r.headType})`,
-        tail: `${r.tailText} (${r.tailType})`,
-        type: r.relationType,
-        confidence: r.confidence,
-        fact: r.fact,
-      })),
-    };
+    const opts: { type?: string; relationType?: string; limit?: number } = {};
+    if (args.type != null) opts.type = args.type as string;
+    if (args.relationType != null) opts.relationType = args.relationType as string;
+    if (args.limit != null) opts.limit = args.limit as number;
+    return await knowledgeService.recall(args.text as string, opts);
   } catch (error) {
     logger.error('recall failed', error);
     return { error: error instanceof Error ? error.message : 'Unknown error' };
@@ -369,24 +292,14 @@ export async function handleRecall(args: Record<string, unknown>) {
 
 export async function handleDecayAndPrune(args: Record<string, unknown>) {
   try {
-    const ops = await getKnowledgeOps();
-
-    const decayConfig: Record<string, number> = {};
-    if (args.decayRate) decayConfig.decayRate = args.decayRate as number;
-    if (args.minRelevance) decayConfig.minRelevance = args.minRelevance as number;
-
-    const decayResult = await ops.decayRelevance(decayConfig);
-
-    let pruneResult = { pruned: 0 };
-    if (args.prune) {
-      const threshold = (args.minRelevance as number) ?? 0.1;
-      pruneResult = await ops.pruneOldEntities(threshold);
-    }
-
+    const opts: { prune?: boolean; decayRate?: number; minRelevance?: number } = {};
+    if (args.prune != null) opts.prune = args.prune as boolean;
+    if (args.decayRate != null) opts.decayRate = args.decayRate as number;
+    if (args.minRelevance != null) opts.minRelevance = args.minRelevance as number;
+    const result = await knowledgeService.decayAndPrune(opts);
     return {
-      decayed: decayResult.decayed,
-      pruned: pruneResult.pruned,
-      message: `Decayed ${decayResult.decayed} entities${args.prune ? `, pruned ${pruneResult.pruned}` : ''}`,
+      ...result,
+      message: `Decayed ${result.decayed} entities${args.prune ? `, pruned ${result.pruned}` : ''}`,
     };
   } catch (error) {
     logger.error('decay_and_prune failed', error);
@@ -396,16 +309,7 @@ export async function handleDecayAndPrune(args: Record<string, unknown>) {
 
 export async function handleGetKnowledgeStats() {
   try {
-    const ops = await getKnowledgeOps();
-    const stats = await ops.getMemoryStats();
-
-    return {
-      totalEntities: stats.totalEntities,
-      avgRelevance: Math.round(stats.avgRelevance * 1000) / 1000,
-      lowRelevanceCount: stats.lowRelevanceCount,
-      oldestAccess: stats.oldestAccess ? new Date(stats.oldestAccess).toISOString() : null,
-      newestAccess: stats.newestAccess ? new Date(stats.newestAccess).toISOString() : null,
-    };
+    return await knowledgeService.getKnowledgeStats();
   } catch (error) {
     logger.error('get_knowledge_stats failed', error);
     return { error: error instanceof Error ? error.message : 'Unknown error' };

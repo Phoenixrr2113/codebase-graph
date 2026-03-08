@@ -5,18 +5,15 @@
  * Queries graph for Function nodes with high complexity.
  */
 
-import { z } from 'zod';
-import { getGraphClient } from '@codegraph/core';
+import { codeGraphService } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
-export const ComplexityReportInputSchema = z.object({
-  scope: z.string().default('all').describe('Scope to analyze'),
-  threshold: z.number().default(10).describe('Minimum complexity threshold'),
-  sortBy: z.enum(['complexity', 'cognitive', 'nesting']).default('complexity'),
-});
-
-export type ComplexityReportInput = z.infer<typeof ComplexityReportInputSchema>;
+export interface ComplexityReportInput {
+  scope?: string;
+  threshold?: number;
+  sortBy?: 'complexity' | 'cognitive' | 'nesting';
+}
 
 // Hotspot type
 export interface ComplexityHotspot {
@@ -73,81 +70,17 @@ export const complexityReportToolDefinition: ToolDefinition = {
  */
 export async function getComplexityReport(input: ComplexityReportInput): Promise<ComplexityReportOutput> {
   try {
-    const client = await getGraphClient();
-    const threshold = input.threshold ?? 10;
-    const scope = input.scope === 'all' ? '' : input.scope;
+    const hotspotOpts: { threshold?: number; scope?: string; sortBy?: 'complexity' | 'cognitive' | 'nesting' } = {};
+    if (input.threshold != null) hotspotOpts.threshold = input.threshold;
+    if (input.scope != null) hotspotOpts.scope = input.scope;
+    if (input.sortBy != null) hotspotOpts.sortBy = input.sortBy;
+    const result = await codeGraphService.getComplexityHotspots(hotspotOpts);
 
-    // Query for functions with complexity data
-    const scopeFilter = scope ? 'AND f.filePath STARTS WITH $scope' : '';
-    const query = `
-      MATCH (f:Function)
-      WHERE f.complexity >= $threshold ${scopeFilter}
-      RETURN f.name as name,
-             f.filePath as file,
-             f.complexity as complexity,
-             coalesce(f.cognitiveComplexity, 0) as cognitive,
-             coalesce(f.nestingDepth, 0) as nesting,
-             CASE WHEN f.endLine IS NOT NULL AND f.startLine IS NOT NULL
-                  THEN f.endLine - f.startLine + 1 ELSE 0 END as lines
-      ORDER BY f.complexity DESC
-      LIMIT 50
-    `;
-
-    type HotspotRow = {
-      name: string;
-      file: string;
-      complexity: number;
-      cognitive: number;
-      nesting: number;
-      lines: number;
-    };
-
-    // Only include params that are actually referenced in the query
-    const queryParams: Record<string, string | number | boolean | null | Array<unknown>> = { threshold };
-    if (scope) queryParams.scope = scope;
-
-    const result = await client.roQuery<HotspotRow>(
-      query,
-      { params: queryParams }
-    );
-
-    // Get total function count for summary
-    const countQuery = scope
-      ? 'MATCH (f:Function) WHERE f.filePath STARTS WITH $scope RETURN count(f) as total, max(f.complexity) as maxC, avg(f.complexity) as avgC'
-      : 'MATCH (f:Function) RETURN count(f) as total, max(f.complexity) as maxC, avg(f.complexity) as avgC';
-
-    const countResult = await client.roQuery<{ total: number; maxC: number; avgC: number }>(
-      countQuery,
-      scope ? { params: { scope } } : undefined
-    );
-
-    const hotspots: ComplexityHotspot[] = result.data.map(row => ({
-      name: row.name ?? 'unknown',
-      file: row.file ?? '',
-      complexity: row.complexity ?? 0,
-      cognitive: row.cognitive ?? 0,
-      nesting: row.nesting ?? 0,
-      lines: row.lines ?? 0,
-    }));
-
-    return {
-      hotspots,
-      summary: {
-        totalFunctions: countResult.data[0]?.total ?? 0,
-        overThreshold: hotspots.length,
-        maxComplexity: countResult.data[0]?.maxC ?? 0,
-        avgComplexity: Math.round((countResult.data[0]?.avgC ?? 0) * 10) / 10,
-      },
-    };
+    return { hotspots: result.hotspots, summary: result.summary };
   } catch (error) {
     return {
       hotspots: [],
-      summary: {
-        totalFunctions: 0,
-        overThreshold: 0,
-        maxComplexity: 0,
-        avgComplexity: 0,
-      },
+      summary: { totalFunctions: 0, overThreshold: 0, maxComplexity: 0, avgComplexity: 0 },
       error: error instanceof Error ? error.message : 'Unknown error generating complexity report',
     };
   }

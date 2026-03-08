@@ -34,6 +34,7 @@ export async function getWithConnections(
   depth: number = 1
 ): Promise<EntityWithConnections | null> {
   const client = await getClient();
+  const dialect = client.dialect;
 
   const result = await client.roQuery<{
     n: Record<string, unknown>;
@@ -51,9 +52,9 @@ export async function getWithConnections(
     WHERE elementId(n) = $id OR n.path = $id OR (n.name + ':' + n.filePath) = $id
     OPTIONAL MATCH (inNode)-[inEdge]->(n)
     OPTIONAL MATCH (n)-[outEdge]->(outNode)
-    RETURN n, labels(n) as labels,
-           inEdge, type(inEdge) as inType, inNode, labels(inNode) as inLabels,
-           outEdge, type(outEdge) as outType, outNode, labels(outNode) as outLabels
+    RETURN n, ${dialect.labelsExpr('n')} as labels,
+           inEdge, ${dialect.typeExpr('inEdge')} as inType, inNode, ${dialect.labelsExpr('inNode')} as inLabels,
+           outEdge, ${dialect.typeExpr('outEdge')} as outType, outNode, ${dialect.labelsExpr('outNode')} as outLabels
     LIMIT $depth
   `, { params: { id, depth: depth * 10 } });
 

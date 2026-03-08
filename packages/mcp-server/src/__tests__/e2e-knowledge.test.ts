@@ -17,7 +17,7 @@
 
 import { describe, it, expect, afterAll } from 'vitest';
 import { MockLanguageModelV3 } from 'ai/test';
-import { extractAndStore } from '@codegraph/nlp';
+import { extractAndStore } from '@codegraph/plugin-nlp';
 import { handleToolCall } from '../tools/consolidated';
 import { teardownGraphClient, assertNoError } from './helpers';
 import { resetKnowledgeOps, getKnowledgeOps } from '@codegraph/core';
@@ -169,7 +169,7 @@ describe('E2E: knowledge graph lifecycle', () => {
 
 describe('E2E: NLP extraction → knowledge graph → MCP recall', () => {
   it('round-trips text through the full pipeline', async () => {
-    // Step 1: Use the extractAndStore function from @codegraph/nlp
+    // Step 1: Use the extractAndStore function from @codegraph/plugin-nlp
     //         with mock LLM to extract entities from text
     // Entity texts MUST appear as substrings in the sample text
     // (the EntityExtractor's parseResponse filters out entities not found in the text).

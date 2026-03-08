@@ -17,7 +17,7 @@ import {
   sortBySeverity,
   type SecurityFinding,
   type RefactoringAnalysisInput,
-} from '@codegraph/parser';
+} from '@codegraph/core';
 import { getClient } from '../model/graphClient';
 import { getAnalyticsCache } from './analyticsCache';
 import { getAnalyticsScheduler } from './analyticsScheduler';

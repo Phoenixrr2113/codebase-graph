@@ -35,3 +35,266 @@ export type { IndexStats, IndexResult } from './indexer';
 
 // Schema docs
 export { getSchemaDocumentation, getShortSchema } from './schema';
+
+// Analysis module (moved from @codegraph/parser in Phase 3B-2)
+
+// Analysis - Complexity
+export {
+  calculateComplexity,
+  calculateCyclomatic,
+  calculateCognitive,
+  calculateNestingDepth,
+  classifyComplexity,
+  COMPLEXITY_THRESHOLDS,
+} from './analysis';
+
+export type { ComplexityMetrics } from './analysis';
+
+// Analysis - Security
+export {
+  scanForVulnerabilities,
+  scanFile,
+  sortBySeverity,
+  severityToNumber,
+} from './analysis';
+
+export type {
+  SecurityFinding,
+  SecuritySeverity,
+  ScanOptions,
+} from './analysis';
+
+// Analysis - Payment
+export {
+  scanForPaymentVulnerabilities,
+  scanFileForPaymentIssues,
+  getPaymentVulnerabilityTypes,
+} from './analysis';
+
+export type { PaymentScanOptions } from './analysis';
+
+// Analysis - Impact
+export {
+  analyzeImpact,
+  classifyRisk,
+  calculateRiskScore,
+  getDirectCallersQuery,
+  getTransitiveCallersQuery,
+  getAffectedTestsQuery,
+  isTestFile,
+  getAffectedFiles,
+  groupCallersByFile,
+  getImpactSummary,
+  RISK_WEIGHTS,
+  RISK_THRESHOLDS,
+} from './analysis';
+
+export type {
+  ImpactAnalysisResult,
+  ImpactAnalysisInput,
+  ImpactAnalysisOptions,
+  CallerInfo,
+  TestInfo,
+} from './analysis';
+
+// Analysis - Refactoring
+export {
+  analyzeRefactoring,
+  classifyCouplingLevel,
+  calculateCouplingScore,
+  isSafeToExtract,
+  getExtractionCandidatesQuery,
+  getInternalCallsQuery,
+  getExtractionOrder,
+  getRefactoringSummary,
+  needsRefactoring,
+  DEFAULT_EXTRACTION_THRESHOLD,
+  COUPLING_THRESHOLDS,
+} from './analysis';
+
+export type {
+  FunctionCoupling,
+  Responsibility,
+  RefactoringAnalysisResult,
+  RefactoringAnalysisInput,
+  RefactoringAnalysisOptions,
+} from './analysis';
+
+// Analysis - Dataflow
+export {
+  analyzeDataflow,
+  isTaintSource,
+  isTaintSink,
+  isSanitizer,
+  getTaintSourcePatterns,
+  getTaintSinkPatterns,
+  getSanitizerPatterns,
+  getDataflowSummary,
+} from './analysis';
+
+export type {
+  TaintSource,
+  TaintSink,
+  TaintSourceCategory,
+  TaintSinkCategory,
+  FlowStep,
+  DataFlowPath,
+  DataflowAnalysisResult,
+  DataflowAnalysisOptions,
+} from './analysis';
+
+// Pipeline module (moved from @codegraph/parser in Phase 3B-3)
+
+// Parser core
+export {
+  initParser,
+  isInitialized,
+  parseCode,
+  parseFile,
+  parseFiles,
+  disposeParser,
+  getLanguageForExtension,
+} from './pipeline';
+
+export type { SyntaxTree, LanguageType } from './pipeline';
+
+// Extraction pipeline
+export {
+  createFileEntity,
+  extractEntitiesForFile,
+  enrichFunctionsWithComplexity,
+  buildParsedFileEntities,
+  countEntities,
+  countEdges,
+  getLanguageCategory,
+  isPythonFile,
+  isCSharpFile,
+  isMarkdownFile,
+  SUPPORTED_EXTENSIONS,
+  DEFAULT_IGNORE_PATTERNS,
+  PYTHON_EXTENSIONS,
+  CSHARP_EXTENSIONS,
+  MARKDOWN_EXTENSIONS,
+} from './pipeline';
+
+export type { PipelineOptions } from './pipeline';
+
+// Language registry
+export { languageRegistry } from './pipeline';
+export type { LanguageRegistry } from './pipeline';
+
+// Markdown document processing (via @codegraph/plugin-markdown)
+export {
+  parseMarkdownFile,
+  parseMarkdownContent,
+  isSupported as isMarkdownSupported,
+  getSupportedExtensions as getMarkdownExtensions,
+  parseMarkdown,
+} from '@codegraph/plugin-markdown';
+
+export type {
+  ParsedMarkdown,
+} from '@codegraph/plugin-markdown';
+
+// Service layer (Phase 3A)
+export { codeGraphService } from './service';
+export type { CodeGraphService } from './service';
+export type {
+  ServiceSearchResult,
+  ServiceSymbolResult,
+  ServiceCodeSearchResult,
+  ServiceEntityContext,
+  ServiceRelatedEntity,
+  ServiceDependencyInfo,
+  ServiceComplexityHotspot,
+  ServiceComplexitySummary,
+  ServiceProjectInfo,
+  ServiceChangeInfo,
+  ServiceImpactResult,
+  ServiceExtractionCandidate,
+  ServiceResponsibility,
+  ServiceRefactoringResult,
+} from './service';
+
+// Knowledge graph service layer
+export { knowledgeService } from './knowledgeService';
+export type { KnowledgeService } from './knowledgeService';
+export type {
+  KnowledgeStoreResult,
+  KnowledgeRelationshipStoreResult,
+  KnowledgeRecallResult,
+  KnowledgeFactResult,
+  KnowledgeMaintenanceResult,
+  KnowledgeStatsResult,
+  ExtractAndStoreFn,
+} from './knowledgeService';
+
+// Re-export knowledge graph types from @codegraph/graph
+export type {
+  KnowledgeEntity,
+  KnowledgeRelationship,
+  EntitySearchResult,
+  RelationshipResult,
+  MemoryStats,
+  DecayConfig,
+} from '@codegraph/graph';
+
+// Re-export entity types from @codegraph/types
+export type {
+  FileEntity,
+  ClassEntity,
+  InterfaceEntity,
+  FunctionEntity,
+  VariableEntity,
+  ImportEntity,
+  TypeEntity,
+  ComponentEntity,
+  FunctionParam,
+  ImportSpecifier,
+  ParsedFileEntities,
+  MarkdownDocumentEntity,
+  SectionEntity,
+  CodeBlockEntity,
+  LinkEntity,
+  ExtractedDocumentEntities,
+} from '@codegraph/types';
+
+// Re-export edge types from @codegraph/types
+export type {
+  CallsEdge,
+  ContainsEdge,
+  ImportsEdge,
+  ExtendsEdge,
+  ImplementsEdge,
+  RendersEdge,
+  UsesHookEdge,
+} from '@codegraph/types';
+
+// Re-export extractor types from @codegraph/plugin-typescript
+export type {
+  ExtractedEntities,
+  SourceLocation,
+  CallReference,
+  RenderReference,
+  ExtendsReference,
+  ImplementsReference,
+  InheritanceResult,
+} from '@codegraph/plugin-typescript';
+
+// Re-export extractor functions from @codegraph/plugin-typescript
+export {
+  extractImports,
+  extractFunctions,
+  extractClasses,
+  extractVariables,
+  extractTypes,
+  extractInterfaces,
+  extractComponents,
+  extractCalls,
+  extractRenders,
+  extractInheritance,
+  extractAllEntities,
+  getLocation,
+  findNodesOfType,
+  generateEntityId,
+} from '@codegraph/plugin-typescript';

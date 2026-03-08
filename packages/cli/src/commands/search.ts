@@ -1,8 +1,6 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
-import { createQueries } from '@codegraph/graph';
-import { connectGraph } from '../graphConnection';
-import type { SearchResult, NodeLabel } from '@codegraph/types';
+import { codeGraphService } from '@codegraph/core';
 
 const logger = createLogger({ namespace: 'cli:search' });
 
@@ -19,25 +17,37 @@ export const searchCommand = new Command('search')
     logger.info(`Searching: "${query}"`);
 
     try {
-      const client = await connectGraph(options);
-
-      const queries = createQueries(client);
       const limit = parseInt(options.limit);
-      
-      const types: NodeLabel[] | undefined = options.type 
-        ? options.type.split(',') as NodeLabel[]
-        : undefined;
-      
-      const results: SearchResult[] = await queries.search(query, types, limit);
+
+      // Map CLI type filter to service type (service supports single type or 'all')
+      let type: 'all' | 'file' | 'function' | 'class' | 'interface' | 'component' = 'all';
+      if (options.type) {
+        const types = options.type.split(',') as string[];
+        if (types.length === 1) {
+          type = types[0]!.toLowerCase() as typeof type;
+        }
+        // Multiple types: use 'all' and filter client-side
+      }
+
+      const result = await codeGraphService.search(query, { type, limit });
+
+      // If multiple types requested, filter client-side
+      let filtered = result.results;
+      if (options.type) {
+        const requestedTypes = (options.type.split(',') as string[]).map((t: string) => t.toLowerCase());
+        if (requestedTypes.length > 1) {
+          filtered = filtered.filter(r => requestedTypes.includes(r.type.toLowerCase()));
+        }
+      }
 
       if (options.json) {
-        console.log(JSON.stringify(results, null, 2));
+        console.log(JSON.stringify(filtered, null, 2));
       } else {
-        if (results.length === 0) {
+        if (filtered.length === 0) {
           console.log('No results found');
         } else {
-          console.log(`\nFound ${results.length} results:\n`);
-          for (const r of results) {
+          console.log(`\nFound ${filtered.length} results:\n`);
+          for (const r of filtered) {
             const loc = r.line ? `:${r.line}` : '';
             console.log(`  [${r.type.padEnd(10)}] ${r.name}`);
             if (r.filePath) {
@@ -47,8 +57,6 @@ export const searchCommand = new Command('search')
           }
         }
       }
-
-      await client.close();
 
     } catch (error) {
       logger.error('Search failed', error);

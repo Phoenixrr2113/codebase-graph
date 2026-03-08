@@ -2,10 +2,9 @@
  * MCP Tool: trigger_reindex
  *
  * Triggers a reindex of the codebase, either incrementally or full.
- * Uses @codegraph/parser's extraction pipeline for actual parsing.
+ * Uses @codegraph/core's extraction pipeline for actual parsing.
  */
 
-import { z } from 'zod';
 import { stat } from 'node:fs/promises';
 import { indexProject, indexSingleFile, getActiveProjectPaths } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
@@ -14,12 +13,10 @@ import type { ToolDefinition } from './consolidated';
 const logger = createLogger({ namespace: 'MCP:Reindex' });
 
 // Input schema
-export const ReindexInputSchema = z.object({
-  mode: z.enum(['incremental', 'full']).default('incremental'),
-  scope: z.string().optional().describe('Specific file or directory path to reindex'),
-});
-
-export type ReindexInput = z.infer<typeof ReindexInputSchema>;
+export interface ReindexInput {
+  mode?: 'incremental' | 'full';
+  scope?: string;
+}
 
 // Output type
 export interface ReindexOutput {

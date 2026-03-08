@@ -327,10 +327,10 @@ const handlers: Record<string, ToolHandler> = {
   }),
 
   configure_projects: async (args) => {
-    const input: ConfigureProjectsInput = {
+    const input = {
       action: (args.action as ConfigureProjectsInput['action']) || 'status',
-      projects: args.projects as string[] | undefined,
-    };
+    } as ConfigureProjectsInput;
+    if (args.projects != null) input.projects = args.projects as string[];
     return configureProjects(input);
   },
 
@@ -350,28 +350,28 @@ const handlers: Record<string, ToolHandler> = {
     const setupPrompt = await checkSetupRequired();
     if (setupPrompt) return setupPrompt;
 
-    const input: GetContextInput = {
-      file: args.file as string | undefined,
-      symbol: args.symbol as string | undefined,
+    const input = {
       includeRelationships: args.includeRelationships !== false,
       maxDepth: (args.maxDepth as number) || 2,
-    };
+    } as GetContextInput;
+    if (args.file != null) input.file = args.file as string;
+    if (args.symbol != null) input.symbol = args.symbol as string;
     return getContext(input);
   },
 
   query: async (args) => {
-    const input: QueryGraphInput = {
+    const input = {
       cypher: args.cypher as string,
-      params: args.params as Record<string, unknown> | undefined,
-    };
+    } as QueryGraphInput;
+    if (args.params != null) input.params = args.params as Record<string, unknown>;
     return queryGraph(input);
   },
 
   trigger_reindex: async (args) => {
-    const input: ReindexInput = {
+    const input = {
       mode: (args.mode as 'incremental' | 'full') || 'incremental',
-      scope: args.scope as string | undefined,
-    };
+    } as ReindexInput;
+    if (args.scope != null) input.scope = args.scope as string;
     return triggerReindex(input);
   },
 
@@ -385,6 +385,7 @@ const handlers: Record<string, ToolHandler> = {
   get_stats: async (args) => {
     try {
       const client = await getGraphClient();
+      const dialect = client.dialect;
       const projectPath = args.projectPath as string | undefined;
       const pathFilter = projectPath ? `WHERE n.filePath STARTS WITH '${projectPath}'` : '';
       const filePathFilter = projectPath ? `WHERE f.path STARTS WITH '${projectPath}'` : '';
@@ -397,10 +398,10 @@ const handlers: Record<string, ToolHandler> = {
         mostConnected,
       ] = await Promise.all([
         client.roQuery<{ label: string; count: number }>(
-          `MATCH (n) ${pathFilter} RETURN labels(n)[0] as label, count(n) as count ORDER BY count DESC`
+          `MATCH (n) ${pathFilter} RETURN ${dialect.firstLabelExpr('n')} as label, count(n) as count ORDER BY count DESC`
         ),
         client.roQuery<{ type: string; count: number }>(
-          'MATCH ()-[r]->() RETURN type(r) as type, count(r) as count ORDER BY count DESC'
+          `MATCH ()-[r]->() RETURN ${dialect.typeExpr('r')} as type, count(r) as count ORDER BY count DESC`
         ),
         client.roQuery<{ path: string; entities: number }>(
           `MATCH (f:File) ${filePathFilter} OPTIONAL MATCH (f)-[:CONTAINS]->(e) RETURN f.path as path, count(e) as entities ORDER BY entities DESC LIMIT 10`
@@ -461,39 +462,39 @@ const handlers: Record<string, ToolHandler> = {
   // ==== Symbol & code tools ====
 
   find_symbol: async (args) => {
-    const input: FindSymbolInput = {
+    const input = {
       name: args.name as string,
       kind: (args.kind as 'function' | 'class' | 'interface' | 'variable' | 'any') || 'any',
-      file: args.file as string | undefined,
-    };
+    } as FindSymbolInput;
+    if (args.file != null) input.file = args.file as string;
     return findSymbol(input);
   },
 
   search_code: async (args) => {
-    const input: SearchCodeInput = {
+    const input = {
       query: args.query as string,
       type: (args.type as 'name' | 'fulltext' | 'pattern') || 'name',
       scope: (args.scope as string) || 'all',
-      language: args.language as string | undefined,
-    };
+    } as SearchCodeInput;
+    if (args.language != null) input.language = args.language as string;
     return searchCode(input);
   },
 
   explain_code: async (args) => {
-    const input: ExplainCodeInput = {
+    const input = {
       file: args.file as string,
-      start_line: args.start_line as number | undefined,
-      end_line: args.end_line as number | undefined,
-    };
+    } as ExplainCodeInput;
+    if (args.start_line != null) input.start_line = args.start_line as number;
+    if (args.end_line != null) input.end_line = args.end_line as number;
     return explainCode(input);
   },
 
   get_repo_map: async (args) => {
-    const input: RepoMapInput = {
+    const input = {
       maxTokens: (args.maxTokens as number) || 2048,
-      focusFiles: args.focusFiles as string[] | undefined,
-      focusSymbols: args.focusSymbols as string[] | undefined,
-    };
+    } as RepoMapInput;
+    if (args.focusFiles != null) input.focusFiles = args.focusFiles as string[];
+    if (args.focusSymbols != null) input.focusSymbols = args.focusSymbols as string[];
     return getRepoMap(input);
   },
 
@@ -509,11 +510,11 @@ const handlers: Record<string, ToolHandler> = {
   },
 
   analyze_impact: async (args) => {
-    const input: AnalyzeImpactInput = {
+    const input = {
       symbol: args.symbol as string,
-      file: args.file as string | undefined,
       depth: (args.depth as number) || 5,
-    };
+    } as AnalyzeImpactInput;
+    if (args.file != null) input.file = args.file as string;
     return analyzeImpact(input);
   },
 
@@ -535,20 +536,20 @@ const handlers: Record<string, ToolHandler> = {
   },
 
   trace_data_flow: async (args) => {
-    const input: TraceDataFlowInput = {
+    const input = {
       source: args.source as string,
-      sink: args.sink as string | undefined,
-      file: args.file as string | undefined,
-    };
+    } as TraceDataFlowInput;
+    if (args.sink != null) input.sink = args.sink as string;
+    if (args.file != null) input.file = args.file as string;
     return traceDataFlow(input);
   },
 
   get_symbol_history: async (args) => {
-    const input: SymbolHistoryInput = {
+    const input = {
       symbol: args.symbol as string,
-      file: args.file as string | undefined,
       limit: (args.limit as number) || 20,
-    };
+    } as SymbolHistoryInput;
+    if (args.file != null) input.file = args.file as string;
     return getSymbolHistory(input);
   },
 

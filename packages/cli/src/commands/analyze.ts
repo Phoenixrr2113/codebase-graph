@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
 import { createQueries } from '@codegraph/graph';
+import { codeGraphService } from '@codegraph/core';
 import { connectGraph } from '../graphConnection';
 
 const logger = createLogger({ namespace: 'cli:analyze' });
@@ -18,14 +19,11 @@ export const analyzeCommand = new Command('analyze')
     logger.info(`Analyzing: ${type} ${target}`);
 
     try {
-      const client = await connectGraph(options);
-
-      const queries = createQueries(client);
       let result: unknown;
 
       switch (type) {
         case 'callers': {
-          const callers = await queries.getFunctionCallers(target);
+          const callers = await codeGraphService.getFunctionCallers(target);
           result = {
             function: target,
             callers: callers.map(c => ({
@@ -37,13 +35,17 @@ export const analyzeCommand = new Command('analyze')
           };
           break;
         }
-        
+
         case 'deps': {
+          // getDependencyTree is a visualization-oriented query that stays in @codegraph/graph
+          const client = await connectGraph(options);
+          const queries = createQueries(client);
           const deps = await queries.getDependencyTree(target, parseInt(options.depth));
           result = deps;
+          await client.close();
           break;
         }
-        
+
         default:
           console.error(`Unknown analysis type: ${type}`);
           console.error('Valid types: callers, deps');
@@ -56,8 +58,6 @@ export const analyzeCommand = new Command('analyze')
         console.log(`\n--- ${type.toUpperCase()} Analysis: ${target} ---\n`);
         console.log(JSON.stringify(result, null, 2));
       }
-
-      await client.close();
 
     } catch (error) {
       logger.error('Analysis failed', error);
