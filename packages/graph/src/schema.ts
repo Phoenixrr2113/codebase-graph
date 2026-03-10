@@ -31,6 +31,8 @@ export interface FileNodeProps {
   loc: number;
   lastModified: string;
   hash: string;
+  embedding?: number[] | null;
+  embeddingTextHash?: string | null;
 }
 
 /**
@@ -50,6 +52,8 @@ export interface FunctionNodeProps {
   complexity: number | null;
   cognitiveComplexity: number | null;
   nestingDepth: number | null;
+  embedding?: number[] | null;
+  embeddingTextHash?: string | null;
 }
 
 /**
@@ -65,6 +69,8 @@ export interface ClassNodeProps {
   extends: string | null;
   implements: string | null; // JSON serialized array
   docstring: string | null;
+  embedding?: number[] | null;
+  embeddingTextHash?: string | null;
 }
 
 /**
@@ -78,6 +84,8 @@ export interface InterfaceNodeProps {
   isExported: boolean;
   extends: string | null; // JSON serialized array
   docstring: string | null;
+  embedding?: number[] | null;
+  embeddingTextHash?: string | null;
 }
 
 /**
@@ -90,6 +98,8 @@ export interface VariableNodeProps {
   kind: string;
   isExported: boolean;
   type: string | null;
+  embedding?: number[] | null;
+  embeddingTextHash?: string | null;
 }
 
 /**
@@ -103,6 +113,8 @@ export interface TypeNodeProps {
   isExported: boolean;
   kind: string;
   docstring: string | null;
+  embedding?: number[] | null;
+  embeddingTextHash?: string | null;
 }
 
 /**
@@ -116,6 +128,8 @@ export interface ComponentNodeProps {
   isExported: boolean;
   props: string | null; // JSON serialized props
   propsType: string | null;
+  embedding?: number[] | null;
+  embeddingTextHash?: string | null;
 }
 
 /**

@@ -7,6 +7,22 @@
  */
 
 // ============================================================================
+// Embedding Dimension (configurable, local-first default)
+// ============================================================================
+// Derived from CODEGRAPH_EMBEDDING_PROVIDER (local=768, openrouter=1536)
+// with CODEGRAPH_EMBEDDING_DIM as explicit override. Must match the
+// embedding provider's output dimension. Fixed at DB creation time.
+
+const provider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'local';
+const defaultDim = provider === 'openrouter' ? 1536 : 768;
+
+/** Embedding vector dimension used in all schema DDL. */
+export const EMBEDDING_DIM = parseInt(
+  process.env['CODEGRAPH_EMBEDDING_DIM'] ?? String(defaultDim),
+  10,
+);
+
+// ============================================================================
 // Node Tables
 // ============================================================================
 
@@ -18,7 +34,9 @@ export const NODE_TABLES = [
     extension STRING,
     loc INT64,
     lastModified STRING,
-    hash STRING
+    hash STRING,
+    embedding FLOAT[${EMBEDDING_DIM}],
+    embeddingTextHash STRING
   )`,
 
   // Function — synthetic PK: filePath:name:startLine
@@ -36,7 +54,9 @@ export const NODE_TABLES = [
     docstring STRING,
     complexity INT64,
     cognitiveComplexity INT64,
-    nestingDepth INT64
+    nestingDepth INT64,
+    embedding FLOAT[${EMBEDDING_DIM}],
+    embeddingTextHash STRING
   )`,
 
   // Class — synthetic PK: filePath:name:startLine
@@ -50,7 +70,9 @@ export const NODE_TABLES = [
     isAbstract BOOLEAN,
     extends STRING,
     implements STRING,
-    docstring STRING
+    docstring STRING,
+    embedding FLOAT[${EMBEDDING_DIM}],
+    embeddingTextHash STRING
   )`,
 
   // Interface — synthetic PK: filePath:name:startLine
@@ -62,7 +84,9 @@ export const NODE_TABLES = [
     endLine INT64,
     isExported BOOLEAN,
     extends STRING,
-    docstring STRING
+    docstring STRING,
+    embedding FLOAT[${EMBEDDING_DIM}],
+    embeddingTextHash STRING
   )`,
 
   // Variable — synthetic PK: filePath:name:line
@@ -73,7 +97,9 @@ export const NODE_TABLES = [
     line INT64,
     kind STRING,
     isExported BOOLEAN,
-    type STRING
+    type STRING,
+    embedding FLOAT[${EMBEDDING_DIM}],
+    embeddingTextHash STRING
   )`,
 
   // Type — synthetic PK: filePath:name:startLine
@@ -85,7 +111,9 @@ export const NODE_TABLES = [
     endLine INT64,
     isExported BOOLEAN,
     kind STRING,
-    docstring STRING
+    docstring STRING,
+    embedding FLOAT[${EMBEDDING_DIM}],
+    embeddingTextHash STRING
   )`,
 
   // Component — synthetic PK: filePath:name:startLine
@@ -97,7 +125,9 @@ export const NODE_TABLES = [
     endLine INT64,
     isExported BOOLEAN,
     props STRING,
-    propsType STRING
+    propsType STRING,
+    embedding FLOAT[${EMBEDDING_DIM}],
+    embeddingTextHash STRING
   )`,
 
   // Commit — PK is the hash
@@ -146,7 +176,7 @@ export const KNOWLEDGE_NODE_TABLES = [
     text STRING,
     type STRING,
     confidence DOUBLE,
-    embedding FLOAT[1536],
+    embedding FLOAT[${EMBEDDING_DIM}],
     createdAt INT64,
     lastAccessedAt INT64,
     accessCount INT64,
@@ -220,7 +250,7 @@ export const KNOWLEDGE_REL_TABLES = [
     type STRING,
     confidence DOUBLE,
     fact STRING,
-    fact_embedding FLOAT[1536],
+    fact_embedding FLOAT[${EMBEDDING_DIM}],
     valid_at INT64,
     invalid_at INT64,
     created_at INT64,
@@ -242,7 +272,18 @@ export const VECTOR_INDEX_STMTS = [
   // Syntax: CREATE_VECTOR_INDEX(tableName, indexName, columnName)
   // Note: Only NODE tables support vector indexes in Kuzu 0.11.x
   // RELATES_TO is a REL table — vector search on edges is deferred
+
+  // Knowledge graph
   `CALL CREATE_VECTOR_INDEX('Entity', 'entity_embedding_idx', 'embedding')`,
+
+  // Code graph — one index per embeddable node type
+  `CALL CREATE_VECTOR_INDEX('File', 'file_embedding_idx', 'embedding')`,
+  `CALL CREATE_VECTOR_INDEX('Function', 'fn_embedding_idx', 'embedding')`,
+  `CALL CREATE_VECTOR_INDEX('Class', 'class_embedding_idx', 'embedding')`,
+  `CALL CREATE_VECTOR_INDEX('Interface', 'iface_embedding_idx', 'embedding')`,
+  `CALL CREATE_VECTOR_INDEX('Variable', 'var_embedding_idx', 'embedding')`,
+  `CALL CREATE_VECTOR_INDEX('Type', 'type_embedding_idx', 'embedding')`,
+  `CALL CREATE_VECTOR_INDEX('Component', 'comp_embedding_idx', 'embedding')`,
 ];
 
 // ============================================================================

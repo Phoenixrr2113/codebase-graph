@@ -27,6 +27,7 @@ export { KuzuDriver, kuzuDialect } from './drivers/kuzu';
 
 // Schema DDL exports
 export {
+  EMBEDDING_DIM,
   NODE_TABLES,
   KNOWLEDGE_NODE_TABLES,
   REL_TABLES,

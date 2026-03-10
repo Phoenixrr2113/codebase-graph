@@ -45,6 +45,10 @@ export interface FileEntity {
   lastModified: string;
   /** Content hash for change detection */
   hash: string;
+  /** Embedding vector for semantic search (dimension matches configured provider) */
+  embedding?: number[];
+  /** Hash of the text used to generate the embedding (for change detection) */
+  embeddingTextHash?: string;
 }
 
 // ============================================================================
@@ -63,6 +67,10 @@ export interface ClassEntity extends RangeEntity {
   implements?: string[];
   /** JSDoc/docstring content */
   docstring?: string;
+  /** Embedding vector for semantic search */
+  embedding?: number[];
+  /** Hash of the text used to generate the embedding */
+  embeddingTextHash?: string;
 }
 
 // ============================================================================
@@ -77,6 +85,10 @@ export interface InterfaceEntity extends RangeEntity {
   extends?: string[];
   /** JSDoc/docstring content */
   docstring?: string;
+  /** Embedding vector for semantic search */
+  embedding?: number[];
+  /** Hash of the text used to generate the embedding */
+  embeddingTextHash?: string;
 }
 
 // ============================================================================
@@ -119,6 +131,10 @@ export interface FunctionEntity extends RangeEntity {
   cognitiveComplexity?: number;
   /** Maximum nesting depth */
   nestingDepth?: number;
+  /** Embedding vector for semantic search */
+  embedding?: number[];
+  /** Hash of the text used to generate the embedding */
+  embeddingTextHash?: string;
 }
 
 // ============================================================================
@@ -144,6 +160,10 @@ export interface VariableEntity {
   isExported: boolean;
   /** Type annotation */
   type?: string;
+  /** Embedding vector for semantic search */
+  embedding?: number[];
+  /** Hash of the text used to generate the embedding */
+  embeddingTextHash?: string;
 }
 
 // ============================================================================
@@ -195,6 +215,10 @@ export interface TypeEntity extends RangeEntity {
   kind: TypeKind;
   /** JSDoc/docstring content */
   docstring?: string;
+  /** Embedding vector for semantic search */
+  embedding?: number[];
+  /** Hash of the text used to generate the embedding */
+  embeddingTextHash?: string;
 }
 
 // ============================================================================
@@ -219,6 +243,10 @@ export interface ComponentEntity extends RangeEntity {
   props?: ComponentProp[];
   /** Props type name (if referenced) */
   propsType?: string;
+  /** Embedding vector for semantic search */
+  embedding?: number[];
+  /** Hash of the text used to generate the embedding */
+  embeddingTextHash?: string;
 }
 
 // ============================================================================
