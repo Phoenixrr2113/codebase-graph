@@ -314,6 +314,9 @@ importers:
       '@codegraph/plugin-markdown':
         specifier: workspace:*
         version: link:../plugin-markdown
+      '@codegraph/plugin-nlp':
+        specifier: workspace:*
+        version: link:../plugin-nlp
       '@codegraph/plugin-python':
         specifier: workspace:*
         version: link:../plugin-python

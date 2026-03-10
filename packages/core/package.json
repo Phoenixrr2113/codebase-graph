@@ -20,6 +20,7 @@
   "dependencies": {
     "@codegraph/graph": "workspace:*",
     "@codegraph/logger": "workspace:*",
+    "@codegraph/plugin-nlp": "workspace:*",
     "@codegraph/plugin-csharp": "workspace:*",
     "@codegraph/plugin-markdown": "workspace:*",
     "@codegraph/plugin-python": "workspace:*",

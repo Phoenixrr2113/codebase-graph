@@ -18,7 +18,9 @@ import {
 } from './pipeline';
 import { createOperations, type GraphClient } from '@codegraph/graph';
 import type { ProjectEntity } from '@codegraph/types';
+import type { EmbeddingConfig } from '@codegraph/plugin-nlp';
 import { getGraphClient } from './graphClient';
+import { embedParsedEntities } from './embed-pass';
 import { createLogger } from '@codegraph/logger';
 import { stat } from 'node:fs/promises';
 import { basename } from 'node:path';
@@ -37,6 +39,8 @@ export interface IndexStats {
   edges: number;
   errors: number;
   durationMs: number;
+  /** Number of entities that had embeddings generated */
+  embedded?: number;
 }
 
 export interface IndexResult {
@@ -71,6 +75,8 @@ export async function indexProject(
     includePatterns?: string[];
     /** Use this client instead of the shared singleton */
     client?: GraphClient;
+    /** Embedding configuration. Set to false to disable embedding generation. */
+    embeddings?: EmbeddingConfig | false;
   } = {},
 ): Promise<IndexResult> {
   const startTime = Date.now();
@@ -134,6 +140,11 @@ export async function indexProject(
     let totalEdges = 0;
     let totalFiles = 0;
     let totalErrors = 0;
+    let totalEmbedded = 0;
+
+    // Resolve embedding config (false = disabled, undefined = default)
+    const embeddingConfig = options.embeddings === false ? undefined : options.embeddings;
+    const embeddingsEnabled = options.embeddings !== false;
 
     // Parse and persist each file
     for (const file of files) {
@@ -152,6 +163,17 @@ export async function indexProject(
         await ops.batchUpsert(parsed);
         await ops.linkProjectFile(project.id, file);
 
+        // Embedding pass — generate and store embeddings after entities exist
+        if (embeddingsEnabled) {
+          try {
+            const embedResult = await embedParsedEntities(parsed, ops, embeddingConfig);
+            totalEmbedded += embedResult.embedded;
+          } catch (err) {
+            // Embedding failures are non-fatal — log and continue
+            logger.warn(`Embedding failed for ${file}: ${err instanceof Error ? err.message : err}`);
+          }
+        }
+
         totalFiles++;
         totalEntities += 1 + countEntities(extracted);
         totalEdges += countEdges(parsed) + countEntities(extracted);
@@ -169,19 +191,23 @@ export async function indexProject(
     await ops.upsertProject(project);
 
     const durationMs = Date.now() - startTime;
-    logger.info(`Indexed ${rootPath}: ${totalFiles} files, ${totalEntities} entities, ${totalEdges} edges in ${durationMs}ms`);
+    const embedMsg = totalEmbedded > 0 ? `, ${totalEmbedded} embedded` : '';
+    logger.info(`Indexed ${rootPath}: ${totalFiles} files, ${totalEntities} entities, ${totalEdges} edges${embedMsg} in ${durationMs}ms`);
+
+    const stats: IndexStats = {
+      files: totalFiles,
+      entities: totalEntities,
+      edges: totalEdges,
+      errors: totalErrors,
+      durationMs,
+    };
+    if (totalEmbedded > 0) stats.embedded = totalEmbedded;
 
     return {
       success: true,
       projectId: project.id,
       projectName: project.name,
-      stats: {
-        files: totalFiles,
-        entities: totalEntities,
-        edges: totalEdges,
-        errors: totalErrors,
-        durationMs,
-      },
+      stats,
       errorMessages,
     };
   } catch (err) {
@@ -208,7 +234,8 @@ export async function indexSingleFile(
   filePath: string,
   projectRoot?: string,
   client?: GraphClient,
-): Promise<{ success: boolean; entities: number; edges: number; error?: string }> {
+  embeddingConfig?: EmbeddingConfig | false,
+): Promise<{ success: boolean; entities: number; edges: number; embedded?: number; error?: string }> {
   try {
     await initParser();
     const syntaxTree = await parseFile(filePath);
@@ -226,10 +253,27 @@ export async function indexSingleFile(
     const ops = createOperations(graphClient);
     await ops.batchUpsert(parsed);
 
+    // Embedding pass
+    let embedded = 0;
+    if (embeddingConfig !== false) {
+      try {
+        const embedResult = await embedParsedEntities(parsed, ops, embeddingConfig ?? undefined);
+        embedded = embedResult.embedded;
+      } catch {
+        // Non-fatal
+      }
+    }
+
     const entityCount = 1 + countEntities(extracted);
     const edgeCount = countEdges(parsed) + countEntities(extracted);
 
-    return { success: true, entities: entityCount, edges: edgeCount };
+    const result: { success: boolean; entities: number; edges: number; embedded?: number; error?: string } = {
+      success: true,
+      entities: entityCount,
+      edges: edgeCount,
+    };
+    if (embedded > 0) result.embedded = embedded;
+    return result;
   } catch (err) {
     return {
       success: false,

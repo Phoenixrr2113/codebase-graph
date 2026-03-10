@@ -332,6 +332,36 @@ const CYPHER = {
     MATCH (f:File {path: $filePath})
     MERGE (p)-[:HAS_FILE]->(f)
   `,
+
+  // Embedding update operations (per-node-type)
+  UPDATE_FILE_EMBEDDING: `
+    MATCH (f:File {path: $path})
+    SET f.embedding = $embedding, f.embeddingTextHash = $embeddingTextHash
+  `,
+  UPDATE_FUNCTION_EMBEDDING: `
+    MATCH (fn:Function {name: $name, filePath: $filePath, startLine: $startLine})
+    SET fn.embedding = $embedding, fn.embeddingTextHash = $embeddingTextHash
+  `,
+  UPDATE_CLASS_EMBEDDING: `
+    MATCH (c:Class {name: $name, filePath: $filePath, startLine: $startLine})
+    SET c.embedding = $embedding, c.embeddingTextHash = $embeddingTextHash
+  `,
+  UPDATE_INTERFACE_EMBEDDING: `
+    MATCH (i:Interface {name: $name, filePath: $filePath, startLine: $startLine})
+    SET i.embedding = $embedding, i.embeddingTextHash = $embeddingTextHash
+  `,
+  UPDATE_VARIABLE_EMBEDDING: `
+    MATCH (v:Variable {name: $name, filePath: $filePath, line: $line})
+    SET v.embedding = $embedding, v.embeddingTextHash = $embeddingTextHash
+  `,
+  UPDATE_TYPE_EMBEDDING: `
+    MATCH (t:Type {name: $name, filePath: $filePath, startLine: $startLine})
+    SET t.embedding = $embedding, t.embeddingTextHash = $embeddingTextHash
+  `,
+  UPDATE_COMPONENT_EMBEDDING: `
+    MATCH (comp:Component {name: $name, filePath: $filePath, startLine: $startLine})
+    SET comp.embedding = $embedding, comp.embeddingTextHash = $embeddingTextHash
+  `,
 };
 
 // ============================================================================
@@ -639,6 +669,32 @@ const KUZU_CYPHER = {
   CREATE_DELETED_IN_TYPE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Type) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
   CREATE_DELETED_IN_COMP: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Component) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
 
+  // Embedding update operations (per-node-type, using _pk)
+  UPDATE_FUNCTION_EMBEDDING: `
+    MATCH (fn:Function {_pk: $pk})
+    SET fn.embedding = $embedding, fn.embeddingTextHash = $embeddingTextHash
+  `,
+  UPDATE_CLASS_EMBEDDING: `
+    MATCH (c:Class {_pk: $pk})
+    SET c.embedding = $embedding, c.embeddingTextHash = $embeddingTextHash
+  `,
+  UPDATE_INTERFACE_EMBEDDING: `
+    MATCH (i:Interface {_pk: $pk})
+    SET i.embedding = $embedding, i.embeddingTextHash = $embeddingTextHash
+  `,
+  UPDATE_VARIABLE_EMBEDDING: `
+    MATCH (v:Variable {_pk: $pk})
+    SET v.embedding = $embedding, v.embeddingTextHash = $embeddingTextHash
+  `,
+  UPDATE_TYPE_EMBEDDING: `
+    MATCH (t:Type {_pk: $pk})
+    SET t.embedding = $embedding, t.embeddingTextHash = $embeddingTextHash
+  `,
+  UPDATE_COMPONENT_EMBEDDING: `
+    MATCH (comp:Component {_pk: $pk})
+    SET comp.embedding = $embedding, comp.embeddingTextHash = $embeddingTextHash
+  `,
+
   // COUNT entities in a file (for edge creation count)
   COUNT_FILE_ENTITIES_BY_TYPE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e) RETURN count(e) as cnt`,
 
@@ -749,6 +805,14 @@ export interface GraphOperations {
 
   /** Create DELETED_IN edges from all entities in a file to a commit */
   createDeletedInEdgesForFile(filePath: string, commitHash: string): Promise<number>;
+
+  /** Update embedding + embeddingTextHash for a node in the graph */
+  updateEmbedding(
+    nodeType: 'File' | 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component',
+    identifier: Record<string, unknown>,
+    embedding: number[],
+    embeddingTextHash: string,
+  ): Promise<void>;
 }
 
 // ============================================================================
@@ -1204,6 +1268,49 @@ class GraphOperationsImpl implements GraphOperations {
       }
     }
     return count;
+  }
+
+  @trace()
+  async updateEmbedding(
+    nodeType: 'File' | 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component',
+    identifier: Record<string, unknown>,
+    embedding: number[],
+    embeddingTextHash: string,
+  ): Promise<void> {
+    const baseParams = { embedding, embeddingTextHash };
+
+    if (nodeType === 'File') {
+      // File uses path as PK in both drivers
+      await this.client.query(CYPHER.UPDATE_FILE_EMBEDDING, {
+        params: { ...baseParams, path: identifier['path'] as string },
+      });
+      return;
+    }
+
+    if (this.driverType === 'kuzu') {
+      // All non-File types use _pk in Kuzu
+      const pk = generatePrimaryKey(identifier);
+      const templates: Record<string, string> = {
+        Function: KUZU_CYPHER.UPDATE_FUNCTION_EMBEDDING,
+        Class: KUZU_CYPHER.UPDATE_CLASS_EMBEDDING,
+        Interface: KUZU_CYPHER.UPDATE_INTERFACE_EMBEDDING,
+        Variable: KUZU_CYPHER.UPDATE_VARIABLE_EMBEDDING,
+        Type: KUZU_CYPHER.UPDATE_TYPE_EMBEDDING,
+        Component: KUZU_CYPHER.UPDATE_COMPONENT_EMBEDDING,
+      };
+      await this.client.query(templates[nodeType]!, { params: { ...baseParams, pk } });
+    } else {
+      // FalkorDB uses natural keys
+      const templates: Record<string, string> = {
+        Function: CYPHER.UPDATE_FUNCTION_EMBEDDING,
+        Class: CYPHER.UPDATE_CLASS_EMBEDDING,
+        Interface: CYPHER.UPDATE_INTERFACE_EMBEDDING,
+        Variable: CYPHER.UPDATE_VARIABLE_EMBEDDING,
+        Type: CYPHER.UPDATE_TYPE_EMBEDDING,
+        Component: CYPHER.UPDATE_COMPONENT_EMBEDDING,
+      };
+      await this.client.query(templates[nodeType]!, { params: { ...baseParams, ...identifier } });
+    }
   }
 
   private projectFromRow(row: Record<string, unknown>): ProjectEntity {
