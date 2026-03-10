@@ -623,6 +623,25 @@ const KUZU_CYPHER = {
     RETURN symbol.name as name, label(symbol) as type, r.asName as asName, r.isDefault as isDefault
   `,
 
+  // INTRODUCED_IN — per entity type (Kuzu REL TABLE requires typed FROM/TO)
+  CREATE_INTRODUCED_IN_FN: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Function) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
+  CREATE_INTRODUCED_IN_CLASS: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Class) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
+  CREATE_INTRODUCED_IN_IFACE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Interface) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
+  CREATE_INTRODUCED_IN_VAR: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Variable) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
+  CREATE_INTRODUCED_IN_TYPE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Type) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
+  CREATE_INTRODUCED_IN_COMP: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Component) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
+
+  // DELETED_IN — per entity type
+  CREATE_DELETED_IN_FN: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Function) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
+  CREATE_DELETED_IN_CLASS: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Class) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
+  CREATE_DELETED_IN_IFACE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Interface) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
+  CREATE_DELETED_IN_VAR: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Variable) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
+  CREATE_DELETED_IN_TYPE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Type) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
+  CREATE_DELETED_IN_COMP: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Component) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
+
+  // COUNT entities in a file (for edge creation count)
+  COUNT_FILE_ENTITIES_BY_TYPE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e) RETURN count(e) as cnt`,
+
   // DELETE — Kuzu may need separate delete steps
   DELETE_FILE_ENTITIES: `
     MATCH (f:File {path: $path})-[:CONTAINS]->(e)
@@ -724,6 +743,12 @@ export interface GraphOperations {
     linesRemoved?: number,
     complexityDelta?: number
   ): Promise<void>;
+
+  /** Create INTRODUCED_IN edges from all entities in a file to a commit */
+  createIntroducedInEdgesForFile(filePath: string, commitHash: string): Promise<number>;
+
+  /** Create DELETED_IN edges from all entities in a file to a commit */
+  createDeletedInEdgesForFile(filePath: string, commitHash: string): Promise<number>;
 }
 
 // ============================================================================
@@ -1118,6 +1143,67 @@ class GraphOperationsImpl implements GraphOperations {
         complexityDelta: complexityDelta ?? null,
       },
     });
+  }
+
+  @trace()
+  async createIntroducedInEdgesForFile(filePath: string, commitHash: string): Promise<number> {
+    const params = { filePath, commitHash };
+    const queries = this.driverType === 'kuzu'
+      ? [
+          KUZU_CYPHER.CREATE_INTRODUCED_IN_FN,
+          KUZU_CYPHER.CREATE_INTRODUCED_IN_CLASS,
+          KUZU_CYPHER.CREATE_INTRODUCED_IN_IFACE,
+          KUZU_CYPHER.CREATE_INTRODUCED_IN_VAR,
+          KUZU_CYPHER.CREATE_INTRODUCED_IN_TYPE,
+          KUZU_CYPHER.CREATE_INTRODUCED_IN_COMP,
+        ]
+      : [
+          // FalkorDB: single query using label-agnostic MATCH
+          `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e)
+           MATCH (c:Commit {hash: $commitHash})
+           MERGE (e)-[:INTRODUCED_IN]->(c)`,
+        ];
+
+    let count = 0;
+    for (const q of queries) {
+      try {
+        await this.client.query(q, { params });
+        count++;
+      } catch {
+        // Entity type may not have entities in this file — expected
+      }
+    }
+    return count;
+  }
+
+  @trace()
+  async createDeletedInEdgesForFile(filePath: string, commitHash: string): Promise<number> {
+    const params = { filePath, commitHash };
+    const queries = this.driverType === 'kuzu'
+      ? [
+          KUZU_CYPHER.CREATE_DELETED_IN_FN,
+          KUZU_CYPHER.CREATE_DELETED_IN_CLASS,
+          KUZU_CYPHER.CREATE_DELETED_IN_IFACE,
+          KUZU_CYPHER.CREATE_DELETED_IN_VAR,
+          KUZU_CYPHER.CREATE_DELETED_IN_TYPE,
+          KUZU_CYPHER.CREATE_DELETED_IN_COMP,
+        ]
+      : [
+          `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e)
+           MATCH (c:Commit {hash: $commitHash})
+           MERGE (e)-[:DELETED_IN]->(c)`,
+        ];
+
+    let count = 0;
+    for (const q of queries) {
+      try {
+        await this.client.query(q, { params });
+        count++;
+      } catch {
+        // Entity type may not have entities in this file — expected
+      }
+    }
+    return count;
   }
 
   private projectFromRow(row: Record<string, unknown>): ProjectEntity {

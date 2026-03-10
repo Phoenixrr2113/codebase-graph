@@ -126,6 +126,12 @@ export const NODE_TABLES = [
     filePath STRING,
     startLine INT64
   )`,
+
+  // Metadata — generic key/value store for graph-level state (e.g. lastCommitSynced)
+  `CREATE NODE TABLE IF NOT EXISTS Metadata (
+    key STRING PRIMARY KEY,
+    value STRING
+  )`,
 ];
 
 // ============================================================================

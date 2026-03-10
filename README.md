@@ -7,7 +7,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![MCP](https://img.shields.io/badge/MCP-14%20Tools-green)
+![MCP](https://img.shields.io/badge/MCP-26%20Tools-green)
 ![Tree-sitter](https://img.shields.io/badge/Tree--sitter-WASM-orange)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
@@ -174,16 +174,18 @@ RETURN f.name, f.file, e.name
 - **Dataflow** — Taint tracking from sources to sinks
 - **Git History** — Commits linked to code changes
 
-## MCP Server (14 Tools)
+## MCP Server (26 Tools)
 
 The MCP server enables AI assistants to query your codebase:
 
 | Category | Tools |
 |----------|-------|
-| Index | `get_index_status`, `trigger_reindex` |
-| Search | `find_symbol`, `search_code`, `query_graph` |
+| Config | `ping`, `configure_projects` |
+| Index | `get_index_status`, `trigger_reindex`, `get_stats` |
+| Search | `find_symbol`, `search_code`, `search`, `query` |
 | Analysis | `analyze_impact`, `find_vulnerabilities`, `get_complexity_report`, `trace_data_flow` |
-| Context | `explain_code`, `get_symbol_history`, `get_repo_map`, `analyze_file_for_refactoring` |
+| Context | `explain_code`, `get_symbol_history`, `get_repo_map`, `get_context`, `get_source`, `analyze_file_for_refactoring` |
+| Knowledge | `store_entity`, `store_relationship`, `store_fact`, `query_knowledge`, `recall`, `decay_and_prune`, `get_knowledge_stats` |
 
 ## Architecture
 

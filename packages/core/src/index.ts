@@ -33,6 +33,10 @@ export { syncConfigToGraph, initialSync, syncIfNeeded } from './configSync';
 export { indexProject, indexSingleFile, isProjectIndexed } from './indexer';
 export type { IndexStats, IndexResult } from './indexer';
 
+// Git history sync
+export { syncGitHistory } from './gitSync';
+export type { GitSyncResult, GitSyncOptions } from './gitSync';
+
 // Schema docs
 export { getSchemaDocumentation, getShortSchema } from './schema';
 

@@ -6,7 +6,8 @@
  */
 
 import { stat } from 'node:fs/promises';
-import { indexProject, indexSingleFile, getActiveProjectPaths } from '@codegraph/core';
+import { indexProject, indexSingleFile, getActiveProjectPaths, syncGitHistory } from '@codegraph/core';
+import { getGraphClient } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
 import type { ToolDefinition } from './consolidated';
 
@@ -23,6 +24,8 @@ export interface ReindexOutput {
   success: boolean;
   filesProcessed: number;
   symbolsUpdated: number;
+  gitCommitsSynced: number;
+  gitEdgesCreated: number;
   duration: number;
   errors: string[];
 }
@@ -55,6 +58,8 @@ export const reindexToolDefinition: ToolDefinition = {
 export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput> {
   const startTime = Date.now();
   const errors: string[] = [];
+  let totalGitCommits = 0;
+  let totalGitEdges = 0;
 
   try {
     // If scope is provided, determine if it's a file or directory
@@ -70,6 +75,8 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           success: result.success,
           filesProcessed: result.success ? 1 : 0,
           symbolsUpdated: result.entities,
+          gitCommitsSynced: 0,
+          gitEdgesCreated: 0,
           duration: Date.now() - startTime,
           errors: result.error ? [result.error] : [],
         };
@@ -82,12 +89,19 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           deepAnalysis: true,
         });
 
+        // Sync git history after indexing
+        const gitResult = await syncGitAfterIndex(input.scope, errors);
+        totalGitCommits += gitResult.commits;
+        totalGitEdges += gitResult.edges;
+
         return {
           success: result.success,
           filesProcessed: result.stats.files,
           symbolsUpdated: result.stats.entities,
-          duration: result.stats.durationMs,
-          errors: result.errorMessages,
+          gitCommitsSynced: totalGitCommits,
+          gitEdgesCreated: totalGitEdges,
+          duration: Date.now() - startTime,
+          errors: [...result.errorMessages, ...errors],
         };
 
       } else {
@@ -95,6 +109,8 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           success: false,
           filesProcessed: 0,
           symbolsUpdated: 0,
+          gitCommitsSynced: 0,
+          gitEdgesCreated: 0,
           duration: Date.now() - startTime,
           errors: [`Scope path is neither a file nor directory: ${input.scope}`],
         };
@@ -109,6 +125,8 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
         success: false,
         filesProcessed: 0,
         symbolsUpdated: 0,
+        gitCommitsSynced: 0,
+        gitEdgesCreated: 0,
         duration: Date.now() - startTime,
         errors: ['No active projects configured. Use configure_projects to set up projects first.'],
       };
@@ -128,6 +146,11 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
         totalFiles += result.stats.files;
         totalEntities += result.stats.entities;
         errors.push(...result.errorMessages);
+
+        // Sync git history after each project
+        const gitResult = await syncGitAfterIndex(rootPath, errors);
+        totalGitCommits += gitResult.commits;
+        totalGitEdges += gitResult.edges;
       } catch (err) {
         const msg = `Failed to index ${rootPath}: ${err instanceof Error ? err.message : err}`;
         errors.push(msg);
@@ -139,6 +162,8 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
       success: true,
       filesProcessed: totalFiles,
       symbolsUpdated: totalEntities,
+      gitCommitsSynced: totalGitCommits,
+      gitEdgesCreated: totalGitEdges,
       duration: Date.now() - startTime,
       errors,
     };
@@ -150,8 +175,35 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
       success: false,
       filesProcessed: 0,
       symbolsUpdated: 0,
+      gitCommitsSynced: 0,
+      gitEdgesCreated: 0,
       duration: Date.now() - startTime,
       errors,
     };
+  }
+}
+
+/**
+ * Run git sync after indexing a project. Non-fatal — errors are collected, not thrown.
+ */
+async function syncGitAfterIndex(
+  rootPath: string,
+  errors: string[],
+): Promise<{ commits: number; edges: number }> {
+  try {
+    const client = await getGraphClient();
+    const gitResult = await syncGitHistory(rootPath, client);
+    if (gitResult.errors.length > 0) {
+      errors.push(...gitResult.errors);
+    }
+    if (gitResult.commitsProcessed > 0) {
+      logger.info(`Git sync: ${gitResult.commitsProcessed} commits, ${gitResult.edgesCreated} edges for ${rootPath}`);
+    }
+    return { commits: gitResult.commitsProcessed, edges: gitResult.edgesCreated };
+  } catch (err) {
+    const msg = `Git sync failed for ${rootPath}: ${err instanceof Error ? err.message : err}`;
+    logger.warn(msg);
+    errors.push(msg);
+    return { commits: 0, edges: 0 };
   }
 }

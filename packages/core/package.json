@@ -26,6 +26,7 @@
     "@codegraph/plugin-typescript": "workspace:*",
     "@codegraph/types": "workspace:*",
     "glob": "^10.3.10",
+    "simple-git": "^3.30.0",
     "tree-sitter": "^0.21.1"
   },
   "devDependencies": {

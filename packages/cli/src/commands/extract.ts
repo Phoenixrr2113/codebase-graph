@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
-import { indexProject } from '@codegraph/core';
+import { indexProject, syncGitHistory } from '@codegraph/core';
 import {
   initParser,
   parseFile,
@@ -28,6 +28,7 @@ export const extractCommand = new Command('extract')
   .option('--include <patterns>', 'Include glob patterns (comma-separated)')
   .option('--exclude <patterns>', 'Exclude glob patterns (comma-separated)')
   .option('--deep', 'Enable deep analysis (call/render edges, complexity)')
+  .option('--no-git', 'Skip git history sync')
   .option('--dry-run', 'Parse without writing to database')
   .action(async (targetPath, options) => {
     const startTime = Date.now();
@@ -118,6 +119,19 @@ export const extractCommand = new Command('extract')
           console.log(`Project: ${result.projectName} (${result.projectId})`);
           if (result.stats.errors > 0) {
             console.log(`${result.stats.errors} files failed to parse`);
+          }
+
+          // Sync git history (unless --no-git)
+          if (options.git !== false) {
+            console.log('\nSyncing git history...');
+            const gitResult = await syncGitHistory(absPath, client);
+            if (gitResult.commitsProcessed > 0) {
+              console.log(`Git: ${gitResult.commitsProcessed} commits, ${gitResult.edgesCreated} file→commit edges`);
+            } else if (gitResult.errors.length > 0) {
+              console.log(`Git: ${gitResult.errors[0]}`);
+            } else {
+              console.log('Git: already up to date');
+            }
           }
         } else {
           console.error(`Indexing failed: ${result.errorMessages.join('; ')}`);
