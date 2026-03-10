@@ -37,6 +37,11 @@ export type { IndexStats, IndexResult } from './indexer';
 export { embedParsedEntities } from './embed-pass';
 export type { EmbedPassResult } from './embed-pass';
 
+// Retroactive embedding (generate embeddings for existing graph nodes)
+export { embedAllNodes } from './embed-nodes';
+export type { EmbedNodesOptions, EmbedNodesResult } from './embed-nodes';
+export type { EmbeddableNodeType } from './embed-nodes';
+
 // Git history sync
 export { syncGitHistory } from './gitSync';
 export type { GitSyncResult, GitSyncOptions } from './gitSync';

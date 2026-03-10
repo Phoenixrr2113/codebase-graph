@@ -7,6 +7,7 @@ import { queryCommand } from './commands/query.js';
 import { searchCommand } from './commands/search.js';
 import { serveCommand } from './commands/serve.js';
 import { mapCommand } from './commands/map.js';
+import { embedCommand } from './commands/embed.js';
 
 createLogger({ namespace: 'cli' });
 
@@ -23,3 +24,4 @@ cli.addCommand(queryCommand);
 cli.addCommand(searchCommand);
 cli.addCommand(serveCommand);
 cli.addCommand(mapCommand);
+cli.addCommand(embedCommand);

@@ -12,8 +12,10 @@
 
 import { createLogger } from '@codegraph/logger';
 import type { Sample, AnnotatedSample } from '@codegraph/types';
-import type { KnowledgeOperations } from '@codegraph/graph';
+import type { KnowledgeOperations, KnowledgeEntity } from '@codegraph/graph';
 import { EntityExtractor, type ExtractorConfig } from './extractor';
+import { buildEntityEmbeddingText } from './embedding-text';
+import { generateEmbeddings, isEmbeddingAvailable, type EmbeddingConfig } from './embeddings';
 
 const logger = createLogger({ namespace: 'nlp:extract-and-store' });
 
@@ -33,6 +35,10 @@ export interface ExtractAndStoreConfig {
 
   /** Batch size for batch extraction (default: 10) */
   batchSize?: number;
+
+  /** Embedding configuration. Set to false to disable embedding generation.
+   *  Undefined = try local embedding if available. */
+  embeddings?: EmbeddingConfig | false;
 }
 
 export interface ExtractAndStoreResult {
@@ -44,6 +50,8 @@ export interface ExtractAndStoreResult {
   sampleId: string;
   /** The annotated sample returned by the extractor */
   annotated: AnnotatedSample;
+  /** Number of items that had embeddings generated */
+  embedded?: number;
 }
 
 // ============================================================================
@@ -91,7 +99,7 @@ export async function extractAndStore(
   );
 
   // Store in knowledge graph via importEntitiesAndRelationships
-  const kgEntities = entities.map((e) => ({
+  const kgEntities: KnowledgeEntity[] = entities.map((e) => ({
     text: e.text,
     type: e.type,
     confidence: e.confidence,
@@ -113,18 +121,87 @@ export async function extractAndStore(
     };
   }).filter((r) => r.headText && r.tailText);
 
+  // Embedding pass — generate embeddings for entities and relationship facts
+  let totalEmbedded = 0;
+  const embeddingConfig = config.embeddings === false ? undefined : config.embeddings;
+  if (config.embeddings !== false && isEmbeddingAvailable(embeddingConfig)) {
+    try {
+      totalEmbedded = await generateKnowledgeEmbeddings(kgEntities, kgRelationships, embeddingConfig);
+    } catch (err) {
+      // Embedding failures are non-fatal — entities are still stored without embeddings
+      logger.warn(`Embedding generation failed for sampleId=${sampleId}: ${err}`);
+    }
+  }
+
   const result = await ops.importEntitiesAndRelationships(kgEntities, kgRelationships, sampleId);
 
+  const embedMsg = totalEmbedded > 0 ? `, ${totalEmbedded} embedded` : '';
   logger.info(
-    `Stored ${result.entities} entities, ${result.relationships} relationships (sampleId: ${sampleId})`
+    `Stored ${result.entities} entities, ${result.relationships} relationships${embedMsg} (sampleId: ${sampleId})`
   );
 
-  return {
+  const storeResult: ExtractAndStoreResult = {
     entities: result.entities,
     relationships: result.relationships,
     sampleId,
     annotated,
   };
+  if (totalEmbedded > 0) storeResult.embedded = totalEmbedded;
+  return storeResult;
+}
+
+// ============================================================================
+// Embedding helper
+// ============================================================================
+
+/**
+ * Generate embeddings for knowledge entities and relationship facts in-place.
+ * Mutates the arrays, attaching `.embedding` / `.factEmbedding`.
+ * Returns the total number of items successfully embedded.
+ */
+async function generateKnowledgeEmbeddings(
+  kgEntities: KnowledgeEntity[],
+  kgRelationships: { factEmbedding?: number[] | null; headText: string; headType: string; tailText: string; tailType: string; type: string; [k: string]: unknown }[],
+  embeddingConfig?: EmbeddingConfig,
+): Promise<number> {
+  // Build texts: entities first, then relationship facts
+  const entityTexts = kgEntities.map((e) => buildEntityEmbeddingText(e));
+  const relFactTexts = kgRelationships.map((r) => {
+    // Relationship fact text: "headText headType -> type -> tailText tailType"
+    return `${r.headText} (${r.headType}) -[${r.type}]-> ${r.tailText} (${r.tailType})`;
+  });
+
+  const allTexts = [...entityTexts, ...relFactTexts];
+  if (allTexts.length === 0) return 0;
+
+  const { embeddings } = await generateEmbeddings(allTexts, embeddingConfig);
+
+  let embedded = 0;
+
+  // Attach entity embeddings
+  for (let i = 0; i < kgEntities.length; i++) {
+    const emb = embeddings[i];
+    if (emb) {
+      kgEntities[i]!.embedding = emb;
+      embedded++;
+    }
+  }
+
+  // Attach relationship fact embeddings
+  const relOffset = kgEntities.length;
+  for (let i = 0; i < kgRelationships.length; i++) {
+    const emb = embeddings[relOffset + i];
+    if (emb) {
+      kgRelationships[i]!.factEmbedding = emb;
+      embedded++;
+    }
+  }
+
+  if (embedded > 0) {
+    logger.debug(`Generated ${embedded} embeddings for knowledge entities/relationships`);
+  }
+
+  return embedded;
 }
 
 // ============================================================================
