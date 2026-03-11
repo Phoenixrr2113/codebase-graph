@@ -28,7 +28,7 @@ const logger = createLogger({ namespace: 'core:hybrid-search' });
 
 /** Node types that support vector search */
 const CODE_NODE_TYPES = [
-  'Function', 'Class', 'Interface', 'Component', 'Type', 'Variable',
+  'Function', 'Class', 'Interface', 'Component', 'Type', 'Variable', 'File',
 ] as const;
 
 export type CodeNodeType = (typeof CODE_NODE_TYPES)[number];
@@ -301,9 +301,15 @@ export async function hybridSearch(
 
   if (expandGraph && allHits.length > 0) {
     // Only expand code nodes (not knowledge entities)
-    const codeHits = allHits.filter(
-      (h) => h.nodeType !== 'Entity' && h.filePath,
-    ).slice(0, 10); // Limit traversal to top 10
+    // Prioritize File nodes — they have the richest graph structure (CONTAINS, IMPORTS)
+    const codeHits = allHits
+      .filter((h) => h.nodeType !== 'Entity' && h.filePath)
+      .sort((a, b) => {
+        if (a.nodeType === 'File' && b.nodeType !== 'File') return -1;
+        if (a.nodeType !== 'File' && b.nodeType === 'File') return 1;
+        return 0; // preserve score order within same priority
+      })
+      .slice(0, 10);
 
     for (const hit of codeHits) {
       try {
@@ -476,13 +482,15 @@ async function textSearchNodes(
   const scopeFilter = scope ? 'AND n.filePath STARTS WITH $scope' : '';
 
   // Case-insensitive name search
+  // File nodes store their path as `path`; all other code nodes use `filePath`
   const cypher = `
     MATCH (n)
     WHERE ${labelFilter}
       AND toLower(n.name) CONTAINS toLower($query)
       ${scopeFilter}
     RETURN n.name AS name, ${firstLabel} AS nodeType,
-           n.filePath AS filePath, n.startLine AS startLine
+           CASE WHEN ${dialect.labelCheckExpr('n', 'File')} THEN n.path ELSE n.filePath END AS filePath,
+           n.startLine AS startLine
     ORDER BY n.name
     LIMIT $limit
   `;
@@ -523,9 +531,14 @@ async function traverseNeighbors(
   const edgeType = dialect.typeExpr('r');
   const hopRange = maxHops > 1 ? `*1..${maxHops}` : '';
 
-  // Outgoing traversal (e.g., this function CALLS other functions)
+  // File nodes use `path` property; all other code nodes use `filePath`
+  const matchProps = nodeType === 'File'
+    ? '{name: $name}'
+    : '{name: $name, filePath: $filePath}';
+
+  // Outgoing traversal (e.g., this function CALLS other functions, File CONTAINS functions)
   const outCypher = `
-    MATCH (n:${nodeType} {name: $name, filePath: $filePath})-[r${hopRange}]->(other)
+    MATCH (n:${nodeType} ${matchProps})-[r${hopRange}]->(other)
     RETURN other.name AS name, ${firstLabel} AS nodeType,
            other.filePath AS filePath, other.startLine AS startLine,
            ${edgeType} AS edgeLabel
@@ -534,7 +547,7 @@ async function traverseNeighbors(
 
   // Incoming traversal (e.g., other functions CALL this function)
   const inCypher = `
-    MATCH (other)-[r${hopRange}]->(n:${nodeType} {name: $name, filePath: $filePath})
+    MATCH (other)-[r${hopRange}]->(n:${nodeType} ${matchProps})
     RETURN other.name AS name, ${firstLabel} AS nodeType,
            other.filePath AS filePath, other.startLine AS startLine,
            ${edgeType} AS edgeLabel

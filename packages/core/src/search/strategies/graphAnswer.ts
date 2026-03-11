@@ -134,8 +134,8 @@ export class GraphAnswerStrategy implements SearchStrategy {
       }
     }
 
-    // Related nodes
-    for (const rel of result.related.slice(0, 10)) {
+    // Related nodes (graph-expanded neighbors, CONTAINS, IMPORTS, etc.)
+    for (const rel of result.related.slice(0, 25)) {
       const loc = rel.filePath ? ` (${rel.filePath})` : '';
       lines.push(`[Related: ${rel.edgeLabel}] ${rel.name} (${rel.nodeType})${loc}`);
     }
