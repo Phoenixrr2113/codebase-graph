@@ -1628,7 +1628,7 @@ class CodeGraphServiceImpl {
       outLabels: string[] | null;
     }>(`
       MATCH (n)
-      WHERE elementId(n) = $id OR n.path = $id OR (n.name + ':' + n.filePath) = $id
+      WHERE n.path = $id OR (n.name + ':' + n.filePath) = $id
       OPTIONAL MATCH (inNode)-[inEdge]->(n)
       OPTIONAL MATCH (n)-[outEdge]->(outNode)
       RETURN n, ${dialect.labelsExpr('n')} as labels,

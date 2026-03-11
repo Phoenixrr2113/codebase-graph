@@ -231,24 +231,12 @@ importers:
       '@hono/zod-validator':
         specifier: ^0.7.6
         version: 0.7.6(hono@4.11.4)(zod@4.3.5)
-      chokidar:
-        specifier: 5.0.0
-        version: 5.0.0
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
-      fast-glob:
-        specifier: ^3.3.3
-        version: 3.3.3
-      glob:
-        specifier: ^10.3.10
-        version: 10.5.0
       hono:
         specifier: ^4.11.4
         version: 4.11.4
-      simple-git:
-        specifier: ^3.30.0
-        version: 3.30.0
       zod:
         specifier: ^4.3.5
         version: 4.3.5
