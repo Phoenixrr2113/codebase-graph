@@ -11,7 +11,12 @@
  * - "List all entities of type Decision"
  */
 
-import { generateObject, NoObjectGeneratedError } from 'ai';
+import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError } from 'ai';
+
+/** Check if an error is a structured output generation failure */
+function isNoOutputError(error: unknown): boolean {
+  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
+}
 import { createLogger } from '@codegraph/logger';
 import { NLToCypherSchema, type NLToCypher } from '@codegraph/plugin-nlp';
 import type {
@@ -97,16 +102,16 @@ export class NLToCypherStrategy implements SearchStrategy {
     let cypherResult: NLToCypher;
 
     try {
-      const { object } = (await generateObject({
+      const { output } = (await generateText({
         model: context.llm,
-        schema: NLToCypherSchema,
+        output: Output.object({ schema: NLToCypherSchema }),
         prompt: this.buildTranslationPrompt(request.query),
         temperature: 0.1,
-      })) as { object: NLToCypher };
+      })) as { output: NLToCypher };
 
-      cypherResult = object;
+      cypherResult = output;
     } catch (error) {
-      if (NoObjectGeneratedError.isInstance(error)) {
+      if (isNoOutputError(error)) {
         return {
           results: [],
           total: 0,
@@ -117,7 +122,16 @@ export class NLToCypherStrategy implements SearchStrategy {
       throw error;
     }
 
-    const { cypher, explanation, parameters: params } = cypherResult;
+    const { cypher, explanation, parametersJson } = cypherResult;
+    // Parse optional JSON parameters string
+    let params: Record<string, unknown> | undefined;
+    if (parametersJson) {
+      try {
+        params = JSON.parse(parametersJson);
+      } catch {
+        logger.warn(`Failed to parse parameters JSON: ${parametersJson}`);
+      }
+    }
 
     logger.info(`Generated Cypher: ${cypher}`);
     logger.debug(`Explanation: ${explanation}`);

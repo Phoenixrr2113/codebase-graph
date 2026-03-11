@@ -10,7 +10,12 @@
  * - "What decisions were made about the database?"
  */
 
-import { generateObject, NoObjectGeneratedError, type LanguageModel } from 'ai';
+import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, type LanguageModel } from 'ai';
+
+/** Check if an error is a structured output generation failure (handles both old and new error types) */
+function isNoOutputError(error: unknown): boolean {
+  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
+}
 import { createLogger } from '@codegraph/logger';
 import { GraphAnswerSchema, type GraphAnswer } from '@codegraph/plugin-nlp';
 import type {
@@ -75,12 +80,12 @@ export class GraphAnswerStrategy implements SearchStrategy {
       const isLastModel = i === modelsToTry.length - 1;
 
       try {
-        const { object: answer } = (await generateObject({
+        const { output: answer } = (await generateText({
           model,
-          schema: GraphAnswerSchema,
+          output: Output.object({ schema: GraphAnswerSchema }),
           prompt: this.buildAnswerPrompt(request.query, contextText),
           temperature: 0.2,
-        })) as { object: GraphAnswer };
+        })) as { output: GraphAnswer };
 
         return {
           results,
@@ -98,7 +103,7 @@ export class GraphAnswerStrategy implements SearchStrategy {
           },
         };
       } catch (error) {
-        if (NoObjectGeneratedError.isInstance(error)) {
+        if (isNoOutputError(error)) {
           logger.warn('GRAPH_ANSWER: LLM failed to generate structured answer');
           if (isLastModel) {
             return {

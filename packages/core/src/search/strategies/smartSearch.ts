@@ -12,7 +12,7 @@
  * - "How does data flow from API to database?" → CONTEXT_WALK (multi-hop)
  */
 
-import { generateObject } from 'ai';
+import { generateText, Output } from 'ai';
 import { createLogger } from '@codegraph/logger';
 import { SearchRouteSchema, type SearchRoute } from '@codegraph/plugin-nlp';
 import type {
@@ -146,9 +146,9 @@ export class SmartSearchStrategy implements SearchStrategy {
       .map((s) => `- ${s.type}: ${s.description}`)
       .join('\n');
 
-    const { object } = (await generateObject({
+    const { output } = (await generateText({
       model: context.llm!,
-      schema: SearchRouteSchema,
+      output: Output.object({ schema: SearchRouteSchema }),
       prompt: `You are a search router for a code knowledge graph. Classify the user's query and choose the best search strategy.
 
 ## Available Strategies:
@@ -165,13 +165,13 @@ ${availableStrategies}
 
 Choose the best strategy and optionally rewrite the query for better results.`,
       temperature: 0.1,
-    })) as { object: SearchRoute };
+    })) as { output: SearchRoute };
 
     const result: { strategy: SearchType; reasoning: string; rewrittenQuery?: string } = {
-      strategy: object.strategy as SearchType,
-      reasoning: object.reasoning,
+      strategy: output.strategy as SearchType,
+      reasoning: output.reasoning,
     };
-    if (object.rewrittenQuery) result.rewrittenQuery = object.rewrittenQuery;
+    if (output.rewrittenQuery) result.rewrittenQuery = output.rewrittenQuery;
     return result;
   }
 }

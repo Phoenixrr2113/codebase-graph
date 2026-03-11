@@ -77,7 +77,7 @@ export type GraphAnswer = z.infer<typeof GraphAnswerSchema>;
 export const NLToCypherSchema = z.object({
   cypher: z.string().describe('Valid Cypher query for FalkorDB'),
   explanation: z.string().describe('Brief explanation of what the query does'),
-  parameters: z.record(z.unknown()).optional().describe('Query parameters (if any)'),
+  parametersJson: z.string().optional().describe('JSON object of query parameters, e.g. {"name": "auth"} — omit if no parameters needed'),
 });
 
 export type NLToCypher = z.infer<typeof NLToCypherSchema>;

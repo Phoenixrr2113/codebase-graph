@@ -1,5 +1,10 @@
-import { generateObject, NoObjectGeneratedError, type LanguageModel } from 'ai';
+import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, type LanguageModel } from 'ai';
 import { createLogger } from '@codegraph/logger';
+
+/** Check if an error is a structured output generation failure */
+function isNoOutputError(error: unknown): boolean {
+  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
+}
 import type {
   Sample,
   AnnotatedSample,
@@ -114,22 +119,26 @@ export class EntityExtractor {
   }
 
   /**
-   * Safely call generateObject, returning empty results on parse failures.
+   * Safely generate structured extraction, returning empty results on parse failures.
    * This handles cases where the LLM returns non-JSON or malformed output.
    */
   private async safeGenerateExtraction(
     prompt: string,
   ): Promise<ExtractionResponse> {
     try {
-      const { object } = await generateObject({
+      const { output } = await generateText({
         model: this.model,
-        schema: ExtractionResponseSchema,
+        output: Output.object({ schema: ExtractionResponseSchema }),
         prompt,
         temperature: this.config.temperature,
       });
-      return object;
+      if (!output) {
+        logger.warn(`LLM returned no structured output — returning empty result`);
+        return { entities: [], relationships: [] };
+      }
+      return output;
     } catch (error) {
-      if (NoObjectGeneratedError.isInstance(error)) {
+      if (isNoOutputError(error)) {
         logger.warn(`LLM returned unparseable response — returning empty result`);
         return { entities: [], relationships: [] };
       }
@@ -212,18 +221,23 @@ export class EntityExtractor {
     const prompt = this.buildBatchPrompt(samples);
 
     try {
-      const { object } = await generateObject({
+      const { output } = await generateText({
         model: this.model,
-        schema: BatchExtractionResponseSchema,
+        output: Output.object({ schema: BatchExtractionResponseSchema }),
         prompt,
         temperature: this.config.temperature,
       });
 
-      logger.debug(`LLM batch response: ${object.results.length} results`);
+      if (!output) {
+        logger.warn('LLM returned no structured batch output — returning empty results');
+        return [];
+      }
 
-      return this.processBatchResponse(object, samples);
+      logger.debug(`LLM batch response: ${output.results.length} results`);
+
+      return this.processBatchResponse(output, samples);
     } catch (error) {
-      if (NoObjectGeneratedError.isInstance(error)) {
+      if (isNoOutputError(error)) {
         logger.warn('LLM returned unparseable batch response — returning empty results');
         return [];
       }

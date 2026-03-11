@@ -11,7 +11,12 @@
  * - "What components depend on the AuthService?"
  */
 
-import { generateObject, NoObjectGeneratedError, type LanguageModel } from 'ai';
+import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, type LanguageModel } from 'ai';
+
+/** Check if an error is a structured output generation failure */
+function isNoOutputError(error: unknown): boolean {
+  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
+}
 import { createLogger } from '@codegraph/logger';
 import { ContextWalkStepSchema, type ContextWalkStep } from '@codegraph/plugin-nlp';
 import type {
@@ -113,15 +118,15 @@ export class ContextWalkStrategy implements SearchStrategy {
       try {
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore — Zod schema type inference depth issue
-        const { object } = (await generateObject({
+        const { output } = (await generateText({
           model,
-          schema: ContextWalkStepSchema,
+          output: Output.object({ schema: ContextWalkStepSchema }),
           prompt,
           temperature: 0.2,
-        })) as { object: ContextWalkStep };
-        return object;
+        })) as { output: ContextWalkStep };
+        return output;
       } catch (error) {
-        if (NoObjectGeneratedError.isInstance(error)) {
+        if (isNoOutputError(error)) {
           if (isLast) return null;
           continue;
         }
