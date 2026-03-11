@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
 import { createQueries } from '@codegraph/graph';
-import { connectGraph } from '../graphConnection';
+import { getGraphClient } from '@codegraph/core';
 import { writeFileSync } from 'fs';
 
 const logger = createLogger({ namespace: 'cli:map' });
@@ -19,7 +19,7 @@ export const mapCommand = new Command('map')
     logger.info(`Generating map for: ${pathPrefix || '(all)'}`);
 
     try {
-      const client = await connectGraph(options);
+      const client = await getGraphClient();
 
       const queries = createQueries(client);
       const result = await queries.getFullGraph(parseInt(options.limit), pathPrefix || undefined);
@@ -73,8 +73,6 @@ export const mapCommand = new Command('map')
       } else {
         console.log(output);
       }
-
-      await client.close();
 
     } catch (error) {
       logger.error('Map generation failed', error);

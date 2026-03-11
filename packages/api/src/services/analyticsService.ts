@@ -1,24 +1,14 @@
 /**
  * Analytics Service
- * 
- * Central service for running and caching analytics.
- * Orchestrates security, complexity, refactoring, dataflow, and impact analysis.
- * 
+ *
+ * Caching and scheduling wrapper around core analytics.
+ * All business logic is delegated to codeGraphService;
+ * this service adds caching, scheduling, and API-specific result formatting.
+ *
  * @module services/analyticsService
  */
 
-import { glob } from 'glob';
-import {
-  initParser,
-  parseFile,
-  scanForVulnerabilities,
-  analyzeDataflow,
-  analyzeRefactoring,
-  sortBySeverity,
-  type SecurityFinding,
-  type RefactoringAnalysisInput,
-} from '@codegraph/core';
-import { getClient } from '../model/graphClient';
+import { codeGraphService } from '@codegraph/core';
 import { getAnalyticsCache } from './analyticsCache';
 import { getAnalyticsScheduler } from './analyticsScheduler';
 import { createLogger } from '@codegraph/logger';
@@ -26,11 +16,20 @@ import { createLogger } from '@codegraph/logger';
 const logger = createLogger({ namespace: 'API:Analytics' });
 
 // ============================================================================
-// Types
+// Types (API-specific shapes with caching metadata)
 // ============================================================================
 
 export interface SecurityResult {
-  findings: SecurityFinding[];
+  findings: Array<{
+    type: string;
+    severity: string;
+    message: string;
+    filePath: string;
+    line: number;
+    column: number;
+    code: string;
+    recommendation: string;
+  }>;
   summary: {
     critical: number;
     high: number;
@@ -125,7 +124,6 @@ export interface AnalyticsSummary {
 // ============================================================================
 
 export class AnalyticsService {
-  private parserInitialized = false;
   private lastFullScan: Date | null = null;
 
   constructor() {
@@ -150,16 +148,6 @@ export class AnalyticsService {
         }
       }
     });
-  }
-
-  /**
-   * Ensure parser is initialized
-   */
-  private async ensureParser(): Promise<void> {
-    if (!this.parserInitialized) {
-      await initParser();
-      this.parserInitialized = true;
-    }
   }
 
   /**
@@ -193,11 +181,11 @@ export class AnalyticsService {
         maxComplexity: complexity.maxComplexity,
       },
       refactoring: {
-        filesAnalyzed: 0, // Would need to run refactoring analysis
+        filesAnalyzed: 0,
         extractionCandidates: 0,
       },
       dataflow: {
-        vulnerabilities: 0, // Would need to run dataflow analysis
+        vulnerabilities: 0,
         sources: 0,
         sinks: 0,
       },
@@ -205,7 +193,6 @@ export class AnalyticsService {
       cachedAt: new Date().toISOString(),
     };
 
-    // Cache the summary
     const cache = getAnalyticsCache();
     cache.set('summary', projectPath, summary);
 
@@ -213,7 +200,8 @@ export class AnalyticsService {
   }
 
   /**
-   * Get security analysis (with caching)
+   * Get security analysis (with caching).
+   * Delegates to codeGraphService.scanVulnerabilities().
    */
   async getSecurityAnalysis(
     projectPath: string,
@@ -229,52 +217,21 @@ export class AnalyticsService {
       }
     }
 
-    await this.ensureParser();
     logger.info(`[Analytics] Running security scan on ${projectPath}`);
 
-    // Find all TypeScript files
-    const files = await glob('**/*.{ts,tsx}', {
-      cwd: projectPath,
-      absolute: true,
-      ignore: [
-        '**/node_modules/**',
-        '**/dist/**',
-        '**/build/**',
-        '**/__tests__/**',
-        '**/*.test.ts',
-        '**/*.test.tsx',
-        '**/*.spec.ts',
-      ],
-    });
+    const scanResult = await codeGraphService.scanVulnerabilities({ path: projectPath });
 
-    const allFindings: SecurityFinding[] = [];
-    let filesScanned = 0;
-
-    for (const filePath of files.slice(0, 200)) {
-      try {
-        const tree = await parseFile(filePath);
-        const findings = scanForVulnerabilities(tree.rootNode, {
-          filePath,
-          includeLowSeverity: true,
-        });
-        allFindings.push(...findings);
-        filesScanned++;
-      } catch {
-        // Skip files that fail to parse
-      }
-    }
-
-    const sorted = sortBySeverity(allFindings);
+    const findings = scanResult.vulnerabilities;
     const result: SecurityResult = {
-      findings: sorted,
+      findings,
       summary: {
-        critical: sorted.filter(f => f.severity === 'critical').length,
-        high: sorted.filter(f => f.severity === 'high').length,
-        medium: sorted.filter(f => f.severity === 'medium').length,
-        low: sorted.filter(f => f.severity === 'low').length,
-        total: sorted.length,
+        critical: findings.filter(f => f.severity === 'critical').length,
+        high: findings.filter(f => f.severity === 'high').length,
+        medium: findings.filter(f => f.severity === 'medium').length,
+        low: findings.filter(f => f.severity === 'low').length,
+        total: findings.length,
       },
-      filesScanned,
+      filesScanned: scanResult.filesScanned,
       cachedAt: new Date().toISOString(),
     };
 
@@ -283,7 +240,8 @@ export class AnalyticsService {
   }
 
   /**
-   * Get complexity hotspots from graph
+   * Get complexity hotspots (with caching).
+   * Delegates to codeGraphService.getComplexityHotspots().
    */
   async getComplexityHotspots(
     projectPath: string,
@@ -300,31 +258,21 @@ export class AnalyticsService {
     }
 
     const minComplexity = options.minComplexity ?? 5;
-    const client = await getClient();
-
-    const query = `
-      MATCH (f:Function)
-      WHERE f.complexity IS NOT NULL AND f.complexity > $minComplexity
-      RETURN f.name as name, f.filePath as filePath, f.complexity as complexity,
-             f.cognitiveComplexity as cognitive, f.nestingDepth as nesting,
-             f.endLine - f.startLine as lines
-      ORDER BY f.complexity DESC
-      LIMIT 50
-    `;
-
-    const queryResult = await client.roQuery<ComplexityHotspot>(query, {
-      params: { minComplexity }
+    const serviceResult = await codeGraphService.getComplexityHotspots({
+      threshold: minComplexity,
     });
 
-    const hotspots = queryResult.data;
-    const complexities = hotspots.map(h => h.complexity);
-
     const result: ComplexityResult = {
-      hotspots,
-      avgComplexity: complexities.length > 0
-        ? complexities.reduce((a, b) => a + b, 0) / complexities.length
-        : 0,
-      maxComplexity: complexities.length > 0 ? Math.max(...complexities) : 0,
+      hotspots: serviceResult.hotspots.map(h => ({
+        name: h.name,
+        filePath: h.file,
+        complexity: h.complexity,
+        cognitive: h.cognitive,
+        nesting: h.nesting,
+        lines: h.lines,
+      })),
+      avgComplexity: serviceResult.summary.avgComplexity,
+      maxComplexity: serviceResult.summary.maxComplexity,
       cachedAt: new Date().toISOString(),
     };
 
@@ -333,7 +281,8 @@ export class AnalyticsService {
   }
 
   /**
-   * Get refactoring analysis for a file
+   * Get refactoring analysis for a file (with caching).
+   * Delegates to codeGraphService.analyzeRefactoring().
    */
   async getRefactoringAnalysis(
     filePath: string,
@@ -349,60 +298,20 @@ export class AnalyticsService {
       }
     }
 
-    const client = await getClient();
-    const threshold = options.threshold ?? 3;
-
-    // Get functions and their coupling data
-    const functionsQuery = `
-      MATCH (fn:Function {filePath: $path})
-      OPTIONAL MATCH (fn)-[c:CALLS]->(:Function {filePath: $path})
-      WITH fn, count(c) as internalCalls
-      RETURN fn.name as name, fn.startLine as startLine, fn.endLine as endLine, 
-             internalCalls as calls
-      ORDER BY internalCalls DESC
-    `;
-
-    const callsQuery = `
-      MATCH (caller:Function {filePath: $path})-[:CALLS]->(callee:Function {filePath: $path})
-      RETURN caller.name as caller, callee.name as callee
-    `;
-
-    const [functionsResult, callsResult] = await Promise.all([
-      client.roQuery<{ name: string; startLine: number; endLine: number; calls: number }>(
-        functionsQuery, { params: { path: filePath } }
-      ),
-      client.roQuery<{ caller: string; callee: string }>(
-        callsQuery, { params: { path: filePath } }
-      ),
-    ]);
-
-    const input: RefactoringAnalysisInput = {
-      file: filePath,
-      functions: functionsResult.data.map(f => ({
-        name: f.name,
-        startLine: f.startLine,
-        endLine: f.endLine,
-        internalCalls: f.calls,
-        stateReads: 0,
-      })),
-      callRelationships: callsResult.data.map(c => ({
-        caller: c.caller,
-        callee: c.callee,
-      })),
-    };
-
-    const analysis = analyzeRefactoring(input, { extractionThreshold: threshold });
+    const refactorOpts: Parameters<typeof codeGraphService.analyzeRefactoring>[1] = {};
+    if (options.threshold !== undefined) refactorOpts.threshold = options.threshold;
+    const serviceResult = await codeGraphService.analyzeRefactoring(filePath, refactorOpts);
 
     const result: RefactoringResult = {
-      file: filePath,
-      totalFunctions: analysis.totalFunctions,
-      extractionCandidates: analysis.extractionCandidates.map(c => ({
+      file: serviceResult.file,
+      totalFunctions: serviceResult.totalFunctions,
+      extractionCandidates: serviceResult.extractionCandidates.map(c => ({
         name: c.name,
         couplingScore: c.couplingScore,
         internalCalls: c.internalCalls,
       })),
-      couplingLevel: analysis.couplingLevel,
-      avgCouplingScore: analysis.averageCouplingScore,
+      couplingLevel: serviceResult.couplingLevel,
+      avgCouplingScore: serviceResult.averageCouplingScore,
       cachedAt: new Date().toISOString(),
     };
 
@@ -411,7 +320,8 @@ export class AnalyticsService {
   }
 
   /**
-   * Get dataflow analysis for a file
+   * Get dataflow analysis for a file (with caching).
+   * Delegates to codeGraphService.analyzeDataflowForFile().
    */
   async getDataflowAnalysis(
     filePath: string,
@@ -427,21 +337,13 @@ export class AnalyticsService {
       }
     }
 
-    await this.ensureParser();
-
-    const tree = await parseFile(filePath);
-    const analysis = analyzeDataflow(tree.rootNode, filePath, { maxDepth: 10 });
+    const serviceResult = await codeGraphService.analyzeDataflowForFile(filePath);
 
     const result: DataflowResult = {
       file: filePath,
-      sources: analysis.sources.length,
-      sinks: analysis.sinks.length,
-      vulnerabilities: analysis.vulnerabilities.map(v => ({
-        source: v.source.pattern,
-        sink: v.sink.pattern,
-        severity: v.severity,
-        category: v.category,
-      })),
+      sources: serviceResult.sources.length,
+      sinks: serviceResult.sinks.length,
+      vulnerabilities: serviceResult.vulnerabilities,
       cachedAt: new Date().toISOString(),
     };
 
@@ -450,7 +352,8 @@ export class AnalyticsService {
   }
 
   /**
-   * Get impact analysis for a symbol
+   * Get impact analysis for a symbol (with caching).
+   * Delegates to codeGraphService.analyzeImpact().
    */
   async getImpactAnalysis(
     symbol: string,
@@ -466,42 +369,16 @@ export class AnalyticsService {
       }
     }
 
-    const client = await getClient();
-    const depth = options.depth ?? 5;
-
-    // Get direct callers
-    const directQuery = `
-      MATCH (caller:Function)-[:CALLS]->(fn:Function {name: $name})
-      RETURN count(DISTINCT caller) as count
-    `;
-
-    // Get transitive callers (simplified)
-    const transitiveQuery = `
-      MATCH (caller:Function)-[:CALLS*1..${depth}]->(fn:Function {name: $name})
-      RETURN count(DISTINCT caller) as count
-    `;
-
-    const [directResult, transitiveResult] = await Promise.all([
-      client.roQuery<{ count: number }>(directQuery, { params: { name: symbol } }),
-      client.roQuery<{ count: number }>(transitiveQuery, { params: { name: symbol } }),
-    ]);
-
-    const directCallers = directResult.data[0]?.count ?? 0;
-    const transitiveCallers = transitiveResult.data[0]?.count ?? 0;
-
-    // Calculate risk level
-    let riskLevel: 'low' | 'medium' | 'high' | 'critical';
-    if (transitiveCallers > 20) riskLevel = 'critical';
-    else if (transitiveCallers > 10) riskLevel = 'high';
-    else if (transitiveCallers > 5) riskLevel = 'medium';
-    else riskLevel = 'low';
+    const impactOpts: Parameters<typeof codeGraphService.analyzeImpact>[1] = {};
+    if (options.depth !== undefined) impactOpts.depth = options.depth;
+    const serviceResult = await codeGraphService.analyzeImpact(symbol, impactOpts);
 
     const result: ImpactResult = {
       symbol,
-      directCallers,
-      transitiveCallers,
-      affectedFiles: 0, // Would need additional query
-      riskLevel,
+      directCallers: serviceResult.directCallers.length,
+      transitiveCallers: serviceResult.transitiveCallers.length,
+      affectedFiles: serviceResult.affectedFiles.length,
+      riskLevel: serviceResult.riskLevel,
       cachedAt: new Date().toISOString(),
     };
 
@@ -520,7 +397,6 @@ export class AnalyticsService {
       return cached;
     }
 
-    // Generate fresh summary
     return this.runFullAnalysis(projectPath);
   }
 

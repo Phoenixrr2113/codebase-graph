@@ -2,7 +2,7 @@
  * MCP Tool: ask_code
  *
  * Answers natural language questions about the codebase using GRAPH_ANSWER strategy.
- * Flow: hybrid search → gather context from top hits → LLM answer synthesis.
+ * Delegates to codeGraphService.strategySearch() with GRAPH_ANSWER type.
  *
  * Examples:
  *   "What does the authentication module do?"
@@ -12,12 +12,8 @@
  * Requires an LLM provider (OPENROUTER_API_KEY or Ollama).
  */
 
-import {
-  createDefaultSearchRegistry,
-  getGraphClient,
-} from '@codegraph/core';
-import type { SearchContext, SearchResponse, SearchResultItem } from '@codegraph/core';
-import { getLLMModel, isLLMAvailable } from '@codegraph/plugin-nlp';
+import { codeGraphService } from '@codegraph/core';
+import type { SearchResultItem } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // ============================================================================
@@ -109,7 +105,20 @@ export async function askCode(input: AskCodeInput): Promise<AskCodeOutput> {
       };
     }
 
-    if (!isLLMAvailable()) {
+    // Delegate to service layer — strategySearch handles LLM availability internally
+    const opts: Parameters<typeof codeGraphService.strategySearch>[2] = {
+      limit: input.limit ?? 15,
+    };
+    if (input.scope) opts.scope = input.scope;
+
+    const response = await codeGraphService.strategySearch(
+      input.question,
+      'GRAPH_ANSWER',
+      opts,
+    );
+
+    // Check if the strategy failed due to missing LLM
+    if (response.error && response.error.includes('LLM')) {
       return {
         answer: '',
         confidence: 0,
@@ -120,20 +129,6 @@ export async function askCode(input: AskCodeInput): Promise<AskCodeOutput> {
           'or configure Ollama (LLM_PROVIDER=ollama).',
       };
     }
-
-    const client = await getGraphClient();
-    const llm = await getLLMModel();
-
-    const registry = createDefaultSearchRegistry();
-    const context: SearchContext = { client, llm };
-
-    const request: Parameters<typeof registry.search>[0] = {
-      query: input.question,
-      type: 'GRAPH_ANSWER',
-      limit: input.limit ?? 15,
-    };
-    if (input.scope) request.scope = input.scope;
-    const response: SearchResponse = await registry.search(request, context);
 
     const contextNodes = response.results.map((r: SearchResultItem) => {
       const node: AskCodeOutput['contextNodes'][number] = {

@@ -282,6 +282,11 @@ export type {
   ServiceExtractionCandidate,
   ServiceResponsibility,
   ServiceRefactoringResult,
+  // New consolidated types
+  ServiceScanOptions,
+  ServiceVulnerability,
+  ServiceScanResult,
+  ServiceDataflowResult,
 } from './service';
 
 // Knowledge graph service layer

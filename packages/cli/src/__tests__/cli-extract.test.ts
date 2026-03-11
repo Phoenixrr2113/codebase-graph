@@ -83,7 +83,8 @@ describe('CLI structure', () => {
     expect(commandNames).toContain('map');
     expect(commandNames).toContain('serve');
     expect(commandNames).toContain('embed');
-    expect(commandNames.length).toBe(8);
+    expect(commandNames).toContain('link');
+    expect(commandNames.length).toBe(9);
   });
 
   it('extract command has expected options', async () => {

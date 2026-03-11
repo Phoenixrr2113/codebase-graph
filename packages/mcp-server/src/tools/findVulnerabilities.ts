@@ -2,18 +2,10 @@
  * MCP Tool: find_vulnerabilities
  *
  * Scan for security vulnerabilities using tree-sitter pattern matching.
- * Uses @codegraph/core security scanner.
+ * Delegates to codeGraphService.scanVulnerabilities() for business logic.
  */
 
-import { readFile, stat as fsStat } from 'node:fs/promises';
-import { glob } from 'glob';
-import {
-  initParser,
-  parseCode,
-  scanForVulnerabilities,
-  sortBySeverity,
-  type SecurityFinding,
-} from '@codegraph/core';
+import { codeGraphService } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
@@ -91,95 +83,33 @@ const SEVERITY_RANK: Record<string, number> = {
 export async function findVulnerabilities(input: FindVulnerabilitiesInput): Promise<FindVulnerabilitiesOutput> {
   try {
     const scope = (!input.scope || input.scope === 'all') ? process.cwd() : input.scope;
-
-    // Find files to scan
-    let files: string[];
-    try {
-      const fileStat = await fsStat(scope);
-      if (fileStat.isFile()) {
-        files = [scope];
-      } else {
-        // Glob for TypeScript/JavaScript files
-        files = await glob('**/*.{ts,tsx,js,jsx}', {
-          cwd: scope,
-          absolute: true,
-          ignore: ['**/node_modules/**', '**/dist/**', '**/build/**'],
-        });
-      }
-    } catch {
-      return {
-        vulnerabilities: [],
-        summary: { critical: 0, high: 0, medium: 0, low: 0 },
-        filesScanned: 0,
-        error: `Invalid scope: ${scope}`,
-      };
-    }
-
-    // Initialize parser
-    await initParser();
-
     const severity = input.severity ?? 'all';
     const category = input.category ?? 'all';
-    const allFindings: SecurityFinding[] = [];
-    let filesScanned = 0;
 
-    // Scan each file
-    for (const filePath of files.slice(0, 100)) { // Limit to 100 files
-      try {
-        const code = await readFile(filePath, 'utf-8');
-        const ext = filePath.split('.').pop() ?? 'ts';
-        const langMap: Record<string, 'typescript' | 'javascript' | 'tsx' | 'jsx'> = {
-          ts: 'typescript',
-          tsx: 'tsx',
-          js: 'javascript',
-          jsx: 'jsx',
-        };
-        const language = langMap[ext] ?? 'typescript';
-        const tree = parseCode(code, language);
+    // Delegate to service layer
+    const scanOpts: Parameters<typeof codeGraphService.scanVulnerabilities>[0] = { path: scope };
+    if (category !== 'all') scanOpts.category = category;
 
-        const findings = scanForVulnerabilities(tree.rootNode, {
-          filePath,
-          includeLowSeverity: severity === 'all' || severity === 'low',
-        });
+    const result = await codeGraphService.scanVulnerabilities(scanOpts);
 
-        allFindings.push(...findings);
-        filesScanned++;
-      } catch {
-        // Skip files that fail to parse
-      }
-    }
-
-    // Sort by severity
-    const sorted = sortBySeverity(allFindings);
-
-    // Filter by minimum severity
-    const minSeverity = SEVERITY_RANK[severity] ?? 0;
-    const filtered = severity === 'all'
-      ? sorted
-      : sorted.filter(f => (SEVERITY_RANK[f.severity] ?? 0) >= minSeverity);
-
-    // Filter by category
-    const categoryFiltered = category === 'all'
-      ? filtered
-      : filtered.filter(f => {
-        const typeLC = f.type.toLowerCase();
-        if (category === 'injection') return typeLC.includes('injection');
-        if (category === 'xss') return typeLC.includes('xss');
-        if (category === 'auth') return typeLC.includes('auth') || typeLC.includes('password');
-        if (category === 'payment') return typeLC.includes('payment') || typeLC.includes('stripe');
-        return true;
-      });
-
-    // Map to output format
-    const vulnerabilities: Vulnerability[] = categoryFiltered.map(f => ({
-      type: f.type,
-      severity: f.severity as 'critical' | 'high' | 'medium' | 'low',
-      file: f.file,
-      line: f.line,
-      code: f.code,
-      description: f.description,
-      fix: f.fix,
+    // Map service result to MCP output format
+    let vulnerabilities: Vulnerability[] = result.vulnerabilities.map(v => ({
+      type: v.type,
+      severity: v.severity as 'critical' | 'high' | 'medium' | 'low',
+      file: v.filePath,
+      line: v.line,
+      code: v.code,
+      description: v.message,
+      fix: v.recommendation,
     }));
+
+    // Filter by minimum severity (service returns all, MCP needs severity filtering)
+    if (severity !== 'all') {
+      const minSeverity = SEVERITY_RANK[severity] ?? 0;
+      vulnerabilities = vulnerabilities.filter(
+        v => (SEVERITY_RANK[v.severity] ?? 0) >= minSeverity,
+      );
+    }
 
     // Calculate summary
     const summary = {
@@ -192,7 +122,7 @@ export async function findVulnerabilities(input: FindVulnerabilitiesInput): Prom
     return {
       vulnerabilities,
       summary,
-      filesScanned,
+      filesScanned: result.filesScanned,
     };
   } catch (error) {
     return {

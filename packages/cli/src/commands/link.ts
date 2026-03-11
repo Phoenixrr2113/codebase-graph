@@ -17,7 +17,7 @@ import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
 import { createKnowledgeOperations } from '@codegraph/graph';
 import { linkEntitiesToCode, linkByEmbedding } from '@codegraph/plugin-nlp';
-import { connectGraph } from '../graphConnection';
+import { getGraphClient } from '@codegraph/core';
 
 const logger = createLogger({ namespace: 'cli:link' });
 
@@ -33,7 +33,7 @@ export const linkCommand = new Command('link')
     const startTime = Date.now();
 
     try {
-      const client = await connectGraph(options);
+      const client = await getGraphClient();
       await client.ensureIndexes();
       const kgOps = createKnowledgeOperations(client);
 
@@ -85,7 +85,6 @@ export const linkCommand = new Command('link')
         const allEntities = await kgOps.searchEntities({ limit: 10000 });
         if (allEntities.length === 0) {
           console.log('No entities in knowledge graph — nothing to link');
-          await client.close();
           return;
         }
 
@@ -111,8 +110,6 @@ export const linkCommand = new Command('link')
           }
         }
       }
-
-      await client.close();
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
       console.log(`Completed in ${elapsed}s`);

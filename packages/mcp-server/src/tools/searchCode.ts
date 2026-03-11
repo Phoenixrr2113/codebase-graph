@@ -2,29 +2,18 @@
  * MCP Tool: search_code
  *
  * Search for code by name, pattern, or semantic meaning.
- * Uses hybrid search (vector + text + graph + knowledge) when embeddings
- * are available, falls back to text-only search otherwise.
- *
- * Supports a `strategy` parameter for advanced search:
- *   - SMART_SEARCH (default): auto-routes to the best strategy
- *   - HYBRID: vector + text + graph traversal
- *   - GRAPH_ANSWER: question answering with LLM
- *   - NL_TO_CYPHER: translates to Cypher query
- *   - CONTEXT_WALK: iterative multi-hop exploration
+ * Delegates to codeGraphService for all search modes:
+ *   - Hybrid: codeGraphService.hybridSearchCode()
+ *   - Strategy: codeGraphService.strategySearch()
+ *   - Legacy text: codeGraphService.searchCode()
  *
  * Cross-layer support: traverses ABOUT edges to bridge code ↔ knowledge
  * graph layers. When a code hit has linked knowledge entities (bugs,
  * decisions, concepts), they appear in the `related` array with edge="ABOUT".
  */
 
-import {
-  codeGraphService,
-  getGraphClient,
-  hybridSearch,
-  createDefaultSearchRegistry,
-} from '@codegraph/core';
-import type { SearchContext, SearchResponse, SearchType, SearchResultItem, SearchRelatedItem } from '@codegraph/core';
-import { getLLMModel, isLLMAvailable } from '@codegraph/plugin-nlp';
+import { codeGraphService } from '@codegraph/core';
+import type { SearchResultItem, SearchRelatedItem } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Strategy type for advanced search
@@ -153,19 +142,19 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
       return { results: [], total: 0, error: 'Search query is required' };
     }
 
-    // If a strategy is specified, use the search registry
+    // If a strategy is specified, use the strategy search via service
     if (input.strategy) {
       return strategySearchCode(input);
     }
 
     const searchType = input.type ?? 'semantic';
 
-    // For semantic/fulltext: use hybrid search
+    // For semantic/fulltext: use hybrid search via service
     if (searchType === 'semantic' || searchType === 'fulltext') {
       return hybridSearchCode(input);
     }
 
-    // For name/pattern: use legacy text search
+    // For name/pattern: use legacy text search via service
     return legacySearchCode(input);
   } catch (error) {
     return {
@@ -177,35 +166,25 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
 }
 
 /**
- * Hybrid search — vector + text + graph traversal
+ * Hybrid search — delegates to codeGraphService.hybridSearchCode()
  */
 async function hybridSearchCode(input: SearchCodeInput): Promise<SearchCodeOutput> {
-  const client = await getGraphClient();
   const scope = input.scope && input.scope !== 'all' ? input.scope : undefined;
 
-  const opts: Parameters<typeof hybridSearch>[2] = {
-    limit: 30,
-    includeKnowledge: true,    // include knowledge entities in results
-    expandGraph: true,
-    maxHops: 1,
-    includeAboutEdges: true,   // traverse ABOUT edges (code ↔ knowledge)
-  };
+  const opts: Parameters<typeof codeGraphService.hybridSearchCode>[1] = { limit: 30 };
   if (scope) opts.scope = scope;
 
-  const result = await hybridSearch(input.query, client, opts);
+  const result = await codeGraphService.hybridSearchCode(input.query, opts);
 
-  const results: SearchResult[] = result.hits.map((hit) => {
-    const r: SearchResult = {
-      name: hit.name,
-      kind: hit.nodeType.toLowerCase(),
-      file: hit.filePath ?? '',
-      line: hit.startLine ?? 0,
-      match: hit.name,
-      score: hit.score,
-      sources: hit.sources,
-    };
-    return r;
-  });
+  const results: SearchResult[] = result.hits.map((hit) => ({
+    name: hit.name,
+    kind: hit.nodeType.toLowerCase(),
+    file: hit.filePath ?? '',
+    line: hit.startLine ?? 0,
+    match: hit.name,
+    score: hit.score,
+    sources: hit.sources,
+  }));
 
   const output: SearchCodeOutput = {
     results,
@@ -240,7 +219,7 @@ async function hybridSearchCode(input: SearchCodeInput): Promise<SearchCodeOutpu
 }
 
 /**
- * Legacy text-only search (name/pattern mode)
+ * Legacy text-only search (name/pattern mode) — uses codeGraphService.searchCode()
  */
 async function legacySearchCode(input: SearchCodeInput): Promise<SearchCodeOutput> {
   const serviceResults = await codeGraphService.searchCode(input.query, {
@@ -257,38 +236,18 @@ async function legacySearchCode(input: SearchCodeInput): Promise<SearchCodeOutpu
 }
 
 /**
- * Strategy-based search using the SearchRegistry.
- * Dispatches to SMART_SEARCH, GRAPH_ANSWER, NL_TO_CYPHER, CONTEXT_WALK, or HYBRID.
+ * Strategy-based search — delegates to codeGraphService.strategySearch()
  */
 async function strategySearchCode(input: SearchCodeInput): Promise<SearchCodeOutput> {
   const strategy = input.strategy!;
-
-  // Build search context
-  const client = await getGraphClient();
-  const context: SearchContext = { client };
-
-  // Add LLM if available (required for GRAPH_ANSWER, NL_TO_CYPHER, CONTEXT_WALK)
-  if (isLLMAvailable()) {
-    try {
-      context.llm = await getLLMModel();
-    } catch {
-      // LLM init failed — strategies that require LLM will fail gracefully
-    }
-  }
-
-  const registry = createDefaultSearchRegistry();
-  const searchType = strategy as SearchType;
-
-  const request: Parameters<typeof registry.search>[0] = {
-    query: input.query,
-    type: searchType,
-  };
   const scope = input.scope && input.scope !== 'all' ? input.scope : undefined;
-  if (scope) request.scope = scope;
 
-  let response: SearchResponse;
+  const opts: Parameters<typeof codeGraphService.strategySearch>[2] = {};
+  if (scope) opts.scope = scope;
+
+  let response;
   try {
-    response = await registry.search(request, context);
+    response = await codeGraphService.strategySearch(input.query, strategy, opts);
   } catch (error) {
     return {
       results: [],
@@ -298,18 +257,15 @@ async function strategySearchCode(input: SearchCodeInput): Promise<SearchCodeOut
   }
 
   // Map SearchResponse → SearchCodeOutput
-  const results: SearchResult[] = response.results.map((r: SearchResultItem) => {
-    const item: SearchResult = {
-      name: r.name,
-      kind: r.nodeType.toLowerCase(),
-      file: r.filePath ?? '',
-      line: r.startLine ?? 0,
-      match: r.name,
-      score: r.score,
-      sources: r.sources,
-    };
-    return item;
-  });
+  const results: SearchResult[] = response.results.map((r: SearchResultItem) => ({
+    name: r.name,
+    kind: r.nodeType.toLowerCase(),
+    file: r.filePath ?? '',
+    line: r.startLine ?? 0,
+    match: r.name,
+    score: r.score,
+    sources: r.sources,
+  }));
 
   const output: SearchCodeOutput = {
     results,

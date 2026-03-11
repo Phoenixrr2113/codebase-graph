@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
 import { embedAllNodes, type EmbeddableNodeType } from '@codegraph/core';
-import { connectGraph } from '../graphConnection';
+import { getGraphClient } from '@codegraph/core';
 
 const logger = createLogger({ namespace: 'cli:embed' });
 
@@ -27,7 +27,7 @@ export const embedCommand = new Command('embed')
     }
 
     try {
-      const client = await connectGraph(options);
+      const client = await getGraphClient();
       await client.ensureIndexes();
 
       console.log(`Generating embeddings${options.force ? ' (force re-embed)' : ''}...`);
@@ -62,8 +62,6 @@ export const embedCommand = new Command('embed')
           console.log(`  ${type}: ${count}`);
         }
       }
-
-      await client.close();
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
       console.log(`Completed in ${elapsed}s`);

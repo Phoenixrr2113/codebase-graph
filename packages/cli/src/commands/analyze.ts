@@ -1,8 +1,7 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
 import { createQueries } from '@codegraph/graph';
-import { codeGraphService } from '@codegraph/core';
-import { connectGraph } from '../graphConnection';
+import { codeGraphService, getGraphClient } from '@codegraph/core';
 
 const logger = createLogger({ namespace: 'cli:analyze' });
 
@@ -38,11 +37,10 @@ export const analyzeCommand = new Command('analyze')
 
         case 'deps': {
           // getDependencyTree is a visualization-oriented query that stays in @codegraph/graph
-          const client = await connectGraph(options);
+          const client = await getGraphClient();
           const queries = createQueries(client);
           const deps = await queries.getDependencyTree(target, parseInt(options.depth));
           result = deps;
-          await client.close();
           break;
         }
 

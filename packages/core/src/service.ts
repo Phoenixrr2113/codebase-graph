@@ -27,6 +27,21 @@ import {
 } from './analysis';
 import type { RefactoringAnalysisInput } from './analysis';
 
+// Imports for new consolidated methods
+import {
+  scanForVulnerabilities,
+  sortBySeverity,
+  analyzeDataflow as runDataflowAnalysis,
+} from './analysis';
+import type { SecurityFinding, DataflowAnalysisResult } from './analysis';
+import { initParser, parseCode, parseFile } from './pipeline';
+import { hybridSearch } from './hybridSearch';
+import type { HybridSearchResult, HybridSearchOptions, CodeNodeType } from './hybridSearch';
+import { createDefaultSearchRegistry } from './search';
+import type { SearchResponse, SearchType, SearchContext } from './search';
+import { createQueries } from '@codegraph/graph';
+import type { GraphStats } from '@codegraph/types';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -159,6 +174,55 @@ export interface ServiceRefactoringResult {
   responsibilities: ServiceResponsibility[];
   averageCouplingScore: number;
   couplingLevel: 'low' | 'medium' | 'high';
+  summary: string;
+}
+
+// ============================================================================
+// New consolidated types
+// ============================================================================
+
+/** Vulnerability scan options */
+export interface ServiceScanOptions {
+  path?: string;
+  extensions?: string[];
+  severities?: string[];
+  category?: string;
+}
+
+/** Vulnerability finding */
+export interface ServiceVulnerability {
+  type: string;
+  severity: string;
+  message: string;
+  filePath: string;
+  line: number;
+  column: number;
+  code: string;
+  recommendation: string;
+}
+
+/** Vulnerability scan result */
+export interface ServiceScanResult {
+  vulnerabilities: ServiceVulnerability[];
+  summary: { total: number; bySeverity: Record<string, number> };
+  filesScanned: number;
+}
+
+/** Dataflow analysis result */
+export interface ServiceDataflowResult {
+  sources: Array<{ pattern: string; variable: string; category: string; line: number }>;
+  sinks: Array<{ pattern: string; category: string; line: number }>;
+  paths: Array<{
+    source: string;
+    transformations: string[];
+    sink: string;
+  }>;
+  vulnerabilities: Array<{
+    source: string;
+    sink: string;
+    severity: string;
+    category: string;
+  }>;
   summary: string;
 }
 
@@ -1056,6 +1120,265 @@ class CodeGraphServiceImpl {
       couplingLevel: result.couplingLevel,
       summary: getRefactoringSummary(result),
     };
+  }
+
+  // ---------------------------------------------------------------
+  // Consolidated Business Logic (Phase: Service Layer Consolidation)
+  // ---------------------------------------------------------------
+
+  /**
+   * Scan files for security vulnerabilities.
+   *
+   * Consolidates the glob → readFile → parse → scan → sort pipeline
+   * previously duplicated in MCP findVulnerabilities and API analyticsService.
+   */
+  async scanVulnerabilities(options?: ServiceScanOptions): Promise<ServiceScanResult> {
+    const { readFile, stat: fsStat } = await import('node:fs/promises');
+    const { glob } = await import('glob');
+
+    const scope = options?.path || process.cwd();
+    const extensions = options?.extensions ?? ['ts', 'tsx', 'js', 'jsx'];
+    const extGlob = extensions.join(',');
+
+    // Find files to scan
+    let files: string[];
+    try {
+      const fileStat = await fsStat(scope);
+      if (fileStat.isFile()) {
+        files = [scope];
+      } else {
+        files = await glob(`**/*.{${extGlob}}`, {
+          cwd: scope,
+          absolute: true,
+          ignore: ['**/node_modules/**', '**/dist/**', '**/build/**'],
+        });
+      }
+    } catch {
+      return {
+        vulnerabilities: [],
+        summary: { total: 0, bySeverity: {} },
+        filesScanned: 0,
+      };
+    }
+
+    // Initialize parser
+    await initParser();
+
+    const allFindings: SecurityFinding[] = [];
+    let filesScanned = 0;
+
+    const langMap: Record<string, 'typescript' | 'javascript' | 'tsx' | 'jsx'> = {
+      ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
+      mts: 'typescript', cts: 'typescript', mjs: 'javascript', cjs: 'javascript',
+    };
+
+    for (const filePath of files.slice(0, 200)) {
+      try {
+        const code = await readFile(filePath, 'utf-8');
+        const ext = filePath.split('.').pop() ?? 'ts';
+        const language = langMap[ext] ?? 'typescript';
+        const tree = parseCode(code, language);
+
+        const findings = scanForVulnerabilities(tree.rootNode, {
+          filePath,
+          includeLowSeverity: true,
+        });
+        allFindings.push(...findings);
+        filesScanned++;
+      } catch {
+        // Skip files that fail to parse
+      }
+    }
+
+    // Sort and optionally filter
+    let sorted = sortBySeverity(allFindings);
+
+    // Filter by severity if requested
+    if (options?.severities && options.severities.length > 0) {
+      const allowed = new Set(options.severities.map(s => s.toLowerCase()));
+      sorted = sorted.filter(f => allowed.has(f.severity));
+    }
+
+    // Filter by category if requested
+    if (options?.category && options.category !== 'all') {
+      const cat = options.category.toLowerCase();
+      sorted = sorted.filter(f => {
+        const typeLC = f.type.toLowerCase();
+        if (cat === 'injection') return typeLC.includes('injection');
+        if (cat === 'xss') return typeLC.includes('xss');
+        if (cat === 'auth') return typeLC.includes('auth') || typeLC.includes('password');
+        if (cat === 'payment') return typeLC.includes('payment') || typeLC.includes('stripe');
+        return true;
+      });
+    }
+
+    // Map to service result format
+    const vulnerabilities: ServiceVulnerability[] = sorted.map(f => ({
+      type: f.type,
+      severity: f.severity,
+      message: f.description,
+      filePath: f.file,
+      line: f.line,
+      column: f.column,
+      code: f.code,
+      recommendation: f.fix,
+    }));
+
+    // Summary
+    const bySeverity: Record<string, number> = {};
+    for (const v of vulnerabilities) {
+      bySeverity[v.severity] = (bySeverity[v.severity] ?? 0) + 1;
+    }
+
+    return {
+      vulnerabilities,
+      summary: { total: vulnerabilities.length, bySeverity },
+      filesScanned,
+    };
+  }
+
+  /**
+   * Analyze data flow in a file.
+   *
+   * Consolidates the readFile → parse → analyzeDataflow pipeline
+   * previously duplicated in MCP traceDataFlow and API analyticsService.
+   */
+  async analyzeDataflowForFile(
+    filePath: string,
+    variable?: string,
+  ): Promise<ServiceDataflowResult> {
+    await initParser();
+
+    const tree = await parseFile(filePath);
+    const result: DataflowAnalysisResult = runDataflowAnalysis(
+      tree.rootNode,
+      filePath,
+      { maxDepth: 10, includeSteps: true },
+    );
+
+    // Filter sources by variable if provided
+    const matchingSources = variable
+      ? result.sources.filter(
+          s => s.pattern.includes(variable) || s.taintedVariable.includes(variable),
+        )
+      : result.sources;
+
+    // Build paths from matching sources
+    const relevantPaths = variable
+      ? result.paths.filter(p =>
+          matchingSources.some(s => s.taintedVariable === p.source.taintedVariable),
+        )
+      : result.paths;
+
+    const paths = relevantPaths.map(p => ({
+      source: `${p.source.pattern} (${p.source.taintedVariable})`,
+      transformations: p.steps.map(s => `${s.name} [${s.transformation}]`),
+      sink: p.sink ? `${p.sink.pattern} (${p.sink.category})` : 'unknown',
+    }));
+
+    const vulnerabilities = result.vulnerabilities.map(v => ({
+      source: v.source.pattern,
+      sink: v.sink.pattern,
+      severity: v.severity,
+      category: v.category,
+    }));
+
+    return {
+      sources: matchingSources.map(s => ({
+        pattern: s.pattern,
+        variable: s.taintedVariable,
+        category: s.category,
+        line: s.line,
+      })),
+      sinks: result.sinks.map(s => ({
+        pattern: s.pattern,
+        category: s.category,
+        line: s.line,
+      })),
+      paths,
+      vulnerabilities,
+      summary: `Found ${matchingSources.length} sources, ${result.sinks.length} sinks, ${result.vulnerabilities.length} potential vulnerabilities`,
+    };
+  }
+
+  /**
+   * Hybrid search — vector + text + graph traversal + knowledge graph.
+   *
+   * Consolidates the getGraphClient() + hybridSearch() orchestration
+   * previously duplicated in MCP searchCode.
+   */
+  async hybridSearchCode(
+    query: string,
+    options?: {
+      limit?: number;
+      nodeTypes?: CodeNodeType[];
+      includeKnowledge?: boolean;
+      scope?: string;
+    },
+  ): Promise<HybridSearchResult> {
+    const client = await getGraphClient();
+
+    const opts: HybridSearchOptions = {
+      limit: options?.limit ?? 30,
+      includeKnowledge: options?.includeKnowledge ?? true,
+      expandGraph: true,
+      maxHops: 1,
+      includeAboutEdges: true,
+    };
+    if (options?.nodeTypes) opts.nodeTypes = options.nodeTypes;
+    if (options?.scope) opts.scope = options.scope;
+
+    return hybridSearch(query, client, opts);
+  }
+
+  /**
+   * Strategy-based search using the SearchRegistry.
+   *
+   * Consolidates the registry creation, SearchContext construction,
+   * and LLM availability check previously duplicated in MCP searchCode
+   * and askCode tools.
+   */
+  async strategySearch(
+    query: string,
+    strategy: string,
+    options?: { limit?: number; scope?: string },
+  ): Promise<SearchResponse> {
+    const client = await getGraphClient();
+    const context: SearchContext = { client };
+
+    // Dynamically check for LLM availability
+    try {
+      const { isLLMAvailable, getLLMModel } = await import('@codegraph/plugin-nlp');
+      if (isLLMAvailable()) {
+        context.llm = await getLLMModel();
+      }
+    } catch {
+      // plugin-nlp not available — strategies that require LLM will fail gracefully
+    }
+
+    const registry = createDefaultSearchRegistry();
+    const searchType = strategy as SearchType;
+
+    const request: { query: string; type: SearchType; limit?: number; scope?: string } = {
+      query,
+      type: searchType,
+    };
+    if (options?.limit) request.limit = options.limit;
+    if (options?.scope && options.scope !== 'all') request.scope = options.scope;
+
+    return registry.search(request, context);
+  }
+
+  /**
+   * Get graph statistics (node/edge counts, largest files, etc.)
+   *
+   * Consolidates the connectGraph() + createQueries() + getStats() pattern
+   * previously used by CLI status command.
+   */
+  async getGraphStats(): Promise<GraphStats> {
+    const client = await getGraphClient();
+    const queries = createQueries(client);
+    return queries.getStats();
   }
 }
 

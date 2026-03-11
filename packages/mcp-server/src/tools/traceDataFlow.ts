@@ -2,16 +2,10 @@
  * MCP Tool: trace_data_flow
  *
  * Track how data flows from source to sink.
- * Uses @codegraph/core dataflow analysis with tree-sitter.
+ * Delegates to codeGraphService.analyzeDataflowForFile() for business logic.
  */
 
-import { readFile } from 'node:fs/promises';
-import {
-  initParser,
-  parseCode,
-  analyzeDataflow,
-  type DataflowAnalysisResult,
-} from '@codegraph/core';
+import { codeGraphService } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
@@ -84,72 +78,24 @@ export async function traceDataFlow(input: TraceDataFlowInput): Promise<TraceDat
       };
     }
 
-    // Read file content
-    let code: string;
-    try {
-      code = await readFile(input.file, 'utf-8');
-    } catch (err) {
-      return {
-        paths: [],
-        vulnerabilities: [],
-        sanitizersFound: [],
-        error: `Failed to read file: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      };
-    }
+    // Delegate to service layer
+    const result = await codeGraphService.analyzeDataflowForFile(input.file, input.source);
 
-    // Initialize parser
-    await initParser();
+    // Map service result to MCP output format
+    const paths: DataFlowPath[] = result.paths;
 
-    // Parse the file
-    const ext = input.file.split('.').pop() ?? 'ts';
-    const langMap: Record<string, 'typescript' | 'javascript' | 'tsx' | 'jsx'> = {
-      ts: 'typescript',
-      tsx: 'tsx',
-      js: 'javascript',
-      jsx: 'jsx',
-    };
-    const language = langMap[ext] ?? 'typescript';
-    const tree = parseCode(code, language);
-
-    // Run dataflow analysis
-    const result: DataflowAnalysisResult = analyzeDataflow(
-      tree.rootNode,
-      input.file,
-      { maxDepth: 10, includeSteps: true }
-    );
-
-    // Filter sources matching the input
-    const matchingSources = result.sources.filter(
-      s => s.pattern.includes(input.source) || s.taintedVariable.includes(input.source)
-    );
-
-    // Filter sinks if specified (for future use)
-    // const matchingSinks = input.sink
-    //   ? result.sinks.filter(s => s.pattern.includes(input.sink!))
-    //   : result.sinks;
-
-    // Build paths from matching sources
-    const paths: DataFlowPath[] = result.paths
-      .filter(p => matchingSources.some(s => s.taintedVariable === p.source.taintedVariable))
-      .map(p => ({
-        source: `${p.source.pattern} (${p.source.taintedVariable})`,
-        transformations: p.steps.map(s => `${s.name} [${s.transformation}]`),
-        sink: p.sink ? `${p.sink.pattern} (${p.sink.category})` : 'unknown',
-      }));
-
-    // Get vulnerabilities as strings
     const vulnerabilities = result.vulnerabilities.map(
-      v => `${v.category} [${v.severity}]: ${v.source.pattern} → ${v.sink.pattern}`
+      v => `${v.category} [${v.severity}]: ${v.source} → ${v.sink}`,
     );
 
-    // Get sanitizers from paths
-    const sanitizersFound = [...new Set(result.paths.flatMap(p => p.sanitizers))];
+    // Sanitizers are not tracked in the simplified service result
+    const sanitizersFound: string[] = [];
 
     return {
       paths,
       vulnerabilities,
       sanitizersFound,
-      summary: `Found ${result.sources.length} sources, ${result.sinks.length} sinks, ${result.vulnerabilities.length} potential vulnerabilities`,
+      summary: result.summary,
     };
   } catch (error) {
     return {

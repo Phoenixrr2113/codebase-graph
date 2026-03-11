@@ -15,7 +15,7 @@ import {
 } from '@codegraph/core';
 import { glob } from 'glob';
 import { resolve } from 'path';
-import { connectGraph } from '../graphConnection';
+import { getGraphClient } from '@codegraph/core';
 
 const logger = createLogger({ namespace: 'cli:extract' });
 
@@ -101,7 +101,7 @@ export const extractCommand = new Command('extract')
         console.log('\n[Dry run] Skipping database write');
       } else {
         // Normal mode: use core's indexProject for full pipeline
-        const client = await connectGraph(options);
+        const client = await getGraphClient();
         await client.ensureIndexes();
 
         const indexOpts: Parameters<typeof indexProject>[1] = {
@@ -137,7 +137,6 @@ export const extractCommand = new Command('extract')
           console.error(`Indexing failed: ${result.errorMessages.join('; ')}`);
         }
 
-        await client.close();
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
