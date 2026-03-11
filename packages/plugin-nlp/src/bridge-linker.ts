@@ -67,13 +67,21 @@ export interface BridgeLinkerConfig {
   batchLimit?: number;
 }
 
-/** Entity types that are unlikely to match code symbols */
+/**
+ * Entity types that are unlikely to match code symbols.
+ * These are skipped during bridge linking (name match + embedding).
+ * Since the taxonomy is open (LLM can propose new types), this blocklist
+ * is conservative — we only skip types we're confident aren't code references.
+ */
 const NON_CODE_ENTITY_TYPES = new Set([
   'Person',
   'Organization',
-  'Location',
   'Event',
-  'Date',
+  'Document',
+  'Lesson',
+  'Goal',
+  'Constraint',
+  'Resource',
 ]);
 
 /** Code node labels we can link to, mapped to their identifying property */

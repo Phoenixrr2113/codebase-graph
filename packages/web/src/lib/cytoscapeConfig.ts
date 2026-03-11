@@ -96,6 +96,7 @@ export const EDGE_COLORS: Record<EdgeLabel, string> = {
   PARENT_SECTION: '#93c5fd', // Lighter blue (docs)
   CONTAINS_CODE: '#a78bfa', // Light violet (docs)
   LINKS_TO: '#2dd4bf',      // Teal (docs)
+  ABOUT: '#f472b6',          // Pink (knowledge → code bridge)
 };
 
 // ============================================================================

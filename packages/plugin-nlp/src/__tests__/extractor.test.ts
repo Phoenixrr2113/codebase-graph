@@ -67,24 +67,49 @@ describe('EntityExtractor — zero-shot', () => {
     expect(result.annotatedAt).toBeTruthy();
   });
 
-  it('should filter out invalid entity types', async () => {
+  it('should normalize entity type synonyms', async () => {
     const mockModel = makeMockModel({
       entities: [
         { text: 'Randy', type: 'Person' },
-        { text: 'something', type: 'InvalidType' },
+        { text: 'something', type: 'defect' },
       ],
       relationships: [],
     });
 
     const extractor = new EntityExtractor({ languageModel: mockModel });
-    const result = await extractor.extract(makeSample('Randy did something'));
+    const result = await extractor.extract(makeSample('Randy found something'));
 
-    // Only valid entity types should pass
-    expect(result.entities).toHaveLength(1);
+    // Both entities should pass — synonym "defect" normalizes to "Bug"
+    expect(result.entities).toHaveLength(2);
     expect(result.entities[0]!.type).toBe('Person');
+    expect(result.entities[1]!.type).toBe('Bug');
   });
 
-  it('should filter out invalid relationship types', async () => {
+  it('should pass through novel entity and relationship types', async () => {
+    const mockModel = makeMockModel({
+      entities: [
+        { text: 'Alice', type: 'Person' },
+        { text: 'Bob', type: 'Person' },
+        { text: 'hypothesis', type: 'Hypothesis' },
+      ],
+      relationships: [
+        { headText: 'Alice', tailText: 'Bob', type: 'KNOWS' },
+        { headText: 'Alice', tailText: 'hypothesis', type: 'PROPOSED' },
+      ],
+    });
+
+    const extractor = new EntityExtractor({ languageModel: mockModel });
+    const result = await extractor.extract(makeSample('Alice knows Bob and proposed a hypothesis'));
+
+    // Novel types pass through (guided open taxonomy)
+    expect(result.entities).toHaveLength(3);
+    expect(result.entities[2]!.type).toBe('Hypothesis');
+    expect(result.relationships).toHaveLength(2);
+    expect(result.relationships[0]!.type).toBe('KNOWS');
+    expect(result.relationships[1]!.type).toBe('PROPOSED');
+  });
+
+  it('should normalize relationship type synonyms', async () => {
     const mockModel = makeMockModel({
       entities: [
         { text: 'Alice', type: 'Person' },
@@ -92,15 +117,17 @@ describe('EntityExtractor — zero-shot', () => {
       ],
       relationships: [
         { headText: 'Alice', tailText: 'Bob', type: 'KNOWS' },
-        { headText: 'Alice', tailText: 'Bob', type: 'FAKE_REL' },
+        { headText: 'Alice', tailText: 'Bob', type: 'fixes' },
       ],
     });
 
     const extractor = new EntityExtractor({ languageModel: mockModel });
     const result = await extractor.extract(makeSample('Alice knows Bob'));
 
-    expect(result.relationships).toHaveLength(1);
+    // "fixes" is a synonym for SOLVES
+    expect(result.relationships).toHaveLength(2);
     expect(result.relationships[0]!.type).toBe('KNOWS');
+    expect(result.relationships[1]!.type).toBe('SOLVES');
   });
 
   it('should skip entities whose text is not found in the sample', async () => {

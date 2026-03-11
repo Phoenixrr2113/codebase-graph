@@ -36,7 +36,7 @@ export const storeEntityToolDefinition: ToolDefinition = {
       },
       type: {
         type: 'string',
-        description: 'Entity type: Person, Project, Task, Decision, Event, Document, Concept, Goal, Problem, Solution, Organization, CodeEntity, etc.',
+        description: 'Entity type. Common types: Person, Organization, Project, Document, Decision, Convention, Observation, Lesson, Concept, Task, Goal, Constraint, Event, Resource, Technology, Dependency, Service, Pattern, Bug, TechnicalDebt, CodeEntity, Requirement. You may also use custom types when these don\'t fit.',
       },
       confidence: {
         type: 'number',
@@ -75,7 +75,7 @@ export const storeRelationshipToolDefinition: ToolDefinition = {
       },
       type: {
         type: 'string',
-        description: 'Relationship type: OWNS, CREATED, DECIDED, KNOWS, WORKS_FOR, DEPENDS_ON, LED_TO, SUPPORTS, CONTRADICTS, RELATED_TO, etc.',
+        description: 'Relationship type. Common types: RELATES_TO, PART_OF, CONTAINS, DEPENDS_ON, USES, REQUIRES, CREATED, OWNS, WORKS_FOR, KNOWS, CAUSED_BY, LED_TO, SOLVES, BLOCKS, ENABLES, SUPERSEDES, EVOLVED_FROM, DECIDED, SUPPORTS, CONTRADICTS, APPLIES, DOCUMENTED_IN, LEARNED_FROM. You may also use custom types when these don\'t fit.',
       },
       confidence: {
         type: 'number',

@@ -6,98 +6,17 @@ import type {
   AnnotatedSample,
   EntityAnnotation,
   RelationshipAnnotation,
-  EntityType,
-  RelationshipType,
+  TypeDescription,
+  KnowledgeDomain,
+} from '@codegraph/types';
+import {
+  getPreferredEntityTypes,
+  getPreferredRelationshipTypes,
+  normalizeEntityType,
+  normalizeRelationshipType,
 } from '@codegraph/types';
 
 const logger = createLogger({ namespace: 'nlp:extractor' });
-
-const ENTITY_TYPES: EntityType[] = [
-  'Person',
-  'Project',
-  'Task',
-  'Decision',
-  'Event',
-  'Document',
-  'Property',
-  'Concept',
-  'Belief',
-  'Goal',
-  'Preference',
-  'Problem',
-  'Solution',
-  'Workflow',
-  'Agreement',
-  'Constraint',
-  'Resource',
-  'Metric',
-  'Message',
-  'Conversation',
-  'Location',
-  'Market',
-  'Sentiment',
-  'Concern',
-  'Lesson',
-  'Assumption',
-  'Organization',
-  'CodeEntity',
-];
-
-const RELATIONSHIP_TYPES: RelationshipType[] = [
-  'OWNS',
-  'CREATED',
-  'PART_OF',
-  'CONTAINS',
-  'KNOWS',
-  'WORKS_FOR',
-  'RECOMMENDED',
-  'SENT',
-  'RECEIVED',
-  'PARTICIPATED_IN',
-  'DISCUSSED',
-  'DECIDED',
-  'LED_TO',
-  'SUPPORTS',
-  'CONTRADICTS',
-  'ASSUMES',
-  'SOLVES',
-  'CAUSED_BY',
-  'AFFECTED_BY',
-  'DEPENDS_ON',
-  'BLOCKS',
-  'ENABLES',
-  'FOLLOWS',
-  'PRECEDES',
-  'SCHEDULED_FOR',
-  'EVOLVED_FROM',
-  'SUPERSEDES',
-  'LEARNED_FROM',
-  'LOCATED_AT',
-  'IN_MARKET',
-  'PARTY_TO',
-  'GOVERNS',
-  'DOCUMENTED_IN',
-  'CONSTRAINS',
-  'IMPOSED_BY',
-  'ACHIEVES',
-  'PRIORITIZES',
-  'ALIGNS_WITH',
-  'REQUIRES',
-  'CONSUMES',
-  'FEELS_ABOUT',
-  'RAISED',
-  'CONCERNS',
-  'TRIGGERS',
-  'STEP_IN',
-  'RELATED_TO',
-  'APPLIES',
-  'MENTIONED_IN',
-  'MEASURES',
-  'COMPARED_TO',
-];
-
-const VALID_ENTITY_TYPES = new Set<string>(ENTITY_TYPES);
-const VALID_RELATIONSHIP_TYPES = new Set<string>(RELATIONSHIP_TYPES);
 
 let _openrouter: ReturnType<typeof createOpenRouter> | null = null;
 
@@ -112,22 +31,38 @@ export type ExtractorConfig = {
   model: string | undefined;
   temperature: number | undefined;
   languageModel: LanguageModel | undefined;
+  /** Knowledge domain preset — determines which preferred types the LLM sees.
+   *  Defaults to 'se' (software engineering). */
+  domain: KnowledgeDomain | undefined;
 };
 
 const DEFAULT_MODEL = 'google/gemini-2.5-flash-preview';
 
+/**
+ * Format type descriptions for inclusion in LLM prompts.
+ * Each type gets a short description so the LLM understands when to use it.
+ */
+function formatTypeList(types: TypeDescription[]): string {
+  return types.map((t) => `- ${t.type}: ${t.description}`).join('\n');
+}
+
 export class EntityExtractor {
-  private config: { model: string; temperature: number };
+  private config: { model: string; temperature: number; domain: KnowledgeDomain };
   private model: LanguageModel;
+  private entityTypes: TypeDescription[];
+  private relationshipTypes: TypeDescription[];
 
   constructor(config: Partial<ExtractorConfig> = {}) {
     this.config = {
       model: config.model ?? DEFAULT_MODEL,
       temperature: config.temperature ?? 0.1,
+      domain: config.domain ?? 'se',
     };
     this.model =
       config.languageModel ?? (getOpenRouter().chat(this.config.model) as unknown as LanguageModel);
-    logger.debug(`EntityExtractor created with model: ${this.config.model}`);
+    this.entityTypes = getPreferredEntityTypes(this.config.domain);
+    this.relationshipTypes = getPreferredRelationshipTypes(this.config.domain);
+    logger.debug(`EntityExtractor created with model: ${this.config.model}, domain: ${this.config.domain}`);
   }
 
   async extract(sample: Sample): Promise<AnnotatedSample> {
@@ -288,13 +223,16 @@ export class EntityExtractor {
       })
       .join('\n\n');
 
+    const entityTypeList = formatTypeList(this.entityTypes);
+    const relTypeList = formatTypeList(this.relationshipTypes);
+
     return `You are an expert at extracting structured knowledge from natural language text.
 
-## Entity Types
-${ENTITY_TYPES.join(', ')}
+## Entity Types (prefer these, but you may propose new types if needed)
+${entityTypeList}
 
-## Relationship Types
-${RELATIONSHIP_TYPES.join(', ')}
+## Relationship Types (prefer these, but you may propose new types if needed)
+${relTypeList}
 
 ## Human-Labeled Examples (Ground Truth)
 
@@ -321,6 +259,9 @@ Respond with valid JSON only.`;
   }
 
   private buildContextPrompt(text: string, context: string): string {
+    const entityTypeList = formatTypeList(this.entityTypes);
+    const relTypeList = formatTypeList(this.relationshipTypes);
+
     return `You are an expert at extracting structured knowledge from natural language text.
 
 IMPORTANT: Extract entities and relationships ONLY from the CURRENT MESSAGE below.
@@ -333,11 +274,11 @@ message says "Bob: She should also fix the retry logic", you should:
 - Extract "retry logic" as a CodeEntity
 - Do NOT extract "payment module" (that was in context, not current message)
 
-## Entity Types
-${ENTITY_TYPES.join(', ')}
+## Entity Types (prefer these, but you may propose new types if needed)
+${entityTypeList}
 
-## Relationship Types
-${RELATIONSHIP_TYPES.join(', ')}
+## Relationship Types (prefer these, but you may propose new types if needed)
+${relTypeList}
 
 ## Context (prior messages — for reference only, do NOT extract from these):
 ${context}
@@ -364,14 +305,17 @@ Respond with valid JSON only, no explanation.`;
   }
 
   private buildPrompt(text: string): string {
+    const entityTypeList = formatTypeList(this.entityTypes);
+    const relTypeList = formatTypeList(this.relationshipTypes);
+
     return `You are an expert at extracting structured knowledge from natural language text.
 Extract ALL entities and relationships from the text below.
 
-## Entity Types
-${ENTITY_TYPES.join(', ')}
+## Entity Types (prefer these, but you may propose new types if needed)
+${entityTypeList}
 
-## Relationship Types
-${RELATIONSHIP_TYPES.join(', ')}
+## Relationship Types (prefer these, but you may propose new types if needed)
+${relTypeList}
 
 ## Text to Process
 "${text}"
@@ -396,15 +340,17 @@ Respond with valid JSON only, no explanation.`;
 
   private buildBatchPrompt(samples: Sample[]): string {
     const samplesText = samples.map((s, i) => `### Sample ${i + 1} (ID: ${s.id}):\n"${s.text}"`).join('\n\n');
+    const entityTypeList = formatTypeList(this.entityTypes);
+    const relTypeList = formatTypeList(this.relationshipTypes);
 
     return `You are an expert at extracting structured knowledge from natural language text.
 Extract ALL entities and relationships from each sample below.
 
-## Entity Types
-${ENTITY_TYPES.join(', ')}
+## Entity Types (prefer these, but you may propose new types if needed)
+${entityTypeList}
 
-## Relationship Types
-${RELATIONSHIP_TYPES.join(', ')}
+## Relationship Types (prefer these, but you may propose new types if needed)
+${relTypeList}
 
 ## Samples to Process (${samples.length} total)
 
@@ -452,17 +398,14 @@ Respond with valid JSON only, no explanation.`;
       const entities: EntityAnnotation[] = (parsed.entities ?? [])
         .map((e, i) => {
           const start = sampleText.indexOf(e.text);
-          if (start < 0) return null;
-          if (!VALID_ENTITY_TYPES.has(e.type)) {
-            logger.warn(`Invalid entity type: ${e.type}, skipping`);
-            return null;
-          }
+          if (start < 0) return null; // text grounding: must exist in source
+          const normalizedType = normalizeEntityType(e.type);
           return {
             id: `e-${i}`,
             start,
             end: start + e.text.length,
             text: e.text,
-            type: e.type as EntityType,
+            type: normalizedType,
             confidence: 0.9,
           };
         })
@@ -473,15 +416,12 @@ Respond with valid JSON only, no explanation.`;
           const head = entities.find((e) => e.text === r.headText);
           const tail = entities.find((e) => e.text === r.tailText);
           if (!head || !tail) return null;
-          if (!VALID_RELATIONSHIP_TYPES.has(r.type)) {
-            logger.warn(`Invalid relationship type: ${r.type}, skipping`);
-            return null;
-          }
+          const normalizedType = normalizeRelationshipType(r.type);
           return {
             id: `r-${i}`,
             headEntityId: head.id,
             tailEntityId: tail.id,
-            type: r.type as RelationshipType,
+            type: normalizedType,
             confidence: 0.9,
           };
         })
@@ -538,5 +478,3 @@ Respond with valid JSON only, no explanation.`;
     }
   }
 }
-
-export { ENTITY_TYPES, RELATIONSHIP_TYPES, VALID_ENTITY_TYPES, VALID_RELATIONSHIP_TYPES };
