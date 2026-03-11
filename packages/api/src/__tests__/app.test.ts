@@ -68,14 +68,15 @@ describe('CodeGraph API', () => {
   });
 
   describe('Graph routes', () => {
-    it('GET /api/graph/full should return empty graph with message', async () => {
-      const res = await app.request('/api/graph/full');
-      
+    it('GET /api/graph/full should return graph data structure', async () => {
+      const res = await app.request('/api/graph/full?limit=10');
+
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body).toHaveProperty('nodes');
       expect(body).toHaveProperty('edges');
       expect(Array.isArray(body.nodes)).toBe(true);
+      expect(Array.isArray(body.edges)).toBe(true);
     });
 
     it('GET /api/graph/file/:path should accept file path', async () => {
