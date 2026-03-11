@@ -1,123 +1,64 @@
 /**
- * FalkorDB Driver — client-server graph database (requires Docker)
- * Extracted from client.ts to implement the DatabaseDriver interface.
+ * FalkorDBLite Driver — embedded graph database (no Docker needed)
+ *
+ * Thin wrapper that manages a local FalkorDB instance via the `falkordblite`
+ * npm package. On connect it spawns an embedded Redis+FalkorDB subprocess;
+ * on close it shuts it down cleanly.
+ *
+ * The Graph object returned by selectGraph() is the real `falkordb` Graph,
+ * so all operations (query, roQuery, indexes, vectors) work identically
+ * to the remote FalkorDBDriver.
  */
 
-import { FalkorDB, type Graph, type FalkorDBOptions } from 'falkordb';
+import type { Graph } from 'falkordb';
 import type { QueryOptions as FalkorQueryOptions } from 'falkordb/dist/src/commands';
 import type { DatabaseDriver, DriverConfig, CypherDialect } from '../driver';
 import type { QueryParams } from '../client';
+import { falkorDialect } from './falkordb';
 
 // ============================================================================
-// FalkorDB Dialect
+// FalkorDBLite Driver
 // ============================================================================
 
-/** FalkorDB internal node fields to exclude when falling back to raw object */
-const FALKOR_INTERNAL_KEYS = new Set(['id', 'labels', 'properties']);
+/**
+ * FalkorDBLite-specific configuration options
+ */
+export interface FalkorDBLiteConfig {
+  /** Data directory for persistence (default: .codegraph/falkordb) */
+  path?: string;
+  /** Redis memory limit (e.g. "256mb") */
+  maxMemory?: string;
+  /** Startup timeout in ms (default: 10000) */
+  timeout?: number;
+}
 
-export const falkorDialect: CypherDialect = {
-  driverType: 'falkordb',
-
-  labelsExpr(alias: string): string {
-    return `labels(${alias})`;
-  },
-
-  firstLabelExpr(alias: string): string {
-    return `labels(${alias})[0]`;
-  },
-
-  typeExpr(alias: string): string {
-    return `type(${alias})`;
-  },
-
-  labelCheckExpr(alias: string, label: string): string {
-    return `${alias}:${label}`;
-  },
-
-  labelCaseExpr(alias: string, label: string): string {
-    return `${alias}:${label}`;
-  },
-
-  supportsOnCreateOnMatch: true,
-
-  normalizeNode(raw: unknown): { labels: string[]; properties: Record<string, unknown> } {
-    const node = raw as Record<string, unknown>;
-    const labels = (node['labels'] as string[]) ?? [];
-    if (node['properties'] && typeof node['properties'] === 'object') {
-      return { labels, properties: node['properties'] as Record<string, unknown> };
-    }
-    // Fallback: strip internal fields to avoid leaking them as properties
-    const properties: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(node)) {
-      if (!FALKOR_INTERNAL_KEYS.has(key)) {
-        properties[key] = value;
-      }
-    }
-    return { labels, properties };
-  },
-
-  normalizeEdge(raw: unknown): { type: string; properties: Record<string, unknown> } {
-    const edge = raw as Record<string, unknown>;
-    const type = (edge['type'] as string) ?? (edge['relationshipType'] as string) ?? '';
-    if (edge['properties'] && typeof edge['properties'] === 'object') {
-      return { type, properties: edge['properties'] as Record<string, unknown> };
-    }
-    const properties: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(edge)) {
-      if (key !== 'type' && key !== 'relationshipType' && key !== 'id' && key !== 'src' && key !== 'dest') {
-        properties[key] = value;
-      }
-    }
-    return { type, properties };
-  },
-};
-
-// ============================================================================
-// FalkorDB Driver
-// ============================================================================
-
-export class FalkorDBDriver implements DatabaseDriver {
-  private db: FalkorDB | null = null;
+export class FalkorDBLiteDriver implements DatabaseDriver {
+  // Use `any` for the FalkorDBLite db instance to avoid requiring the
+  // falkordblite types at compile time (it's a lazy/optional dependency)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private db: any = null;
   private graph: Graph | null = null;
   readonly dialect: CypherDialect = falkorDialect;
 
   async connect(config: DriverConfig): Promise<void> {
-    const url = config.url ?? process.env['FALKORDB_URL'];
+    // Lazy-import falkordblite so we don't require it at module load time
+    const { FalkorDB: FalkorDBLite } = await import('falkordblite');
 
-    let host: string;
-    let port: number;
+    // Determine the data path for persistence
+    const dataPath = config.databasePath
+      ?? process.env['CODEGRAPH_DB_PATH']
+      ?? '.codegraph/falkordb';
 
-    if (url) {
-      const urlParts = url.split(':');
-      if (urlParts.length >= 2) {
-        host = urlParts.slice(0, -1).join(':');
-        port = parseInt(urlParts[urlParts.length - 1] ?? '6379', 10);
-      } else {
-        host = url;
-        port = 6379;
-      }
-    } else {
-      host = config.host ?? process.env['FALKORDB_HOST'] ?? 'localhost';
-      port = config.port ?? parseInt(process.env['FALKORDB_PORT'] ?? '6379', 10);
-    }
+    // Open embedded FalkorDB instance
+    this.db = await FalkorDBLite.open({ path: dataPath });
 
-    const connectionOptions: FalkorDBOptions = {
-      socket: { host, port },
-    };
-
-    const username = config.username ?? process.env['FALKORDB_USERNAME'];
-    const password = config.password ?? process.env['FALKORDB_PASSWORD'];
-
-    if (username) connectionOptions.username = username;
-    if (password) connectionOptions.password = password;
-
-    this.db = await FalkorDB.connect(connectionOptions);
+    // Select the graph (same API as remote FalkorDB)
     const graphName = config.graphName ?? process.env['FALKORDB_GRAPH'] ?? 'codegraph';
     this.graph = this.db.selectGraph(graphName);
   }
 
   async query<T>(cypher: string, params?: QueryParams, timeout?: number): Promise<{ data: T[]; metadata: string[] }> {
-    if (!this.graph) throw new Error('FalkorDBDriver: not connected');
+    if (!this.graph) throw new Error('FalkorDBLiteDriver: not connected');
     const queryOptions: Record<string, unknown> = {};
     if (params) queryOptions.params = params;
     if (timeout) queryOptions.TIMEOUT = timeout;
@@ -130,7 +71,7 @@ export class FalkorDBDriver implements DatabaseDriver {
   }
 
   async roQuery<T>(cypher: string, params?: QueryParams, timeout?: number): Promise<{ data: T[]; metadata: string[] }> {
-    if (!this.graph) throw new Error('FalkorDBDriver: not connected');
+    if (!this.graph) throw new Error('FalkorDBLiteDriver: not connected');
     const queryOptions: Record<string, unknown> = {};
     if (params) queryOptions.params = params;
     if (timeout) queryOptions.TIMEOUT = timeout;
@@ -143,18 +84,16 @@ export class FalkorDBDriver implements DatabaseDriver {
   }
 
   async ensureSchema(): Promise<void> {
-    if (!this.graph) throw new Error('FalkorDBDriver: not connected');
+    if (!this.graph) throw new Error('FalkorDBLiteDriver: not connected');
 
-    // Helper: run a query ignoring "Index already exists" errors
+    // Identical schema setup to FalkorDBDriver — same engine, same indexes
     const safeIndex = async (cypher: string): Promise<void> => {
       try {
         await this.graph!.query(cypher);
       } catch (error) {
         const msg = error instanceof Error ? error.message : '';
-        // Swallow duplicate index errors — they're expected on restart
         if (msg.includes('Index already exists') || msg.includes('Attribute already indexed')) return;
         // Log but don't throw for other index errors (label may not exist yet)
-        // Vector indexes will be created lazily when data arrives
       }
     };
 
@@ -174,7 +113,6 @@ export class FalkorDBDriver implements DatabaseDriver {
       } catch (error) {
         const msg = error instanceof Error ? error.message : '';
         if (!msg.includes('Index already exists') && !msg.includes('Attribute already indexed')) {
-          // Entity might not have 'name' — it uses 'text'. Try 'text' for Entity.
           if (label === 'Entity') {
             try {
               await this.graph!.createNodeFulltextIndex(label, 'text');
@@ -185,7 +123,6 @@ export class FalkorDBDriver implements DatabaseDriver {
     }
 
     // --- Vector indexes (HNSW for embedding similarity search) ---
-    // 768-dim = nomic-embed-text-v1.5 local model
     const vectorTargets = [
       'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Entity',
     ];

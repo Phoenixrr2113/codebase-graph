@@ -42,6 +42,16 @@ export { embedAllNodes } from './embed-nodes';
 export type { EmbedNodesOptions, EmbedNodesResult } from './embed-nodes';
 export type { EmbeddableNodeType } from './embed-nodes';
 
+// Hybrid search orchestration
+export { hybridSearch } from './hybridSearch';
+export type {
+  HybridSearchHit,
+  HybridSearchResult,
+  HybridSearchOptions,
+  RelatedHit,
+  CodeNodeType,
+} from './hybridSearch';
+
 // Git history sync
 export { syncGitHistory } from './gitSync';
 export type { GitSyncResult, GitSyncOptions } from './gitSync';

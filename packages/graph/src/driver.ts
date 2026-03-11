@@ -1,6 +1,6 @@
 /**
  * @codegraph/graph - Database Driver Abstraction
- * Allows swapping between FalkorDB (client-server) and Kuzu (embedded)
+ * Supports FalkorDB (remote), FalkorDBLite (embedded), and Kuzu (legacy)
  */
 
 import type { QueryParams } from './client';
@@ -9,14 +9,14 @@ import type { QueryParams } from './client';
  * Driver configuration — union of FalkorDB and Kuzu options
  */
 export interface DriverConfig {
-  driver: 'falkordb' | 'kuzu';
-  // FalkorDB-specific
+  driver: 'falkordb' | 'falkordblite' | 'kuzu';
+  // FalkorDB-specific (remote)
   url?: string | undefined;
   host?: string | undefined;
   port?: number | undefined;
   username?: string | undefined;
   password?: string | undefined;
-  // Kuzu-specific
+  // FalkorDBLite / Kuzu — local data path
   databasePath?: string | undefined;
   readOnly?: boolean | undefined;
   // Shared
@@ -53,7 +53,7 @@ export interface DatabaseDriver {
  */
 export interface CypherDialect {
   /** Which driver this dialect belongs to */
-  readonly driverType: 'falkordb' | 'kuzu';
+  readonly driverType: 'falkordb' | 'falkordblite' | 'kuzu';
 
   /** Expression to get node labels: `labels(n)` (FalkorDB) vs `[label(n)]` (Kuzu) */
   labelsExpr(alias: string): string;

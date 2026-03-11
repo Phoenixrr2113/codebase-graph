@@ -1,6 +1,7 @@
 /**
  * @codegraph/graph - CRUD Operations
  * Graph database operations for entities and edges
+ * Engine: FalkorDB (primary), FalkorDBLite (local)
  * Based on CodeGraph MVP Specification Section 6.2
  */
 
@@ -16,7 +17,6 @@ import {
   typeToNodeProps,
   componentToNodeProps,
   commitToNodeProps,
-  generatePrimaryKey,
   type ParsedFileEntities,
   type FileEntity,
   type FunctionEntity,
@@ -333,398 +333,37 @@ const CYPHER = {
     MERGE (p)-[:HAS_FILE]->(f)
   `,
 
-  // Embedding update operations (per-node-type)
+  // Embedding update operations (per-node-type) — uses vecf32() for proper vector storage
   UPDATE_FILE_EMBEDDING: `
     MATCH (f:File {path: $path})
-    SET f.embedding = $embedding, f.embeddingTextHash = $embeddingTextHash
+    SET f.embedding = vecf32($embedding), f.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_FUNCTION_EMBEDDING: `
     MATCH (fn:Function {name: $name, filePath: $filePath, startLine: $startLine})
-    SET fn.embedding = $embedding, fn.embeddingTextHash = $embeddingTextHash
+    SET fn.embedding = vecf32($embedding), fn.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_CLASS_EMBEDDING: `
     MATCH (c:Class {name: $name, filePath: $filePath, startLine: $startLine})
-    SET c.embedding = $embedding, c.embeddingTextHash = $embeddingTextHash
+    SET c.embedding = vecf32($embedding), c.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_INTERFACE_EMBEDDING: `
     MATCH (i:Interface {name: $name, filePath: $filePath, startLine: $startLine})
-    SET i.embedding = $embedding, i.embeddingTextHash = $embeddingTextHash
+    SET i.embedding = vecf32($embedding), i.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_VARIABLE_EMBEDDING: `
     MATCH (v:Variable {name: $name, filePath: $filePath, line: $line})
-    SET v.embedding = $embedding, v.embeddingTextHash = $embeddingTextHash
+    SET v.embedding = vecf32($embedding), v.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_TYPE_EMBEDDING: `
     MATCH (t:Type {name: $name, filePath: $filePath, startLine: $startLine})
-    SET t.embedding = $embedding, t.embeddingTextHash = $embeddingTextHash
+    SET t.embedding = vecf32($embedding), t.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_COMPONENT_EMBEDDING: `
     MATCH (comp:Component {name: $name, filePath: $filePath, startLine: $startLine})
-    SET comp.embedding = $embedding, comp.embeddingTextHash = $embeddingTextHash
+    SET comp.embedding = vecf32($embedding), comp.embeddingTextHash = $embeddingTextHash
   `,
 };
 
-// ============================================================================
-// Kuzu-specific Cypher Templates (overrides where dialect differs)
-// ============================================================================
-
-const KUZU_CYPHER = {
-  UPSERT_FUNCTION: `
-    MERGE (fn:Function {_pk: $pk})
-    SET fn.name = $name,
-        fn.filePath = $filePath,
-        fn.startLine = $startLine,
-        fn.endLine = $endLine,
-        fn.isExported = $isExported,
-        fn.isAsync = $isAsync,
-        fn.isArrow = $isArrow,
-        fn.params = $params,
-        fn.returnType = $returnType,
-        fn.docstring = $docstring,
-        fn.complexity = $complexity,
-        fn.cognitiveComplexity = $cognitiveComplexity,
-        fn.nestingDepth = $nestingDepth
-    RETURN fn
-  `,
-
-  UPSERT_FUNCTION_CONTAINS: `
-    MATCH (f:File {path: $filePath})
-    MATCH (fn:Function {_pk: $pk})
-    MERGE (f)-[:CONTAINS]->(fn)
-  `,
-
-  UPSERT_CLASS: `
-    MERGE (c:Class {_pk: $pk})
-    SET c.name = $name,
-        c.filePath = $filePath,
-        c.startLine = $startLine,
-        c.endLine = $endLine,
-        c.isExported = $isExported,
-        c.isAbstract = $isAbstract,
-        c.extends = $extends,
-        c.implements = $implements,
-        c.docstring = $docstring
-    RETURN c
-  `,
-
-  UPSERT_CLASS_CONTAINS: `
-    MATCH (f:File {path: $filePath})
-    MATCH (c:Class {_pk: $pk})
-    MERGE (f)-[:CONTAINS]->(c)
-  `,
-
-  UPSERT_INTERFACE: `
-    MERGE (i:Interface {_pk: $pk})
-    SET i.name = $name,
-        i.filePath = $filePath,
-        i.startLine = $startLine,
-        i.endLine = $endLine,
-        i.isExported = $isExported,
-        i.extends = $extends,
-        i.docstring = $docstring
-    RETURN i
-  `,
-
-  UPSERT_INTERFACE_CONTAINS: `
-    MATCH (f:File {path: $filePath})
-    MATCH (i:Interface {_pk: $pk})
-    MERGE (f)-[:CONTAINS]->(i)
-  `,
-
-  UPSERT_VARIABLE: `
-    MERGE (v:Variable {_pk: $pk})
-    SET v.name = $name,
-        v.filePath = $filePath,
-        v.line = $line,
-        v.kind = $kind,
-        v.isExported = $isExported,
-        v.type = $type
-    RETURN v
-  `,
-
-  UPSERT_VARIABLE_CONTAINS: `
-    MATCH (f:File {path: $filePath})
-    MATCH (v:Variable {_pk: $pk})
-    MERGE (f)-[:CONTAINS]->(v)
-  `,
-
-  UPSERT_TYPE: `
-    MERGE (t:Type {_pk: $pk})
-    SET t.name = $name,
-        t.filePath = $filePath,
-        t.startLine = $startLine,
-        t.endLine = $endLine,
-        t.isExported = $isExported,
-        t.kind = $kind,
-        t.docstring = $docstring
-    RETURN t
-  `,
-
-  UPSERT_TYPE_CONTAINS: `
-    MATCH (f:File {path: $filePath})
-    MATCH (t:Type {_pk: $pk})
-    MERGE (f)-[:CONTAINS]->(t)
-  `,
-
-  UPSERT_COMPONENT: `
-    MERGE (comp:Component {_pk: $pk})
-    SET comp.name = $name,
-        comp.filePath = $filePath,
-        comp.startLine = $startLine,
-        comp.endLine = $endLine,
-        comp.isExported = $isExported,
-        comp.props = $props,
-        comp.propsType = $propsType
-    RETURN comp
-  `,
-
-  UPSERT_COMPONENT_CONTAINS: `
-    MATCH (f:File {path: $filePath})
-    MATCH (comp:Component {_pk: $pk})
-    MERGE (f)-[:CONTAINS]->(comp)
-  `,
-
-  // CALLS edge: no ON CREATE/MATCH SET
-  CREATE_CALLS_EDGE: `
-    MATCH (caller:Function) WHERE caller.name = $callerName AND caller.filePath = $callerFile
-    MATCH (callee:Function) WHERE callee.name = $calleeName AND callee.filePath = $calleeFile
-    MERGE (caller)-[c:CALLS]->(callee)
-    SET c.line = $line, c.count = COALESCE(c.count, 0) + 1
-    RETURN c
-  `,
-
-  // IMPORTS: no ON CREATE SET label; just MERGE the edge
-  CREATE_IMPORTS_EDGE: `
-    MATCH (from:File {path: $fromPath})
-    MATCH (to:File {path: $toPath})
-    MERGE (from)-[i:IMPORTS]->(to)
-    SET i.specifiers = $specifiers
-    RETURN i
-  `,
-
-  // For external imports where the target File doesn't exist yet
-  CREATE_IMPORTS_EDGE_EXTERNAL: `
-    MATCH (from:File {path: $fromPath})
-    MERGE (to:External {_pk: $toPath})
-    SET to.name = $toPath, to.filePath = $toPath
-    WITH from, to
-    MERGE (from)-[i:IMPORTS]->(to)
-    SET i.specifiers = $specifiers
-    RETURN i
-  `,
-
-  // EXTENDS: match child, merge parent (may be external)
-  CREATE_EXTENDS_EDGE: `
-    MATCH (child:Class) WHERE child.name = $childName AND child.filePath = $childFile
-    MATCH (parent:Class) WHERE parent.name = $parentName AND parent.filePath = COALESCE($parentFile, 'external')
-    MERGE (child)-[e:EXTENDS]->(parent)
-    RETURN e
-  `,
-
-  CREATE_EXTENDS_EDGE_EXTERNAL: `
-    MATCH (child:Class) WHERE child.name = $childName AND child.filePath = $childFile
-    MERGE (parent:External {_pk: $parentPk})
-    SET parent.name = $parentName, parent.filePath = 'external'
-    WITH child, parent
-    MERGE (child)-[e:EXTENDS]->(parent)
-    RETURN e
-  `,
-
-  // IMPLEMENTS: match class, merge interface (may be external)
-  CREATE_IMPLEMENTS_EDGE: `
-    MATCH (c:Class) WHERE c.name = $className AND c.filePath = $classFile
-    MATCH (i:Interface) WHERE i.name = $interfaceName AND i.filePath = COALESCE($interfaceFile, 'external')
-    MERGE (c)-[impl:IMPLEMENTS]->(i)
-    RETURN impl
-  `,
-
-  CREATE_IMPLEMENTS_EDGE_EXTERNAL: `
-    MATCH (c:Class) WHERE c.name = $className AND c.filePath = $classFile
-    MERGE (i:External {_pk: $interfacePk})
-    SET i.name = $interfaceName, i.filePath = 'external'
-    WITH c, i
-    MERGE (c)-[impl:IMPLEMENTS]->(i)
-    RETURN impl
-  `,
-
-  // RENDERS
-  CREATE_RENDERS_EDGE: `
-    MATCH (parent:Component) WHERE parent.name = $parentName AND parent.filePath = $parentFile
-    MATCH (child:Component) WHERE child.name = $childName
-    MERGE (parent)-[r:RENDERS]->(child)
-    SET r.line = $line
-    RETURN r
-  `,
-
-  // INSTANTIATES: match function, merge class (may be external)
-  CREATE_INSTANTIATES_EDGE: `
-    MATCH (fn:Function) WHERE fn.name = $functionName AND fn.filePath = $functionFile
-    MATCH (c:Class) WHERE c.name = $className AND c.filePath = COALESCE($classFile, 'external')
-    MERGE (fn)-[r:INSTANTIATES]->(c)
-    SET r.line = $line
-    RETURN r
-  `,
-
-  CREATE_INSTANTIATES_EDGE_EXTERNAL: `
-    MATCH (fn:Function) WHERE fn.name = $functionName AND fn.filePath = $functionFile
-    MERGE (c:External {_pk: $classPk})
-    SET c.name = $className, c.filePath = 'external'
-    WITH fn, c
-    MERGE (fn)-[r:INSTANTIATES]->(c)
-    SET r.line = $line
-    RETURN r
-  `,
-
-  // READS / WRITES — match by name+filePath
-  CREATE_READS_EDGE: `
-    MATCH (fn:Function) WHERE fn.name = $functionName AND fn.filePath = $functionFile
-    MATCH (v:Variable) WHERE v.name = $variableName AND v.filePath = $variableFile
-    MERGE (fn)-[r:READS]->(v)
-    SET r.line = $line
-    RETURN r
-  `,
-
-  CREATE_WRITES_EDGE: `
-    MATCH (fn:Function) WHERE fn.name = $functionName AND fn.filePath = $functionFile
-    MATCH (v:Variable) WHERE v.name = $variableName AND v.filePath = $variableFile
-    MERGE (fn)-[r:WRITES]->(v)
-    SET r.line = $line
-    RETURN r
-  `,
-
-  // FLOWS_TO — property-based lookup instead of id()
-  CREATE_FLOWS_TO_EDGE_BY_NAME: `
-    MATCH (source) WHERE source.name = $sourceName AND source.filePath = $sourceFile
-    MATCH (target) WHERE target.name = $targetName AND target.filePath = $targetFile
-    MERGE (source)-[r:FLOWS_TO]->(target)
-    SET r.transformation = $transformation,
-        r.tainted = $tainted,
-        r.sanitized = $sanitized
-    RETURN r
-  `,
-
-  // EXPORTS — Kuzu requires labeled MATCH; try each entity type in operations code
-  CREATE_EXPORTS_EDGE_FN: `
-    MATCH (f:File {path: $filePath})
-    MATCH (symbol:Function) WHERE symbol.name = $symbolName AND symbol.filePath = $filePath
-    MERGE (f)-[r:EXPORTS]->(symbol)
-    SET r.asName = $asName, r.isDefault = $isDefault
-    RETURN r
-  `,
-  CREATE_EXPORTS_EDGE_CLASS: `
-    MATCH (f:File {path: $filePath})
-    MATCH (symbol:Class) WHERE symbol.name = $symbolName AND symbol.filePath = $filePath
-    MERGE (f)-[r:EXPORTS]->(symbol)
-    SET r.asName = $asName, r.isDefault = $isDefault
-    RETURN r
-  `,
-  CREATE_EXPORTS_EDGE_IFACE: `
-    MATCH (f:File {path: $filePath})
-    MATCH (symbol:Interface) WHERE symbol.name = $symbolName AND symbol.filePath = $filePath
-    MERGE (f)-[r:EXPORTS]->(symbol)
-    SET r.asName = $asName, r.isDefault = $isDefault
-    RETURN r
-  `,
-  CREATE_EXPORTS_EDGE_VAR: `
-    MATCH (f:File {path: $filePath})
-    MATCH (symbol:Variable) WHERE symbol.name = $symbolName AND symbol.filePath = $filePath
-    MERGE (f)-[r:EXPORTS]->(symbol)
-    SET r.asName = $asName, r.isDefault = $isDefault
-    RETURN r
-  `,
-  CREATE_EXPORTS_EDGE_TYPE: `
-    MATCH (f:File {path: $filePath})
-    MATCH (symbol:Type) WHERE symbol.name = $symbolName AND symbol.filePath = $filePath
-    MERGE (f)-[r:EXPORTS]->(symbol)
-    SET r.asName = $asName, r.isDefault = $isDefault
-    RETURN r
-  `,
-  CREATE_EXPORTS_EDGE_COMP: `
-    MATCH (f:File {path: $filePath})
-    MATCH (symbol:Component) WHERE symbol.name = $symbolName AND symbol.filePath = $filePath
-    MERGE (f)-[r:EXPORTS]->(symbol)
-    SET r.asName = $asName, r.isDefault = $isDefault
-    RETURN r
-  `,
-
-  // GET_FILE_EXPORTS — Kuzu uses label() instead of labels()[0]
-  GET_FILE_EXPORTS: `
-    MATCH (f:File {path: $filePath})-[r:EXPORTS]->(symbol)
-    RETURN symbol.name as name, label(symbol) as type, r.asName as asName, r.isDefault as isDefault
-  `,
-
-  // INTRODUCED_IN — per entity type (Kuzu REL TABLE requires typed FROM/TO)
-  CREATE_INTRODUCED_IN_FN: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Function) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
-  CREATE_INTRODUCED_IN_CLASS: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Class) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
-  CREATE_INTRODUCED_IN_IFACE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Interface) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
-  CREATE_INTRODUCED_IN_VAR: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Variable) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
-  CREATE_INTRODUCED_IN_TYPE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Type) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
-  CREATE_INTRODUCED_IN_COMP: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Component) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:INTRODUCED_IN]->(c)`,
-
-  // DELETED_IN — per entity type
-  CREATE_DELETED_IN_FN: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Function) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
-  CREATE_DELETED_IN_CLASS: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Class) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
-  CREATE_DELETED_IN_IFACE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Interface) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
-  CREATE_DELETED_IN_VAR: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Variable) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
-  CREATE_DELETED_IN_TYPE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Type) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
-  CREATE_DELETED_IN_COMP: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e:Component) MATCH (c:Commit {hash: $commitHash}) MERGE (e)-[:DELETED_IN]->(c)`,
-
-  // Embedding update operations (per-node-type, using _pk)
-  UPDATE_FUNCTION_EMBEDDING: `
-    MATCH (fn:Function {_pk: $pk})
-    SET fn.embedding = $embedding, fn.embeddingTextHash = $embeddingTextHash
-  `,
-  UPDATE_CLASS_EMBEDDING: `
-    MATCH (c:Class {_pk: $pk})
-    SET c.embedding = $embedding, c.embeddingTextHash = $embeddingTextHash
-  `,
-  UPDATE_INTERFACE_EMBEDDING: `
-    MATCH (i:Interface {_pk: $pk})
-    SET i.embedding = $embedding, i.embeddingTextHash = $embeddingTextHash
-  `,
-  UPDATE_VARIABLE_EMBEDDING: `
-    MATCH (v:Variable {_pk: $pk})
-    SET v.embedding = $embedding, v.embeddingTextHash = $embeddingTextHash
-  `,
-  UPDATE_TYPE_EMBEDDING: `
-    MATCH (t:Type {_pk: $pk})
-    SET t.embedding = $embedding, t.embeddingTextHash = $embeddingTextHash
-  `,
-  UPDATE_COMPONENT_EMBEDDING: `
-    MATCH (comp:Component {_pk: $pk})
-    SET comp.embedding = $embedding, comp.embeddingTextHash = $embeddingTextHash
-  `,
-
-  // COUNT entities in a file (for edge creation count)
-  COUNT_FILE_ENTITIES_BY_TYPE: `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e) RETURN count(e) as cnt`,
-
-  // DELETE — Kuzu may need separate delete steps
-  DELETE_FILE_ENTITIES: `
-    MATCH (f:File {path: $path})-[:CONTAINS]->(e)
-    DETACH DELETE e
-  `,
-
-  DELETE_FILE_NODE: `
-    MATCH (f:File {path: $path})
-    DETACH DELETE f
-  `,
-
-  // DELETE PROJECT — simpler cascade for Kuzu
-  DELETE_PROJECT_ENTITIES: `
-    MATCH (p:Project {id: $id})-[:HAS_FILE]->(f:File)-[:CONTAINS]->(e)
-    DETACH DELETE e
-  `,
-
-  DELETE_PROJECT_FILES: `
-    MATCH (p:Project {id: $id})-[:HAS_FILE]->(f:File)
-    DETACH DELETE f
-  `,
-
-  DELETE_PROJECT_NODE: `
-    MATCH (p:Project {id: $id})
-    DETACH DELETE p
-  `,
-};
 
 // ============================================================================
 // Operations Interface
@@ -813,6 +452,23 @@ export interface GraphOperations {
     embedding: number[],
     embeddingTextHash: string,
   ): Promise<void>;
+
+  /** Vector similarity search across a specific node type */
+  searchByVector(
+    nodeType: 'File' | 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component',
+    embedding: number[],
+    limit?: number,
+  ): Promise<VectorSearchResult[]>;
+}
+
+/** Result from vector similarity search */
+export interface VectorSearchResult {
+  nodeType: string;
+  name: string;
+  filePath: string;
+  startLine?: number;
+  distance: number;
+  properties: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -829,11 +485,9 @@ function toParams<T extends object>(props: T): QueryParams {
 
 class GraphOperationsImpl implements GraphOperations {
   private readonly dialect: CypherDialect;
-  private readonly driverType: 'falkordb' | 'kuzu';
 
   constructor(private readonly client: GraphClient) {
     this.dialect = client.dialect;
-    this.driverType = this.dialect.driverType;
   }
 
   @trace()
@@ -846,73 +500,37 @@ class GraphOperationsImpl implements GraphOperations {
   @trace()
   async upsertFunction(fn: FunctionEntity): Promise<void> {
     const props = functionToNodeProps(fn);
-    if (this.driverType === 'kuzu') {
-      const pk = generatePrimaryKey({ filePath: fn.filePath, name: fn.name, startLine: fn.startLine });
-      await this.client.query(KUZU_CYPHER.UPSERT_FUNCTION, { params: { ...toParams(props), pk } });
-      await this.client.query(KUZU_CYPHER.UPSERT_FUNCTION_CONTAINS, { params: { filePath: fn.filePath, pk } });
-    } else {
-      await this.client.query(CYPHER.UPSERT_FUNCTION, { params: toParams(props) });
-    }
+    await this.client.query(CYPHER.UPSERT_FUNCTION, { params: toParams(props) });
   }
 
   @trace()
   async upsertClass(cls: ClassEntity): Promise<void> {
     const props = classToNodeProps(cls);
-    if (this.driverType === 'kuzu') {
-      const pk = generatePrimaryKey({ filePath: cls.filePath, name: cls.name, startLine: cls.startLine });
-      await this.client.query(KUZU_CYPHER.UPSERT_CLASS, { params: { ...toParams(props), pk } });
-      await this.client.query(KUZU_CYPHER.UPSERT_CLASS_CONTAINS, { params: { filePath: cls.filePath, pk } });
-    } else {
-      await this.client.query(CYPHER.UPSERT_CLASS, { params: toParams(props) });
-    }
+    await this.client.query(CYPHER.UPSERT_CLASS, { params: toParams(props) });
   }
 
   @trace()
   async upsertInterface(iface: InterfaceEntity): Promise<void> {
     const props = interfaceToNodeProps(iface);
-    if (this.driverType === 'kuzu') {
-      const pk = generatePrimaryKey({ filePath: iface.filePath, name: iface.name, startLine: iface.startLine });
-      await this.client.query(KUZU_CYPHER.UPSERT_INTERFACE, { params: { ...toParams(props), pk } });
-      await this.client.query(KUZU_CYPHER.UPSERT_INTERFACE_CONTAINS, { params: { filePath: iface.filePath, pk } });
-    } else {
-      await this.client.query(CYPHER.UPSERT_INTERFACE, { params: toParams(props) });
-    }
+    await this.client.query(CYPHER.UPSERT_INTERFACE, { params: toParams(props) });
   }
 
   @trace()
   async upsertVariable(variable: VariableEntity): Promise<void> {
     const props = variableToNodeProps(variable);
-    if (this.driverType === 'kuzu') {
-      const pk = generatePrimaryKey({ filePath: variable.filePath, name: variable.name, line: variable.line });
-      await this.client.query(KUZU_CYPHER.UPSERT_VARIABLE, { params: { ...toParams(props), pk } });
-      await this.client.query(KUZU_CYPHER.UPSERT_VARIABLE_CONTAINS, { params: { filePath: variable.filePath, pk } });
-    } else {
-      await this.client.query(CYPHER.UPSERT_VARIABLE, { params: toParams(props) });
-    }
+    await this.client.query(CYPHER.UPSERT_VARIABLE, { params: toParams(props) });
   }
 
   @trace()
   async upsertType(type: TypeEntity): Promise<void> {
     const props = typeToNodeProps(type);
-    if (this.driverType === 'kuzu') {
-      const pk = generatePrimaryKey({ filePath: type.filePath, name: type.name, startLine: type.startLine });
-      await this.client.query(KUZU_CYPHER.UPSERT_TYPE, { params: { ...toParams(props), pk } });
-      await this.client.query(KUZU_CYPHER.UPSERT_TYPE_CONTAINS, { params: { filePath: type.filePath, pk } });
-    } else {
-      await this.client.query(CYPHER.UPSERT_TYPE, { params: toParams(props) });
-    }
+    await this.client.query(CYPHER.UPSERT_TYPE, { params: toParams(props) });
   }
 
   @trace()
   async upsertComponent(component: ComponentEntity): Promise<void> {
     const props = componentToNodeProps(component);
-    if (this.driverType === 'kuzu') {
-      const pk = generatePrimaryKey({ filePath: component.filePath, name: component.name, startLine: component.startLine });
-      await this.client.query(KUZU_CYPHER.UPSERT_COMPONENT, { params: { ...toParams(props), pk } });
-      await this.client.query(KUZU_CYPHER.UPSERT_COMPONENT_CONTAINS, { params: { filePath: component.filePath, pk } });
-    } else {
-      await this.client.query(CYPHER.UPSERT_COMPONENT, { params: toParams(props) });
-    }
+    await this.client.query(CYPHER.UPSERT_COMPONENT, { params: toParams(props) });
   }
 
   @trace()
@@ -923,8 +541,7 @@ class GraphOperationsImpl implements GraphOperations {
     calleeFile: string,
     line: number
   ): Promise<void> {
-    const cypher = this.driverType === 'kuzu' ? KUZU_CYPHER.CREATE_CALLS_EDGE : CYPHER.CREATE_CALLS_EDGE;
-    await this.client.query(cypher, {
+    await this.client.query(CYPHER.CREATE_CALLS_EDGE, {
       params: { callerName, callerFile, calleeName, calleeFile, line },
     });
   }
@@ -935,26 +552,9 @@ class GraphOperationsImpl implements GraphOperations {
     toPath: string,
     specifiers?: string[]
   ): Promise<void> {
-    if (this.driverType === 'kuzu') {
-      // Check if target file exists before choosing query
-      const check = await this.client.roQuery<{ found: boolean }>(
-        `MATCH (f:File {path: $path}) RETURN true as found LIMIT 1`,
-        { params: { path: toPath } }
-      );
-      if (check.data.length > 0) {
-        await this.client.query(KUZU_CYPHER.CREATE_IMPORTS_EDGE, {
-          params: { fromPath, toPath, specifiers: specifiers ?? null },
-        });
-      } else {
-        await this.client.query(KUZU_CYPHER.CREATE_IMPORTS_EDGE_EXTERNAL, {
-          params: { fromPath, toPath, specifiers: specifiers ?? null },
-        });
-      }
-    } else {
-      await this.client.query(CYPHER.CREATE_IMPORTS_EDGE, {
-        params: { fromPath, toPath, specifiers: specifiers ?? null },
-      });
-    }
+    await this.client.query(CYPHER.CREATE_IMPORTS_EDGE, {
+      params: { fromPath, toPath, specifiers: specifiers ?? null },
+    });
   }
 
   @trace()
@@ -964,22 +564,9 @@ class GraphOperationsImpl implements GraphOperations {
     parentName: string,
     parentFile?: string
   ): Promise<void> {
-    if (this.driverType === 'kuzu') {
-      if (parentFile) {
-        await this.client.query(KUZU_CYPHER.CREATE_EXTENDS_EDGE, {
-          params: { childName, childFile, parentName, parentFile },
-        });
-      } else {
-        const parentPk = `external:${parentName}:0`;
-        await this.client.query(KUZU_CYPHER.CREATE_EXTENDS_EDGE_EXTERNAL, {
-          params: { childName, childFile, parentName, parentPk },
-        });
-      }
-    } else {
-      await this.client.query(CYPHER.CREATE_EXTENDS_EDGE, {
-        params: { childName, childFile, parentName, parentFile: parentFile ?? null },
-      });
-    }
+    await this.client.query(CYPHER.CREATE_EXTENDS_EDGE, {
+      params: { childName, childFile, parentName, parentFile: parentFile ?? null },
+    });
   }
 
   @trace()
@@ -989,22 +576,9 @@ class GraphOperationsImpl implements GraphOperations {
     interfaceName: string,
     interfaceFile?: string
   ): Promise<void> {
-    if (this.driverType === 'kuzu') {
-      if (interfaceFile) {
-        await this.client.query(KUZU_CYPHER.CREATE_IMPLEMENTS_EDGE, {
-          params: { className, classFile, interfaceName, interfaceFile },
-        });
-      } else {
-        const interfacePk = `external:${interfaceName}:0`;
-        await this.client.query(KUZU_CYPHER.CREATE_IMPLEMENTS_EDGE_EXTERNAL, {
-          params: { className, classFile, interfaceName, interfacePk },
-        });
-      }
-    } else {
-      await this.client.query(CYPHER.CREATE_IMPLEMENTS_EDGE, {
-        params: { className, classFile, interfaceName, interfaceFile: interfaceFile ?? null },
-      });
-    }
+    await this.client.query(CYPHER.CREATE_IMPLEMENTS_EDGE, {
+      params: { className, classFile, interfaceName, interfaceFile: interfaceFile ?? null },
+    });
   }
 
   @trace()
@@ -1014,27 +588,14 @@ class GraphOperationsImpl implements GraphOperations {
     childName: string,
     line: number
   ): Promise<void> {
-    const cypher = this.driverType === 'kuzu' ? KUZU_CYPHER.CREATE_RENDERS_EDGE : CYPHER.CREATE_RENDERS_EDGE;
-    await this.client.query(cypher, {
+    await this.client.query(CYPHER.CREATE_RENDERS_EDGE, {
       params: { parentName, parentFile, childName, line },
     });
   }
 
   @trace()
   async deleteFileEntities(filePath: string): Promise<void> {
-    if (this.driverType === 'kuzu') {
-      // Kuzu needs separate DELETE steps (no WITH between DETACH DELETE)
-      try {
-        await this.client.query(KUZU_CYPHER.DELETE_FILE_ENTITIES, { params: { path: filePath } });
-      } catch (error) {
-        // Swallow "no result" / empty match errors; re-throw connection/syntax errors
-        const msg = error instanceof Error ? error.message : '';
-        if (msg.includes('connect') || msg.includes('syntax') || msg.includes('Binder')) throw error;
-      }
-      await this.client.query(KUZU_CYPHER.DELETE_FILE_NODE, { params: { path: filePath } });
-    } else {
-      await this.client.query(CYPHER.DELETE_FILE_ENTITIES, { params: { path: filePath } });
-    }
+    await this.client.query(CYPHER.DELETE_FILE_ENTITIES, { params: { path: filePath } });
   }
 
   @trace()
@@ -1159,20 +720,7 @@ class GraphOperationsImpl implements GraphOperations {
 
   @trace()
   async deleteProject(projectId: string): Promise<void> {
-    if (this.driverType === 'kuzu') {
-      // Kuzu needs cascading deletes in separate steps
-      for (const cypher of [KUZU_CYPHER.DELETE_PROJECT_ENTITIES, KUZU_CYPHER.DELETE_PROJECT_FILES]) {
-        try {
-          await this.client.query(cypher, { params: { id: projectId } });
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : '';
-          if (msg.includes('connect') || msg.includes('syntax') || msg.includes('Binder')) throw error;
-        }
-      }
-      await this.client.query(KUZU_CYPHER.DELETE_PROJECT_NODE, { params: { id: projectId } });
-    } else {
-      await this.client.query(CYPHER.DELETE_PROJECT, { params: { id: projectId } });
-    }
+    await this.client.query(CYPHER.DELETE_PROJECT, { params: { id: projectId } });
   }
 
   @trace()
@@ -1212,62 +760,35 @@ class GraphOperationsImpl implements GraphOperations {
   @trace()
   async createIntroducedInEdgesForFile(filePath: string, commitHash: string): Promise<number> {
     const params = { filePath, commitHash };
-    const queries = this.driverType === 'kuzu'
-      ? [
-          KUZU_CYPHER.CREATE_INTRODUCED_IN_FN,
-          KUZU_CYPHER.CREATE_INTRODUCED_IN_CLASS,
-          KUZU_CYPHER.CREATE_INTRODUCED_IN_IFACE,
-          KUZU_CYPHER.CREATE_INTRODUCED_IN_VAR,
-          KUZU_CYPHER.CREATE_INTRODUCED_IN_TYPE,
-          KUZU_CYPHER.CREATE_INTRODUCED_IN_COMP,
-        ]
-      : [
-          // FalkorDB: single query using label-agnostic MATCH
-          `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e)
-           MATCH (c:Commit {hash: $commitHash})
-           MERGE (e)-[:INTRODUCED_IN]->(c)`,
-        ];
-
-    let count = 0;
-    for (const q of queries) {
-      try {
-        await this.client.query(q, { params });
-        count++;
-      } catch {
-        // Entity type may not have entities in this file — expected
-      }
+    try {
+      await this.client.query(
+        `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e)
+         MATCH (c:Commit {hash: $commitHash})
+         MERGE (e)-[:INTRODUCED_IN]->(c)`,
+        { params }
+      );
+      return 1;
+    } catch {
+      // No entities in this file — expected
+      return 0;
     }
-    return count;
   }
 
   @trace()
   async createDeletedInEdgesForFile(filePath: string, commitHash: string): Promise<number> {
     const params = { filePath, commitHash };
-    const queries = this.driverType === 'kuzu'
-      ? [
-          KUZU_CYPHER.CREATE_DELETED_IN_FN,
-          KUZU_CYPHER.CREATE_DELETED_IN_CLASS,
-          KUZU_CYPHER.CREATE_DELETED_IN_IFACE,
-          KUZU_CYPHER.CREATE_DELETED_IN_VAR,
-          KUZU_CYPHER.CREATE_DELETED_IN_TYPE,
-          KUZU_CYPHER.CREATE_DELETED_IN_COMP,
-        ]
-      : [
-          `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e)
-           MATCH (c:Commit {hash: $commitHash})
-           MERGE (e)-[:DELETED_IN]->(c)`,
-        ];
-
-    let count = 0;
-    for (const q of queries) {
-      try {
-        await this.client.query(q, { params });
-        count++;
-      } catch {
-        // Entity type may not have entities in this file — expected
-      }
+    try {
+      await this.client.query(
+        `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e)
+         MATCH (c:Commit {hash: $commitHash})
+         MERGE (e)-[:DELETED_IN]->(c)`,
+        { params }
+      );
+      return 1;
+    } catch {
+      // No entities in this file — expected
+      return 0;
     }
-    return count;
   }
 
   @trace()
@@ -1280,41 +801,68 @@ class GraphOperationsImpl implements GraphOperations {
     const baseParams = { embedding, embeddingTextHash };
 
     if (nodeType === 'File') {
-      // File uses path as PK in both drivers
       await this.client.query(CYPHER.UPDATE_FILE_EMBEDDING, {
         params: { ...baseParams, path: identifier['path'] as string },
       });
       return;
     }
 
-    if (this.driverType === 'kuzu') {
-      // All non-File types use _pk in Kuzu
-      const pk = generatePrimaryKey(identifier);
-      const templates: Record<string, string> = {
-        Function: KUZU_CYPHER.UPDATE_FUNCTION_EMBEDDING,
-        Class: KUZU_CYPHER.UPDATE_CLASS_EMBEDDING,
-        Interface: KUZU_CYPHER.UPDATE_INTERFACE_EMBEDDING,
-        Variable: KUZU_CYPHER.UPDATE_VARIABLE_EMBEDDING,
-        Type: KUZU_CYPHER.UPDATE_TYPE_EMBEDDING,
-        Component: KUZU_CYPHER.UPDATE_COMPONENT_EMBEDDING,
-      };
-      await this.client.query(templates[nodeType]!, { params: { ...baseParams, pk } });
-    } else {
-      // FalkorDB uses natural keys
-      const templates: Record<string, string> = {
-        Function: CYPHER.UPDATE_FUNCTION_EMBEDDING,
-        Class: CYPHER.UPDATE_CLASS_EMBEDDING,
-        Interface: CYPHER.UPDATE_INTERFACE_EMBEDDING,
-        Variable: CYPHER.UPDATE_VARIABLE_EMBEDDING,
-        Type: CYPHER.UPDATE_TYPE_EMBEDDING,
-        Component: CYPHER.UPDATE_COMPONENT_EMBEDDING,
-      };
-      await this.client.query(templates[nodeType]!, { params: { ...baseParams, ...identifier } });
+    // FalkorDB uses natural keys (name + filePath + startLine/line)
+    const templates: Record<string, string> = {
+      Function: CYPHER.UPDATE_FUNCTION_EMBEDDING,
+      Class: CYPHER.UPDATE_CLASS_EMBEDDING,
+      Interface: CYPHER.UPDATE_INTERFACE_EMBEDDING,
+      Variable: CYPHER.UPDATE_VARIABLE_EMBEDDING,
+      Type: CYPHER.UPDATE_TYPE_EMBEDDING,
+      Component: CYPHER.UPDATE_COMPONENT_EMBEDDING,
+    };
+    await this.client.query(templates[nodeType]!, { params: { ...baseParams, ...identifier } });
+  }
+
+  // --- Vector Search ---
+
+  @trace()
+  async searchByVector(
+    nodeType: 'File' | 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component',
+    embedding: number[],
+    limit: number = 10,
+  ): Promise<VectorSearchResult[]> {
+    // FalkorDB native HNSW vector search via db.idx.vector.queryNodes
+    const filePathExpr = nodeType === 'File' ? 'node.path' : 'node.filePath';
+    const startLineExpr = nodeType === 'Variable' ? 'node.line' : 'node.startLine';
+    const startLineReturn = nodeType === 'File' ? '' : `, ${startLineExpr} AS startLine`;
+
+    const cypher = `
+      CALL db.idx.vector.queryNodes('${nodeType}', 'embedding', $k, vecf32($queryVec))
+      YIELD node, score
+      RETURN node.name AS name, ${filePathExpr} AS filePath${startLineReturn}, score
+    `;
+
+    try {
+      const result = await this.client.roQuery<Record<string, unknown>>(cypher, {
+        params: { queryVec: embedding, k: limit },
+      });
+
+      return result.data.map((row) => {
+        const entry: VectorSearchResult = {
+          nodeType,
+          name: row['name'] as string,
+          filePath: row['filePath'] as string,
+          distance: row['score'] as number,
+          properties: row,
+        };
+        const sl = row['startLine'];
+        if (typeof sl === 'number') entry.startLine = sl;
+        return entry;
+      });
+    } catch {
+      // If vector index doesn't exist or has no data, return empty
+      return [];
     }
   }
 
   private projectFromRow(row: Record<string, unknown>): ProjectEntity {
-    // Handle FalkorDB nested properties format and Kuzu flat format
+    // Handle FalkorDB nested properties format
     const { properties } = this.dialect.normalizeNode(row);
     const fileCount = properties['fileCount'] as number | undefined;
     const entity: ProjectEntity = {

@@ -1,17 +1,18 @@
 /**
  * MCP Tool: search_code
  *
- * Search for code by name, pattern, or text content.
- * Queries graph for matching symbols.
+ * Search for code by name, pattern, or semantic meaning.
+ * Uses hybrid search (vector + text + graph) when embeddings are available,
+ * falls back to text-only search otherwise.
  */
 
-import { codeGraphService } from '@codegraph/core';
+import { codeGraphService, getGraphClient, hybridSearch } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
 export interface SearchCodeInput {
   query: string;
-  type?: 'name' | 'fulltext' | 'pattern';
+  type?: 'name' | 'fulltext' | 'pattern' | 'semantic';
   scope?: string;
   language?: string;
 }
@@ -23,31 +24,56 @@ export interface SearchResult {
   file: string;
   line: number;
   match: string;
+  score?: number;
+  sources?: string[];
+}
+
+// Related result from graph traversal
+export interface RelatedResult {
+  name: string;
+  kind: string;
+  file?: string;
+  edge: string;
+  direction: string;
+  sourceHit: string;
 }
 
 // Output type
 export interface SearchCodeOutput {
   results: SearchResult[];
+  related?: RelatedResult[];
   total: number;
+  meta?: {
+    vectorHits: number;
+    textHits: number;
+    graphExpanded: number;
+    embeddingAvailable: boolean;
+    durationMs: number;
+  };
   error?: string | undefined;
 }
 
 // Tool definition for MCP
 export const searchCodeToolDefinition: ToolDefinition = {
   name: 'search_code',
-  description: 'Search for code by name, pattern, or text content.',
+  description:
+    'Search for code by name, pattern, or semantic meaning. ' +
+    'Uses hybrid search (vector similarity + text matching + graph traversal) ' +
+    'to find functions, classes, interfaces, and other code symbols.',
   inputSchema: {
     type: 'object',
     properties: {
       query: {
         type: 'string',
-        description: 'Search query (required)',
+        description: 'Search query — can be a name, keyword, or natural language description',
       },
       type: {
         type: 'string',
-        enum: ['name', 'fulltext', 'pattern'],
-        default: 'name',
-        description: 'Search type: name (exact match), fulltext (text search), pattern (tree-sitter AST pattern)',
+        enum: ['name', 'fulltext', 'pattern', 'semantic'],
+        default: 'semantic',
+        description:
+          'Search type: semantic (hybrid vector+text, default), ' +
+          'name (exact name match), fulltext (text search), pattern (AST pattern)',
       },
       scope: {
         type: 'string',
@@ -72,17 +98,15 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
       return { results: [], total: 0, error: 'Search query is required' };
     }
 
-    const serviceResults = await codeGraphService.searchCode(input.query, {
-      ...(input.type != null && { type: input.type }),
-      ...(input.scope != null && { scope: input.scope }),
-    });
+    const searchType = input.type ?? 'semantic';
 
-    const results: SearchResult[] = serviceResults.map(r => ({
-      ...r,
-      match: r.name,
-    }));
+    // For semantic/fulltext: use hybrid search
+    if (searchType === 'semantic' || searchType === 'fulltext') {
+      return hybridSearchCode(input);
+    }
 
-    return { results, total: results.length };
+    // For name/pattern: use legacy text search
+    return legacySearchCode(input);
   } catch (error) {
     return {
       results: [],
@@ -90,4 +114,80 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
       error: error instanceof Error ? error.message : 'Unknown error during search',
     };
   }
+}
+
+/**
+ * Hybrid search — vector + text + graph traversal
+ */
+async function hybridSearchCode(input: SearchCodeInput): Promise<SearchCodeOutput> {
+  const client = await getGraphClient();
+  const scope = input.scope && input.scope !== 'all' ? input.scope : undefined;
+
+  const opts: Parameters<typeof hybridSearch>[2] = {
+    limit: 30,
+    includeKnowledge: false, // search_code focuses on code nodes
+    expandGraph: true,
+    maxHops: 1,
+  };
+  if (scope) opts.scope = scope;
+
+  const result = await hybridSearch(input.query, client, opts);
+
+  const results: SearchResult[] = result.hits.map((hit) => {
+    const r: SearchResult = {
+      name: hit.name,
+      kind: hit.nodeType.toLowerCase(),
+      file: hit.filePath ?? '',
+      line: hit.startLine ?? 0,
+      match: hit.name,
+      score: hit.score,
+      sources: hit.sources,
+    };
+    return r;
+  });
+
+  const output: SearchCodeOutput = {
+    results,
+    total: results.length,
+    meta: {
+      vectorHits: result.meta.vectorHits,
+      textHits: result.meta.textHits,
+      graphExpanded: result.meta.graphExpanded,
+      embeddingAvailable: result.meta.embeddingAvailable,
+      durationMs: result.meta.durationMs,
+    },
+  };
+
+  if (result.related.length > 0) {
+    output.related = result.related.map((r) => {
+      const rel: RelatedResult = {
+        name: r.name,
+        kind: r.nodeType.toLowerCase(),
+        edge: r.edgeLabel,
+        direction: r.direction,
+        sourceHit: r.sourceKey,
+      };
+      if (r.filePath != null) rel.file = r.filePath;
+      return rel;
+    });
+  }
+
+  return output;
+}
+
+/**
+ * Legacy text-only search (name/pattern mode)
+ */
+async function legacySearchCode(input: SearchCodeInput): Promise<SearchCodeOutput> {
+  const serviceResults = await codeGraphService.searchCode(input.query, {
+    ...(input.type != null && input.type !== 'semantic' && { type: input.type }),
+    ...(input.scope != null && { scope: input.scope }),
+  });
+
+  const results: SearchResult[] = serviceResults.map(r => ({
+    ...r,
+    match: r.name,
+  }));
+
+  return { results, total: results.length };
 }

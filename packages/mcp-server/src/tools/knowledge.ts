@@ -12,7 +12,9 @@
  * - get_knowledge_stats: Memory statistics (counts, relevance, age)
  */
 
-import { knowledgeService } from '@codegraph/core';
+import { knowledgeService, getGraphClient } from '@codegraph/core';
+import { createKnowledgeOperations } from '@codegraph/graph';
+import { generateEmbedding, isEmbeddingAvailable } from '@codegraph/plugin-nlp';
 import { createLogger } from '@codegraph/logger';
 import type { ToolDefinition } from './consolidated';
 
@@ -109,7 +111,10 @@ export const storeFactToolDefinition: ToolDefinition = {
 
 export const queryKnowledgeToolDefinition: ToolDefinition = {
   name: 'query_knowledge',
-  description: 'Search the knowledge graph for entities. Filter by type, text content, or both. Returns matching entities with their confidence and relevance scores.',
+  description:
+    'Search the knowledge graph for entities. Filter by type, text content, or use ' +
+    'semantic search to find entities by meaning. Returns matching entities with their ' +
+    'confidence and relevance scores.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -120,6 +125,12 @@ export const queryKnowledgeToolDefinition: ToolDefinition = {
       textContains: {
         type: 'string',
         description: 'Filter by text content (case-sensitive substring match)',
+      },
+      semanticQuery: {
+        type: 'string',
+        description:
+          'Natural language query for semantic search — finds entities by meaning, ' +
+          'not just exact text. Requires embeddings to be available.',
       },
       limit: {
         type: 'number',
@@ -253,10 +264,68 @@ export async function handleStoreFact(args: Record<string, unknown>) {
 
 export async function handleQueryKnowledge(args: Record<string, unknown>) {
   try {
-    const query: { type?: string; textContains?: string; limit?: number } = {};
+    const limit = (args.limit as number | undefined) ?? 20;
+
+    // Semantic search path: embed the query and search by vector
+    if (args.semanticQuery != null && isEmbeddingAvailable()) {
+      const semanticQuery = args.semanticQuery as string;
+      try {
+        const { embedding } = await generateEmbedding(semanticQuery);
+        const client = await getGraphClient();
+        const kgOps = createKnowledgeOperations(client);
+        const vectorResults = await kgOps.searchEntitiesByVector(embedding, limit);
+
+        // Also do text search if textContains was provided
+        let textResults: typeof vectorResults = [];
+        if (args.textContains != null || args.type != null) {
+          const textQuery: { type?: string; textContains?: string; limit?: number } = { limit };
+          if (args.type != null) textQuery.type = args.type as string;
+          if (args.textContains != null) textQuery.textContains = args.textContains as string;
+          textResults = await knowledgeService.queryKnowledge(textQuery);
+        }
+
+        // Merge results (dedup by id)
+        const seen = new Set<string>();
+        const merged = [];
+        for (const e of vectorResults) {
+          seen.add(e.id);
+          merged.push({
+            id: e.id,
+            text: e.text,
+            type: e.type,
+            confidence: e.confidence,
+            relevance: e.relevanceScore,
+            createdAt: new Date(e.createdAt).toISOString(),
+            lastAccessed: new Date(e.lastAccessedAt).toISOString(),
+            source: 'semantic' as const,
+          });
+        }
+        for (const e of textResults) {
+          if (!seen.has(e.id)) {
+            merged.push({
+              id: e.id,
+              text: e.text,
+              type: e.type,
+              confidence: e.confidence,
+              relevance: e.relevanceScore,
+              createdAt: new Date(e.createdAt).toISOString(),
+              lastAccessed: new Date(e.lastAccessedAt).toISOString(),
+              source: 'text' as const,
+            });
+          }
+        }
+
+        return { count: merged.length, entities: merged.slice(0, limit), semantic: true };
+      } catch (err) {
+        logger.warn(`Semantic search failed, falling back to text: ${err}`);
+        // Fall through to text search below
+      }
+    }
+
+    // Text search path (default)
+    const query: { type?: string; textContains?: string; limit?: number } = { limit };
     if (args.type != null) query.type = args.type as string;
     if (args.textContains != null) query.textContains = args.textContains as string;
-    if (args.limit != null) query.limit = args.limit as number;
     const results = await knowledgeService.queryKnowledge(query);
 
     return {

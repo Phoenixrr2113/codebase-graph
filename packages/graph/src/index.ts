@@ -1,6 +1,6 @@
 /**
  * @codegraph/graph
- * Graph database operations for CodeGraph — supports FalkorDB and Kuzu backends
+ * Graph database operations for CodeGraph — FalkorDB primary engine
  */
 
 // Client exports
@@ -21,11 +21,14 @@ export {
   type CypherDialect,
 } from './driver';
 
-// Driver implementations (kuzu native module is NOT eagerly loaded — safe to import)
+// FalkorDB driver (primary — remote, Docker)
 export { FalkorDBDriver, falkorDialect } from './drivers/falkordb';
-export { KuzuDriver, kuzuDialect } from './drivers/kuzu';
 
-// Schema DDL exports
+// FalkorDBLite driver (embedded — no Docker needed)
+export { FalkorDBLiteDriver, type FalkorDBLiteConfig } from './drivers/falkordblite';
+
+// Legacy: Kuzu driver + schema (kuzu native module is NOT eagerly loaded — safe to import)
+export { KuzuDriver, kuzuDialect } from './drivers/kuzu';
 export {
   EMBEDDING_DIM,
   NODE_TABLES,
@@ -37,7 +40,7 @@ export {
 } from './drivers/kuzu-schema';
 
 // Operations exports
-export { createOperations, type GraphOperations } from './operations';
+export { createOperations, type GraphOperations, type VectorSearchResult } from './operations';
 
 // Query exports
 export { createQueries, type GraphQueries } from './queries';

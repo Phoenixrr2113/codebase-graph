@@ -7,6 +7,7 @@ import type { Graph } from 'falkordb';
 import { trace } from '@codegraph/logger';
 import type { DatabaseDriver, DriverConfig, CypherDialect } from './driver';
 import { FalkorDBDriver } from './drivers/falkordb';
+import { FalkorDBLiteDriver } from './drivers/falkordblite';
 
 /**
  * FalkorDB connection configuration (backward-compatible alias)
@@ -27,17 +28,17 @@ export interface FalkorConfig {
 }
 
 /**
- * Unified graph config — supports both FalkorDB and Kuzu
+ * Unified graph config — FalkorDB primary, FalkorDBLite embedded, Kuzu legacy
  */
 export interface GraphConfig {
-  driver?: 'falkordb' | 'kuzu';
-  // FalkorDB-specific
+  driver?: 'falkordb' | 'falkordblite' | 'kuzu';
+  // FalkorDB-specific (remote)
   url?: string;
   host?: string;
   port?: number;
   username?: string;
   password?: string;
-  // Kuzu-specific
+  // FalkorDBLite / Kuzu — local data path
   databasePath?: string;
   readOnly?: boolean;
   // Shared
@@ -129,6 +130,9 @@ class GraphClientImpl implements GraphClient {
     if (this.driver instanceof FalkorDBDriver) {
       return this.driver.getGraph();
     }
+    if (this.driver instanceof FalkorDBLiteDriver) {
+      return this.driver.getGraph();
+    }
     return null;
   }
 
@@ -184,19 +188,22 @@ class GraphClientImpl implements GraphClient {
 /**
  * Create a new graph client connection.
  *
- * Supports both legacy FalkorConfig and new GraphConfig with driver selection.
- * No args → defaults to FalkorDB using existing FALKORDB_* env vars.
- * Set `driver: 'kuzu'` or env `CODEGRAPH_DRIVER=kuzu` for embedded Kuzu.
+ * Defaults to FalkorDB using FALKORDB_* env vars.
+ * Supports FalkorConfig for simple use or GraphConfig for driver selection.
  *
  * @example
  * ```typescript
- * // FalkorDB (default, backward compatible)
+ * // FalkorDB remote (default)
  * const client = await createClient();
  *
- * // FalkorDB explicit
+ * // FalkorDB explicit host/port
  * const client = await createClient({ host: 'localhost', port: 6379 });
  *
- * // Kuzu embedded
+ * // FalkorDBLite embedded (no Docker needed)
+ * const client = await createClient({ driver: 'falkordblite' });
+ * const client = await createClient({ driver: 'falkordblite', databasePath: '.codegraph/falkordb' });
+ *
+ * // Kuzu embedded (legacy)
  * const client = await createClient({ driver: 'kuzu', databasePath: '.codegraph/kuzu' });
  * ```
  */
@@ -236,44 +243,14 @@ async function loadConfigFile(): Promise<Partial<GraphConfig>> {
   return {};
 }
 
-/**
- * Auto-detect driver: if a Kuzu database exists at the default path, use Kuzu.
- * Otherwise fall back to FalkorDB.
- */
-async function autoDetectDriver(): Promise<'falkordb' | 'kuzu'> {
-  try {
-    const { stat } = await import('node:fs/promises');
-    const { resolve } = await import('node:path');
-
-    // Search for .codegraph/kuzu in cwd and up to 5 parent dirs
-    let dir = process.cwd();
-    for (let i = 0; i < 6; i++) {
-      const kuzuPath = resolve(dir, '.codegraph', 'kuzu');
-      try {
-        const info = await stat(kuzuPath);
-        if (info.isFile() || info.isDirectory()) return 'kuzu';
-      } catch {
-        // not found, try parent
-      }
-      const parent = resolve(dir, '..');
-      if (parent === dir) break;
-      dir = parent;
-    }
-  } catch {
-    // doesn't exist
-  }
-  return 'falkordb';
-}
-
 export async function createClient(config?: FalkorConfig | GraphConfig): Promise<GraphClient> {
-  // Layer config: explicit arg > config file > env vars > auto-detect
+  // Layer config: explicit arg > config file > env vars > default (FalkorDB)
   const fileConfig = await loadConfigFile();
 
-  const explicitDriver = (config as GraphConfig)?.driver
-    ?? process.env['CODEGRAPH_DRIVER'] as 'falkordb' | 'kuzu' | undefined
-    ?? fileConfig.driver;
-
-  const driverType = explicitDriver ?? await autoDetectDriver();
+  const driverType: 'falkordb' | 'falkordblite' | 'kuzu' = (config as GraphConfig)?.driver
+    ?? process.env['CODEGRAPH_DRIVER'] as 'falkordb' | 'falkordblite' | 'kuzu' | undefined
+    ?? fileConfig.driver
+    ?? 'falkordb';
 
   const graphName = config?.graphName
     ?? process.env['FALKORDB_GRAPH']
@@ -289,7 +266,7 @@ export async function createClient(config?: FalkorConfig | GraphConfig): Promise
     port: (config as FalkorConfig)?.port ?? fileConfig.port,
     username: (config as FalkorConfig)?.username ?? fileConfig.username,
     password: (config as FalkorConfig)?.password ?? fileConfig.password,
-    // Kuzu fields
+    // Kuzu fields (legacy)
     databasePath: (config as GraphConfig)?.databasePath
       ?? process.env['CODEGRAPH_DB_PATH']
       ?? fileConfig.databasePath,
@@ -299,10 +276,14 @@ export async function createClient(config?: FalkorConfig | GraphConfig): Promise
   let driver: DatabaseDriver;
 
   if (driverType === 'kuzu') {
-    // Lazy import to avoid requiring kuzu when using FalkorDB
+    // Legacy: lazy import to avoid requiring kuzu when using FalkorDB
     const { KuzuDriver } = await import('./drivers/kuzu');
     driver = new KuzuDriver();
+  } else if (driverType === 'falkordblite') {
+    // Embedded FalkorDB — no Docker needed
+    driver = new FalkorDBLiteDriver();
   } else {
+    // Remote FalkorDB (default)
     driver = new FalkorDBDriver();
   }
 
@@ -311,11 +292,12 @@ export async function createClient(config?: FalkorConfig | GraphConfig): Promise
     return new GraphClientImpl(driver, graphName);
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    const hint = driverType === 'falkordb'
-      ? '\nHint: Is FalkorDB running? Or set CODEGRAPH_DRIVER=kuzu for embedded mode.'
-      : driverType === 'kuzu' && !driverConfig.databasePath
-        ? '\nHint: Set CODEGRAPH_DB_PATH or add databasePath to .codegraph/config.json'
-        : '';
+    let hint = '';
+    if (driverType === 'falkordb') {
+      hint = '\nHint: Is FalkorDB running? Try: docker compose up -d falkordb';
+    } else if (driverType === 'falkordblite') {
+      hint = '\nHint: Is falkordblite installed? Try: pnpm add falkordblite';
+    }
     throw new GraphClientError(
       `Failed to connect (${driverType}): ${msg}${hint}`,
       'CONNECTION_FAILED'

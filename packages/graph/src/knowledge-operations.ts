@@ -2,14 +2,16 @@
  * @codegraph/graph - Knowledge Graph Operations
  *
  * CRUD + temporal memory operations for the knowledge graph layer (NLC merger).
- * These operations target the Entity node table and RELATES_TO edge table
- * defined in kuzu-schema.ts.
+ * These operations target the Entity node table and RELATES_TO edge table.
  *
- * Key differences from NLC's original FalkorDB operations:
+ * Engine: FalkorDB (primary), FalkorDBLite (local)
+ * Cypher: FalkorDB-compatible (coalesce + list concat, IN operator)
+ *
+ * Key design decisions:
  * - Uses codebase-graph's GraphClient interface (driver-agnostic)
  * - Single RELATES_TO table with type property (Graphiti pattern)
- * - UUIDs generated in TypeScript (Kuzu has no randomUUID())
- * - No ON CREATE SET / ON MATCH SET — uses check-then-insert pattern
+ * - UUIDs generated in TypeScript
+ * - Check-then-insert pattern for upserts
  * - Embedding vectors passed in from caller (inference layer handles generation)
  * - Bi-temporal fields on edges (valid_at, invalid_at, created_at, expired_at)
  */
@@ -121,13 +123,16 @@ export interface KnowledgeOperations {
   pruneOldEntities(threshold?: number): Promise<{ pruned: number }>;
   getMemoryStats(): Promise<MemoryStats>;
 
+  // --- Vector Search ---
+  searchEntitiesByVector(embedding: number[], limit?: number): Promise<EntitySearchResult[]>;
+
   // --- Cleanup ---
   deleteSample(sampleId: string): Promise<void>;
   deleteAllKnowledge(): Promise<void>;
 }
 
 // ============================================================================
-// Cypher Templates (Kuzu-compatible)
+// Cypher Templates (FalkorDB-compatible)
 // ============================================================================
 
 const KG_CYPHER = {
@@ -144,17 +149,17 @@ const KG_CYPHER = {
     LIMIT 1
   `,
 
-  /** Insert new entity */
+  /** Insert new entity — uses vecf32() for embedding to ensure proper vector type */
   INSERT_ENTITY: `
     CREATE (n:Entity {
       id: $id,
       text: $text,
       type: $type,
       confidence: $confidence,
-      embedding: $embedding,
+      embedding: CASE WHEN $embedding IS NOT NULL THEN vecf32($embedding) ELSE NULL END,
       createdAt: $now,
       lastAccessedAt: $now,
-      accessCount: cast(1, "INT64"),
+      accessCount: 1,
       relevanceScore: 1.0,
       sampleIds: $sampleIds,
       properties: $properties
@@ -172,7 +177,7 @@ const KG_CYPHER = {
           WHEN n.relevanceScore < 1.0 THEN n.relevanceScore + 0.1
           ELSE 1.0
         END,
-        n.sampleIds = list_append(n.sampleIds, $sampleId)
+        n.sampleIds = coalesce(n.sampleIds, []) + [$sampleId]
     RETURN n.id as id
   `,
 
@@ -236,7 +241,7 @@ const KG_CYPHER = {
     LIMIT 1
   `,
 
-  /** Insert new relationship */
+  /** Insert new relationship — uses vecf32() for fact_embedding */
   INSERT_RELATIONSHIP: `
     MATCH (h:Entity), (t:Entity)
     WHERE h.text = $headText AND h.type = $headType
@@ -245,7 +250,7 @@ const KG_CYPHER = {
       type: $relType,
       confidence: $confidence,
       fact: $fact,
-      fact_embedding: $factEmbedding,
+      fact_embedding: CASE WHEN $factEmbedding IS NOT NULL THEN vecf32($factEmbedding) ELSE NULL END,
       valid_at: $validAt,
       invalid_at: $invalidAt,
       created_at: $now,
@@ -261,7 +266,7 @@ const KG_CYPHER = {
     WHERE h.text = $headText AND h.type = $headType
       AND t.text = $tailText AND t.type = $tailType
       AND r.type = $relType
-    SET r.sampleIds = list_append(r.sampleIds, $sampleId)
+    SET r.sampleIds = coalesce(r.sampleIds, []) + [$sampleId]
   `,
 
   /** Get relationships for an entity */
@@ -357,7 +362,7 @@ const KG_CYPHER = {
   /** Delete all entities from a sample */
   DELETE_SAMPLE_ENTITIES: `
     MATCH (n:Entity)
-    WHERE list_contains(n.sampleIds, $sampleId)
+    WHERE $sampleId IN coalesce(n.sampleIds, [])
     DETACH DELETE n
   `,
 
@@ -365,6 +370,18 @@ const KG_CYPHER = {
   DELETE_ALL_KNOWLEDGE: `
     MATCH (n:Entity)
     DETACH DELETE n
+  `,
+
+  // --- Vector Search (FalkorDB native HNSW) ---
+
+  /** Vector similarity search on Entity using FalkorDB native HNSW index */
+  SEARCH_ENTITIES_BY_VECTOR: `
+    CALL db.idx.vector.queryNodes('Entity', 'embedding', $k, vecf32($queryVec))
+    YIELD node, score
+    RETURN node.id AS id, node.text AS text, node.type AS type,
+           node.confidence AS confidence, node.relevanceScore AS relevanceScore,
+           node.createdAt AS createdAt, node.lastAccessedAt AS lastAccessedAt,
+           score
   `,
 };
 
@@ -382,7 +399,7 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
     const now = Date.now();
     const id = entity.id ?? crypto.randomUUID();
 
-    // Check-then-insert pattern (Kuzu doesn't support ON CREATE SET / ON MATCH SET)
+    // Check-then-insert pattern for entity upsert
     const existing = await this.client.roQuery<{ id: string }>(
       KG_CYPHER.FIND_ENTITY,
       { params: { text: entity.text, type: entity.type } }
@@ -665,6 +682,22 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
       oldestAccess: stats?.oldest ?? null,
       newestAccess: stats?.newest ?? null,
     };
+  }
+
+  // --- Vector Search ---
+
+  @trace()
+  async searchEntitiesByVector(embedding: number[], limit: number = 10): Promise<EntitySearchResult[]> {
+    try {
+      const result = await this.client.roQuery<EntitySearchResult & { score: number }>(
+        KG_CYPHER.SEARCH_ENTITIES_BY_VECTOR,
+        { params: { queryVec: embedding, k: limit } }
+      );
+      return result.data;
+    } catch {
+      // If vector index doesn't exist or has no data, return empty
+      return [];
+    }
   }
 
   // --- Cleanup ---

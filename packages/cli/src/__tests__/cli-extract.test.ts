@@ -82,7 +82,8 @@ describe('CLI structure', () => {
     expect(commandNames).toContain('status');
     expect(commandNames).toContain('map');
     expect(commandNames).toContain('serve');
-    expect(commandNames.length).toBe(7);
+    expect(commandNames).toContain('embed');
+    expect(commandNames.length).toBe(8);
   });
 
   it('extract command has expected options', async () => {
