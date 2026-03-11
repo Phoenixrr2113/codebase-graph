@@ -15,6 +15,7 @@
   "dependencies": {
     "@codegraph/core": "workspace:*",
     "@codegraph/logger": "workspace:*",
+    "@codegraph/plugin-nlp": "workspace:*",
     "@codegraph/types": "workspace:*",
     "@hono/node-server": "^1.19.8",
     "@hono/node-ws": "^1.3.0",

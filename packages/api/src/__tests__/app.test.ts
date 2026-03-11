@@ -162,16 +162,18 @@ describe('CodeGraph API', () => {
       expect(res.ok).toBe(false);
     });
 
-    it('POST /api/query/natural should accept question', async () => {
+    it('POST /api/query/natural should return 503 when LLM not configured', async () => {
       const res = await app.request('/api/query/natural', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: 'What functions call processPayment?' }),
       });
-      
-      expect(res.status).toBe(200);
+
+      // Without OPENROUTER_API_KEY, returns 503 with configuration guidance
+      expect(res.status).toBe(503);
       const body = await res.json();
       expect(body).toHaveProperty('explanation');
+      expect(body.error).toBe('LLM_NOT_CONFIGURED');
     });
   });
 

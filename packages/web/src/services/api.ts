@@ -140,12 +140,31 @@ export async function executeCypher(
   });
 }
 
-export async function queryNatural(question: string): Promise<{
-  cypher: string;
-  results: unknown[];
-  explanation: string;
-}> {
-  return fetchAPI('/api/query/natural', {
+export interface NaturalQueryResponse {
+  question: string;
+  cypher: string | null;
+  results: Array<{
+    name: string;
+    nodeType: string;
+    filePath?: string;
+    startLine?: number;
+    score: number;
+    properties?: Record<string, unknown>;
+  }>;
+  explanation: string | null;
+  /** Synthesized answer from GRAPH_ANSWER / CONTEXT_WALK strategies */
+  answer: string | null;
+  answerConfidence: number | null;
+  answerSources: Array<{ nodeType: string; name: string; relevance: string }> | null;
+  /** Which search strategy handled this query */
+  routedTo: string | null;
+  routingReason: string | null;
+  total: number;
+  durationMs: number;
+}
+
+export async function queryNatural(question: string): Promise<NaturalQueryResponse> {
+  return fetchAPI<NaturalQueryResponse>('/api/query/natural', {
     method: 'POST',
     body: JSON.stringify({ question }),
   });
@@ -302,40 +321,86 @@ export async function getEmbeddingStats(): Promise<EmbeddingStats> {
 // Analytics Endpoints
 // ============================================================================
 
+// Analytics API responses are wrapped in { success: boolean; data: T }
+interface ApiEnvelope<T> {
+  success: boolean;
+  data: T;
+}
+
 export interface AnalyticsSummary {
-  security: { total: number; bySeverity: Record<string, number> };
-  complexity: { hotspots: number; averageComplexity: number };
+  projectPath: string;
+  security: { total: number; critical: number; high: number; medium: number; low: number };
+  complexity: { hotspots: number; avgComplexity: number; maxComplexity: number };
+  refactoring?: { filesAnalyzed: number; extractionCandidates: number };
+  dataflow?: { vulnerabilities: number; sources: number; sinks: number };
+  lastFullScan?: string;
+  cachedAt?: string;
+}
+
+export interface SecurityFinding {
+  name: string;
+  filePath?: string;
+  severity: string;
+  description?: string;
+}
+
+export interface SecurityAnalysisResult {
+  findings: SecurityFinding[];
+  summary: Record<string, number>;
+  filesScanned: number;
+  cachedAt?: string;
+}
+
+export interface ComplexityEntry {
+  name: string;
+  filePath?: string;
+  complexity: number;
+  cognitive?: number;
+  nesting?: number;
+  lines?: number;
+}
+
+export interface ComplexityResult {
+  hotspots: ComplexityEntry[];
+  avgComplexity: number;
+  maxComplexity: number;
+  cachedAt?: string;
 }
 
 export async function getAnalyticsSummary(projectPath: string): Promise<AnalyticsSummary> {
-  return fetchAPI<AnalyticsSummary>('/api/analytics/summary', {
+  const res = await fetchAPI<ApiEnvelope<AnalyticsSummary>>('/api/analytics/summary', {
     params: { path: projectPath },
   });
+  return res.data;
 }
 
-export async function getSecurityAnalysis(projectPath: string, severity?: string): Promise<unknown> {
-  return fetchAPI('/api/analytics/security', {
+export async function getSecurityAnalysis(projectPath: string, severity?: string): Promise<SecurityAnalysisResult> {
+  const res = await fetchAPI<ApiEnvelope<SecurityAnalysisResult>>('/api/analytics/security', {
     params: { path: projectPath, severity },
   });
+  return res.data;
 }
 
-export async function getComplexityHotspots(projectPath: string, minComplexity?: number): Promise<unknown> {
-  return fetchAPI('/api/analytics/complexity', {
+export async function getComplexityHotspots(projectPath: string, minComplexity?: number): Promise<ComplexityResult> {
+  const res = await fetchAPI<ApiEnvelope<ComplexityResult>>('/api/analytics/complexity', {
     params: { path: projectPath, minComplexity },
   });
+  return res.data;
 }
 
 export async function getImpactAnalysis(symbol: string, depth?: number): Promise<unknown> {
-  return fetchAPI(`/api/analytics/impact/${encodeURIComponent(symbol)}`, {
+  const res = await fetchAPI<ApiEnvelope<unknown>>(`/api/analytics/impact/${encodeURIComponent(symbol)}`, {
     params: { depth },
   });
+  return res.data;
 }
 
 export async function runAnalysis(projectPath: string): Promise<unknown> {
-  return fetchAPI('/api/analytics/run', {
+  const res = await fetchAPI<ApiEnvelope<unknown>>('/api/analytics/run', {
     method: 'POST',
     body: JSON.stringify({ path: projectPath }),
   });
+  return res.data;
 }
 
 // ============================================================================

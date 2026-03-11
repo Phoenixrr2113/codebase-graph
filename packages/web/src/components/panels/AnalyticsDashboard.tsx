@@ -3,6 +3,7 @@
 /**
  * AnalyticsDashboard Component
  * Tabbed dashboard showing security findings, complexity hotspots, and summary analytics.
+ * Uses types from the API service that match the actual server response shapes.
  */
 
 import { useState, useMemo } from 'react';
@@ -12,6 +13,13 @@ import {
   getSecurityAnalysis,
   getComplexityHotspots,
   runAnalysis,
+} from '@/services/api';
+import type {
+  AnalyticsSummary,
+  SecurityFinding,
+  SecurityAnalysisResult,
+  ComplexityEntry,
+  ComplexityResult,
 } from '@/services/api';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
@@ -28,20 +36,6 @@ export interface AnalyticsDashboardProps {
 }
 
 type Tab = 'overview' | 'security' | 'complexity';
-
-interface SecurityFinding {
-  name: string;
-  filePath?: string;
-  severity: string;
-  description?: string;
-}
-
-interface ComplexityEntry {
-  name: string;
-  filePath?: string;
-  complexity: number;
-  lineCount?: number;
-}
 
 // ---------------------------------------------------------------------------
 // Severity helpers
@@ -129,7 +123,6 @@ export function AnalyticsDashboard({ projectPath, className }: AnalyticsDashboar
   const analysisMutation = useMutation({
     mutationFn: () => runAnalysis(projectPath!),
     onSuccess: () => {
-      // Refetch all analytics queries after a successful run
       summaryQuery.refetch();
       securityQuery.refetch();
       complexityQuery.refetch();
@@ -137,27 +130,18 @@ export function AnalyticsDashboard({ projectPath, className }: AnalyticsDashboar
   });
 
   // ---- Derived data ----
-  const summary = summaryQuery.data;
+  const summary: AnalyticsSummary | undefined = summaryQuery.data;
 
   const securityFindings = useMemo<SecurityFinding[]>(() => {
-    const raw = securityQuery.data;
+    const raw: SecurityAnalysisResult | undefined = securityQuery.data;
     if (!raw) return [];
-    // The API may return { findings: [...] } or an array directly
-    if (Array.isArray(raw)) return raw as SecurityFinding[];
-    if (typeof raw === 'object' && 'findings' in (raw as Record<string, unknown>)) {
-      return (raw as { findings: SecurityFinding[] }).findings ?? [];
-    }
-    return [];
+    return raw.findings ?? [];
   }, [securityQuery.data]);
 
   const complexityEntries = useMemo<ComplexityEntry[]>(() => {
-    const raw = complexityQuery.data;
+    const raw: ComplexityResult | undefined = complexityQuery.data;
     if (!raw) return [];
-    if (Array.isArray(raw)) return raw as ComplexityEntry[];
-    if (typeof raw === 'object' && 'hotspots' in (raw as Record<string, unknown>)) {
-      return (raw as { hotspots: ComplexityEntry[] }).hotspots ?? [];
-    }
-    return [];
+    return raw.hotspots ?? [];
   }, [complexityQuery.data]);
 
   // Sort complexity descending
@@ -174,9 +158,9 @@ export function AnalyticsDashboard({ projectPath, className }: AnalyticsDashboar
   ];
 
   return (
-    <div className={cn('h-full flex flex-col', className)}>
+    <div className={cn('h-full min-h-0 flex flex-col', className)}>
       {/* Header */}
-      <div className="p-3 border-b border-slate-800">
+      <div className="shrink-0 p-3 border-b border-slate-800">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-medium text-slate-300">Analytics</h2>
           <Button
@@ -227,11 +211,11 @@ export function AnalyticsDashboard({ projectPath, className }: AnalyticsDashboar
       </div>
 
       {/* Tab content */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="p-3">
           {activeTab === 'overview' && (
             <OverviewTab
-              summary={summary ?? null}
+              summary={summary}
               isLoading={summaryQuery.isLoading}
               securityCount={securityFindings.length}
               complexityCount={sortedComplexity.length}
@@ -260,10 +244,7 @@ export function AnalyticsDashboard({ projectPath, className }: AnalyticsDashboar
 // ---------------------------------------------------------------------------
 
 interface OverviewTabProps {
-  summary: {
-    security: { total: number; bySeverity: Record<string, number> };
-    complexity: { hotspots: number; averageComplexity: number };
-  } | null;
+  summary: AnalyticsSummary | undefined;
   isLoading: boolean;
   securityCount: number;
   complexityCount: number;
@@ -285,7 +266,15 @@ function OverviewTab({ summary, isLoading, securityCount, complexityCount }: Ove
     return <EmptyState />;
   }
 
-  const severities = summary?.security?.bySeverity ?? {};
+  // Build severity breakdown from the flat fields on the summary
+  const severities: Record<string, number> = {};
+  if (summary?.security) {
+    const sec = summary.security;
+    if (sec.critical > 0) severities['critical'] = sec.critical;
+    if (sec.high > 0) severities['high'] = sec.high;
+    if (sec.medium > 0) severities['medium'] = sec.medium;
+    if (sec.low > 0) severities['low'] = sec.low;
+  }
 
   return (
     <div className="space-y-4">
@@ -304,11 +293,19 @@ function OverviewTab({ summary, isLoading, securityCount, complexityCount }: Ove
           icon={<AlertTriangle className="w-4 h-4 text-amber-400" />}
         />
         {/* Average complexity */}
-        {summary?.complexity?.averageComplexity != null && (
+        {summary?.complexity?.avgComplexity != null && (
           <SummaryCard
             label="Avg Complexity"
-            value={summary.complexity!.averageComplexity.toFixed(1)}
+            value={summary.complexity.avgComplexity.toFixed(1)}
             icon={<Activity className="w-4 h-4 text-cyan-400" />}
+          />
+        )}
+        {/* Max complexity */}
+        {summary?.complexity?.maxComplexity != null && (
+          <SummaryCard
+            label="Max Complexity"
+            value={summary.complexity.maxComplexity}
+            icon={<AlertTriangle className="w-4 h-4 text-red-400" />}
           />
         )}
       </div>
@@ -377,7 +374,12 @@ function SecurityTab({ findings, isLoading }: SecurityTabProps) {
   }
 
   if (findings.length === 0) {
-    return <EmptyState />;
+    return (
+      <div className="text-center py-8 space-y-2">
+        <Shield className="w-8 h-8 mx-auto text-emerald-600" />
+        <p className="text-xs text-slate-500">No security findings detected</p>
+      </div>
+    );
   }
 
   return (
@@ -466,7 +468,7 @@ function ComplexityTab({ entries, isLoading }: ComplexityTabProps) {
             </span>
           </div>
           <div className="w-14 text-right text-sm text-slate-500">
-            {entry.lineCount ?? '-'}
+            {entry.lines ?? '-'}
           </div>
         </div>
       ))}

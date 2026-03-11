@@ -30,22 +30,31 @@ const SCHEMA_DESCRIPTION = `
 
 ### Code Nodes (labels):
 - File: { name, filePath, language, linesOfCode, embedding }
-- Function: { name, filePath, startLine, endLine, signature, docstring, linesOfCode, embedding }
-- Class: { name, filePath, startLine, endLine, docstring, linesOfCode, embedding }
-- Interface: { name, filePath, startLine, endLine, docstring, embedding }
-- Type: { name, filePath, startLine, endLine, embedding }
-- Variable: { name, filePath, startLine, endLine, embedding }
-- Component: { name, filePath, startLine, endLine, docstring, embedding }
+  - "name" is the filename only (e.g. "auth.ts"), "filePath" is the full path (e.g. "/Users/.../src/auth.ts")
+- Function: { name, filePath, startLine, endLine, signature, docstring, complexity, linesOfCode, isExported, isAsync, embedding }
+- Class: { name, filePath, startLine, endLine, docstring, linesOfCode, isExported, isAbstract, embedding }
+- Interface: { name, filePath, startLine, endLine, docstring, isExported, embedding }
+- Type: { name, filePath, startLine, endLine, kind, isExported, embedding }
+- Variable: { name, filePath, startLine, endLine, kind, isExported, embedding }
+- Component: { name, filePath, startLine, endLine, docstring, props, isExported, embedding }
 
 ### Knowledge Nodes:
 - Entity: { text, type, confidence, sampleId, createdAt, lastAccessedAt, accessCount, embedding }
 
 ### Code Edges:
 - CONTAINS: File → Function/Class/Interface/Type/Variable/Component
-- CALLS: Function → Function
-- IMPORTS: File → File
+- CALLS: Function → Function { line, count }
+- IMPORTS: File → File { specifiers }
+- IMPORTS_SYMBOL: File → Function/Class/etc { alias, isDefault }
 - EXTENDS: Class → Class, Interface → Interface
 - IMPLEMENTS: Class → Interface
+- USES_TYPE: Function/Variable → Type/Class/Interface
+- HAS_METHOD: Class → Function { visibility }
+- HAS_PROPERTY: Class → Variable { visibility }
+- RENDERS: Component → Component { line }
+- USES_HOOK: Component → Function { hookName }
+- READS: Function → Variable
+- WRITES: Function → Variable
 
 ### Knowledge Edges:
 - RELATES_TO: Entity → Entity { type, confidence, fact, valid_at, invalid_at, created_at, fact_embedding }
@@ -53,10 +62,25 @@ const SCHEMA_DESCRIPTION = `
 ### Bridge Edges:
 - ABOUT: Entity → Function/Class/Interface/File (links knowledge to code)
 
-### Query Patterns:
-- Vector search: CALL db.idx.vector.queryNodes('Label', 'embedding', k, vecf32($vec)) YIELD node, score
-- Text search: MATCH (n:Label) WHERE n.name CONTAINS $query RETURN n
-- Traversal: MATCH (n:Function)-[:CALLS]->(m:Function) WHERE n.name = $name RETURN m
+### Example Queries:
+
+Find functions by name (fuzzy):
+  MATCH (f:Function) WHERE toLower(f.name) CONTAINS toLower('payment') RETURN f.name, f.filePath, f.startLine LIMIT 20
+
+Find what a file contains:
+  MATCH (f:File)-[:CONTAINS]->(c) WHERE toLower(f.filePath) CONTAINS toLower('command-center') RETURN c.name, labels(c) AS type, c.startLine
+
+Functions that call a specific function:
+  MATCH (caller:Function)-[:CALLS]->(callee:Function) WHERE toLower(callee.name) CONTAINS toLower('validate') RETURN caller.name, caller.filePath, callee.name LIMIT 20
+
+Find most complex functions:
+  MATCH (f:Function) WHERE f.complexity IS NOT NULL RETURN f.name, f.filePath, f.complexity ORDER BY f.complexity DESC LIMIT 20
+
+Find classes implementing an interface:
+  MATCH (c:Class)-[:IMPLEMENTS]->(i:Interface) WHERE toLower(i.name) CONTAINS toLower('search') RETURN c.name, c.filePath, i.name
+
+What does a component render:
+  MATCH (c:Component)-[:RENDERS]->(child:Component) WHERE toLower(c.name) CONTAINS toLower('app') RETURN c.name, child.name, child.filePath
 `.trim();
 
 export class NLToCypherStrategy implements SearchStrategy {
@@ -153,11 +177,14 @@ ${SCHEMA_DESCRIPTION}
 
 ## Important Rules:
 1. Only generate READ queries (MATCH, CALL, RETURN). Never use CREATE, SET, DELETE, MERGE.
-2. Use parameterized queries with $param syntax where appropriate.
-3. Always include a RETURN clause.
-4. Limit results to 50 unless the user asks for more.
-5. For text searches, use CONTAINS (case-sensitive) or toLower() for case-insensitive.
-6. Return useful fields: name, filePath, startLine, type, etc.
+2. ALWAYS use toLower() + CONTAINS for name/path matching — NEVER exact equality on names.
+   GOOD: WHERE toLower(n.name) CONTAINS toLower('auth')
+   BAD:  WHERE n.name = 'auth.ts'
+3. When the user mentions a file, search filePath with CONTAINS, not the name field.
+4. Always include a RETURN clause with useful fields (name, filePath, startLine, etc).
+5. Limit results to 50 unless the user asks for more.
+6. For "how does X work" questions, find the entity and its relationships (what it calls, contains, imports).
+7. Use labels(n) to return node types when useful.
 
 ## User Question:
 "${query}"
