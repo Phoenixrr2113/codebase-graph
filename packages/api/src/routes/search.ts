@@ -7,7 +7,6 @@
 import { Hono } from 'hono';
 import type { SearchResult, NodeLabel } from '@codegraph/types';
 import { codeGraphService } from '@codegraph/core';
-import { getOperations } from '../model';
 
 const search = new Hono();
 
@@ -56,10 +55,7 @@ search.get('/', async (c) => {
   // Resolve projectId to rootPath for filtering
   let rootPath: string | undefined;
   if (projectId) {
-    const ops = await getOperations();
-    const projects = await ops.getProjects();
-    const project = projects.find(p => p.id === projectId);
-    rootPath = project?.rootPath;
+    rootPath = await codeGraphService.resolveProjectRootPath(projectId);
   }
 
   // Map multi-type filter to service single-type (or 'all' with client-side filtering)

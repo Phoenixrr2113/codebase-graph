@@ -41,7 +41,7 @@ import { createDefaultSearchRegistry } from './search';
 import type { SearchResponse, SearchType, SearchContext } from './search';
 import { createQueries, createOperations, buildFileTree, getIndexSummary } from '@codegraph/graph';
 import type { FileTreeOptions } from '@codegraph/graph';
-import type { GraphStats, GraphData, SubgraphData } from '@codegraph/types';
+import type { GraphStats, GraphData, SubgraphData, GraphNode, GraphEdge, NodeLabel, EdgeLabel } from '@codegraph/types';
 import type { ProjectEntity } from '@codegraph/types';
 
 // ============================================================================
@@ -180,6 +180,67 @@ export interface ServiceRefactoringResult {
 }
 
 // ============================================================================
+// API model replacement types
+// ============================================================================
+
+/** Entity with its connections (replaces API entityModel) */
+export interface EntityWithConnections {
+  entity: {
+    id: string;
+    label: GraphNode['label'];
+    displayName: string;
+    filePath: string;
+    data: GraphNode['data'];
+  };
+  connections: {
+    incoming: GraphEdge[];
+    outgoing: GraphEdge[];
+  };
+}
+
+/** Pagination metadata */
+export interface Pagination {
+  page: number;
+  limit: number;
+  totalCount: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
+/** Paginated nodes result */
+export interface PaginatedNodesResult {
+  nodes: GraphNode[];
+  pagination: Pagination;
+}
+
+/** Query options for paginated nodes */
+export interface NodesQueryOptions {
+  page?: number | undefined;
+  limit?: number | undefined;
+  types?: NodeLabel[] | undefined;
+  query?: string | undefined;
+  projectId?: string | undefined;
+  rootPath?: string | undefined;
+}
+
+/** Direction for neighbor traversal */
+export type Direction = 'in' | 'out' | 'both';
+
+/** Neighbors result with nodes, edges, and metadata */
+export interface NeighborsResult {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  centerId: string;
+  direction: Direction;
+}
+
+/** Result of a Cypher query execution */
+export interface CypherResult {
+  results: unknown[];
+  metadata: unknown;
+}
+
+// ============================================================================
 // New consolidated types
 // ============================================================================
 
@@ -255,6 +316,36 @@ function labelOr(dialect: CypherDialect, alias: string, labels: string[]): strin
 /** Standard code entity labels */
 const CODE_LABELS = ['Function', 'Class', 'Interface', 'Variable', 'Component', 'Type'];
 const ALL_LABELS = ['File', ...CODE_LABELS];
+
+// ============================================================================
+// Helpers: Node property extraction and ID generation
+// ============================================================================
+
+const VALID_LABELS: NodeLabel[] = [
+  'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Import',
+];
+
+function extractNodeProps(node: Record<string, unknown>): Record<string, unknown> {
+  if (node['properties'] && typeof node['properties'] === 'object') {
+    return node['properties'] as Record<string, unknown>;
+  }
+  return node;
+}
+
+function getLabelFromLabels(labels: string[]): NodeLabel {
+  const found = labels.find(l => VALID_LABELS.includes(l as NodeLabel));
+  return (found as NodeLabel) ?? 'File';
+}
+
+function generateNodeId(label: NodeLabel, props: Record<string, unknown>): string {
+  if (label === 'File') {
+    return `File:${props['path'] ?? ''}`;
+  }
+  const name = props['name'] ?? '';
+  const filePath = props['filePath'] ?? '';
+  const line = props['startLine'] ?? props['line'] ?? 0;
+  return `${label}:${filePath}:${name}:${line}`;
+}
 
 // ============================================================================
 // CodeGraphService
@@ -1451,6 +1542,348 @@ class CodeGraphServiceImpl {
     const client = await getGraphClient();
     const ops = createOperations(client);
     return ops.getProjects();
+  }
+
+  /**
+   * Delete a project and all its associated data.
+   */
+  async deleteProject(projectId: string): Promise<void> {
+    const client = await getGraphClient();
+    const ops = createOperations(client);
+    await ops.deleteProject(projectId);
+  }
+
+  /**
+   * Clear all nodes and edges from the graph.
+   */
+  async clearGraph(): Promise<void> {
+    const client = await getGraphClient();
+    const ops = createOperations(client);
+    await ops.clearAll();
+  }
+
+  /**
+   * Delete a file and all its contained entities from the graph.
+   */
+  async deleteFileEntities(filePath: string): Promise<void> {
+    const client = await getGraphClient();
+    const ops = createOperations(client);
+    await ops.deleteFileEntities(filePath);
+  }
+
+  /**
+   * Resolve a project ID to its root path.
+   */
+  async resolveProjectRootPath(projectId: string): Promise<string | undefined> {
+    const projects = await this.getProjects();
+    const project = projects.find(p => p.id === projectId);
+    return project?.rootPath;
+  }
+
+  // ---------------------------------------------------------------
+  // Raw Query Execution
+  // ---------------------------------------------------------------
+
+  /**
+   * Execute a read-only Cypher query.
+   */
+  async executeReadQuery(
+    cypherQuery: string,
+    params: Record<string, unknown> = {},
+  ): Promise<CypherResult> {
+    const client = await getGraphClient();
+    const result = await client.roQuery(cypherQuery, {
+      params: params as Record<string, string | number | boolean | null | unknown[]>,
+    });
+    return {
+      results: result.data ?? [],
+      metadata: result.metadata ?? null,
+    };
+  }
+
+  // ---------------------------------------------------------------
+  // Entity & Traversal (replaces API model layer)
+  // ---------------------------------------------------------------
+
+  /**
+   * Get an entity by ID with its incoming and outgoing connections.
+   */
+  async getEntityWithConnections(
+    id: string,
+    depth: number = 1,
+  ): Promise<EntityWithConnections | null> {
+    const client = await getGraphClient();
+    const dialect = client.dialect;
+
+    const result = await client.roQuery<{
+      n: Record<string, unknown>;
+      labels: string[];
+      inEdge: Record<string, unknown> | null;
+      inType: string | null;
+      inNode: Record<string, unknown> | null;
+      inLabels: string[] | null;
+      outEdge: Record<string, unknown> | null;
+      outType: string | null;
+      outNode: Record<string, unknown> | null;
+      outLabels: string[] | null;
+    }>(`
+      MATCH (n)
+      WHERE elementId(n) = $id OR n.path = $id OR (n.name + ':' + n.filePath) = $id
+      OPTIONAL MATCH (inNode)-[inEdge]->(n)
+      OPTIONAL MATCH (n)-[outEdge]->(outNode)
+      RETURN n, ${dialect.labelsExpr('n')} as labels,
+             inEdge, ${dialect.typeExpr('inEdge')} as inType, inNode, ${dialect.labelsExpr('inNode')} as inLabels,
+             outEdge, ${dialect.typeExpr('outEdge')} as outType, outNode, ${dialect.labelsExpr('outNode')} as outLabels
+      LIMIT $depth
+    `, { params: { id, depth: depth * 10 } });
+
+    if (!result.data || result.data.length === 0) {
+      return null;
+    }
+
+    const firstRow = result.data[0]!;
+    const entity = {
+      id,
+      label: (firstRow.labels[0] ?? 'Unknown') as GraphNode['label'],
+      displayName: (firstRow.n['name'] as string) ?? (firstRow.n['path'] as string) ?? 'unknown',
+      filePath: (firstRow.n['filePath'] as string) ?? (firstRow.n['path'] as string),
+      data: firstRow.n as unknown as GraphNode['data'],
+    };
+
+    const incomingEdges: GraphEdge[] = [];
+    const outgoingEdges: GraphEdge[] = [];
+    const seenEdges = new Set<string>();
+
+    for (const row of result.data) {
+      if (row.inEdge && row.inType && row.inNode) {
+        const edgeId = `${row.inType}:in:${JSON.stringify(row.inNode)}`;
+        if (!seenEdges.has(edgeId)) {
+          seenEdges.add(edgeId);
+          incomingEdges.push({
+            id: edgeId,
+            source: (row.inNode['name'] as string) ?? (row.inNode['path'] as string) ?? 'unknown',
+            target: id,
+            label: row.inType as GraphEdge['label'],
+            data: row.inEdge as unknown as GraphEdge['data'],
+          });
+        }
+      }
+
+      if (row.outEdge && row.outType && row.outNode) {
+        const edgeId = `${row.outType}:out:${JSON.stringify(row.outNode)}`;
+        if (!seenEdges.has(edgeId)) {
+          seenEdges.add(edgeId);
+          outgoingEdges.push({
+            id: edgeId,
+            source: id,
+            target: (row.outNode['name'] as string) ?? (row.outNode['path'] as string) ?? 'unknown',
+            label: row.outType as GraphEdge['label'],
+            data: row.outEdge as unknown as GraphEdge['data'],
+          });
+        }
+      }
+    }
+
+    return {
+      entity,
+      connections: {
+        incoming: incomingEdges,
+        outgoing: outgoingEdges,
+      },
+    };
+  }
+
+  /**
+   * Get paginated nodes with optional filtering by type, search query, and project path.
+   */
+  async getNodesPaginated(options: NodesQueryOptions = {}): Promise<PaginatedNodesResult> {
+    const {
+      page = 1,
+      limit = 50,
+      types,
+      query,
+      rootPath,
+    } = options;
+
+    const MAX_LIMIT = 100;
+    const effectiveLimit = Math.min(limit, MAX_LIMIT);
+    const skip = (page - 1) * effectiveLimit;
+    const client = await getGraphClient();
+    const dialect = client.dialect;
+
+    const typeLabels = types && types.length > 0
+      ? types
+      : ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component'];
+
+    const typeCondition = typeLabels.map(t => dialect.labelCheckExpr('n', t)).join(' OR ');
+
+    const pathFilter = rootPath
+      ? `AND (CASE WHEN ${dialect.labelCaseExpr('n', 'File')} THEN n.path ELSE n.filePath END) STARTS WITH $rootPath`
+      : '';
+
+    const searchFilter = query
+      ? `AND (toLower(n.name) CONTAINS toLower($query) OR toLower(n.path) CONTAINS toLower($query))`
+      : '';
+
+    const countResult = await client.roQuery<{ total: number }>(`
+      MATCH (n)
+      WHERE (${typeCondition}) ${pathFilter} ${searchFilter}
+      RETURN count(n) as total
+    `, {
+      params: { ...(rootPath && { rootPath }), ...(query && { query }) },
+    });
+
+    const totalCount = countResult.data?.[0]?.total ?? 0;
+    const totalPages = Math.ceil(totalCount / effectiveLimit);
+
+    const dataResult = await client.roQuery<{
+      n: Record<string, unknown>;
+      labels: string[];
+    }>(`
+      MATCH (n)
+      WHERE (${typeCondition}) ${pathFilter} ${searchFilter}
+      RETURN n, ${dialect.labelsExpr('n')} as labels
+      ORDER BY CASE WHEN ${dialect.labelCaseExpr('n', 'File')} THEN n.path ELSE n.name END
+      SKIP $skip
+      LIMIT $limit
+    `, {
+      params: {
+        skip,
+        limit: effectiveLimit,
+        ...(rootPath && { rootPath }),
+        ...(query && { query }),
+      },
+    });
+
+    const nodes: GraphNode[] = [];
+
+    for (const row of dataResult.data ?? []) {
+      const props = extractNodeProps(row.n);
+      const label = getLabelFromLabels(row.labels);
+      const nodeId = generateNodeId(label, props);
+
+      nodes.push({
+        id: nodeId,
+        label,
+        displayName: (props['name'] as string) ?? (props['path'] as string) ?? 'unknown',
+        filePath: (props['filePath'] as string) ?? (props['path'] as string),
+        data: props,
+      } as unknown as GraphNode);
+    }
+
+    return {
+      nodes,
+      pagination: {
+        page,
+        limit: effectiveLimit,
+        totalCount,
+        totalPages,
+        hasMore: page < totalPages,
+      },
+    };
+  }
+
+  /**
+   * Get neighboring nodes with direction and edge type filtering.
+   */
+  async getNeighbors(
+    id: string,
+    direction: Direction = 'both',
+    edgeTypes?: EdgeLabel[],
+    depth: number = 1,
+  ): Promise<NeighborsResult> {
+    const client = await getGraphClient();
+    const dialect = client.dialect;
+
+    const isFileId = id.startsWith('File:');
+    const actualPath = isFileId ? id.substring(5) : null;
+    const parts = id.split(':');
+
+    let cypherMatch: string;
+    if (direction === 'in') {
+      cypherMatch = '(neighbor)-[r]->(center)';
+    } else if (direction === 'out') {
+      cypherMatch = '(center)-[r]->(neighbor)';
+    } else {
+      cypherMatch = '(center)-[r]-(neighbor)';
+    }
+
+    const edgeTypeFilter = edgeTypes && edgeTypes.length > 0
+      ? `AND ${dialect.typeExpr('r')} IN [${edgeTypes.map(t => `'${t}'`).join(', ')}]`
+      : '';
+
+    let centerMatch: string;
+    const queryParams: {
+      limit: number;
+      actualPath?: string;
+      filePath?: string;
+      name?: string;
+      line?: number;
+      simpleId?: string;
+    } = { limit: depth * 50 };
+
+    if (isFileId && actualPath) {
+      centerMatch = 'center.path = $actualPath';
+      queryParams.actualPath = actualPath;
+    } else if (parts.length >= 4) {
+      centerMatch = '(center.filePath = $filePath AND center.name = $name AND (center.startLine = $line OR center.line = $line))';
+      queryParams.filePath = parts[1] ?? '';
+      queryParams.name = parts[2] ?? '';
+      queryParams.line = parseInt(parts[3] ?? '0', 10) || 0;
+    } else {
+      centerMatch = '(center.name = $simpleId OR center.path = $simpleId)';
+      queryParams.simpleId = id;
+    }
+
+    const result = await client.roQuery<{
+      neighbor: Record<string, unknown>;
+      neighborLabels: string[];
+      r: Record<string, unknown>;
+      rType: string;
+    }>(`
+      MATCH (center)
+      WHERE ${centerMatch}
+      MATCH ${cypherMatch}
+      WHERE neighbor.path IS NOT NULL OR neighbor.name IS NOT NULL ${edgeTypeFilter}
+      RETURN DISTINCT neighbor, ${dialect.labelsExpr('neighbor')} as neighborLabels, r, ${dialect.typeExpr('r')} as rType
+      LIMIT $limit
+    `, { params: queryParams });
+
+    const nodes: GraphNode[] = [];
+    const edges: GraphEdge[] = [];
+    const seenNodes = new Set<string>();
+    const seenEdges = new Set<string>();
+
+    for (const row of result.data ?? []) {
+      const neighborProps = extractNodeProps(row.neighbor as Record<string, unknown>);
+      const nodeLabel = (row.neighborLabels[0] ?? 'File') as NodeLabel;
+      const nodeId = generateNodeId(nodeLabel, neighborProps);
+
+      if (nodeId && !seenNodes.has(nodeId)) {
+        seenNodes.add(nodeId);
+        nodes.push({
+          id: nodeId,
+          label: nodeLabel,
+          displayName: (neighborProps['name'] as string) ?? (neighborProps['path'] as string) ?? 'unknown',
+          filePath: (neighborProps['filePath'] as string) ?? (neighborProps['path'] as string),
+          data: neighborProps as unknown as GraphNode['data'],
+        } as GraphNode);
+      }
+
+      const edgeId = `${row.rType}:${id}:${nodeId}`;
+      if (!seenEdges.has(edgeId)) {
+        seenEdges.add(edgeId);
+        edges.push({
+          id: edgeId,
+          source: direction === 'in' ? nodeId : id,
+          target: direction === 'in' ? id : nodeId,
+          label: row.rType as EdgeLabel,
+          data: row.r as unknown as GraphEdge['data'],
+        } as GraphEdge);
+      }
+    }
+
+    return { nodes, edges, centerId: id, direction };
   }
 }
 

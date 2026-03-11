@@ -13,8 +13,7 @@ import {
   getResolutionSummary,
   type SymbolInfo,
 } from '@codegraph/core';
-import type { ParsedFileEntities } from '@codegraph/graph';
-import type { FunctionEntity, ClassEntity } from '@codegraph/types';
+import type { ParsedFileEntities, FunctionEntity, ClassEntity } from '@codegraph/types';
 
 describe('Two-Pass Resolver', () => {
   describe('SymbolRegistry', () => {

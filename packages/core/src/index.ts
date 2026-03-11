@@ -340,6 +340,14 @@ export type {
   ServiceVulnerability,
   ServiceScanResult,
   ServiceDataflowResult,
+  // API model replacement types
+  EntityWithConnections,
+  Pagination,
+  PaginatedNodesResult,
+  NodesQueryOptions,
+  Direction,
+  NeighborsResult,
+  CypherResult,
 } from './service';
 
 // Knowledge graph service layer

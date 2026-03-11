@@ -6,14 +6,14 @@
 import { Hono } from 'hono';
 import type { EdgeLabel } from '@codegraph/types';
 import { HttpError } from '../middleware/errorHandler';
-import * as neighborsModel from '../model/neighborsModel';
+import { codeGraphService, type Direction } from '@codegraph/core';
 
 const neighbors = new Hono();
 
 /**
  * GET /api/neighbors/:id
  * Get neighboring nodes with optional filters
- * 
+ *
  * @param id - Entity identifier
  * @query direction - "in", "out", or "both" (default: both)
  * @query edgeTypes - Comma-separated edge types
@@ -37,11 +37,11 @@ neighbors.get('/:id', async (c) => {
   const edgeTypes = edgeTypesParam ? edgeTypesParam.split(',') as EdgeLabel[] : undefined;
   const depth = depthParam ? parseInt(depthParam, 10) : 1;
 
-  const result = await neighborsModel.getNeighbors(
+  const result = await codeGraphService.getNeighbors(
     id,
-    direction as neighborsModel.Direction,
+    direction as Direction,
     edgeTypes,
-    depth
+    depth,
   );
 
   return c.json(result);

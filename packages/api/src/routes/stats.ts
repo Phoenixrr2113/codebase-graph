@@ -6,7 +6,7 @@
 
 import { Hono } from 'hono';
 import { createLogger } from '@codegraph/logger';
-import { getQueries } from '../model';
+import { codeGraphService } from '@codegraph/core';
 
 const logger = createLogger({ namespace: 'API:Stats' });
 
@@ -20,8 +20,7 @@ const stats = new Hono();
  */
 stats.get('/', async (c) => {
   try {
-    const queries = await getQueries();
-    const graphStats = await queries.getStats();
+    const graphStats = await codeGraphService.getGraphStats();
 
     return c.json(graphStats);
   } catch (error) {

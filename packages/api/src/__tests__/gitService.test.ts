@@ -5,7 +5,6 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getRepoInfo, syncGitHistory, type GitSyncOptions } from '@codegraph/core';
-import type { GraphClient } from '@codegraph/graph';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
@@ -33,11 +32,11 @@ describe('gitService (via @codegraph/core)', () => {
   });
 
   describe('syncGitHistory', () => {
-    function createMockClient(): GraphClient {
+    function createMockClient() {
       return {
         roQuery: vi.fn().mockResolvedValue({ data: [] }),
         query: vi.fn().mockResolvedValue({}),
-      } as unknown as GraphClient;
+      } as Parameters<typeof syncGitHistory>[1];
     }
 
     it('should return error for non-git directory', async () => {

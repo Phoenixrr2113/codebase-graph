@@ -6,21 +6,20 @@
 
 import { Hono } from 'hono';
 import type { NodeLabel } from '@codegraph/types';
-import * as nodesModel from '../model/nodesModel';
-import { getOperations } from '../model';
+import { codeGraphService } from '@codegraph/core';
 
 const nodes = new Hono();
 
 /**
  * GET /api/nodes
  * Get paginated list of nodes with optional filtering
- * 
+ *
  * @query page - Page number (default: 1)
  * @query limit - Items per page (default: 50, max: 100)
  * @query types - Comma-separated node types (e.g., "Function,Class")
  * @query q - Search query (matches name or path)
  * @query projectId - Project ID to filter by
- * 
+ *
  * @example
  * GET /api/nodes?page=1&limit=50&types=Function,Class&q=Button&projectId=abc-123
  */
@@ -40,13 +39,10 @@ nodes.get('/', async (c) => {
   // Resolve projectId to rootPath
   let rootPath: string | undefined;
   if (projectId) {
-    const ops = await getOperations();
-    const projects = await ops.getProjects();
-    const project = projects.find(p => p.id === projectId);
-    rootPath = project?.rootPath;
+    rootPath = await codeGraphService.resolveProjectRootPath(projectId);
   }
 
-  const result = await nodesModel.getNodes({
+  const result = await codeGraphService.getNodesPaginated({
     page,
     limit,
     types,

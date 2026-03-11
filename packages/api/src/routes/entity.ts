@@ -5,14 +5,14 @@
 
 import { Hono } from 'hono';
 import { HttpError } from '../middleware/errorHandler';
-import * as entityModel from '../model/entityModel';
+import { codeGraphService } from '@codegraph/core';
 
 const entity = new Hono();
 
 /**
  * GET /api/entity/:id
  * Retrieve a single entity with its connections
- * 
+ *
  * @param id - Entity identifier
  * @query depth - Connection traversal depth (default: 1)
  * @returns Entity data with incoming/outgoing edge arrays
@@ -27,7 +27,7 @@ entity.get('/:id', async (c) => {
     throw new HttpError(400, 'VALIDATION_ERROR', 'Entity ID is required');
   }
 
-  const result = await entityModel.getWithConnections(id, depth);
+  const result = await codeGraphService.getEntityWithConnections(id, depth);
 
   if (!result) {
     throw new HttpError(404, 'NOT_FOUND', `Entity not found: ${id}`);

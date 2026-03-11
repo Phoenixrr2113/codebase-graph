@@ -9,8 +9,7 @@
  */
 
 import type { ParseResult } from '@codegraph/types';
-import { indexProject, indexSingleFile } from '@codegraph/core';
-import { getClient, getOperations } from '../model/graphClient';
+import { indexProject, indexSingleFile, getGraphClient, codeGraphService } from '@codegraph/core';
 import { createLogger, traced } from '@codegraph/logger';
 import { getAnalyticsService } from './analyticsService';
 
@@ -28,7 +27,7 @@ export const parseProject = traced('parseProject', async function parseProject(
   options: ParseOptions = {}
 ): Promise<ParseResult> {
   try {
-    const client = await getClient();
+    const client = await getGraphClient();
     const result = await indexProject(projectPath, {
       deepAnalysis: options.deepAnalysis ?? false,
       includeExternals: options.includeExternals ?? false,
@@ -80,7 +79,7 @@ export const parseSingleFile = traced('parseSingleFile', async function parseSin
   edges?: number;
 }> {
   try {
-    const client = await getClient();
+    const client = await getGraphClient();
     return await indexSingleFile(filePath, undefined, client);
   } catch (error) {
     return {
@@ -98,8 +97,7 @@ export const removeFileFromGraph = traced('removeFileFromGraph', async function 
   error?: string;
 }> {
   try {
-    const ops = await getOperations();
-    await ops.deleteFileEntities(filePath);
+    await codeGraphService.deleteFileEntities(filePath);
 
     logger.debug(`Removed file from graph: ${filePath}`);
 

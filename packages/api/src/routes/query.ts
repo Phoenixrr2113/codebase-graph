@@ -7,7 +7,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { HttpError } from '../middleware/errorHandler';
-import * as queryModel from '../model/queryModel';
+import { codeGraphService } from '@codegraph/core';
 
 const query = new Hono();
 
@@ -40,7 +40,7 @@ query.post(
   }),
   async (c) => {
     const { query: cypherQuery, params } = c.req.valid('json');
-    const result = await queryModel.executeCypher(cypherQuery, params);
+    const result = await codeGraphService.executeReadQuery(cypherQuery, params);
     return c.json(result);
   }
 );

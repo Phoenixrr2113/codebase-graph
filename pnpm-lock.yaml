@@ -216,9 +216,6 @@ importers:
       '@codegraph/core':
         specifier: workspace:*
         version: link:../core
-      '@codegraph/graph':
-        specifier: workspace:*
-        version: link:../graph
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger

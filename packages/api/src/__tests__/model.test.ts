@@ -1,10 +1,14 @@
 /**
- * Model layer unit tests
+ * Service layer unit tests (formerly model layer tests)
+ *
+ * Tests that the core service exposes the methods that replaced the API model layer.
+ * These are lightweight smoke tests; the actual query logic is tested in core's own tests.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { codeGraphService } from '@codegraph/core';
 
-// Mock dialect matching FalkorDB behavior
+// Mock dialect
 const mockDialect = {
   driverType: 'falkordb' as const,
   labelsExpr: (alias: string) => `labels(${alias})`,
@@ -17,106 +21,68 @@ const mockDialect = {
   normalizeEdge: (raw: unknown) => ({ type: '', properties: raw as Record<string, unknown> }),
 };
 
-// Mock the graph client
 const mockClient = {
   roQuery: vi.fn().mockResolvedValue({ data: [], metadata: null }),
+  query: vi.fn().mockResolvedValue({ data: [], metadata: null }),
   close: vi.fn().mockResolvedValue(undefined),
   dialect: mockDialect,
 };
 
-vi.mock('@codegraph/core', () => ({
-  getGraphClient: vi.fn().mockResolvedValue(mockClient),
-  closeGraphClient: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('@codegraph/graph', () => ({
-  createClient: vi.fn().mockResolvedValue(mockClient),
-  createOperations: vi.fn().mockReturnValue({
-    getProjects: vi.fn().mockResolvedValue([]),
-    deleteProject: vi.fn().mockResolvedValue(undefined),
-    clearAll: vi.fn().mockResolvedValue(undefined),
-  }),
-  createQueries: vi.fn().mockReturnValue({
-    getFullGraph: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
-    getFileSubgraph: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
-    getStats: vi.fn().mockResolvedValue({ totalNodes: 0, totalEdges: 0 }),
-  }),
-}));
-
-describe('Model Layer', () => {
+// Spy on the service methods and mock them to avoid real DB calls
+describe('Core Service Methods (replacing model layer)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('graphClient', () => {
-    it('should export getClient function', async () => {
-      const { getClient } = await import('../model/graphClient');
-      expect(getClient).toBeDefined();
-      expect(typeof getClient).toBe('function');
-    });
-
-    it('should export getQueries function', async () => {
-      const { getQueries } = await import('../model/graphClient');
-      expect(getQueries).toBeDefined();
-    });
-
-    it('should export getOperations function', async () => {
-      const { getOperations } = await import('../model/graphClient');
-      expect(getOperations).toBeDefined();
-    });
-
-    it('should export resetClient function', async () => {
-      const { resetClient } = await import('../model/graphClient');
-      expect(resetClient).toBeDefined();
-      expect(typeof resetClient).toBe('function');
-    });
+  it('should expose getEntityWithConnections', () => {
+    expect(typeof codeGraphService.getEntityWithConnections).toBe('function');
   });
 
-  describe('entityModel', () => {
-    it('should export getWithConnections function', async () => {
-      const entityModel = await import('../model/entityModel');
-      expect(entityModel.getWithConnections).toBeDefined();
-    });
-
-    it('getWithConnections should return null for non-existent entity', async () => {
-      const { getWithConnections } = await import('../model/entityModel');
-      const result = await getWithConnections('non-existent-id');
-      expect(result).toBeNull();
-    });
+  it('should expose getNeighbors', () => {
+    expect(typeof codeGraphService.getNeighbors).toBe('function');
   });
 
-  describe('neighborsModel', () => {
-    it('should export getNeighbors function', async () => {
-      const neighborsModel = await import('../model/neighborsModel');
-      expect(neighborsModel.getNeighbors).toBeDefined();
-    });
-
-    it('getNeighbors should return empty arrays for non-existent entity', async () => {
-      const { getNeighbors } = await import('../model/neighborsModel');
-      const result = await getNeighbors('non-existent-id');
-      expect(result.nodes).toEqual([]);
-      expect(result.edges).toEqual([]);
-      expect(result.centerId).toBe('non-existent-id');
-    });
-
-    it('getNeighbors should accept direction parameter', async () => {
-      const { getNeighbors } = await import('../model/neighborsModel');
-      const result = await getNeighbors('test-id', 'in');
-      expect(result.direction).toBe('in');
-    });
+  it('should expose getNodesPaginated', () => {
+    expect(typeof codeGraphService.getNodesPaginated).toBe('function');
   });
 
-  describe('queryModel', () => {
-    it('should export executeCypher function', async () => {
-      const queryModel = await import('../model/queryModel');
-      expect(queryModel.executeCypher).toBeDefined();
-    });
+  it('should expose executeReadQuery', () => {
+    expect(typeof codeGraphService.executeReadQuery).toBe('function');
+  });
 
-    it('executeCypher should return results and metadata', async () => {
-      const { executeCypher } = await import('../model/queryModel');
-      const result = await executeCypher('MATCH (n) RETURN n');
-      expect(result).toHaveProperty('results');
-      expect(result).toHaveProperty('metadata');
-    });
+  it('should expose deleteProject', () => {
+    expect(typeof codeGraphService.deleteProject).toBe('function');
+  });
+
+  it('should expose clearGraph', () => {
+    expect(typeof codeGraphService.clearGraph).toBe('function');
+  });
+
+  it('should expose deleteFileEntities', () => {
+    expect(typeof codeGraphService.deleteFileEntities).toBe('function');
+  });
+
+  it('should expose resolveProjectRootPath', () => {
+    expect(typeof codeGraphService.resolveProjectRootPath).toBe('function');
+  });
+
+  it('should expose getProjects', () => {
+    expect(typeof codeGraphService.getProjects).toBe('function');
+  });
+
+  it('should expose getGraphStats', () => {
+    expect(typeof codeGraphService.getGraphStats).toBe('function');
+  });
+
+  it('should expose getFullGraph', () => {
+    expect(typeof codeGraphService.getFullGraph).toBe('function');
+  });
+
+  it('should expose getFileSubgraph', () => {
+    expect(typeof codeGraphService.getFileSubgraph).toBe('function');
+  });
+
+  it('should expose search', () => {
+    expect(typeof codeGraphService.search).toBe('function');
   });
 });

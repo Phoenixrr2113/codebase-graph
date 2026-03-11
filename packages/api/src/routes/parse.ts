@@ -9,7 +9,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { parseProject, parseSingleFile, removeFileFromGraph } from '../services/parseService';
 import { HttpError } from '../middleware/errorHandler';
-import { getOperations } from '../model';
+import { codeGraphService } from '@codegraph/core';
 
 const parse = new Hono();
 
@@ -131,8 +131,7 @@ parse.delete(
 parse.delete(
   '/clear',
   async (c) => {
-    const ops = await getOperations();
-    await ops.clearAll();
+    await codeGraphService.clearGraph();
 
     return c.json({ success: true, message: 'Graph cleared' });
   }

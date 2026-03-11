@@ -7,7 +7,7 @@
 import { Hono } from 'hono';
 import { createLogger } from '@codegraph/logger';
 import { HttpError } from '../middleware/errorHandler';
-import { getOperations } from '../model';
+import { codeGraphService } from '@codegraph/core';
 
 const logger = createLogger({ namespace: 'API:Projects' });
 const projects = new Hono();
@@ -19,8 +19,7 @@ const projects = new Hono();
  */
 projects.get('/', async (c) => {
   try {
-    const ops = await getOperations();
-    const projectList = await ops.getProjects();
+    const projectList = await codeGraphService.getProjects();
     return c.json({ projects: projectList });
   } catch {
     return c.json({ projects: [] });
@@ -42,8 +41,7 @@ projects.delete('/:id', async (c) => {
   }
 
   try {
-    const ops = await getOperations();
-    await ops.deleteProject(projectId);
+    await codeGraphService.deleteProject(projectId);
     logger.info(`Project deleted: ${projectId}`);
     return c.json({ success: true, message: 'Project deleted' });
   } catch (error) {
