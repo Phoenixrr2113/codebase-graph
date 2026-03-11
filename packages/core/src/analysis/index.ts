@@ -93,3 +93,13 @@ export {
   type DataflowAnalysisResult,
   type DataflowAnalysisOptions,
 } from './dataflow';
+
+// Rule loader (externalized security & payment rule definitions)
+export {
+  getSecurityRules,
+  getPaymentRules,
+  resetRuleCache,
+  getVulnerabilityTypes,
+  type SecurityRules,
+  type PaymentRules,
+} from './rules/rule-loader';

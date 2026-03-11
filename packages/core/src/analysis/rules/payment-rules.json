@@ -1,0 +1,122 @@
+{
+  "$schema": "Payment security rules for Stripe, Adyen, and general payment processing",
+  "version": "1.0.0",
+
+  "stripe": {
+    "payment_methods": [
+      "charges.create",
+      "paymentIntents.create",
+      "paymentIntents.confirm",
+      "checkout.sessions.create",
+      "invoices.create",
+      "subscriptions.create"
+    ],
+    "key_patterns": [
+      "['\"]sk_live_[a-zA-Z0-9_]{24,}['\"]",
+      "['\"]sk_test_[a-zA-Z0-9_]{24,}['\"]",
+      "['\"]pk_live_[a-zA-Z0-9_]{24,}['\"]",
+      "['\"]pk_test_[a-zA-Z0-9_]{24,}['\"]",
+      "['\"]rk_live_[a-zA-Z0-9_]{24,}['\"]",
+      "['\"]rk_test_[a-zA-Z0-9_]{24,}['\"]",
+      "['\"]whsec_[a-zA-Z0-9_]{24,}['\"]"
+    ],
+    "idempotency_required_methods": [
+      "charges.create",
+      "paymentIntents.create",
+      "paymentIntents.confirm",
+      "paymentIntents.capture",
+      "refunds.create",
+      "subscriptions.create",
+      "invoices.pay"
+    ]
+  },
+
+  "adyen": {
+    "payment_methods": [
+      "payments",
+      "payments/details",
+      "authorise"
+    ],
+    "key_patterns": [
+      "['\"]AQE[a-zA-Z0-9_-]{40,}['\"]",
+      "['\"][A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{12}['\"]"
+    ]
+  },
+
+  "amount_sources": [
+    "req.body.amount",
+    "request.body.amount",
+    "body.amount",
+    "params.amount",
+    "query.amount",
+    "data.amount"
+  ],
+
+  "pci_sensitive_fields": [
+    "cardNumber",
+    "card_number",
+    "cardnumber",
+    "cvv",
+    "cvc",
+    "cvv2",
+    "cvc2",
+    "securityCode",
+    "security_code",
+    "pan",
+    "primaryAccountNumber",
+    "primary_account_number",
+    "expiry",
+    "expiryDate",
+    "expiry_date",
+    "expirationDate",
+    "expiration_date",
+    "cardholderName",
+    "cardholder_name"
+  ],
+
+  "logging_functions": [
+    "console.log",
+    "console.info",
+    "console.debug",
+    "console.warn",
+    "console.error",
+    "logger.log",
+    "logger.info",
+    "logger.debug",
+    "logger.warn",
+    "logger.error",
+    "log.info",
+    "log.debug",
+    "log.error",
+    "winston.info",
+    "winston.debug",
+    "winston.error"
+  ],
+
+  "vulnerabilities": {
+    "unvalidated_amount": {
+      "severity": "critical",
+      "type": "unvalidated_payment_amount",
+      "description": "Payment amount from user input without validation",
+      "fix": "Validate and sanitize payment amounts server-side before processing; use integer cents, not floating-point"
+    },
+    "pci_data_logging": {
+      "severity": "critical",
+      "type": "pci_data_logging",
+      "description": "PCI-sensitive data being logged",
+      "fix": "Remove logging of card data; use tokenized references instead"
+    },
+    "hardcoded_key": {
+      "severity": "critical",
+      "type": "hardcoded_payment_key",
+      "description": "Hardcoded payment provider API key",
+      "fix": "Use environment variables or a secrets manager for payment API keys"
+    },
+    "missing_idempotency": {
+      "severity": "medium",
+      "type": "missing_idempotency_key",
+      "description": "Payment API call without idempotency key",
+      "fix": "Add an idempotency key to prevent duplicate charges on retry"
+    }
+  }
+}

@@ -49,6 +49,8 @@ import {
 import { indexStatusToolDefinition, getIndexStatus } from './indexStatus';
 import { findSymbolToolDefinition, findSymbol, type FindSymbolInput } from './findSymbol';
 import { searchCodeToolDefinition, searchCode, type SearchCodeInput } from './searchCode';
+import { askCodeToolDefinition, askCode, type AskCodeInput } from './askCode';
+import { queryCypherToolDefinition, queryCypher, type QueryCypherInput } from './queryCypher';
 import { explainCodeToolDefinition, explainCode, type ExplainCodeInput } from './explainCode';
 import { complexityReportToolDefinition, getComplexityReport, type ComplexityReportInput } from './complexityReport';
 import { analyzeImpactToolDefinition, analyzeImpact, type AnalyzeImpactInput } from './analyzeImpact';
@@ -217,6 +219,8 @@ ${fileTree}
     // ---- Symbol & code tools ----
     findSymbolToolDefinition,
     searchCodeToolDefinition,
+    askCodeToolDefinition,
+    queryCypherToolDefinition,
     explainCodeToolDefinition,
     repoMapToolDefinition,
 
@@ -260,6 +264,8 @@ export const staticTools: ToolDefinition[] = [
   // Symbol & code
   findSymbolToolDefinition,
   searchCodeToolDefinition,
+  askCodeToolDefinition,
+  queryCypherToolDefinition,
   explainCodeToolDefinition,
   repoMapToolDefinition,
 
@@ -477,7 +483,27 @@ const handlers: Record<string, ToolHandler> = {
       scope: (args.scope as string) || 'all',
     } as SearchCodeInput;
     if (args.language != null) input.language = args.language as string;
+    if (typeof args.strategy === 'string') {
+      input.strategy = args.strategy as NonNullable<SearchCodeInput['strategy']>;
+    }
     return searchCode(input);
+  },
+
+  ask_code: async (args) => {
+    const input: AskCodeInput = {
+      question: args.question as string,
+    };
+    if (args.scope != null) input.scope = args.scope as string;
+    if (args.limit != null) input.limit = args.limit as number;
+    return askCode(input);
+  },
+
+  query_cypher: async (args) => {
+    const input: QueryCypherInput = {
+      question: args.question as string,
+    };
+    if (args.scope != null) input.scope = args.scope as string;
+    return queryCypher(input);
   },
 
   explain_code: async (args) => {

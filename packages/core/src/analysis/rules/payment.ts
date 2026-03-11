@@ -6,111 +6,37 @@
 
 import Parser from 'tree-sitter';
 import { SecurityFinding, SecuritySeverity } from '../security';
+import { getPaymentRules } from './rule-loader';
 
 // ============================================================================
-// Payment-Specific Security Patterns
+// Payment-Specific Security Patterns (loaded from externalized JSON — WS4)
 // ============================================================================
 
-/**
- * Stripe payment method patterns
- */
-const STRIPE_PAYMENT_METHODS = new Set([
-  'charges.create',
-  'paymentIntents.create',
-  'paymentIntents.confirm',
-  'checkout.sessions.create',
-  'invoices.create',
-  'subscriptions.create',
-]);
+/** Lazy accessor for compiled payment rules */
+function paymentRules() {
+  return getPaymentRules();
+}
 
-/**
- * Adyen payment patterns
- */
-const ADYEN_PAYMENT_METHODS = new Set([
-  'payments',
-  'payments/details',
-  'authorise',
-]);
+/** Stripe payment method patterns */
+function getStripePaymentMethods() { return paymentRules().stripe.paymentMethods; }
 
-/**
- * User input sources for amounts
- */
-const AMOUNT_SOURCES = [
-  'req.body.amount',
-  'request.body.amount',
-  'body.amount',
-  'params.amount',
-  'query.amount',
-  'data.amount',
-];
+/** Adyen payment patterns */
+function getAdyenPaymentMethods() { return paymentRules().adyen.paymentMethods; }
 
-/**
- * PCI-sensitive data field names
- */
-const PCI_SENSITIVE_FIELDS = new Set([
-  'cardNumber',
-  'card_number',
-  'cardnumber',
-  'cvv',
-  'cvc',
-  'cvv2',
-  'cvc2',
-  'securityCode',
-  'security_code',
-  'pan',
-  'primaryAccountNumber',
-  'primary_account_number',
-  'expiry',
-  'expiryDate',
-  'expiry_date',
-  'expirationDate',
-  'expiration_date',
-  'cardholderName',
-  'cardholder_name',
-]);
+/** User input sources for amounts */
+function getAmountSources() { return paymentRules().amountSources; }
 
-/**
- * Logging functions that could expose PCI data
- */
-const LOGGING_FUNCTIONS = new Set([
-  'console.log',
-  'console.info',
-  'console.debug',
-  'console.warn',
-  'console.error',
-  'logger.log',
-  'logger.info',
-  'logger.debug',
-  'logger.warn',
-  'logger.error',
-  'log.info',
-  'log.debug',
-  'log.error',
-  'winston.info',
-  'winston.debug',
-  'winston.error',
-]);
+/** PCI-sensitive data field names */
+function getPciSensitiveFields() { return paymentRules().pciSensitiveFields; }
 
-/**
- * Stripe key patterns (hardcoded)
- */
-const STRIPE_KEY_PATTERNS = [
-  /['"]sk_live_[a-zA-Z0-9_]{24,}['"]/,
-  /['"]sk_test_[a-zA-Z0-9_]{24,}['"]/,
-  /['"]pk_live_[a-zA-Z0-9_]{24,}['"]/,
-  /['"]pk_test_[a-zA-Z0-9_]{24,}['"]/,
-  /['"]rk_live_[a-zA-Z0-9_]{24,}['"]/,
-  /['"]rk_test_[a-zA-Z0-9_]{24,}['"]/,
-  /['"]whsec_[a-zA-Z0-9_]{24,}['"]/,
-];
+/** Logging functions that could expose PCI data */
+function getLoggingFunctions() { return paymentRules().loggingFunctions; }
 
-/**
- * Adyen key patterns
- */
-const ADYEN_KEY_PATTERNS = [
-  /['"]AQE[a-zA-Z0-9_-]{40,}['"]/,
-  /['"][A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{12}['"]/,
-];
+/** Stripe key patterns */
+function getStripeKeyPatterns() { return paymentRules().stripe.keyPatterns; }
+
+/** Adyen key patterns */
+function getAdyenKeyPatterns() { return paymentRules().adyen.keyPatterns; }
 
 // ============================================================================
 // Payment Security Scanner
@@ -187,10 +113,10 @@ function checkUnvalidatedAmount(
     const calleeText = callee.text;
     
     // Check if this is a payment method call
-    const isStripePayment = [...STRIPE_PAYMENT_METHODS].some(method => 
+    const isStripePayment = [...getStripePaymentMethods()].some(method => 
       calleeText.includes(method)
     );
-    const isAdyenPayment = [...ADYEN_PAYMENT_METHODS].some(method => 
+    const isAdyenPayment = [...getAdyenPaymentMethods()].some(method => 
       calleeText.includes(method)
     );
 
@@ -199,7 +125,7 @@ function checkUnvalidatedAmount(
       if (args) {
         // Check if any argument contains direct user input for amount
         const argsText = args.text;
-        for (const source of AMOUNT_SOURCES) {
+        for (const source of getAmountSources()) {
           if (argsText.includes(source)) {
             findings.push({
               type: 'unvalidated_payment_amount',
@@ -237,13 +163,13 @@ function checkPciDataLogging(
     const calleeText = callee.text;
     
     // Check if this is a logging call
-    if (LOGGING_FUNCTIONS.has(calleeText)) {
+    if (getLoggingFunctions().has(calleeText)) {
       const args = node.childForFieldName('arguments');
       if (args) {
         const argsText = args.text.toLowerCase();
         
         // Check for PCI-sensitive field names in logged data
-        for (const field of PCI_SENSITIVE_FIELDS) {
+        for (const field of getPciSensitiveFields()) {
           if (argsText.includes(field.toLowerCase())) {
             findings.push({
               type: 'pci_data_logging',
@@ -283,7 +209,7 @@ function checkHardcodedPaymentKeys(
     const text = node.text;
 
     // Check Stripe keys
-    for (const pattern of STRIPE_KEY_PATTERNS) {
+    for (const pattern of getStripeKeyPatterns()) {
       if (pattern.test(text)) {
         // Determine key type for more specific messaging
         let keyType = 'Stripe';
@@ -309,7 +235,7 @@ function checkHardcodedPaymentKeys(
     }
 
     // Check Adyen keys
-    for (const pattern of ADYEN_KEY_PATTERNS) {
+    for (const pattern of getAdyenKeyPatterns()) {
       if (pattern.test(text)) {
         findings.push({
           type: 'hardcoded_payment_key',
@@ -329,7 +255,7 @@ function checkHardcodedPaymentKeys(
   // Also check variable declarations for payment key patterns
   if (node.type === 'variable_declarator') {
     const nodeText = node.text;
-    const allPatterns = [...STRIPE_KEY_PATTERNS, ...ADYEN_KEY_PATTERNS];
+    const allPatterns = [...getStripeKeyPatterns(), ...getAdyenKeyPatterns()];
     for (const pattern of allPatterns) {
       if (pattern.test(nodeText)) {
         findings.push({
@@ -366,17 +292,9 @@ function checkMissingIdempotencyKey(
     const calleeText = callee.text;
     
     // Check for payment methods that should have idempotency keys
-    const needsIdempotency = [
-      'charges.create',
-      'paymentIntents.create',
-      'paymentIntents.confirm',
-      'refunds.create',
-      'transfers.create',
-      'payouts.create',
-      'subscriptions.create',
-    ];
+    const idempotencyMethods = paymentRules().stripe.idempotencyRequiredMethods;
 
-    const isPaymentMethod = needsIdempotency.some(method => 
+    const isPaymentMethod = idempotencyMethods.some(method =>
       calleeText.includes(method)
     );
 

@@ -10,6 +10,7 @@
 import type { CypherDialect } from '@codegraph/graph';
 import { getGraphClient } from './graphClient';
 import { getActiveProjectPaths } from './config';
+import { tokensToChars } from './tokenEstimator';
 import {
   analyzeImpact as runImpactAnalysis,
   getDirectCallersQuery,
@@ -731,7 +732,7 @@ class CodeGraphServiceImpl {
   }): Promise<{ map: string; filesIncluded: number; symbolsIncluded: number }> {
     const client = await getGraphClient();
     const dialect = client.dialect;
-    const maxChars = (options?.maxTokens ?? 2048) * 4; // ~4 chars per token
+    const maxChars = tokensToChars(options?.maxTokens ?? 2048, 'code');
 
     const cypher = `
       MATCH (n)-[r]-()

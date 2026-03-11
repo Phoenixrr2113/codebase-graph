@@ -41,7 +41,10 @@ const CYPHER = {
         f.extension = $extension,
         f.loc = $loc,
         f.lastModified = $lastModified,
-        f.hash = $hash
+        f.hash = $hash,
+        f.sourcePipeline = $sourcePipeline,
+        f.sourceTask = $sourceTask,
+        f.processedAt = $processedAt
     RETURN f
   `,
 
@@ -57,7 +60,10 @@ const CYPHER = {
         fn.docstring = $docstring,
         fn.complexity = $complexity,
         fn.cognitiveComplexity = $cognitiveComplexity,
-        fn.nestingDepth = $nestingDepth
+        fn.nestingDepth = $nestingDepth,
+        fn.sourcePipeline = $sourcePipeline,
+        fn.sourceTask = $sourceTask,
+        fn.processedAt = $processedAt
     WITH fn
     MATCH (f:File {path: $filePath})
     MERGE (f)-[:CONTAINS]->(fn)
@@ -72,7 +78,10 @@ const CYPHER = {
         c.isAbstract = $isAbstract,
         c.extends = $extends,
         c.implements = $implements,
-        c.docstring = $docstring
+        c.docstring = $docstring,
+        c.sourcePipeline = $sourcePipeline,
+        c.sourceTask = $sourceTask,
+        c.processedAt = $processedAt
     WITH c
     MATCH (f:File {path: $filePath})
     MERGE (f)-[:CONTAINS]->(c)
@@ -85,7 +94,10 @@ const CYPHER = {
     SET i.endLine = $endLine,
         i.isExported = $isExported,
         i.extends = $extends,
-        i.docstring = $docstring
+        i.docstring = $docstring,
+        i.sourcePipeline = $sourcePipeline,
+        i.sourceTask = $sourceTask,
+        i.processedAt = $processedAt
     WITH i
     MATCH (f:File {path: $filePath})
     MERGE (f)-[:CONTAINS]->(i)
@@ -97,7 +109,10 @@ const CYPHER = {
     MERGE (v:Variable {name: $name, filePath: $filePath, line: $line})
     SET v.kind = $kind,
         v.isExported = $isExported,
-        v.type = $type
+        v.type = $type,
+        v.sourcePipeline = $sourcePipeline,
+        v.sourceTask = $sourceTask,
+        v.processedAt = $processedAt
     WITH v
     MATCH (f:File {path: $filePath})
     MERGE (f)-[:CONTAINS]->(v)
@@ -110,7 +125,10 @@ const CYPHER = {
     SET t.endLine = $endLine,
         t.isExported = $isExported,
         t.kind = $kind,
-        t.docstring = $docstring
+        t.docstring = $docstring,
+        t.sourcePipeline = $sourcePipeline,
+        t.sourceTask = $sourceTask,
+        t.processedAt = $processedAt
     WITH t
     MATCH (f:File {path: $filePath})
     MERGE (f)-[:CONTAINS]->(t)
@@ -123,7 +141,10 @@ const CYPHER = {
     SET comp.endLine = $endLine,
         comp.isExported = $isExported,
         comp.props = $props,
-        comp.propsType = $propsType
+        comp.propsType = $propsType,
+        comp.sourcePipeline = $sourcePipeline,
+        comp.sourceTask = $sourceTask,
+        comp.processedAt = $processedAt
     WITH comp
     MATCH (f:File {path: $filePath})
     MERGE (f)-[:CONTAINS]->(comp)
@@ -179,7 +200,10 @@ const CYPHER = {
     SET c.message = $message,
         c.author = $author,
         c.email = $email,
-        c.date = $date
+        c.date = $date,
+        c.sourcePipeline = $sourcePipeline,
+        c.sourceTask = $sourceTask,
+        c.processedAt = $processedAt
     RETURN c
   `,
 
@@ -302,7 +326,10 @@ const CYPHER = {
         p.rootPath = $rootPath,
         p.createdAt = $createdAt,
         p.lastParsed = $lastParsed,
-        p.fileCount = $fileCount
+        p.fileCount = $fileCount,
+        p.sourcePipeline = $sourcePipeline,
+        p.sourceTask = $sourceTask,
+        p.processedAt = $processedAt
     RETURN p
   `,
 
@@ -686,6 +713,9 @@ class GraphOperationsImpl implements GraphOperations {
         createdAt: project.createdAt,
         lastParsed: project.lastParsed,
         fileCount: project.fileCount ?? 0,
+        sourcePipeline: project.sourcePipeline ?? null,
+        sourceTask: project.sourceTask ?? null,
+        processedAt: project.processedAt ?? null,
       },
     });
   }

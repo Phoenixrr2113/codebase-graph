@@ -5,6 +5,7 @@
  */
 
 import Parser from 'tree-sitter';
+import { getSecurityRules } from './rules/rule-loader';
 
 // ============================================================================
 // Types
@@ -108,111 +109,32 @@ export interface DataflowAnalysisOptions {
 }
 
 // ============================================================================
-// Taint Source Patterns
+// Taint Patterns (loaded from shared security-rules.json — WS4)
 // ============================================================================
 
-/** User input taint sources */
-const USER_INPUT_SOURCES = [
-  'request.body',
-  'request.query',
-  'request.params',
-  'req.body',
-  'req.query',
-  'req.params',
-  'ctx.request.body',
-  'event.body',
-  'process.env',
-];
+/**
+ * Taint sources, sinks, and sanitizers are now loaded from the centralized
+ * security-rules.json via the rule-loader. This eliminates duplication with
+ * security.ts (which previously had its own copy of the same patterns).
+ */
+function sharedRules() {
+  return getSecurityRules();
+}
 
-/** API response taint sources */
-const API_RESPONSE_SOURCES = [
-  'response.data',
-  'res.data',
-  'axios.',
-];
+/** All taint source patterns with categories (from shared rules) */
+function getTaintSources(): Array<{ pattern: string; category: TaintSourceCategory }> {
+  return sharedRules().taintSources.categorized as Array<{ pattern: string; category: TaintSourceCategory }>;
+}
 
-/** File read taint sources */
-const FILE_READ_SOURCES = [
-  'fs.readFileSync',
-  'fs.readFile',
-  'readFile',
-];
+/** All taint sink patterns with categories (from shared rules) */
+function getTaintSinks() {
+  return sharedRules().taintSinks;
+}
 
-/** All taint source patterns with categories */
-const TAINT_SOURCES: Array<{ pattern: string; category: TaintSourceCategory }> = [
-  ...USER_INPUT_SOURCES.map(p => ({ pattern: p, category: 'user_input' as const })),
-  ...API_RESPONSE_SOURCES.map(p => ({ pattern: p, category: 'api_response' as const })),
-  ...FILE_READ_SOURCES.map(p => ({ pattern: p, category: 'file_read' as const })),
-  { pattern: 'process.env', category: 'environment' },
-];
-
-// ============================================================================
-// Taint Sink Patterns
-// ============================================================================
-
-/** SQL injection sinks */
-const SQL_SINKS = [
-  { pattern: 'query', method: true },
-  { pattern: 'execute', method: true },
-  { pattern: 'raw', method: true },
-  { pattern: '$queryRaw', method: true },
-  { pattern: '$executeRaw', method: true },
-];
-
-/** Command injection sinks */
-const COMMAND_SINKS = [
-  { pattern: 'exec', method: true },
-  { pattern: 'execSync', method: true },
-  { pattern: 'spawn', method: true },
-  { pattern: 'spawnSync', method: true },
-];
-
-/** XSS sinks */
-const XSS_SINKS = [
-  { pattern: 'innerHTML', property: true },
-  { pattern: 'outerHTML', property: true },
-  { pattern: 'document.write', method: true },
-  { pattern: 'dangerouslySetInnerHTML', property: true },
-];
-
-/** Path traversal sinks */
-const PATH_SINKS = [
-  { pattern: 'readFile', method: true },
-  { pattern: 'readFileSync', method: true },
-  { pattern: 'writeFile', method: true },
-  { pattern: 'writeFileSync', method: true },
-];
-
-/** All taint sink patterns with categories */
-const TAINT_SINKS: Array<{
-  patterns: Array<{ pattern: string; method?: boolean; property?: boolean }>;
-  category: TaintSinkCategory;
-  severity: 'critical' | 'high' | 'medium';
-}> = [
-    { patterns: SQL_SINKS, category: 'sql_injection', severity: 'critical' },
-    { patterns: COMMAND_SINKS, category: 'command_injection', severity: 'critical' },
-    { patterns: XSS_SINKS, category: 'xss', severity: 'high' },
-    { patterns: PATH_SINKS, category: 'path_traversal', severity: 'high' },
-  ];
-
-// ============================================================================
-// Known Sanitizers
-// ============================================================================
-
-/** Known sanitizer functions/methods */
-const SANITIZERS = new Set([
-  'escape',
-  'escapeHtml',
-  'sanitize',
-  'sanitizeHtml',
-  'encodeURIComponent',
-  'encodeURI',
-  'htmlEscape',
-  'sqlEscape',
-  'parameterize',
-  'DOMPurify.sanitize',
-  'validator.escape',
-]);
+/** Known sanitizer functions/methods (from shared rules) */
+function getSanitizers(): Set<string> {
+  return sharedRules().sanitizers;
+}
 
 // ============================================================================
 // Dataflow Analysis Functions
@@ -283,7 +205,7 @@ function detectTaintSource(
 ): TaintSource | null {
   const nodeText = node.text;
 
-  for (const { pattern, category } of TAINT_SOURCES) {
+  for (const { pattern, category } of getTaintSources()) {
     if (nodeText.includes(pattern)) {
       // Check if this is a member expression or call that matches
       if (
@@ -337,7 +259,7 @@ function detectTaintSink(
     const calleeText = callee.text;
     const methodName = getMethodName(calleeText);
 
-    for (const { patterns, category, severity } of TAINT_SINKS) {
+    for (const { patterns, category, severity } of getTaintSinks()) {
       for (const { pattern, method } of patterns) {
         if (method && methodName === pattern) {
           // Get the arguments to check for taint
@@ -366,7 +288,7 @@ function detectTaintSink(
     const leftText = left.text;
     const propertyName = getPropertyName(leftText);
 
-    for (const { patterns, category, severity } of TAINT_SINKS) {
+    for (const { patterns, category, severity } of getTaintSinks()) {
       for (const { pattern, property } of patterns) {
         if (property && propertyName === pattern) {
           const right = node.childForFieldName('right');
@@ -435,7 +357,7 @@ function checkForSanitizer(
   _rootNode: Parser.SyntaxNode
 ): boolean {
   // Check if any sanitizer function is called on the variable
-  for (const sanitizer of SANITIZERS) {
+  for (const sanitizer of getSanitizers()) {
     if (sinkArg.includes(sanitizer)) {
       return true;
     }
@@ -498,7 +420,7 @@ function buildFlowPaths(
  */
 function findSanitizersInPath(_sourceVar: string, sinkArg: string): string[] {
   const found: string[] = [];
-  for (const sanitizer of SANITIZERS) {
+  for (const sanitizer of getSanitizers()) {
     if (sinkArg.includes(sanitizer)) {
       found.push(sanitizer);
     }
@@ -534,14 +456,14 @@ function getPropertyName(text: string): string {
  * Check if a variable name is a known taint source
  */
 export function isTaintSource(variableName: string): boolean {
-  return TAINT_SOURCES.some(({ pattern }) => variableName.includes(pattern));
+  return getTaintSources().some(({ pattern }) => variableName.includes(pattern));
 }
 
 /**
  * Check if a function/method name is a known taint sink
  */
 export function isTaintSink(name: string): boolean {
-  return TAINT_SINKS.some(({ patterns }) =>
+  return getTaintSinks().some(({ patterns }) =>
     patterns.some(({ pattern }) => name === pattern || name.endsWith('.' + pattern))
   );
 }
@@ -550,22 +472,22 @@ export function isTaintSink(name: string): boolean {
  * Check if a function name is a known sanitizer
  */
 export function isSanitizer(name: string): boolean {
-  return SANITIZERS.has(name) ||
-    [...SANITIZERS].some(s => name.includes(s));
+  return getSanitizers().has(name) ||
+    [...getSanitizers()].some(s => name.includes(s));
 }
 
 /**
  * Get all known taint source patterns
  */
 export function getTaintSourcePatterns(): string[] {
-  return TAINT_SOURCES.map(({ pattern }) => pattern);
+  return getTaintSources().map(({ pattern }) => pattern);
 }
 
 /**
  * Get all known taint sink patterns
  */
 export function getTaintSinkPatterns(): string[] {
-  return TAINT_SINKS.flatMap(({ patterns }) =>
+  return getTaintSinks().flatMap(({ patterns }) =>
     patterns.map(({ pattern }) => pattern)
   );
 }
@@ -574,7 +496,7 @@ export function getTaintSinkPatterns(): string[] {
  * Get all known sanitizer patterns
  */
 export function getSanitizerPatterns(): string[] {
-  return [...SANITIZERS];
+  return [...getSanitizers()];
 }
 
 /**

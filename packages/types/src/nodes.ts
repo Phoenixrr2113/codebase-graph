@@ -7,8 +7,18 @@
 // Base Types
 // ============================================================================
 
+/** Provenance metadata stamped by the pipeline Task wrapper */
+export interface ProvenanceFields {
+  /** Pipeline that produced this entity (e.g., 'extract', 'embed', 'ingest') */
+  sourcePipeline?: string;
+  /** Task within the pipeline (e.g., 'parse', 'extractEntities', 'storeGraph') */
+  sourceTask?: string;
+  /** ISO timestamp when this entity was processed */
+  processedAt?: string;
+}
+
 /** Common properties for all entities with location info */
-export interface BaseEntity {
+export interface BaseEntity extends ProvenanceFields {
   /** Unique identifier for the entity */
   id?: string;
   /** Name of the entity */
@@ -30,7 +40,7 @@ export interface RangeEntity extends BaseEntity {
 // ============================================================================
 
 /** Represents a source file in the codebase */
-export interface FileEntity {
+export interface FileEntity extends ProvenanceFields {
   /** Unique identifier */
   id?: string;
   /** Absolute path to the file */
@@ -145,7 +155,7 @@ export interface FunctionEntity extends RangeEntity {
 export type VariableKind = 'const' | 'let' | 'var';
 
 /** Represents a variable declaration */
-export interface VariableEntity {
+export interface VariableEntity extends ProvenanceFields {
   /** Unique identifier */
   id?: string;
   /** Variable name */
@@ -179,7 +189,7 @@ export interface ImportSpecifier {
 }
 
 /** Represents an import statement */
-export interface ImportEntity {
+export interface ImportEntity extends ProvenanceFields {
   /** Unique identifier */
   id?: string;
   /** Import source path/module */
@@ -254,7 +264,7 @@ export interface ComponentEntity extends RangeEntity {
 // ============================================================================
 
 /** Represents a git commit in the repository history */
-export interface CommitEntity {
+export interface CommitEntity extends ProvenanceFields {
   /** Unique identifier (commit hash) */
   id?: string;
   /** Git commit hash (SHA-1, 40 characters) */
@@ -274,7 +284,7 @@ export interface CommitEntity {
 // ============================================================================
 
 /** Represents a parsed project in the graph */
-export interface ProjectEntity {
+export interface ProjectEntity extends ProvenanceFields {
   /** Unique identifier (generated UUID) */
   id: string;
   /** Project name (directory name) */

@@ -5,6 +5,7 @@
  */
 
 import Parser from 'tree-sitter';
+import { getSecurityRules } from './rules/rule-loader';
 
 // ============================================================================
 // Types
@@ -42,131 +43,26 @@ export interface ScanOptions {
 }
 
 // ============================================================================
-// Vulnerability Patterns
+// Vulnerability Patterns (loaded from externalized JSON rules — WS4)
 // ============================================================================
 
 /**
- * Taint sources - user input that should not flow to dangerous sinks
+ * Rules are loaded from externalized JSON files (WS4).
+ * Lazy-load and cache the compiled rules on first access.
  */
-const TAINT_SOURCES = new Set([
-  // Express/Hono request
-  'request.body',
-  'request.query',
-  'request.params',
-  'req.body',
-  'req.query',
-  'req.params',
-  'ctx.request.body',
-  // Lambda
-  'event.body',
-  // Environment (potential secrets)
-  'process.env',
-  // File system
-  'fs.readFileSync',
-]);
+function rules() {
+  return getSecurityRules();
+}
 
-/**
- * SQL Injection patterns
- */
-const SQL_INJECTION_PATTERNS = {
-  methods: new Set([
-    'query',
-    'execute',
-    'raw',
-    '$queryRaw',
-    '$executeRaw',
-    'rawQuery',
-  ]),
-  dangerousUsage: [
-    // Template literals in queries
-    /`.*\$\{.*\}.*`/,
-    // String concatenation
-    /\+.*['"]/,
-  ],
-};
-
-/**
- * XSS patterns
- */
-const XSS_PATTERNS = {
-  properties: new Set([
-    'innerHTML',
-    'outerHTML',
-  ]),
-  methods: new Set([
-    'document.write',
-    'document.writeln',
-  ]),
-  jsxProperties: new Set([
-    'dangerouslySetInnerHTML',
-  ]),
-};
-
-/**
- * Command Injection patterns
- */
-const COMMAND_INJECTION_PATTERNS = {
-  methods: new Set([
-    'exec',
-    'execSync',
-    'spawn',
-    'spawnSync',
-    'execFile',
-    'execFileSync',
-  ]),
-  modules: new Set([
-    'child_process',
-  ]),
-};
-
-/**
- * Path Traversal patterns
- */
-const PATH_TRAVERSAL_PATTERNS = {
-  methods: new Set([
-    'readFile',
-    'readFileSync',
-    'writeFile',
-    'writeFileSync',
-    'createReadStream',
-    'createWriteStream',
-    'open',
-    'openSync',
-    'access',
-    'accessSync',
-  ]),
-};
-
-/**
- * Hardcoded secrets patterns
- */
-const SECRET_PATTERNS = [
-  // API keys
-  /['"](?:api[_-]?key|apikey)['"]\s*[:=]\s*['"][^'"]{16,}['"]/i,
-  /['"](?:secret|api[_-]?secret)['"]\s*[:=]\s*['"][^'"]{16,}['"]/i,
-  // AWS
-  /['"]AKIA[0-9A-Z]{16}['"]/,
-  // Stripe
-  /['"]sk_(?:live|test)_[a-zA-Z0-9_]{24,}['"]/,
-  // Private keys
-  /['"]-----BEGIN (?:RSA |DSA |EC )?PRIVATE KEY-----/,
-  // Password assignments
-  /(?:password|passwd|pwd)\s*[:=]\s*['"][^'"]{4,}['"]/i,
-  // JWT tokens
-  /['"]eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*['"]/,
-];
-
-/**
- * Eval patterns
- */
-const EVAL_PATTERNS = {
-  functions: new Set([
-    'eval',
-    'Function',
-    'setTimeout', // when called with string
-    'setInterval', // when called with string
-  ]),
-};
+// Getter functions that return the same types as the original constants
+// (Set, RegExp[], etc.) so checker functions work unchanged.
+function getTaintSources() { return rules().taintSources.all; }
+function getSqlInjectionPatterns() { return rules().sqlInjection; }
+function getXssPatterns() { return rules().xss; }
+function getCommandInjectionPatterns() { return rules().commandInjection; }
+function getPathTraversalPatterns() { return rules().pathTraversal; }
+function getSecretPatterns() { return rules().hardcodedSecrets.patterns; }
+function getEvalPatterns() { return rules().evalUsage; }
 
 // ============================================================================
 // Security Scanner
@@ -252,7 +148,7 @@ function checkSqlInjection(
 
     // Check if it's a dangerous SQL method
     const calleeText = callee.text;
-    const isDbQuery = SQL_INJECTION_PATTERNS.methods.has(getMethodName(calleeText));
+    const isDbQuery = getSqlInjectionPatterns().methods.has(getMethodName(calleeText));
 
     if (isDbQuery) {
       const args = node.childForFieldName('arguments');
@@ -310,7 +206,7 @@ function checkXss(
     const left = node.childForFieldName('left');
     if (left) {
       const leftText = left.text;
-      if (XSS_PATTERNS.properties.has(getPropertyName(leftText))) {
+      if (getXssPatterns().properties.has(getPropertyName(leftText))) {
         findings.push({
           type: 'xss',
           severity: 'high',
@@ -371,7 +267,7 @@ function checkXss(
     const callee = node.childForFieldName('function');
     if (callee) {
       const calleeText = callee.text;
-      if (XSS_PATTERNS.methods.has(calleeText)) {
+      if (getXssPatterns().methods.has(calleeText)) {
         findings.push({
           type: 'xss',
           severity: 'high',
@@ -405,7 +301,7 @@ function checkCommandInjection(
     const calleeText = callee.text;
     const methodName = getMethodName(calleeText);
 
-    if (COMMAND_INJECTION_PATTERNS.methods.has(methodName)) {
+    if (getCommandInjectionPatterns().methods.has(methodName)) {
       const args = node.childForFieldName('arguments');
       if (args) {
         // Get first actual argument (skip parentheses and commas)
@@ -456,7 +352,7 @@ function checkPathTraversal(
     const calleeText = callee.text;
     const methodName = getMethodName(calleeText);
 
-    if (PATH_TRAVERSAL_PATTERNS.methods.has(methodName)) {
+    if (getPathTraversalPatterns().methods.has(methodName)) {
       const args = node.childForFieldName('arguments');
       if (args) {
         // Get first actual argument (skip parentheses and commas)
@@ -509,7 +405,7 @@ function checkHardcodedSecrets(
     node.type === 'template_literal'
   ) {
     const text = node.text;
-    for (const pattern of SECRET_PATTERNS) {
+    for (const pattern of getSecretPatterns()) {
       if (pattern.test(text)) {
         findings.push({
           type: 'hardcoded_secret',
@@ -529,7 +425,7 @@ function checkHardcodedSecrets(
   // Also check variable declarations
   if (node.type === 'variable_declarator' || node.type === 'assignment_expression') {
     const nodeText = node.text;
-    for (const pattern of SECRET_PATTERNS) {
+    for (const pattern of getSecretPatterns()) {
       if (pattern.test(nodeText)) {
         findings.push({
           type: 'hardcoded_secret',
@@ -563,7 +459,7 @@ function checkEval(
     if (!callee) return findings;
 
     const calleeText = callee.text;
-    if (EVAL_PATTERNS.functions.has(calleeText)) {
+    if (getEvalPatterns().functions.has(calleeText)) {
       // For setTimeout/setInterval, only flag if first arg is a string
       if (calleeText === 'setTimeout' || calleeText === 'setInterval') {
         const args = node.childForFieldName('arguments');
@@ -682,7 +578,7 @@ function isStringConcatenation(node: Parser.SyntaxNode): boolean {
  * Check if text contains known taint sources
  */
 function containsTaintSource(text: string): boolean {
-  for (const source of TAINT_SOURCES) {
+  for (const source of getTaintSources()) {
     if (text.includes(source)) {
       return true;
     }

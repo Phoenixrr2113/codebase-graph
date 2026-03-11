@@ -79,6 +79,14 @@ export type {
 export { syncGitHistory } from './gitSync';
 export type { GitSyncResult, GitSyncOptions } from './gitSync';
 
+// Token estimation (WS3)
+export {
+  estimateTokens,
+  tokensToChars,
+  fitsTokenBudget,
+  truncateToTokenBudget,
+} from './tokenEstimator';
+
 // Schema docs
 export { getSchemaDocumentation, getShortSchema } from './schema';
 
@@ -190,6 +198,20 @@ export type {
 } from './analysis';
 
 // Pipeline module (moved from @codegraph/parser in Phase 3B-3)
+
+// Pipeline orchestration (WS13)
+export { Task, PipelineRunner, createExtractionPipeline, createParseTask, createExtractTask } from './pipeline';
+export type { ParsedFile, ExtractionPipelineConfig } from './pipeline';
+export type {
+  TaskConfig,
+  TaskResult,
+  PipelineResult,
+  PipelineEvent,
+  PipelineEventType,
+  PipelineRunConfig,
+  ProvenanceMetadata,
+  Provenanceable,
+} from './pipeline';
 
 // Parser core
 export {

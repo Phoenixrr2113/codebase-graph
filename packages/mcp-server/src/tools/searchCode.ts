@@ -5,18 +5,37 @@
  * Uses hybrid search (vector + text + graph + knowledge) when embeddings
  * are available, falls back to text-only search otherwise.
  *
+ * Supports a `strategy` parameter for advanced search:
+ *   - SMART_SEARCH (default): auto-routes to the best strategy
+ *   - HYBRID: vector + text + graph traversal
+ *   - GRAPH_ANSWER: question answering with LLM
+ *   - NL_TO_CYPHER: translates to Cypher query
+ *   - CONTEXT_WALK: iterative multi-hop exploration
+ *
  * Cross-layer support: traverses ABOUT edges to bridge code ↔ knowledge
  * graph layers. When a code hit has linked knowledge entities (bugs,
  * decisions, concepts), they appear in the `related` array with edge="ABOUT".
  */
 
-import { codeGraphService, getGraphClient, hybridSearch } from '@codegraph/core';
+import {
+  codeGraphService,
+  getGraphClient,
+  hybridSearch,
+  createDefaultSearchRegistry,
+} from '@codegraph/core';
+import type { SearchContext, SearchResponse, SearchType, SearchResultItem, SearchRelatedItem } from '@codegraph/core';
+import { getLLMModel, isLLMAvailable } from '@codegraph/plugin-nlp';
 import type { ToolDefinition } from './consolidated';
+
+// Strategy type for advanced search
+export type SearchStrategy = 'SMART_SEARCH' | 'HYBRID' | 'GRAPH_ANSWER' | 'NL_TO_CYPHER' | 'CONTEXT_WALK';
 
 // Input schema
 export interface SearchCodeInput {
   query: string;
   type?: 'name' | 'fulltext' | 'pattern' | 'semantic';
+  /** Advanced search strategy (overrides type when set) */
+  strategy?: SearchStrategy;
   scope?: string;
   language?: string;
 }
@@ -59,6 +78,18 @@ export interface SearchCodeOutput {
     embeddingAvailable: boolean;
     durationMs: number;
   };
+  /** LLM-generated answer (GRAPH_ANSWER, CONTEXT_WALK, SMART_SEARCH→GRAPH_ANSWER) */
+  answer?: string;
+  /** Answer confidence score (0-1) */
+  answerConfidence?: number;
+  /** Generated Cypher query (NL_TO_CYPHER) */
+  cypher?: string;
+  /** Cypher query explanation (NL_TO_CYPHER) */
+  cypherExplanation?: string;
+  /** Which strategy was used (SMART_SEARCH routing info) */
+  routedTo?: string;
+  /** Routing reasoning (SMART_SEARCH) */
+  routingReason?: string;
   error?: string | undefined;
 }
 
@@ -69,7 +100,9 @@ export const searchCodeToolDefinition: ToolDefinition = {
     'Search for code by name, pattern, or semantic meaning. ' +
     'Uses hybrid search (vector similarity + text matching + graph traversal + knowledge graph) ' +
     'to find functions, classes, interfaces, and other code symbols. ' +
-    'Related results may include linked knowledge entities (bugs, decisions, concepts) via ABOUT edges.',
+    'Related results may include linked knowledge entities (bugs, decisions, concepts) via ABOUT edges. ' +
+    'Set `strategy` for advanced AI-powered search: SMART_SEARCH (auto-routes), GRAPH_ANSWER (Q&A), ' +
+    'NL_TO_CYPHER (graph queries), CONTEXT_WALK (multi-hop exploration).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -83,7 +116,19 @@ export const searchCodeToolDefinition: ToolDefinition = {
         default: 'semantic',
         description:
           'Search type: semantic (hybrid vector+text, default), ' +
-          'name (exact name match), fulltext (text search), pattern (AST pattern)',
+          'name (exact name match), fulltext (text search), pattern (AST pattern). ' +
+          'Ignored when strategy is set.',
+      },
+      strategy: {
+        type: 'string',
+        enum: ['SMART_SEARCH', 'HYBRID', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'CONTEXT_WALK'],
+        description:
+          'Advanced search strategy (overrides type). ' +
+          'SMART_SEARCH: auto-routes to best strategy based on query analysis. ' +
+          'HYBRID: vector + text + graph traversal. ' +
+          'GRAPH_ANSWER: answers questions using graph context + LLM (requires LLM). ' +
+          'NL_TO_CYPHER: translates question to Cypher and executes (requires LLM). ' +
+          'CONTEXT_WALK: iterative multi-hop graph exploration (requires LLM).',
       },
       scope: {
         type: 'string',
@@ -106,6 +151,11 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
   try {
     if (!input.query || input.query.trim() === '') {
       return { results: [], total: 0, error: 'Search query is required' };
+    }
+
+    // If a strategy is specified, use the search registry
+    if (input.strategy) {
+      return strategySearchCode(input);
     }
 
     const searchType = input.type ?? 'semantic';
@@ -204,4 +254,99 @@ async function legacySearchCode(input: SearchCodeInput): Promise<SearchCodeOutpu
   }));
 
   return { results, total: results.length };
+}
+
+/**
+ * Strategy-based search using the SearchRegistry.
+ * Dispatches to SMART_SEARCH, GRAPH_ANSWER, NL_TO_CYPHER, CONTEXT_WALK, or HYBRID.
+ */
+async function strategySearchCode(input: SearchCodeInput): Promise<SearchCodeOutput> {
+  const strategy = input.strategy!;
+
+  // Build search context
+  const client = await getGraphClient();
+  const context: SearchContext = { client };
+
+  // Add LLM if available (required for GRAPH_ANSWER, NL_TO_CYPHER, CONTEXT_WALK)
+  if (isLLMAvailable()) {
+    try {
+      context.llm = await getLLMModel();
+    } catch {
+      // LLM init failed — strategies that require LLM will fail gracefully
+    }
+  }
+
+  const registry = createDefaultSearchRegistry();
+  const searchType = strategy as SearchType;
+
+  const request: Parameters<typeof registry.search>[0] = {
+    query: input.query,
+    type: searchType,
+  };
+  const scope = input.scope && input.scope !== 'all' ? input.scope : undefined;
+  if (scope) request.scope = scope;
+
+  let response: SearchResponse;
+  try {
+    response = await registry.search(request, context);
+  } catch (error) {
+    return {
+      results: [],
+      total: 0,
+      error: error instanceof Error ? error.message : `Strategy ${strategy} failed`,
+    };
+  }
+
+  // Map SearchResponse → SearchCodeOutput
+  const results: SearchResult[] = response.results.map((r: SearchResultItem) => {
+    const item: SearchResult = {
+      name: r.name,
+      kind: r.nodeType.toLowerCase(),
+      file: r.filePath ?? '',
+      line: r.startLine ?? 0,
+      match: r.name,
+      score: r.score,
+      sources: r.sources,
+    };
+    return item;
+  });
+
+  const output: SearchCodeOutput = {
+    results,
+    total: response.total,
+    meta: {
+      vectorHits: (response.meta['vectorHits'] as number) ?? 0,
+      textHits: (response.meta['textHits'] as number) ?? 0,
+      graphExpanded: (response.meta['graphExpanded'] as number) ?? 0,
+      aboutExpanded: (response.meta['aboutExpanded'] as number) ?? 0,
+      embeddingAvailable: (response.meta['embeddingAvailable'] as boolean) ?? false,
+      durationMs: response.meta.durationMs,
+    },
+  };
+
+  // Add strategy-specific fields
+  if (response.answer) output.answer = response.answer;
+  if (response.answerConfidence != null) output.answerConfidence = response.answerConfidence;
+  if (response.cypher) output.cypher = response.cypher;
+  if (response.cypherExplanation) output.cypherExplanation = response.cypherExplanation;
+  if (response.routedTo) output.routedTo = response.routedTo;
+  if (response.routingReason) output.routingReason = response.routingReason;
+  if (response.error) output.error = response.error;
+
+  // Map related items if present
+  if (response.related && response.related.length > 0) {
+    output.related = response.related.map((r: SearchRelatedItem) => {
+      const rel: RelatedResult = {
+        name: r.name,
+        kind: r.nodeType.toLowerCase(),
+        edge: r.edgeLabel,
+        direction: r.direction,
+        sourceHit: r.sourceHit,
+      };
+      if (r.filePath) rel.file = r.filePath;
+      return rel;
+    });
+  }
+
+  return output;
 }

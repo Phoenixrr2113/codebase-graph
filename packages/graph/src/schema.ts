@@ -18,13 +18,27 @@ import type {
 } from '@codegraph/types';
 
 // ============================================================================
+// Provenance Properties (common across all node types)
+// ============================================================================
+
+/**
+ * Provenance fields for Cypher node properties.
+ * Tracks which pipeline/task produced each graph entity.
+ */
+export interface ProvenanceNodeProps {
+  sourcePipeline?: string | null;
+  sourceTask?: string | null;
+  processedAt?: string | null;
+}
+
+// ============================================================================
 // Node Property Types (for Cypher MERGE statements)
 // ============================================================================
 
 /**
  * File node properties for Cypher operations
  */
-export interface FileNodeProps {
+export interface FileNodeProps extends ProvenanceNodeProps {
   path: string;
   name: string;
   extension: string;
@@ -38,7 +52,7 @@ export interface FileNodeProps {
 /**
  * Function node properties for Cypher operations
  */
-export interface FunctionNodeProps {
+export interface FunctionNodeProps extends ProvenanceNodeProps {
   name: string;
   filePath: string;
   startLine: number;
@@ -59,7 +73,7 @@ export interface FunctionNodeProps {
 /**
  * Class node properties for Cypher operations
  */
-export interface ClassNodeProps {
+export interface ClassNodeProps extends ProvenanceNodeProps {
   name: string;
   filePath: string;
   startLine: number;
@@ -76,7 +90,7 @@ export interface ClassNodeProps {
 /**
  * Interface node properties for Cypher operations
  */
-export interface InterfaceNodeProps {
+export interface InterfaceNodeProps extends ProvenanceNodeProps {
   name: string;
   filePath: string;
   startLine: number;
@@ -91,7 +105,7 @@ export interface InterfaceNodeProps {
 /**
  * Variable node properties for Cypher operations
  */
-export interface VariableNodeProps {
+export interface VariableNodeProps extends ProvenanceNodeProps {
   name: string;
   filePath: string;
   line: number;
@@ -105,7 +119,7 @@ export interface VariableNodeProps {
 /**
  * Type node properties for Cypher operations
  */
-export interface TypeNodeProps {
+export interface TypeNodeProps extends ProvenanceNodeProps {
   name: string;
   filePath: string;
   startLine: number;
@@ -120,7 +134,7 @@ export interface TypeNodeProps {
 /**
  * Component node properties for Cypher operations
  */
-export interface ComponentNodeProps {
+export interface ComponentNodeProps extends ProvenanceNodeProps {
   name: string;
   filePath: string;
   startLine: number;
@@ -135,7 +149,7 @@ export interface ComponentNodeProps {
 /**
  * Commit node properties for Cypher operations
  */
-export interface CommitNodeProps {
+export interface CommitNodeProps extends ProvenanceNodeProps {
   hash: string;
   message: string;
   author: string;
@@ -158,6 +172,9 @@ export function fileToNodeProps(entity: FileEntity): FileNodeProps {
     loc: entity.loc,
     lastModified: entity.lastModified,
     hash: entity.hash,
+    sourcePipeline: entity.sourcePipeline ?? null,
+    sourceTask: entity.sourceTask ?? null,
+    processedAt: entity.processedAt ?? null,
   };
 }
 
@@ -179,6 +196,9 @@ export function functionToNodeProps(entity: FunctionEntity): FunctionNodeProps {
     complexity: entity.complexity ?? null,
     cognitiveComplexity: entity.cognitiveComplexity ?? null,
     nestingDepth: entity.nestingDepth ?? null,
+    sourcePipeline: entity.sourcePipeline ?? null,
+    sourceTask: entity.sourceTask ?? null,
+    processedAt: entity.processedAt ?? null,
   };
 }
 
@@ -196,6 +216,9 @@ export function classToNodeProps(entity: ClassEntity): ClassNodeProps {
     extends: entity.extends ?? null,
     implements: entity.implements ? JSON.stringify(entity.implements) : null,
     docstring: entity.docstring ?? null,
+    sourcePipeline: entity.sourcePipeline ?? null,
+    sourceTask: entity.sourceTask ?? null,
+    processedAt: entity.processedAt ?? null,
   };
 }
 
@@ -211,6 +234,9 @@ export function interfaceToNodeProps(entity: InterfaceEntity): InterfaceNodeProp
     isExported: entity.isExported,
     extends: entity.extends ? JSON.stringify(entity.extends) : null,
     docstring: entity.docstring ?? null,
+    sourcePipeline: entity.sourcePipeline ?? null,
+    sourceTask: entity.sourceTask ?? null,
+    processedAt: entity.processedAt ?? null,
   };
 }
 
@@ -225,6 +251,9 @@ export function variableToNodeProps(entity: VariableEntity): VariableNodeProps {
     kind: entity.kind,
     isExported: entity.isExported,
     type: entity.type ?? null,
+    sourcePipeline: entity.sourcePipeline ?? null,
+    sourceTask: entity.sourceTask ?? null,
+    processedAt: entity.processedAt ?? null,
   };
 }
 
@@ -240,6 +269,9 @@ export function typeToNodeProps(entity: TypeEntity): TypeNodeProps {
     isExported: entity.isExported,
     kind: entity.kind,
     docstring: entity.docstring ?? null,
+    sourcePipeline: entity.sourcePipeline ?? null,
+    sourceTask: entity.sourceTask ?? null,
+    processedAt: entity.processedAt ?? null,
   };
 }
 
@@ -255,6 +287,9 @@ export function componentToNodeProps(entity: ComponentEntity): ComponentNodeProp
     isExported: entity.isExported,
     props: entity.props ? JSON.stringify(entity.props) : null,
     propsType: entity.propsType ?? null,
+    sourcePipeline: entity.sourcePipeline ?? null,
+    sourceTask: entity.sourceTask ?? null,
+    processedAt: entity.processedAt ?? null,
   };
 }
 
@@ -268,6 +303,9 @@ export function commitToNodeProps(entity: CommitEntity): CommitNodeProps {
     author: entity.author,
     email: entity.email,
     date: entity.date,
+    sourcePipeline: entity.sourcePipeline ?? null,
+    sourceTask: entity.sourceTask ?? null,
+    processedAt: entity.processedAt ?? null,
   };
 }
 

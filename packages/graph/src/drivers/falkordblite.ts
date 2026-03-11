@@ -105,6 +105,19 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
       if (!msg.includes('Index already exists') && !msg.includes('Attribute already indexed')) throw error;
     }
 
+    // --- Commit & Metadata range indexes (git history / state tracking) ---
+    await safeIndex(`CREATE INDEX FOR (c:Commit) ON (c.hash)`);
+    await safeIndex(`CREATE INDEX FOR (m:Metadata) ON (m.key)`);
+
+    // --- Provenance range indexes (query by pipeline/task) ---
+    const provenanceLabels = [
+      'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Entity',
+    ];
+    for (const label of provenanceLabels) {
+      await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.sourcePipeline)`);
+      await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.processedAt)`);
+    }
+
     // --- Fulltext indexes (text search) ---
     const fulltextTargets = ['Function', 'Class', 'Component', 'Interface', 'Type', 'Entity'];
     for (const label of fulltextTargets) {

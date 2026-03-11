@@ -779,3 +779,200 @@ describe('Vector Search (FalkorDB)', () => {
     expect(results.length).toBe(0);
   });
 });
+
+// ============================================================================
+// Provenance Stamping Tests
+//
+// Verifies that provenance fields (sourcePipeline, sourceTask, processedAt)
+// are correctly persisted to and read from the graph database.
+// ============================================================================
+
+describe('Provenance Stamping (FalkorDB)', () => {
+  let client: GraphClient;
+  let ops: GraphOperations;
+
+  const PROV_GRAPH = `test_prov_${Date.now()}`;
+  const now = new Date().toISOString();
+
+  beforeAll(async () => {
+    try {
+      client = await createClient({
+        driver: 'falkordb',
+        host: 'localhost',
+        port: 6379,
+        graphName: PROV_GRAPH,
+      });
+    } catch (error) {
+      console.error('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      throw error;
+    }
+
+    await client.ensureIndexes();
+    ops = createOperations(client);
+  });
+
+  afterAll(async () => {
+    try { await client.query(`MATCH (n) DETACH DELETE n`, { params: {} }); } catch { /* best effort */ }
+    try { await client.close(); } catch { /* best effort */ }
+  });
+
+  it('upsertFile persists provenance fields', async () => {
+    await ops.upsertFile({
+      path: '/src/prov-file.ts',
+      name: 'prov-file.ts',
+      extension: 'ts',
+      loc: 50,
+      lastModified: now,
+      hash: 'prov-hash-1',
+      sourcePipeline: 'extract',
+      sourceTask: 'parse',
+      processedAt: now,
+    });
+
+    const result = await client.roQuery<{
+      sp: string; st: string; pa: string;
+    }>(
+      `MATCH (f:File {path: '/src/prov-file.ts'})
+       RETURN f.sourcePipeline as sp, f.sourceTask as st, f.processedAt as pa`
+    );
+    expect(result.data[0]?.sp).toBe('extract');
+    expect(result.data[0]?.st).toBe('parse');
+    expect(result.data[0]?.pa).toBe(now);
+  });
+
+  it('upsertFunction persists provenance fields', async () => {
+    await ops.upsertFile(makeFile({ path: '/src/prov-fn.ts', name: 'prov-fn.ts' }));
+    await ops.upsertFunction({
+      name: 'provFn',
+      filePath: '/src/prov-fn.ts',
+      startLine: 1,
+      endLine: 10,
+      isExported: true,
+      isAsync: false,
+      isArrow: false,
+      params: [],
+      sourcePipeline: 'ingest',
+      sourceTask: 'extractEntities',
+      processedAt: now,
+    });
+
+    const result = await client.roQuery<{
+      sp: string; st: string; pa: string;
+    }>(
+      `MATCH (fn:Function) WHERE fn.name = 'provFn' AND fn.filePath = '/src/prov-fn.ts'
+       RETURN fn.sourcePipeline as sp, fn.sourceTask as st, fn.processedAt as pa`
+    );
+    expect(result.data[0]?.sp).toBe('ingest');
+    expect(result.data[0]?.st).toBe('extractEntities');
+    expect(result.data[0]?.pa).toBe(now);
+  });
+
+  it('upsertClass persists provenance fields', async () => {
+    await ops.upsertFile(makeFile({ path: '/src/prov-cls.ts', name: 'prov-cls.ts' }));
+    await ops.upsertClass({
+      name: 'ProvClass',
+      filePath: '/src/prov-cls.ts',
+      startLine: 1,
+      endLine: 20,
+      isExported: true,
+      isAbstract: false,
+      sourcePipeline: 'embed',
+      sourceTask: 'storeGraph',
+      processedAt: now,
+    });
+
+    const result = await client.roQuery<{
+      sp: string; st: string;
+    }>(
+      `MATCH (c:Class) WHERE c.name = 'ProvClass' AND c.filePath = '/src/prov-cls.ts'
+       RETURN c.sourcePipeline as sp, c.sourceTask as st`
+    );
+    expect(result.data[0]?.sp).toBe('embed');
+    expect(result.data[0]?.st).toBe('storeGraph');
+  });
+
+  it('entities without provenance have null provenance fields', async () => {
+    await ops.upsertFile(makeFile({ path: '/src/prov-null.ts', name: 'prov-null.ts' }));
+    await ops.upsertFunction({
+      name: 'noProv',
+      filePath: '/src/prov-null.ts',
+      startLine: 1,
+      endLine: 5,
+      isExported: false,
+      isAsync: false,
+      isArrow: false,
+      params: [],
+    });
+
+    const result = await client.roQuery<{
+      sp: unknown; st: unknown;
+    }>(
+      `MATCH (fn:Function) WHERE fn.name = 'noProv' AND fn.filePath = '/src/prov-null.ts'
+       RETURN fn.sourcePipeline as sp, fn.sourceTask as st`
+    );
+    expect(result.data[0]?.sp).toBeNull();
+    expect(result.data[0]?.st).toBeNull();
+  });
+
+  it('provenance can be queried across entity types', async () => {
+    // Create multiple entities with the same pipeline
+    await ops.upsertFile({
+      path: '/src/prov-query.ts', name: 'prov-query.ts', extension: 'ts',
+      loc: 10, lastModified: now, hash: 'prov-q',
+      sourcePipeline: 'test-pipeline', sourceTask: 'parse', processedAt: now,
+    });
+
+    await ops.upsertFunction({
+      name: 'queryFn', filePath: '/src/prov-query.ts', startLine: 1, endLine: 5,
+      isExported: false, isAsync: false, isArrow: false, params: [],
+      sourcePipeline: 'test-pipeline', sourceTask: 'extract', processedAt: now,
+    });
+
+    await ops.upsertVariable({
+      name: 'queryVar', filePath: '/src/prov-query.ts', line: 10,
+      kind: 'const', isExported: false,
+      sourcePipeline: 'test-pipeline', sourceTask: 'extract', processedAt: now,
+    });
+
+    // Query all entities from 'test-pipeline'
+    const fnResult = await client.roQuery<{ count: number }>(
+      `MATCH (fn:Function) WHERE fn.sourcePipeline = 'test-pipeline' RETURN count(fn) as count`
+    );
+    expect(fnResult.data[0]?.count).toBeGreaterThanOrEqual(1);
+
+    const varResult = await client.roQuery<{ count: number }>(
+      `MATCH (v:Variable) WHERE v.sourcePipeline = 'test-pipeline' RETURN count(v) as count`
+    );
+    expect(varResult.data[0]?.count).toBeGreaterThanOrEqual(1);
+
+    const fileResult = await client.roQuery<{ count: number }>(
+      `MATCH (f:File) WHERE f.sourcePipeline = 'test-pipeline' RETURN count(f) as count`
+    );
+    expect(fileResult.data[0]?.count).toBeGreaterThanOrEqual(1);
+  });
+
+  it('provenance is updated on re-upsert', async () => {
+    await ops.upsertFile({
+      path: '/src/prov-update.ts', name: 'prov-update.ts', extension: 'ts',
+      loc: 10, lastModified: now, hash: 'h1',
+      sourcePipeline: 'pipeline-v1', sourceTask: 'task-v1', processedAt: now,
+    });
+
+    const updatedAt = new Date().toISOString();
+    await ops.upsertFile({
+      path: '/src/prov-update.ts', name: 'prov-update.ts', extension: 'ts',
+      loc: 20, lastModified: updatedAt, hash: 'h2',
+      sourcePipeline: 'pipeline-v2', sourceTask: 'task-v2', processedAt: updatedAt,
+    });
+
+    const result = await client.roQuery<{
+      sp: string; st: string; pa: string;
+    }>(
+      `MATCH (f:File {path: '/src/prov-update.ts'})
+       RETURN f.sourcePipeline as sp, f.sourceTask as st, f.processedAt as pa`
+    );
+    expect(result.data[0]?.sp).toBe('pipeline-v2');
+    expect(result.data[0]?.st).toBe('task-v2');
+    expect(result.data[0]?.pa).toBe(updatedAt);
+  });
+});
