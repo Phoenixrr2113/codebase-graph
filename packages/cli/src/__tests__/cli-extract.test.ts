@@ -73,7 +73,7 @@ afterAll(() => {
 
 describe('CLI structure', () => {
   it('registers all expected commands', async () => {
-    const { cli } = await import('../cli.js');
+    const { cli } = await import('../cli');
     const commandNames = cli.commands.map((c: { name: () => string }) => c.name());
     expect(commandNames).toContain('extract');
     expect(commandNames).toContain('search');
@@ -87,7 +87,7 @@ describe('CLI structure', () => {
   });
 
   it('extract command has expected options', async () => {
-    const { extractCommand } = await import('../commands/extract.js');
+    const { extractCommand } = await import('../commands/extract');
     const optionFlags = extractCommand.options.map((o: { flags: string }) => o.flags);
     expect(optionFlags).toContainEqual(expect.stringContaining('--dry-run'));
     expect(optionFlags).toContainEqual(expect.stringContaining('--deep'));
@@ -110,7 +110,7 @@ describe('extract --dry-run', () => {
     };
 
     try {
-      const { extractCommand } = await import('../commands/extract.js');
+      const { extractCommand } = await import('../commands/extract');
 
       // Parse the command with dry-run mode
       await extractCommand.parseAsync([
@@ -140,7 +140,7 @@ describe('extract --dry-run', () => {
     };
 
     try {
-      const { extractCommand } = await import('../commands/extract.js');
+      const { extractCommand } = await import('../commands/extract');
 
       await extractCommand.parseAsync([
         'node', 'codegraph', emptyDir,

@@ -4,6 +4,6 @@
  * CLI entry point
  */
 
-import { cli } from './cli.js';
+import { cli } from './cli';
 
 cli.parse(process.argv);

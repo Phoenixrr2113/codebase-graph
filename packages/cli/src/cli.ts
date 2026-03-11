@@ -1,14 +1,14 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
-import { extractCommand } from './commands/extract.js';
-import { statusCommand } from './commands/status.js';
-import { analyzeCommand } from './commands/analyze.js';
-import { queryCommand } from './commands/query.js';
-import { searchCommand } from './commands/search.js';
-import { serveCommand } from './commands/serve.js';
-import { mapCommand } from './commands/map.js';
-import { embedCommand } from './commands/embed.js';
-import { linkCommand } from './commands/link.js';
+import { extractCommand } from './commands/extract';
+import { statusCommand } from './commands/status';
+import { analyzeCommand } from './commands/analyze';
+import { queryCommand } from './commands/query';
+import { searchCommand } from './commands/search';
+import { serveCommand } from './commands/serve';
+import { mapCommand } from './commands/map';
+import { embedCommand } from './commands/embed';
+import { linkCommand } from './commands/link';
 
 createLogger({ namespace: 'cli' });
 

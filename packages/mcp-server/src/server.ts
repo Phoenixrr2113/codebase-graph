@@ -4,12 +4,12 @@
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   type Tool,
-} from '@modelcontextprotocol/sdk/types.js';
+} from '@modelcontextprotocol/sdk/types';
 import { createLogger } from '@codegraph/logger';
 import { getTools, handleToolCall, staticTools } from './tools/consolidated';
 import { initialSync } from '@codegraph/core';

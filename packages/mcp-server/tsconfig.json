@@ -7,7 +7,15 @@
     "declarationMap": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "target": "ES2022"
+    "target": "ES2022",
+    "paths": {
+      "@modelcontextprotocol/sdk/server/stdio": [
+        "./node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.d.ts"
+      ],
+      "@modelcontextprotocol/sdk/types": [
+        "./node_modules/@modelcontextprotocol/sdk/dist/esm/types.d.ts"
+      ]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
