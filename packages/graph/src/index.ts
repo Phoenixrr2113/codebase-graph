@@ -55,6 +55,9 @@ export {
   type MemoryStats,
   type EntitySearchResult,
   type RelationshipResult,
+  type AboutEdgeInput,
+  type AboutEdgeResult,
+  type AboutLinkMethod,
 } from './knowledge-operations';
 
 // File tree exports

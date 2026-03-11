@@ -73,6 +73,7 @@ export interface EntitySearchResult {
   relevanceScore: number;
   createdAt: number;
   lastAccessedAt: number;
+  embedding?: number[] | undefined;
 }
 
 export interface RelationshipResult {
@@ -83,6 +84,51 @@ export interface RelationshipResult {
   relationType: string;
   confidence: number;
   fact: string | null;
+}
+
+/**
+ * ABOUT edge linking method — how the bridge was created.
+ */
+export type AboutLinkMethod = 'exact_match' | 'embedding_similarity' | 'llm_verified' | 'manual';
+
+/**
+ * Input for creating an ABOUT edge (Entity → Code Node).
+ */
+export interface AboutEdgeInput {
+  /** Text of the knowledge entity */
+  entityText: string;
+  /** Type of the knowledge entity */
+  entityType: string;
+  /** Label of the target code node (Function, Class, File, etc.) */
+  targetLabel: string;
+  /** Property name used to identify the target (e.g., 'name' for Function, 'path' for File) */
+  targetKey: string;
+  /** Value of the identifying property */
+  targetValue: string;
+  /** Match confidence (0.0–1.0) */
+  confidence: number;
+  /** How the link was created */
+  method: AboutLinkMethod;
+}
+
+/**
+ * Result when querying ABOUT edges.
+ */
+export interface AboutEdgeResult {
+  /** Entity text */
+  entityText: string;
+  /** Entity type */
+  entityType: string;
+  /** Target node label (Function, Class, File, etc.) */
+  targetLabel: string;
+  /** Target identifying value (name or path) */
+  targetValue: string;
+  /** Match confidence */
+  confidence: number;
+  /** Linking method */
+  method: string;
+  /** ISO timestamp when the link was created */
+  createdAt: string;
 }
 
 // ============================================================================
@@ -125,6 +171,19 @@ export interface KnowledgeOperations {
 
   // --- Vector Search ---
   searchEntitiesByVector(embedding: number[], limit?: number): Promise<EntitySearchResult[]>;
+
+  // --- ABOUT Edges (Entity → Code Node bridge) ---
+  createAboutEdge(input: AboutEdgeInput): Promise<boolean>;
+  getAboutEdgesForEntity(entityText: string, entityType: string, limit?: number): Promise<AboutEdgeResult[]>;
+  getAboutEdgesForCodeNode(targetLabel: string, targetValue: string, limit?: number): Promise<AboutEdgeResult[]>;
+  deleteAboutEdge(entityText: string, entityType: string, targetLabel: string, targetValue: string): Promise<boolean>;
+  countAboutEdges(): Promise<number>;
+
+  // --- Entity Resolution ---
+  /** Delete a single entity and all its relationships by text+type */
+  deleteEntity(text: string, type: string): Promise<boolean>;
+  /** Merge duplicate entity into canonical: transfer relationships, ABOUT edges, then delete */
+  mergeEntities(canonicalText: string, canonicalType: string, duplicateText: string, duplicateType: string): Promise<{ transferredRelationships: number; transferredAboutEdges: number }>;
 
   // --- Cleanup ---
   deleteSample(sampleId: string): Promise<void>;
@@ -195,7 +254,8 @@ const KG_CYPHER = {
     WHERE n.type = $type
     RETURN n.id as id, n.text as text, n.type as type,
            n.confidence as confidence, n.relevanceScore as relevanceScore,
-           n.createdAt as createdAt, n.lastAccessedAt as lastAccessedAt
+           n.createdAt as createdAt, n.lastAccessedAt as lastAccessedAt,
+           n.embedding as embedding
     ORDER BY n.relevanceScore DESC
     LIMIT $limit
   `,
@@ -205,7 +265,8 @@ const KG_CYPHER = {
     WHERE n.text CONTAINS $textContains
     RETURN n.id as id, n.text as text, n.type as type,
            n.confidence as confidence, n.relevanceScore as relevanceScore,
-           n.createdAt as createdAt, n.lastAccessedAt as lastAccessedAt
+           n.createdAt as createdAt, n.lastAccessedAt as lastAccessedAt,
+           n.embedding as embedding
     ORDER BY n.relevanceScore DESC
     LIMIT $limit
   `,
@@ -215,7 +276,8 @@ const KG_CYPHER = {
     WHERE n.type = $type AND n.text CONTAINS $textContains
     RETURN n.id as id, n.text as text, n.type as type,
            n.confidence as confidence, n.relevanceScore as relevanceScore,
-           n.createdAt as createdAt, n.lastAccessedAt as lastAccessedAt
+           n.createdAt as createdAt, n.lastAccessedAt as lastAccessedAt,
+           n.embedding as embedding
     ORDER BY n.relevanceScore DESC
     LIMIT $limit
   `,
@@ -224,7 +286,8 @@ const KG_CYPHER = {
     MATCH (n:Entity)
     RETURN n.id as id, n.text as text, n.type as type,
            n.confidence as confidence, n.relevanceScore as relevanceScore,
-           n.createdAt as createdAt, n.lastAccessedAt as lastAccessedAt
+           n.createdAt as createdAt, n.lastAccessedAt as lastAccessedAt,
+           n.embedding as embedding
     ORDER BY n.relevanceScore DESC
     LIMIT $limit
   `,
@@ -382,6 +445,136 @@ const KG_CYPHER = {
            node.confidence AS confidence, node.relevanceScore AS relevanceScore,
            node.createdAt AS createdAt, node.lastAccessedAt AS lastAccessedAt,
            score
+  `,
+
+  // --- ABOUT Edge Operations (Entity → Code Node bridge) ---
+
+  /**
+   * Create an ABOUT edge from a knowledge entity to a code graph node.
+   * Uses dynamic label matching with CASE WHEN to support multiple target types.
+   * The $targetLabel param is checked against common code node labels.
+   */
+  CREATE_ABOUT_FUNCTION: `
+    MATCH (e:Entity), (t:Function)
+    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
+    MERGE (e)-[r:ABOUT]->(t)
+    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
+    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
+    RETURN type(r) AS relType
+  `,
+
+  CREATE_ABOUT_CLASS: `
+    MATCH (e:Entity), (t:Class)
+    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
+    MERGE (e)-[r:ABOUT]->(t)
+    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
+    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
+    RETURN type(r) AS relType
+  `,
+
+  CREATE_ABOUT_INTERFACE: `
+    MATCH (e:Entity), (t:Interface)
+    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
+    MERGE (e)-[r:ABOUT]->(t)
+    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
+    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
+    RETURN type(r) AS relType
+  `,
+
+  CREATE_ABOUT_COMPONENT: `
+    MATCH (e:Entity), (t:Component)
+    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
+    MERGE (e)-[r:ABOUT]->(t)
+    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
+    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
+    RETURN type(r) AS relType
+  `,
+
+  CREATE_ABOUT_TYPE: `
+    MATCH (e:Entity), (t:Type)
+    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
+    MERGE (e)-[r:ABOUT]->(t)
+    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
+    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
+    RETURN type(r) AS relType
+  `,
+
+  CREATE_ABOUT_FILE: `
+    MATCH (e:Entity), (t:File)
+    WHERE e.text = $entityText AND e.type = $entityType AND t.path = $targetValue
+    MERGE (e)-[r:ABOUT]->(t)
+    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
+    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
+    RETURN type(r) AS relType
+  `,
+
+  CREATE_ABOUT_VARIABLE: `
+    MATCH (e:Entity), (t:Variable)
+    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
+    MERGE (e)-[r:ABOUT]->(t)
+    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
+    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
+    RETURN type(r) AS relType
+  `,
+
+  /** Get all ABOUT edges for a knowledge entity (entity → code nodes) */
+  GET_ABOUT_FOR_ENTITY: `
+    MATCH (e:Entity)-[r:ABOUT]->(t)
+    WHERE e.text = $entityText AND e.type = $entityType
+    RETURN e.text AS entityText, e.type AS entityType,
+           labels(t)[0] AS targetLabel,
+           CASE
+             WHEN t:File THEN t.path
+             ELSE t.name
+           END AS targetValue,
+           r.confidence AS confidence, r.method AS method,
+           r.created_at AS createdAt
+    ORDER BY r.confidence DESC
+    LIMIT $limit
+  `,
+
+  /** Get all ABOUT edges pointing to a code node (code node ← entities) */
+  GET_ABOUT_FOR_CODE_NODE: `
+    MATCH (e:Entity)-[r:ABOUT]->(t)
+    WHERE labels(t)[0] = $targetLabel
+      AND CASE
+            WHEN $targetLabel = 'File' THEN t.path = $targetValue
+            ELSE t.name = $targetValue
+          END
+    RETURN e.text AS entityText, e.type AS entityType,
+           labels(t)[0] AS targetLabel,
+           CASE
+             WHEN t:File THEN t.path
+             ELSE t.name
+           END AS targetValue,
+           r.confidence AS confidence, r.method AS method,
+           r.created_at AS createdAt
+    ORDER BY r.confidence DESC
+    LIMIT $limit
+  `,
+
+  /** Delete a specific ABOUT edge */
+  DELETE_ABOUT: `
+    MATCH (e:Entity)-[r:ABOUT]->(t)
+    WHERE e.text = $entityText AND e.type = $entityType
+      AND CASE
+            WHEN $targetLabel = 'File' THEN t.path = $targetValue AND t:File
+            WHEN $targetLabel = 'Function' THEN t.name = $targetValue AND t:Function
+            WHEN $targetLabel = 'Class' THEN t.name = $targetValue AND t:Class
+            WHEN $targetLabel = 'Interface' THEN t.name = $targetValue AND t:Interface
+            WHEN $targetLabel = 'Component' THEN t.name = $targetValue AND t:Component
+            WHEN $targetLabel = 'Type' THEN t.name = $targetValue AND t:Type
+            WHEN $targetLabel = 'Variable' THEN t.name = $targetValue AND t:Variable
+            ELSE false
+          END
+    DELETE r
+    RETURN count(r) AS deleted
+  `,
+
+  /** Count all ABOUT edges */
+  COUNT_ABOUT_EDGES: `
+    MATCH (:Entity)-[r:ABOUT]->()
+    RETURN count(r) AS count
   `,
 };
 
@@ -698,6 +891,205 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
       // If vector index doesn't exist or has no data, return empty
       return [];
     }
+  }
+
+  // --- ABOUT Edges (Entity → Code Node bridge) ---
+
+  /** Map of target label → Cypher template for ABOUT edge creation */
+  private static readonly ABOUT_QUERIES: Record<string, string> = {
+    Function: KG_CYPHER.CREATE_ABOUT_FUNCTION,
+    Class: KG_CYPHER.CREATE_ABOUT_CLASS,
+    Interface: KG_CYPHER.CREATE_ABOUT_INTERFACE,
+    Component: KG_CYPHER.CREATE_ABOUT_COMPONENT,
+    Type: KG_CYPHER.CREATE_ABOUT_TYPE,
+    File: KG_CYPHER.CREATE_ABOUT_FILE,
+    Variable: KG_CYPHER.CREATE_ABOUT_VARIABLE,
+  };
+
+  @trace()
+  async createAboutEdge(input: AboutEdgeInput): Promise<boolean> {
+    const cypher = KnowledgeOperationsImpl.ABOUT_QUERIES[input.targetLabel];
+    if (!cypher) {
+      throw new Error(`createAboutEdge: unsupported target label '${input.targetLabel}'. ` +
+        `Supported: ${Object.keys(KnowledgeOperationsImpl.ABOUT_QUERIES).join(', ')}`);
+    }
+
+    const result = await this.client.query<{ relType: string }>(cypher, {
+      params: {
+        entityText: input.entityText,
+        entityType: input.entityType,
+        targetValue: input.targetValue,
+        confidence: input.confidence,
+        method: input.method,
+        createdAt: new Date().toISOString(),
+      },
+    });
+
+    return result.data.length > 0;
+  }
+
+  @trace()
+  async getAboutEdgesForEntity(
+    entityText: string,
+    entityType: string,
+    limit = 50,
+  ): Promise<AboutEdgeResult[]> {
+    const result = await this.client.roQuery<AboutEdgeResult>(
+      KG_CYPHER.GET_ABOUT_FOR_ENTITY,
+      { params: { entityText, entityType, limit } },
+    );
+    return result.data;
+  }
+
+  @trace()
+  async getAboutEdgesForCodeNode(
+    targetLabel: string,
+    targetValue: string,
+    limit = 50,
+  ): Promise<AboutEdgeResult[]> {
+    const result = await this.client.roQuery<AboutEdgeResult>(
+      KG_CYPHER.GET_ABOUT_FOR_CODE_NODE,
+      { params: { targetLabel, targetValue, limit } },
+    );
+    return result.data;
+  }
+
+  @trace()
+  async deleteAboutEdge(
+    entityText: string,
+    entityType: string,
+    targetLabel: string,
+    targetValue: string,
+  ): Promise<boolean> {
+    const result = await this.client.query<{ deleted: number }>(
+      KG_CYPHER.DELETE_ABOUT,
+      { params: { entityText, entityType, targetLabel, targetValue } },
+    );
+    return (result.data[0]?.deleted ?? 0) > 0;
+  }
+
+  @trace()
+  async countAboutEdges(): Promise<number> {
+    const result = await this.client.roQuery<{ count: number }>(
+      KG_CYPHER.COUNT_ABOUT_EDGES,
+      { params: {} },
+    );
+    return result.data[0]?.count ?? 0;
+  }
+
+  // --- Entity Resolution ---
+
+  @trace()
+  async deleteEntity(text: string, type: string): Promise<boolean> {
+    const cypher = `
+      MATCH (e:Entity { text: $text, type: $type })
+      DETACH DELETE e
+      RETURN count(e) AS deleted
+    `;
+    const result = await this.client.query<{ deleted: number }>(cypher, {
+      params: { text, type },
+    });
+    return (result.data[0]?.deleted ?? 0) > 0;
+  }
+
+  @trace()
+  async mergeEntities(
+    canonicalText: string,
+    canonicalType: string,
+    duplicateText: string,
+    duplicateType: string,
+  ): Promise<{ transferredRelationships: number; transferredAboutEdges: number }> {
+    let transferredRelationships = 0;
+    let transferredAboutEdges = 0;
+
+    // 1. Transfer outgoing RELATES_TO edges from duplicate to canonical
+    //    (duplicate)-[r:RELATES_TO]->(other) → (canonical)-[r2:RELATES_TO]->(other)
+    try {
+      const outgoing = await this.client.query<{ count: number }>(`
+        MATCH (dup:Entity { text: $dupText, type: $dupType })-[r:RELATES_TO]->(other:Entity)
+        MATCH (canon:Entity { text: $canonText, type: $canonType })
+        WHERE other.text <> $canonText OR other.type <> $canonType
+        CREATE (canon)-[r2:RELATES_TO {
+          type: r.type,
+          confidence: r.confidence,
+          fact: r.fact,
+          valid_at: r.valid_at,
+          invalid_at: r.invalid_at,
+          created_at: r.created_at,
+          expired_at: r.expired_at,
+          sampleIds: r.sampleIds,
+          properties: r.properties
+        }]->(other)
+        DELETE r
+        RETURN count(r2) AS count
+      `, {
+        params: {
+          dupText: duplicateText, dupType: duplicateType,
+          canonText: canonicalText, canonType: canonicalType,
+        },
+      });
+      transferredRelationships += outgoing.data[0]?.count ?? 0;
+    } catch {
+      // No outgoing rels to transfer — that's fine
+    }
+
+    // 2. Transfer incoming RELATES_TO edges from duplicate to canonical
+    //    (other)-[r:RELATES_TO]->(duplicate) → (other)-[r2:RELATES_TO]->(canonical)
+    try {
+      const incoming = await this.client.query<{ count: number }>(`
+        MATCH (other:Entity)-[r:RELATES_TO]->(dup:Entity { text: $dupText, type: $dupType })
+        MATCH (canon:Entity { text: $canonText, type: $canonType })
+        WHERE other.text <> $canonText OR other.type <> $canonType
+        CREATE (other)-[r2:RELATES_TO {
+          type: r.type,
+          confidence: r.confidence,
+          fact: r.fact,
+          valid_at: r.valid_at,
+          invalid_at: r.invalid_at,
+          created_at: r.created_at,
+          expired_at: r.expired_at,
+          sampleIds: r.sampleIds,
+          properties: r.properties
+        }]->(canon)
+        DELETE r
+        RETURN count(r2) AS count
+      `, {
+        params: {
+          dupText: duplicateText, dupType: duplicateType,
+          canonText: canonicalText, canonType: canonicalType,
+        },
+      });
+      transferredRelationships += incoming.data[0]?.count ?? 0;
+    } catch {
+      // No incoming rels to transfer — that's fine
+    }
+
+    // 3. Transfer ABOUT edges from duplicate to canonical
+    try {
+      const about = await this.client.query<{ count: number }>(`
+        MATCH (dup:Entity { text: $dupText, type: $dupType })-[a:ABOUT]->(target)
+        MATCH (canon:Entity { text: $canonText, type: $canonType })
+        CREATE (canon)-[a2:ABOUT {
+          confidence: a.confidence,
+          method: a.method
+        }]->(target)
+        DELETE a
+        RETURN count(a2) AS count
+      `, {
+        params: {
+          dupText: duplicateText, dupType: duplicateType,
+          canonText: canonicalText, canonType: canonicalType,
+        },
+      });
+      transferredAboutEdges += about.data[0]?.count ?? 0;
+    } catch {
+      // No ABOUT edges to transfer — that's fine
+    }
+
+    // 4. Delete the duplicate entity
+    await this.deleteEntity(duplicateText, duplicateType);
+
+    return { transferredRelationships, transferredAboutEdges };
   }
 
   // --- Cleanup ---

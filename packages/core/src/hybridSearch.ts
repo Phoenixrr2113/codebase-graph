@@ -64,10 +64,14 @@ export interface RelatedHit {
   nodeType: string;
   filePath?: string;
   startLine?: number;
-  /** Edge label (CALLS, IMPORTS, EXTENDS, etc.) */
+  /** Edge label (CALLS, IMPORTS, EXTENDS, ABOUT, etc.) */
   edgeLabel: string;
   /** Direction: "outgoing" (source → related) or "incoming" (related → source) */
   direction: 'outgoing' | 'incoming';
+  /** For ABOUT-linked knowledge entities: entity type */
+  entityType?: string;
+  /** For ABOUT-linked knowledge entities: confidence of the ABOUT link */
+  aboutConfidence?: number;
 }
 
 /** Full hybrid search result */
@@ -83,6 +87,7 @@ export interface HybridSearchResult {
     vectorHits: number;
     textHits: number;
     graphExpanded: number;
+    aboutExpanded: number;
     embeddingAvailable: boolean;
     durationMs: number;
   };
@@ -108,6 +113,8 @@ export interface HybridSearchOptions {
   vectorWeight?: number;
   /** Weight for text match bonus (default: 0.3) */
   textWeight?: number;
+  /** Traverse ABOUT edges to include cross-layer results (default: true) */
+  includeAboutEdges?: boolean;
 }
 
 // ============================================================================
@@ -135,6 +142,7 @@ export async function hybridSearch(
   const maxHops = options.maxHops ?? 1;
   const vectorWeight = options.vectorWeight ?? 0.7;
   const textWeight = options.textWeight ?? 0.3;
+  const includeAbout = options.includeAboutEdges ?? true;
 
   const ops = createOperations(client);
 
@@ -313,10 +321,73 @@ export async function hybridSearch(
     }
   }
 
+  // ----------------------------------------------------------------
+  // Step 6: ABOUT edge traversal (cross-layer links)
+  // ----------------------------------------------------------------
+  let aboutExpanded = 0;
+
+  if (includeAbout && allHits.length > 0) {
+    const kgOps = createKnowledgeOperations(client);
+
+    // For code nodes: find knowledge entities linked via ABOUT
+    const codeHitsForAbout = allHits
+      .filter((h) => h.nodeType !== 'Entity' && h.name)
+      .slice(0, 10);
+
+    for (const hit of codeHitsForAbout) {
+      try {
+        const aboutEdges = await kgOps.getAboutEdgesForCodeNode(
+          hit.nodeType, hit.name, 5,
+        );
+        for (const edge of aboutEdges) {
+          related.push({
+            sourceKey: hit.key,
+            name: edge.entityText,
+            nodeType: 'Entity',
+            edgeLabel: 'ABOUT',
+            direction: 'incoming',
+            entityType: edge.entityType,
+            aboutConfidence: edge.confidence,
+          });
+          aboutExpanded++;
+        }
+      } catch {
+        // ABOUT traversal failures are non-fatal
+      }
+    }
+
+    // For knowledge entities: find code nodes linked via ABOUT
+    const entityHits = allHits
+      .filter((h) => h.nodeType === 'Entity')
+      .slice(0, 10);
+
+    for (const hit of entityHits) {
+      try {
+        const entityType = (hit.properties.type as string) ?? '';
+        const aboutEdges = await kgOps.getAboutEdgesForEntity(
+          hit.name, entityType, 5,
+        );
+        for (const edge of aboutEdges) {
+          related.push({
+            sourceKey: hit.key,
+            name: edge.targetValue,
+            nodeType: edge.targetLabel,
+            edgeLabel: 'ABOUT',
+            direction: 'outgoing',
+            aboutConfidence: edge.confidence,
+          });
+          aboutExpanded++;
+        }
+      } catch {
+        // ABOUT traversal failures are non-fatal
+      }
+    }
+  }
+
   const durationMs = Date.now() - startTime;
   logger.info(
     `Hybrid search "${query}": ${allHits.length} hits ` +
-    `(${vectorHitCount} vector, ${textHitCount} text, ${graphExpanded} graph) in ${durationMs}ms`,
+    `(${vectorHitCount} vector, ${textHitCount} text, ${graphExpanded} graph, ${aboutExpanded} about) in ${durationMs}ms`,
   );
 
   return {
@@ -328,6 +399,7 @@ export async function hybridSearch(
       vectorHits: vectorHitCount,
       textHits: textHitCount,
       graphExpanded,
+      aboutExpanded,
       embeddingAvailable,
       durationMs,
     },

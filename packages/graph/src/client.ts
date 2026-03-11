@@ -172,7 +172,8 @@ class GraphClientImpl implements GraphClient {
       this.schemaCreated = true;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (!errorMessage.includes('Index already exists')) {
+      // FalkorDB says "already indexed", Kuzu says "Index already exists"
+      if (!errorMessage.includes('Index already exists') && !errorMessage.includes('already indexed')) {
         throw new GraphClientError(`Index creation failed: ${errorMessage}`, 'INDEX_FAILED');
       }
       this.schemaCreated = true;

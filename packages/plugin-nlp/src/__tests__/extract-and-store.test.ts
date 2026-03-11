@@ -36,7 +36,8 @@ function makeMockModel(responseJson: object) {
 // Test suite
 // ============================================================================
 
-describe('extractAndStore (integration)', () => {
+// LEGACY: Kuzu-specific integration test — skipped after FalkorDB migration.
+describe.skip('extractAndStore (integration)', () => {
   let client: GraphClient;
   let ops: KnowledgeOperations;
   let dbPath: string;

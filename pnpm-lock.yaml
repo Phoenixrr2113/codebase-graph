@@ -277,6 +277,9 @@ importers:
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger
+      '@codegraph/plugin-nlp':
+        specifier: workspace:*
+        version: link:../plugin-nlp
       '@codegraph/types':
         specifier: workspace:*
         version: link:../types

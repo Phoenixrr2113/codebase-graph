@@ -1,11 +1,13 @@
 /**
- * Hybrid Search — Integration Tests
+ * Hybrid Search — FalkorDB Integration Tests
  *
- * Tests the hybrid search orchestration against a real Kuzu database.
+ * Tests the hybrid search orchestration against a real FalkorDB Docker instance.
  * Acceptance criteria:
  *   1. Hybrid search finds results from both code and knowledge graphs
  *   2. Graph traversal expands results with related nodes
  *   3. Falls back to text-only search when no embeddings exist
+ *
+ * Prerequisites: docker compose up -d falkordb
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -16,12 +18,7 @@ import {
   type GraphOperations,
   createKnowledgeOperations,
   type KnowledgeOperations,
-  ALL_DDL,
-  VECTOR_INDEX_STMTS,
 } from '@codegraph/graph';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 // Mock the plugin-nlp embedding functions
 vi.mock('@codegraph/plugin-nlp', () => ({
@@ -37,6 +34,7 @@ import { hybridSearch } from '../hybridSearch';
 // ============================================================================
 
 const DIM = 768;
+const GRAPH_NAME = `test_hybrid_${Date.now()}`;
 
 /** Create a synthetic vector with weight on specific dimensions */
 function makeVec(weights: Record<number, number>): number[] {
@@ -57,32 +55,31 @@ const ENTITY_VEC = makeVec({ 0: 0.8, 1: 0.0, 2: 0.2 });
 // Tests
 // ============================================================================
 
-// LEGACY: Kuzu-specific — FalkorDB coverage in falkordb-hybridSearch.test.ts
-describe.skip('Hybrid Search (Kuzu)', () => {
+describe('Hybrid Search (FalkorDB)', () => {
   let client: GraphClient;
   let ops: GraphOperations;
   let kgOps: KnowledgeOperations;
-  let parentDir: string;
 
   beforeAll(async () => {
-    parentDir = mkdtempSync(join(tmpdir(), 'codegraph-hybrid-test-'));
-    const dbPath = join(parentDir, 'kuzu-db');
-
-    client = await createClient({
-      driver: 'kuzu',
-      databasePath: dbPath,
-      graphName: 'test',
-    });
-
-    // Step 1: Create tables (no vector indexes yet — allows SET on embedding)
-    for (const ddl of ALL_DDL) {
-      try { await client.query(ddl); } catch { /* skip existing */ }
+    try {
+      client = await createClient({
+        driver: 'falkordb',
+        host: 'localhost',
+        port: 6379,
+        graphName: GRAPH_NAME,
+      });
+    } catch (error) {
+      console.error('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      throw error;
     }
+
+    // Ensure indexes (vector, range, fulltext) — FalkorDB creates indexes eagerly
+    await client.ensureIndexes();
 
     ops = createOperations(client);
     kgOps = createKnowledgeOperations(client);
 
-    // Step 2: Populate code graph
+    // Populate code graph
     const filePath = '/src/payments.ts';
     const helperPath = '/src/helpers.ts';
 
@@ -118,7 +115,7 @@ describe.skip('Hybrid Search (Kuzu)', () => {
     await ops.createCallEdge('processPayment', filePath, 'formatCurrency', helperPath, 7);
     await ops.createImportsEdge(filePath, helperPath, ['formatCurrency']);
 
-    // Set embeddings on code nodes
+    // Set embeddings on code nodes (uses vecf32() internally)
     await ops.updateEmbedding(
       'Function', { name: 'processPayment', filePath, startLine: 1 },
       PAYMENT_VEC, 'hash-payment',
@@ -132,23 +129,43 @@ describe.skip('Hybrid Search (Kuzu)', () => {
       CHART_VEC, 'hash-chart',
     );
 
-    // Step 3: Populate knowledge graph
+    // Populate knowledge graph
     await kgOps.createEntity({
       text: 'Payment Gateway Integration',
       type: 'Decision',
       confidence: 0.95,
       embedding: ENTITY_VEC,
     });
+    await kgOps.createEntity({
+      text: 'Race condition in payment flow',
+      type: 'Bug',
+      confidence: 0.9,
+    });
 
-    // Step 4: Create vector indexes AFTER data is populated
-    for (const stmt of VECTOR_INDEX_STMTS) {
-      try { await client.query(stmt); } catch { /* skip existing */ }
-    }
-  }, 30000);
+    // Create ABOUT edges (bridge knowledge → code)
+    await kgOps.createAboutEdge({
+      entityText: 'Payment Gateway Integration',
+      entityType: 'Decision',
+      targetLabel: 'Function',
+      targetKey: 'name',
+      targetValue: 'processPayment',
+      confidence: 0.95,
+      method: 'exact_match',
+    });
+    await kgOps.createAboutEdge({
+      entityText: 'Race condition in payment flow',
+      entityType: 'Bug',
+      targetLabel: 'Function',
+      targetKey: 'name',
+      targetValue: 'processPayment',
+      confidence: 0.85,
+      method: 'embedding_similarity',
+    });
+  }, 30_000);
 
   afterAll(async () => {
-    try { await client.close(); } catch { /* Kuzu SIGSEGV on close — ignore */ }
-    try { rmSync(parentDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try { await client.query('MATCH (n) DETACH DELETE n', { params: {} }); } catch { /* best effort */ }
+    try { await client.close(); } catch { /* best effort */ }
   });
 
   // --------------------------------------------------------------------------
@@ -303,5 +320,85 @@ describe.skip('Hybrid Search (Kuzu)', () => {
     // The deduplicated hit should have both sources
     expect(paymentHits[0]!.sources).toContain('vector');
     expect(paymentHits[0]!.sources).toContain('text');
+  });
+
+  // --------------------------------------------------------------------------
+  // Test: ABOUT edge traversal (knowledge ↔ code bridge)
+  // --------------------------------------------------------------------------
+
+  it('ABOUT traversal attaches knowledge entities to code node hits', async () => {
+    vi.mocked(isEmbeddingAvailable).mockReturnValue(false);
+
+    const result = await hybridSearch('processPayment', client, {
+      includeKnowledge: false,
+      expandGraph: false,
+      includeAboutEdges: true,
+    });
+
+    // processPayment should be found via text
+    const paymentHit = result.hits.find(h => h.name === 'processPayment');
+    expect(paymentHit).toBeDefined();
+
+    // ABOUT traversal should find related knowledge entities
+    expect(result.meta.aboutExpanded).toBeGreaterThan(0);
+
+    const aboutRelated = result.related.filter(
+      (r) => r.edgeLabel === 'ABOUT' && r.sourceKey === paymentHit!.key,
+    );
+    expect(aboutRelated.length).toBeGreaterThanOrEqual(2);
+
+    // Should find the Decision entity
+    const decision = aboutRelated.find(r => r.name === 'Payment Gateway Integration');
+    expect(decision).toBeDefined();
+    expect(decision!.nodeType).toBe('Entity');
+    expect(decision!.entityType).toBe('Decision');
+    expect(decision!.aboutConfidence).toBeGreaterThanOrEqual(0.9);
+    expect(decision!.direction).toBe('incoming');
+
+    // Should find the Bug entity
+    const bug = aboutRelated.find(r => r.name === 'Race condition in payment flow');
+    expect(bug).toBeDefined();
+    expect(bug!.entityType).toBe('Bug');
+  });
+
+  it('ABOUT traversal attaches code nodes to knowledge entity hits', async () => {
+    vi.mocked(isEmbeddingAvailable).mockReturnValue(false);
+
+    const result = await hybridSearch('Payment', client, {
+      includeKnowledge: true,
+      expandGraph: false,
+      includeAboutEdges: true,
+    });
+
+    // Knowledge entity should be found via text search
+    const entityHit = result.hits.find(
+      (h) => h.nodeType === 'Entity' && h.name.includes('Payment Gateway'),
+    );
+    expect(entityHit).toBeDefined();
+
+    // ABOUT traversal should find the linked code node
+    const aboutRelated = result.related.filter(
+      (r) => r.edgeLabel === 'ABOUT' && r.sourceKey === entityHit!.key,
+    );
+    expect(aboutRelated.length).toBeGreaterThanOrEqual(1);
+
+    const codeNode = aboutRelated.find(r => r.name === 'processPayment');
+    expect(codeNode).toBeDefined();
+    expect(codeNode!.nodeType).toBe('Function');
+    expect(codeNode!.direction).toBe('outgoing');
+  });
+
+  it('includeAboutEdges=false disables ABOUT traversal', async () => {
+    vi.mocked(isEmbeddingAvailable).mockReturnValue(false);
+
+    const result = await hybridSearch('processPayment', client, {
+      includeKnowledge: false,
+      expandGraph: false,
+      includeAboutEdges: false,
+    });
+
+    expect(result.meta.aboutExpanded).toBe(0);
+    const aboutRelated = result.related.filter(r => r.edgeLabel === 'ABOUT');
+    expect(aboutRelated).toHaveLength(0);
   });
 });

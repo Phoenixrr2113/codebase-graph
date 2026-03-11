@@ -13,7 +13,7 @@ async function main(): Promise<void> {
   const server = createMCPServer();
 
   // Handle graceful shutdown — close graph client before server
-  // to avoid Kuzu SIGSEGV from dangling native handles (kuzudb/kuzu#5316)
+  // to ensure clean database disconnection (FalkorDB / FalkorDBLite / legacy Kuzu)
   process.on('SIGINT', async () => {
     logger.info('Received SIGINT, shutting down...');
     await closeGraphClient();

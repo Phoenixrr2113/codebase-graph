@@ -97,7 +97,8 @@ namespace MyApp.Services
 // Python Tests
 // ============================================================================
 
-describe('E2E Multi-Language: Python indexing', () => {
+// LEGACY: Kuzu-specific E2E tests — skipped after FalkorDB migration.
+describe.skip('E2E Multi-Language: Python indexing', () => {
   let pyClient: GraphClient;
   let pyProjectDir: string;
   let pyDbPath: string;
@@ -201,7 +202,8 @@ describe('E2E Multi-Language: Python indexing', () => {
 // C# Tests
 // ============================================================================
 
-describe('E2E Multi-Language: C# indexing', () => {
+// LEGACY: Kuzu-specific
+describe.skip('E2E Multi-Language: C# indexing', () => {
   let csClient: GraphClient;
   let csProjectDir: string;
   let csDbPath: string;

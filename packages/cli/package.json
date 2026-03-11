@@ -26,6 +26,7 @@
     "@codegraph/core": "workspace:*",
     "@codegraph/graph": "workspace:*",
     "@codegraph/logger": "workspace:*",
+    "@codegraph/plugin-nlp": "workspace:*",
     "@codegraph/types": "workspace:*",
     "commander": "^12.1.0",
     "glob": "^10.3.10"

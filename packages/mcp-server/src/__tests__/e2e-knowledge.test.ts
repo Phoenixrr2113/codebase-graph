@@ -2,7 +2,7 @@
  * C1 — End-to-End Knowledge Graph Validation
  *
  * Validates the full pipeline across all three layers:
- *   Text → NLP Extraction (MockLLM) → Knowledge Graph (Kuzu) → MCP Tool Retrieval
+ *   Text → NLP Extraction (MockLLM) → Knowledge Graph (FalkorDB) → MCP Tool Retrieval
  *
  * Unlike the unit tests in knowledge.test.ts (which test individual tools),
  * this test exercises the complete lifecycle:

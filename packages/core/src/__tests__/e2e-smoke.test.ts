@@ -112,7 +112,8 @@ afterAll(() => {
 // Tests
 // ============================================================================
 
-describe('E2E Smoke Test: parser + Kuzu + indexer + queries', () => {
+// LEGACY: Kuzu-specific E2E test — skipped after FalkorDB migration.
+describe.skip('E2E Smoke Test: parser + Kuzu + indexer + queries', () => {
   // ==========================================================================
   // Indexing
   // ==========================================================================

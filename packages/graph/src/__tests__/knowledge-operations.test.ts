@@ -11,7 +11,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-describe('Knowledge Graph Operations (Kuzu)', () => {
+// Skip: knowledge-operations.ts now uses FalkorDB-native Cypher (vecf32).
+// These Kuzu tests are kept for reference but skipped in CI.
+// See about-edges.test.ts and falkordblite.test.ts for active coverage.
+describe.skip('Knowledge Graph Operations (Kuzu — LEGACY)', () => {
   let client: GraphClient;
   let ops: KnowledgeOperations;
   let dbPath: string;

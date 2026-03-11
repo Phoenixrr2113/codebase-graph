@@ -160,6 +160,51 @@ export class EntityExtractor {
     }
   }
 
+  /**
+   * Context-aware extraction — extract entities only from the current text,
+   * using prior messages/context to resolve pronouns and references.
+   *
+   * Example: if context says "Sarah: I'll refactor the payment module" and
+   * current text says "Bob: She should also fix the retry logic", the extractor
+   * can resolve "She" → "Sarah" from context.
+   *
+   * @param sample  - Sample with the CURRENT text to extract from
+   * @param context - Prior messages/context for reference resolution
+   * @returns AnnotatedSample with entities extracted from current text only
+   */
+  async extractWithContext(
+    sample: Sample,
+    context: string,
+  ): Promise<AnnotatedSample> {
+    logger.debug(`extractWithContext: sample=${sample.id}, contextLen=${context.length}`);
+
+    const prompt = this.buildContextPrompt(sample.text, context);
+
+    try {
+      const { text } = await generateText({
+        model: this.model,
+        prompt,
+        temperature: this.config.temperature,
+      });
+
+      logger.debug(`LLM response (context): ${text.slice(0, 500)}`);
+
+      const { entities, relationships } = this.parseResponse(text, sample.text);
+
+      return {
+        ...sample,
+        entities,
+        relationships,
+        annotatedBy: 'auto',
+        annotatedAt: new Date().toISOString(),
+        modelVersion: this.config.model,
+      };
+    } catch (error) {
+      logger.error('extractWithContext failed', error);
+      throw error;
+    }
+  }
+
   async extractBatch(samples: Sample[]): Promise<AnnotatedSample[]> {
     logger.debug(`extractBatch: ${samples.length} samples`);
 
@@ -273,6 +318,49 @@ Label the following text using the same format as the examples above.
 }
 
 Respond with valid JSON only.`;
+  }
+
+  private buildContextPrompt(text: string, context: string): string {
+    return `You are an expert at extracting structured knowledge from natural language text.
+
+IMPORTANT: Extract entities and relationships ONLY from the CURRENT MESSAGE below.
+Use the CONTEXT (prior messages) to resolve pronouns, references, and abbreviations,
+but do NOT extract entities from the context messages themselves.
+
+For example, if context says "Sarah: I'll handle the payment module" and the current
+message says "Bob: She should also fix the retry logic", you should:
+- Extract "Sarah" (resolved from "She" using context) as a Person entity
+- Extract "retry logic" as a CodeEntity
+- Do NOT extract "payment module" (that was in context, not current message)
+
+## Entity Types
+${ENTITY_TYPES.join(', ')}
+
+## Relationship Types
+${RELATIONSHIP_TYPES.join(', ')}
+
+## Context (prior messages — for reference only, do NOT extract from these):
+${context}
+
+## CURRENT MESSAGE (extract from this only):
+"${text}"
+
+## Output Format
+Return a JSON object:
+{
+  "entities": [
+    { "text": "<exact text from CURRENT MESSAGE>", "type": "<EntityType>" }
+  ],
+  "relationships": [
+    { "headText": "<entity text>", "tailText": "<entity text>", "type": "<RelationshipType>" }
+  ]
+}
+
+Extract all relevant entities and relationships from the CURRENT MESSAGE.
+Use context to resolve pronouns (he/she/they/it) to actual names.
+Focus on concrete entities like people, projects, decisions, goals, problems, etc.
+
+Respond with valid JSON only, no explanation.`;
   }
 
   private buildPrompt(text: string): string {

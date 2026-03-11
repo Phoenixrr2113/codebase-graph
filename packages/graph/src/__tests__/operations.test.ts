@@ -106,7 +106,10 @@ function makeComponent(overrides?: Partial<ComponentEntity>): ComponentEntity {
 // Tests
 // ============================================================================
 
-describe('Graph CRUD Operations (Kuzu)', () => {
+// Skip: operations.ts CRUD queries work on both Kuzu and FalkorDB, but the Kuzu
+// test setup (ALL_DDL, VECTOR_INDEX_STMTS, temp dir) is legacy. Active coverage is
+// via falkordblite.test.ts and about-edges.test.ts against FalkorDB.
+describe.skip('Graph CRUD Operations (Kuzu — LEGACY)', () => {
   let client: GraphClient;
   let ops: GraphOperations;
   let dbPath: string;
@@ -648,7 +651,7 @@ describe('Graph CRUD Operations (Kuzu)', () => {
 //   3. create vector indexes
 // ============================================================================
 
-describe('Vector Search (Kuzu)', () => {
+describe.skip('Vector Search (Kuzu — LEGACY)', () => {
   let client: GraphClient;
   let ops: GraphOperations;
   let parentDir: string;

@@ -234,6 +234,30 @@ export interface LinksToEdge extends BaseEdge {
 }
 
 // ============================================================================
+// Bridge Edges (Knowledge Graph ↔ Code Graph)
+// ============================================================================
+
+/**
+ * ABOUT — connects a knowledge entity to a code graph node.
+ * Bridges the knowledge graph layer (entities from conversations, decisions,
+ * bug reports) to the code graph layer (functions, classes, files, etc.).
+ *
+ * Created via:
+ *   - Name matching: entity text matches a known symbol name
+ *   - Embedding similarity: entity embedding close to code node embedding
+ *   - LLM verification: borderline matches confirmed by LLM
+ */
+export interface AboutEdge extends BaseEdge {
+  type: 'ABOUT';
+  /** Match confidence (1.0 = exact name, 0.7+ = embedding, 0.9+ = LLM-verified) */
+  confidence: number;
+  /** How the link was created */
+  method: 'exact_match' | 'embedding_similarity' | 'llm_verified' | 'manual';
+  /** ISO timestamp when the link was created */
+  createdAt?: string;
+}
+
+// ============================================================================
 // Union Types
 // ============================================================================
 
@@ -263,7 +287,8 @@ export type Edge =
   | HasSectionEdge
   | ParentSectionEdge
   | ContainsCodeEdge
-  | LinksToEdge;
+  | LinksToEdge
+  | AboutEdge;
 
 /** Edge label types matching FalkorDB schema */
 export type EdgeLabel =
@@ -291,4 +316,5 @@ export type EdgeLabel =
   | 'HAS_SECTION'
   | 'PARENT_SECTION'
   | 'CONTAINS_CODE'
-  | 'LINKS_TO';
+  | 'LINKS_TO'
+  | 'ABOUT';

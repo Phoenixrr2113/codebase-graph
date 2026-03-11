@@ -1,7 +1,7 @@
 /**
  * Knowledge Graph MCP Tool Tests
  *
- * Tests the 7 knowledge graph tools against a real Kuzu instance:
+ * Tests the 7 knowledge graph tools against a real graph database (FalkorDB by default):
  * - store_entity, store_relationship, query_knowledge, recall
  * - decay_and_prune, get_knowledge_stats
  * - store_fact is tested separately (requires LLM / OpenRouter key)
@@ -226,7 +226,7 @@ describe('get_knowledge_stats', () => {
     assertNoError(result, 'get_knowledge_stats');
     expect(result.totalEntities).toBeGreaterThan(0);
     expect(typeof result.avgRelevance).toBe('number');
-    // Kuzu returns INT64 as bigint, so accept both number and bigint
+    // FalkorDB returns number, legacy Kuzu may return bigint — accept both
     expect(['number', 'bigint']).toContain(typeof result.lowRelevanceCount);
   });
 });

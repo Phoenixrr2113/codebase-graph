@@ -81,7 +81,9 @@ function makeInterface(overrides?: Partial<InterfaceEntity>): InterfaceEntity {
 // Tests
 // ============================================================================
 
-describe('Graph Query Operations (Kuzu)', () => {
+// LEGACY: Kuzu-specific tests — skipped after FalkorDB migration.
+// FalkorDB coverage in about-edges.test.ts + falkordblite.test.ts.
+describe.skip('Graph Query Operations (Kuzu)', () => {
   let client: GraphClient;
   let ops: GraphOperations;
   let queries: GraphQueries;

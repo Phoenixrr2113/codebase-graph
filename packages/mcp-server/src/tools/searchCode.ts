@@ -2,8 +2,12 @@
  * MCP Tool: search_code
  *
  * Search for code by name, pattern, or semantic meaning.
- * Uses hybrid search (vector + text + graph) when embeddings are available,
- * falls back to text-only search otherwise.
+ * Uses hybrid search (vector + text + graph + knowledge) when embeddings
+ * are available, falls back to text-only search otherwise.
+ *
+ * Cross-layer support: traverses ABOUT edges to bridge code ↔ knowledge
+ * graph layers. When a code hit has linked knowledge entities (bugs,
+ * decisions, concepts), they appear in the `related` array with edge="ABOUT".
  */
 
 import { codeGraphService, getGraphClient, hybridSearch } from '@codegraph/core';
@@ -28,7 +32,7 @@ export interface SearchResult {
   sources?: string[];
 }
 
-// Related result from graph traversal
+// Related result from graph or ABOUT traversal
 export interface RelatedResult {
   name: string;
   kind: string;
@@ -36,6 +40,10 @@ export interface RelatedResult {
   edge: string;
   direction: string;
   sourceHit: string;
+  /** For ABOUT-linked knowledge entities: entity type (Bug, Decision, etc.) */
+  entityType?: string;
+  /** For ABOUT-linked knowledge entities: confidence of the ABOUT link */
+  aboutConfidence?: number;
 }
 
 // Output type
@@ -47,6 +55,7 @@ export interface SearchCodeOutput {
     vectorHits: number;
     textHits: number;
     graphExpanded: number;
+    aboutExpanded: number;
     embeddingAvailable: boolean;
     durationMs: number;
   };
@@ -58,8 +67,9 @@ export const searchCodeToolDefinition: ToolDefinition = {
   name: 'search_code',
   description:
     'Search for code by name, pattern, or semantic meaning. ' +
-    'Uses hybrid search (vector similarity + text matching + graph traversal) ' +
-    'to find functions, classes, interfaces, and other code symbols.',
+    'Uses hybrid search (vector similarity + text matching + graph traversal + knowledge graph) ' +
+    'to find functions, classes, interfaces, and other code symbols. ' +
+    'Related results may include linked knowledge entities (bugs, decisions, concepts) via ABOUT edges.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -125,9 +135,10 @@ async function hybridSearchCode(input: SearchCodeInput): Promise<SearchCodeOutpu
 
   const opts: Parameters<typeof hybridSearch>[2] = {
     limit: 30,
-    includeKnowledge: false, // search_code focuses on code nodes
+    includeKnowledge: true,    // include knowledge entities in results
     expandGraph: true,
     maxHops: 1,
+    includeAboutEdges: true,   // traverse ABOUT edges (code ↔ knowledge)
   };
   if (scope) opts.scope = scope;
 
@@ -153,6 +164,7 @@ async function hybridSearchCode(input: SearchCodeInput): Promise<SearchCodeOutpu
       vectorHits: result.meta.vectorHits,
       textHits: result.meta.textHits,
       graphExpanded: result.meta.graphExpanded,
+      aboutExpanded: result.meta.aboutExpanded,
       embeddingAvailable: result.meta.embeddingAvailable,
       durationMs: result.meta.durationMs,
     },
@@ -168,6 +180,8 @@ async function hybridSearchCode(input: SearchCodeInput): Promise<SearchCodeOutpu
         sourceHit: r.sourceKey,
       };
       if (r.filePath != null) rel.file = r.filePath;
+      if (r.entityType != null) rel.entityType = r.entityType;
+      if (r.aboutConfidence != null) rel.aboutConfidence = r.aboutConfidence;
       return rel;
     });
   }

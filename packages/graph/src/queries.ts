@@ -538,6 +538,7 @@ class GraphQueriesImpl implements GraphQueries {
       PARENT_SECTION: 0,
       CONTAINS_CODE: 0,
       LINKS_TO: 0,
+      ABOUT: 0,
     };
 
     let totalEdges = 0;
