@@ -19,26 +19,13 @@ export const searchCommand = new Command('search')
     try {
       const limit = parseInt(options.limit);
 
-      // Map CLI type filter to service type (service supports single type or 'all')
-      let type: 'all' | 'file' | 'function' | 'class' | 'interface' | 'component' = 'all';
-      if (options.type) {
-        const types = options.type.split(',') as string[];
-        if (types.length === 1) {
-          type = types[0]!.toLowerCase() as typeof type;
-        }
-        // Multiple types: use 'all' and filter client-side
-      }
+      // Use multi-type support in core: pass types array directly
+      const types = options.type
+        ? (options.type.split(',') as string[]).map((t: string) => t.trim())
+        : undefined;
 
-      const result = await codeGraphService.search(query, { type, limit });
-
-      // If multiple types requested, filter client-side
-      let filtered = result.results;
-      if (options.type) {
-        const requestedTypes = (options.type.split(',') as string[]).map((t: string) => t.toLowerCase());
-        if (requestedTypes.length > 1) {
-          filtered = filtered.filter(r => requestedTypes.includes(r.type.toLowerCase()));
-        }
-      }
+      const result = await codeGraphService.search(query, types ? { types, limit } : { limit });
+      const filtered = result.results;
 
       if (options.json) {
         console.log(JSON.stringify(filtered, null, 2));

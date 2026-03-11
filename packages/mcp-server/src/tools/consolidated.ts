@@ -65,12 +65,11 @@ import { knowledgeToolDefinitions, knowledgeHandlers } from './knowledge';
 
 // Infrastructure
 import {
-  getShortSchema, getGraphClient, needsSetup,
+  getShortSchema, needsSetup,
   getActiveProjectPaths, updateLastUsed, isStale, indexProject,
+  codeGraphService, readSourceFile,
 } from '@codegraph/core';
-import { buildFileTree, getIndexSummary } from '@codegraph/graph';
 import { createLogger } from '@codegraph/logger';
-import { readFile } from 'node:fs/promises';
 
 const logger = createLogger({ namespace: 'MCP:Tools' });
 
@@ -154,14 +153,13 @@ Before using search/get_context, please run:
 `;
   } else {
     try {
-      const client = await getGraphClient();
       const activePaths = await getActiveProjectPaths();
 
       // Build file tree scoped to active projects
       const rootPath = activePaths.length === 1 ? activePaths[0] : undefined;
       const fileTreeOptions = rootPath ? { maxDepth: 3, rootPath } : { maxDepth: 3 };
-      const fileTree = await buildFileTree(client, fileTreeOptions);
-      const summary = await getIndexSummary(client);
+      const fileTree = await codeGraphService.buildFileTree(fileTreeOptions);
+      const summary = await codeGraphService.getIndexSummary();
       const schema = getShortSchema();
 
       const projectInfo = activePaths.length > 0
@@ -388,45 +386,16 @@ const handlers: Record<string, ToolHandler> = {
     return getIndexStatus(input);
   },
 
-  get_stats: async (args) => {
+  get_stats: async () => {
     try {
-      const client = await getGraphClient();
-      const dialect = client.dialect;
-      const projectPath = args.projectPath as string | undefined;
-      const pathFilter = projectPath ? `WHERE n.filePath STARTS WITH '${projectPath}'` : '';
-      const filePathFilter = projectPath ? `WHERE f.path STARTS WITH '${projectPath}'` : '';
-
-      // Parallel queries for stats
-      const [
-        nodesByType,
-        edgesByType,
-        largestFiles,
-        mostConnected,
-      ] = await Promise.all([
-        client.roQuery<{ label: string; count: number }>(
-          `MATCH (n) ${pathFilter} RETURN ${dialect.firstLabelExpr('n')} as label, count(n) as count ORDER BY count DESC`
-        ),
-        client.roQuery<{ type: string; count: number }>(
-          `MATCH ()-[r]->() RETURN ${dialect.typeExpr('r')} as type, count(r) as count ORDER BY count DESC`
-        ),
-        client.roQuery<{ path: string; entities: number }>(
-          `MATCH (f:File) ${filePathFilter} OPTIONAL MATCH (f)-[:CONTAINS]->(e) RETURN f.path as path, count(e) as entities ORDER BY entities DESC LIMIT 10`
-        ),
-        client.roQuery<{ name: string; file: string; connections: number }>(
-          'MATCH (n)-[r]-() WHERE n.name IS NOT NULL RETURN n.name as name, n.filePath as file, count(r) as connections ORDER BY connections DESC LIMIT 10'
-        ),
-      ]);
-
-      const totalNodes = nodesByType.data.reduce((sum, r) => sum + (r.count ?? 0), 0);
-      const totalEdges = edgesByType.data.reduce((sum, r) => sum + (r.count ?? 0), 0);
-
+      const stats = await codeGraphService.getGraphStats();
       return {
-        totalNodes,
-        totalEdges,
-        nodesByType: Object.fromEntries(nodesByType.data.map(r => [r.label, r.count])),
-        edgesByType: Object.fromEntries(edgesByType.data.map(r => [r.type, r.count])),
-        largestFiles: largestFiles.data.map(r => ({ path: r.path, entities: r.entities })),
-        mostConnected: mostConnected.data.map(r => ({ name: r.name, file: r.file, connections: r.connections })),
+        totalNodes: stats.totalNodes,
+        totalEdges: stats.totalEdges,
+        nodesByType: stats.nodesByType,
+        edgesByType: stats.edgesByType,
+        largestFiles: stats.largestFiles,
+        mostConnected: stats.mostConnected,
       };
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'Unknown error getting stats' };
@@ -438,26 +407,25 @@ const handlers: Record<string, ToolHandler> = {
       const filePath = args.path as string;
       if (!filePath) return { error: 'File path is required' };
 
-      // Security: reject paths that try to escape
-      if (filePath.includes('..')) return { error: 'Path traversal not allowed' };
+      const result = await readSourceFile(filePath, {
+        startLine: (args.startLine as number) || undefined,
+        endLine: (args.endLine as number) || undefined,
+      });
 
-      const content = await readFile(filePath, 'utf-8');
-      const allLines = content.split('\n');
+      // Build numbered lines for backward compat
+      const rawLines = result.content.split('\n');
       const startLine = (args.startLine as number) || 1;
-      const endLine = (args.endLine as number) || allLines.length;
-
-      const lines = allLines.slice(startLine - 1, endLine);
-      const numbered = lines.map((line, i) => ({
+      const numbered = rawLines.map((line, i) => ({
         line: startLine + i,
         content: line,
       }));
 
       return {
-        path: filePath,
+        path: result.path,
         startLine,
-        endLine: Math.min(endLine, allLines.length),
-        totalLines: allLines.length,
-        content: lines.join('\n'),
+        endLine: startLine + rawLines.length - 1,
+        totalLines: result.totalLines,
+        content: result.content,
         lines: numbered,
       };
     } catch (error) {

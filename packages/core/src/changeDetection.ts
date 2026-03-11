@@ -1,7 +1,6 @@
 /**
  * Change Detection Service
  * Content-hash based change detection with rename support
- * Based on CodeGraph v2 Specification
  */
 
 import { createHash } from 'node:crypto';
@@ -9,7 +8,7 @@ import { readFile } from 'node:fs/promises';
 import fastGlob from 'fast-glob';
 import { createLogger, traced } from '@codegraph/logger';
 
-const logger = createLogger({ namespace: 'API:ChangeDetection' });
+const logger = createLogger({ namespace: 'core:ChangeDetection' });
 
 // ============================================================================
 // Types

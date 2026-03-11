@@ -1,25 +1,15 @@
 /**
  * Git Service Tests
+ * Tests core's getRepoInfo and syncGitHistory (formerly API's gitService)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { extractGitHistory, getRepoInfo } from '../services/gitService';
+import { getRepoInfo, syncGitHistory, type GitSyncOptions } from '@codegraph/core';
+import type { GraphClient } from '@codegraph/graph';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-// Mock the graph client to avoid actual database calls
-vi.mock('@codegraph/graph', () => ({
-  createClient: vi.fn().mockResolvedValue({
-    roQuery: vi.fn().mockResolvedValue({ data: [] }),
-    query: vi.fn().mockResolvedValue({}),
-  }),
-  createOperations: vi.fn().mockReturnValue({
-    upsertCommit: vi.fn().mockResolvedValue(undefined),
-    createModifiedInEdge: vi.fn().mockResolvedValue(undefined),
-  }),
-}));
-
-describe('gitService', () => {
+describe('gitService (via @codegraph/core)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -42,35 +32,42 @@ describe('gitService', () => {
     });
   });
 
-  describe('extractGitHistory', () => {
+  describe('syncGitHistory', () => {
+    function createMockClient(): GraphClient {
+      return {
+        roQuery: vi.fn().mockResolvedValue({ data: [] }),
+        query: vi.fn().mockResolvedValue({}),
+      } as unknown as GraphClient;
+    }
+
     it('should return error for non-git directory', async () => {
-      const result = await extractGitHistory(os.tmpdir());
-      
+      const client = createMockClient();
+      const result = await syncGitHistory(os.tmpdir(), client);
+
       expect(result.commitsProcessed).toBe(0);
-      expect(result.errors).toContain('Not a git repository');
+      expect(result.errors.length).toBeGreaterThan(0);
     });
 
     it('should process commits from a valid repository', async () => {
-      // Use the codebase-graph repo itself with very limited commits
+      const client = createMockClient();
       const repoPath = path.resolve(__dirname, '../../../..');
-      const result = await extractGitHistory(repoPath, { maxCommits: 3 });
+      const result = await syncGitHistory(repoPath, client, { maxCommits: 3 });
 
-      // Should have processed at least some commits
       expect(result.commitsProcessed).toBeGreaterThanOrEqual(0);
       expect(result.durationMs).toBeGreaterThan(0);
     });
 
     it('should respect sinceCommit option', async () => {
       const repoPath = path.resolve(__dirname, '../../../..');
-      
+
       // First get the latest commit
       const repoInfo = await getRepoInfo(repoPath);
       if (!repoInfo.lastCommit) {
         return; // Skip if no commits
       }
 
-      // Extract with sinceCommit set to HEAD (should find no new commits)
-      const result = await extractGitHistory(repoPath, {
+      const client = createMockClient();
+      const result = await syncGitHistory(repoPath, client, {
         sinceCommit: repoInfo.lastCommit,
         maxCommits: 10,
       });

@@ -12,8 +12,7 @@
  * - get_knowledge_stats: Memory statistics (counts, relevance, age)
  */
 
-import { knowledgeService, getGraphClient } from '@codegraph/core';
-import { createKnowledgeOperations } from '@codegraph/graph';
+import { knowledgeService, getKnowledgeOps } from '@codegraph/core';
 import { generateEmbedding, isEmbeddingAvailable } from '@codegraph/plugin-nlp';
 import { createLogger } from '@codegraph/logger';
 import type { ToolDefinition } from './consolidated';
@@ -312,8 +311,7 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
       const semanticQuery = args.semanticQuery as string;
       try {
         const { embedding } = await generateEmbedding(semanticQuery);
-        const client = await getGraphClient();
-        const kgOps = createKnowledgeOperations(client);
+        const kgOps = await getKnowledgeOps();
         const vectorResults = await kgOps.searchEntitiesByVector(embedding, limit);
 
         // Also do text search if textContains was provided

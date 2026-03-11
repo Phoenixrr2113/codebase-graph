@@ -76,6 +76,49 @@ async function setMetadata(client: GraphClient, key: string, value: string): Pro
  * Creates Commit nodes and MODIFIED_IN edges from Files to Commits.
  * Supports incremental sync via Metadata node tracking.
  */
+/**
+ * Get git repository info (branch, remote, last commit).
+ * Standalone utility — does not require a graph connection.
+ */
+export async function getRepoInfo(repoPath: string): Promise<{
+  isRepo: boolean;
+  branch?: string | undefined;
+  remoteUrl?: string | undefined;
+  lastCommit?: string | undefined;
+  totalCommits?: number | undefined;
+}> {
+  try {
+    const git = simpleGit(repoPath);
+
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) {
+      return { isRepo: false };
+    }
+
+    const [branch, remotes, log] = await Promise.all([
+      git.revparse(['--abbrev-ref', 'HEAD']),
+      git.getRemotes(true),
+      git.log({ maxCount: 1 }),
+    ]);
+
+    return {
+      isRepo: true,
+      branch: branch.trim(),
+      remoteUrl: remotes[0]?.refs?.fetch,
+      lastCommit: log.latest?.hash,
+      totalCommits: log.total,
+    };
+  } catch (error) {
+    logger.error(`Failed to get repo info: ${error}`);
+    return { isRepo: false };
+  }
+}
+
+/**
+ * Sync git history for a repository into the graph.
+ * Creates Commit nodes and MODIFIED_IN edges from Files to Commits.
+ * Supports incremental sync via Metadata node tracking.
+ */
 export async function syncGitHistory(
   repoPath: string,
   client: GraphClient,

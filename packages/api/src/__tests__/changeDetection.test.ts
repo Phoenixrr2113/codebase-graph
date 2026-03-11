@@ -13,7 +13,7 @@ import {
   formatChangeSummary,
   type ChangeSummary,
   type FileChange,
-} from '../services/changeDetection';
+} from '@codegraph/core';
 
 describe('Change Detection', () => {
   describe('calculateFileHash', () => {

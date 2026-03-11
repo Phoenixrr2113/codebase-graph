@@ -3,16 +3,18 @@
  *
  * Uses chokidar 5.x (which doesn't support glob patterns) with fast-glob
  * for file discovery. Implements debouncing to prevent thrashing on rapid saves.
+ *
+ * Accepts event handler callbacks so consumers (API, CLI) can wire up
+ * their own processing logic (e.g., parseSingleFile, removeFileFromGraph).
  */
 
 import { watch, type FSWatcher } from 'chokidar';
 import fastGlob from 'fast-glob';
 import { EventEmitter } from 'node:events';
 import { createLogger, traced } from '@codegraph/logger';
-import { parseSingleFile, removeFileFromGraph } from './parseService';
-import { SUPPORTED_EXTENSIONS, DEFAULT_IGNORE_PATTERNS } from '../config/constants';
+import { SUPPORTED_EXTENSIONS, DEFAULT_IGNORE_PATTERNS } from './pipeline';
 
-const logger = createLogger({ namespace: 'API:Watch' });
+const logger = createLogger({ namespace: 'core:Watch' });
 
 /** File change event types */
 export type FileEventType = 'add' | 'change' | 'unlink';
@@ -24,6 +26,12 @@ export interface FileChangeEvent {
   timestamp: number;
 }
 
+/** Handler for file add/change events */
+export type FileChangedHandler = (filePath: string) => Promise<{ success: boolean; error?: string }>;
+
+/** Handler for file unlink events */
+export type FileRemovedHandler = (filePath: string) => Promise<{ success: boolean; error?: string }>;
+
 /** Watch service configuration */
 export interface WatchServiceConfig {
   /** Project path to watch */
@@ -34,6 +42,10 @@ export interface WatchServiceConfig {
   debounceMs?: number;
   /** Whether to process initial files (default: false) */
   processInitial?: boolean;
+  /** Handler called when a file is added or changed */
+  onFileChanged?: FileChangedHandler;
+  /** Handler called when a file is removed */
+  onFileRemoved?: FileRemovedHandler;
 }
 
 /**
@@ -47,6 +59,8 @@ export class WatchService extends EventEmitter {
   private processInitial: boolean;
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
   private isRunning = false;
+  private onFileChanged: FileChangedHandler | undefined;
+  private onFileRemoved: FileRemovedHandler | undefined;
 
   constructor(config: WatchServiceConfig) {
     super();
@@ -54,6 +68,8 @@ export class WatchService extends EventEmitter {
     this.ignorePatterns = [...DEFAULT_IGNORE_PATTERNS, ...(config.ignorePatterns ?? [])];
     this.debounceMs = config.debounceMs ?? 500;
     this.processInitial = config.processInitial ?? false;
+    this.onFileChanged = config.onFileChanged;
+    this.onFileRemoved = config.onFileRemoved;
   }
 
   /**
@@ -150,7 +166,6 @@ export class WatchService extends EventEmitter {
 
     // Skip ignored patterns
     for (const pattern of this.ignorePatterns) {
-      // Simple pattern matching (could use micromatch for full glob support)
       if (this.matchesPattern(filePath, pattern)) {
         return;
       }
@@ -186,25 +201,32 @@ export class WatchService extends EventEmitter {
       switch (type) {
         case 'add':
         case 'change':
-          // Re-parse the file
-          const result = await parseSingleFile(filePath);
-          if (result.success) {
-            this.emit('file-changed', event);
-            this.emit('graph-updated', { type, filePath });
+          if (this.onFileChanged) {
+            const result = await this.onFileChanged(filePath);
+            if (result.success) {
+              this.emit('file-changed', event);
+              this.emit('graph-updated', { type, filePath });
+            } else {
+              logger.error(`Handler failed for ${filePath}:`, result.error);
+              this.emit('parse-error', { filePath, error: result.error });
+            }
           } else {
-            logger.error(`Parse failed for ${filePath}:`, result.error);
-            this.emit('parse-error', { filePath, error: result.error });
+            // No handler — just emit the event
+            this.emit('file-changed', event);
           }
           break;
 
         case 'unlink':
-          // Remove file from graph
-          const removeResult = await removeFileFromGraph(filePath);
-          if (removeResult.success) {
-            this.emit('file-removed', event);
-            this.emit('graph-updated', { type, filePath });
+          if (this.onFileRemoved) {
+            const result = await this.onFileRemoved(filePath);
+            if (result.success) {
+              this.emit('file-removed', event);
+              this.emit('graph-updated', { type, filePath });
+            } else {
+              logger.error(`Remove handler failed for ${filePath}:`, result.error);
+            }
           } else {
-            logger.error(`Remove failed for ${filePath}:`, removeResult.error);
+            this.emit('file-removed', event);
           }
           break;
       }
@@ -216,7 +238,6 @@ export class WatchService extends EventEmitter {
 
   /**
    * Simple pattern matching for ignore patterns
-   * (For full glob support, use micromatch)
    */
   private matchesPattern(path: string, pattern: string): boolean {
     // Handle **/ prefix

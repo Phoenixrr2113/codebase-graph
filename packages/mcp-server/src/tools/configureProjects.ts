@@ -7,9 +7,8 @@
  * (indexing new projects, deleting removed ones).
  */
 
-import { createOperations } from '@codegraph/graph';
 import {
-  getGraphClient, loadConfig, setActiveProjects,
+  codeGraphService, loadConfig, setActiveProjects,
   needsSetup, syncConfigToGraph, type ProjectInfo,
 } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
@@ -86,9 +85,7 @@ Examples:
 
 async function getAvailableProjects(): Promise<ProjectInfo[]> {
   try {
-    const client = await getGraphClient();
-    const ops = createOperations(client);
-    const projects = await ops.getProjects();
+    const projects = await codeGraphService.getProjects();
 
     return projects.map(p => ({
       name: p.name,

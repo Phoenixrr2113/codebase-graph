@@ -10,7 +10,7 @@ import { createNodeWebSocket } from '@hono/node-ws';
 import type { ServerType } from '@hono/node-server';
 import type { Hono } from 'hono';
 import { createLogger } from '@codegraph/logger';
-import { getActiveWatcher, type FileChangeEvent } from './services';
+import { getActiveWatcher, type FileChangeEvent } from '@codegraph/core';
 
 const logger = createLogger({ namespace: 'API:WS' });
 

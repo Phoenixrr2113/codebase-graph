@@ -3,8 +3,7 @@
  * Get detailed context for a specific file or symbol
  */
 
-import { createQueries } from '@codegraph/graph';
-import { codeGraphService, getGraphClient } from '@codegraph/core';
+import { codeGraphService } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // ============================================================================
@@ -100,11 +99,9 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
   }
 
   try {
-    // File context — uses graph subgraph query (visualization-oriented, stays in @codegraph/graph)
+    // File context — uses core service subgraph query
     if (input.file && !input.symbol) {
-      const client = await getGraphClient();
-      const queries = createQueries(client);
-      const subgraph = await queries.getFileSubgraph(input.file);
+      const subgraph = await codeGraphService.getFileSubgraph(input.file);
 
       const entities: EntityContext[] = subgraph.nodes
         .filter((n) => n.label !== 'File')

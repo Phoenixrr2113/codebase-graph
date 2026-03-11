@@ -76,7 +76,7 @@ export type {
 } from './search';
 
 // Git history sync
-export { syncGitHistory } from './gitSync';
+export { syncGitHistory, getRepoInfo } from './gitSync';
 export type { GitSyncResult, GitSyncOptions } from './gitSync';
 
 // Token estimation (WS3)
@@ -264,6 +264,59 @@ export type {
   ParsedMarkdown,
 } from '@codegraph/plugin-markdown';
 
+// Source file reader
+export { readSourceFile } from './sourceReader';
+export type { ReadSourceOptions, SourceFileResult } from './sourceReader';
+
+// Change detection
+export {
+  calculateFileHash,
+  detectChanges,
+  getFilesToProcess,
+  getFilesToRemove,
+  getRenamedFiles,
+  hasChanges,
+  formatChangeSummary,
+} from './changeDetection';
+export type {
+  ChangeType,
+  FileChange,
+  ChangeSummary,
+  StoredFileInfo,
+  ChangeDetectionOptions,
+} from './changeDetection';
+
+// File system watcher
+export {
+  WatchService,
+  startWatching,
+  stopWatching,
+  getActiveWatcher,
+} from './watchService';
+export type {
+  FileEventType,
+  FileChangeEvent,
+  FileChangedHandler,
+  FileRemovedHandler,
+  WatchServiceConfig,
+} from './watchService';
+
+// Two-pass resolution (re-exported from analysis)
+export {
+  SymbolRegistry,
+  collectSymbols,
+  resolveRelationships,
+  twoPassResolve,
+  isBuiltIn,
+  getResolutionSummary,
+} from './analysis';
+export type {
+  SymbolInfo,
+  UnresolvedCall,
+  ResolutionResult,
+  TwoPassOptions,
+} from './analysis';
+
 // Service layer (Phase 3A)
 export { codeGraphService } from './service';
 export type { CodeGraphService } from './service';
@@ -312,6 +365,9 @@ export type {
   DecayConfig,
 } from '@codegraph/graph';
 
+// Re-export graph traversal types from @codegraph/graph
+export type { FileTreeOptions } from '@codegraph/graph';
+
 // Re-export entity types from @codegraph/types
 export type {
   FileEntity,
@@ -330,6 +386,8 @@ export type {
   CodeBlockEntity,
   LinkEntity,
   ExtractedDocumentEntities,
+  GraphData,
+  SubgraphData,
 } from '@codegraph/types';
 
 // Re-export edge types from @codegraph/types

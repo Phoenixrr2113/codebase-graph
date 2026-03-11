@@ -12,7 +12,7 @@ import {
   isBuiltIn,
   getResolutionSummary,
   type SymbolInfo,
-} from '../services/twoPassResolver';
+} from '@codegraph/core';
 import type { ParsedFileEntities } from '@codegraph/graph';
 import type { FunctionEntity, ClassEntity } from '@codegraph/types';
 

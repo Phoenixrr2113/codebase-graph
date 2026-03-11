@@ -5,10 +5,10 @@
  */
 
 import { createLogger, traced } from '@codegraph/logger';
-import type { ParsedFileEntities } from '@codegraph/graph';
+import type { ParsedFileEntities } from '@codegraph/types';
 import type { FunctionEntity, ClassEntity } from '@codegraph/types';
 
-const logger = createLogger({ namespace: 'API:TwoPassResolver' });
+const logger = createLogger({ namespace: 'core:TwoPassResolver' });
 
 // ============================================================================
 // Types

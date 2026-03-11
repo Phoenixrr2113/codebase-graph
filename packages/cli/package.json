@@ -24,7 +24,6 @@
   },
   "dependencies": {
     "@codegraph/core": "workspace:*",
-    "@codegraph/graph": "workspace:*",
     "@codegraph/logger": "workspace:*",
     "@codegraph/plugin-nlp": "workspace:*",
     "@codegraph/types": "workspace:*",

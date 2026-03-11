@@ -94,6 +94,20 @@ export {
   type DataflowAnalysisOptions,
 } from './dataflow';
 
+// Two-pass relationship resolution
+export {
+  SymbolRegistry,
+  collectSymbols,
+  resolveRelationships,
+  twoPassResolve,
+  isBuiltIn,
+  getResolutionSummary,
+  type SymbolInfo,
+  type UnresolvedCall,
+  type ResolutionResult,
+  type TwoPassOptions,
+} from './twoPassResolver';
+
 // Rule loader (externalized security & payment rule definitions)
 export {
   getSecurityRules,

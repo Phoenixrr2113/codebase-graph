@@ -271,9 +271,6 @@ importers:
       '@codegraph/core':
         specifier: workspace:*
         version: link:../core
-      '@codegraph/graph':
-        specifier: workspace:*
-        version: link:../graph
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger
@@ -344,6 +341,12 @@ importers:
       ai:
         specifier: ^6.0.0
         version: 6.0.116(zod@3.25.76)
+      chokidar:
+        specifier: 5.0.0
+        version: 5.0.0
+      fast-glob:
+        specifier: ^3.3.3
+        version: 3.3.3
       glob:
         specifier: ^10.3.10
         version: 10.5.0
@@ -404,9 +407,6 @@ importers:
       '@codegraph/core':
         specifier: workspace:*
         version: link:../core
-      '@codegraph/graph':
-        specifier: workspace:*
-        version: link:../graph
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger

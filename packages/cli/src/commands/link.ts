@@ -15,9 +15,8 @@
 
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
-import { createKnowledgeOperations } from '@codegraph/graph';
 import { linkEntitiesToCode, linkByEmbedding } from '@codegraph/plugin-nlp';
-import { getGraphClient } from '@codegraph/core';
+import { getGraphClient, getKnowledgeOps } from '@codegraph/core';
 
 const logger = createLogger({ namespace: 'cli:link' });
 
@@ -34,8 +33,7 @@ export const linkCommand = new Command('link')
 
     try {
       const client = await getGraphClient();
-      await client.ensureIndexes();
-      const kgOps = createKnowledgeOperations(client);
+      const kgOps = await getKnowledgeOps();
 
       if (options.embedding) {
         // Embedding similarity mode

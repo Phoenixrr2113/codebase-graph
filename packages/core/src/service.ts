@@ -39,8 +39,10 @@ import { hybridSearch } from './hybridSearch';
 import type { HybridSearchResult, HybridSearchOptions, CodeNodeType } from './hybridSearch';
 import { createDefaultSearchRegistry } from './search';
 import type { SearchResponse, SearchType, SearchContext } from './search';
-import { createQueries } from '@codegraph/graph';
-import type { GraphStats } from '@codegraph/types';
+import { createQueries, createOperations, buildFileTree, getIndexSummary } from '@codegraph/graph';
+import type { FileTreeOptions } from '@codegraph/graph';
+import type { GraphStats, GraphData, SubgraphData } from '@codegraph/types';
+import type { ProjectEntity } from '@codegraph/types';
 
 // ============================================================================
 // Types
@@ -270,6 +272,7 @@ class CodeGraphServiceImpl {
     query: string,
     options?: {
       type?: 'all' | 'file' | 'function' | 'class' | 'interface' | 'component';
+      types?: string[];
       limit?: number;
     },
   ): Promise<{ results: ServiceSearchResult[]; total: number; project?: string }> {
@@ -279,11 +282,16 @@ class CodeGraphServiceImpl {
     const limit = options?.limit ?? 20;
     const type = options?.type ?? 'all';
 
-    // Build type filter
-    const typeFilter =
-      type === 'all'
-        ? `(${labelOr(dialect, 'n', ALL_LABELS)})`
-        : dialect.labelCheckExpr('n', type.charAt(0).toUpperCase() + type.slice(1));
+    // Build type filter — support array of types or single type
+    let typeFilter: string;
+    if (options?.types && options.types.length > 0) {
+      const capitalizedTypes = options.types.map(t => t.charAt(0).toUpperCase() + t.slice(1));
+      typeFilter = `(${labelOr(dialect, 'n', capitalizedTypes)})`;
+    } else if (type === 'all') {
+      typeFilter = `(${labelOr(dialect, 'n', ALL_LABELS)})`;
+    } else {
+      typeFilter = dialect.labelCheckExpr('n', type.charAt(0).toUpperCase() + type.slice(1));
+    }
 
     // Build project path filter
     let pathFilter = '';
@@ -1379,6 +1387,70 @@ class CodeGraphServiceImpl {
     const client = await getGraphClient();
     const queries = createQueries(client);
     return queries.getStats();
+  }
+
+  // ---------------------------------------------------------------
+  // Graph Traversal (wraps @codegraph/graph queries)
+  // ---------------------------------------------------------------
+
+  /**
+   * Get the full graph (nodes + edges), optionally filtered by root path.
+   */
+  async getFullGraph(limit?: number, rootPath?: string): Promise<GraphData> {
+    const client = await getGraphClient();
+    const queries = createQueries(client);
+    return queries.getFullGraph(limit, rootPath);
+  }
+
+  /**
+   * Get subgraph for a specific file: file node + contained entities + their relationships.
+   */
+  async getFileSubgraph(filePath: string): Promise<SubgraphData> {
+    const client = await getGraphClient();
+    const queries = createQueries(client);
+    return queries.getFileSubgraph(filePath);
+  }
+
+  /**
+   * Get import dependency tree from a file, up to the given depth.
+   */
+  async getDependencyTree(filePath: string, depth?: number): Promise<GraphData> {
+    const client = await getGraphClient();
+    const queries = createQueries(client);
+    return queries.getDependencyTree(filePath, depth);
+  }
+
+  // ---------------------------------------------------------------
+  // Context Building (wraps @codegraph/graph fileTree)
+  // ---------------------------------------------------------------
+
+  /**
+   * Build a compact file tree string from the graph for LLM context.
+   */
+  async buildFileTree(options?: FileTreeOptions): Promise<string> {
+    const client = await getGraphClient();
+    return buildFileTree(client, options);
+  }
+
+  /**
+   * Get a one-line stats summary (e.g. "Files: 42 | Functions: 120 | ...").
+   */
+  async getIndexSummary(): Promise<string> {
+    const client = await getGraphClient();
+    return getIndexSummary(client);
+  }
+
+  // ---------------------------------------------------------------
+  // Project Management (wraps @codegraph/graph operations)
+  // ---------------------------------------------------------------
+
+  /**
+   * Get all indexed projects from the graph.
+   */
+  async getProjects(): Promise<ProjectEntity[]> {
+    const client = await getGraphClient();
+    const ops = createOperations(client);
+    return ops.getProjects();
   }
 }
 

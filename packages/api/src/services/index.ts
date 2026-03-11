@@ -3,6 +3,8 @@
  */
 
 export { parseProject, parseSingleFile, removeFileFromGraph } from './parseService';
+
+// Re-export watch service from core (moved in Phase 1 consolidation)
 export {
   WatchService,
   startWatching,
@@ -11,10 +13,12 @@ export {
   type FileChangeEvent,
   type FileEventType,
   type WatchServiceConfig,
-} from './watchService';
+} from '@codegraph/core';
+
+// Re-export git from core (gitService.ts was a duplicate of core's gitSync)
 export {
-  extractGitHistory,
+  syncGitHistory,
   getRepoInfo,
   type GitSyncResult,
   type GitSyncOptions,
-} from './gitService';
+} from '@codegraph/core';

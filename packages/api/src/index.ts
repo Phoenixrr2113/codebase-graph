@@ -13,7 +13,8 @@ import { serve } from '@hono/node-server';
 import { createLogger } from '@codegraph/logger';
 import { app } from './app';
 import { setupWebSocket, injectWebSocketToServer, subscribeToWatchEvents } from './websocket';
-import { startWatching } from './services';
+import { startWatching } from '@codegraph/core';
+import { parseSingleFile, removeFileFromGraph } from './services';
 
 const logger = createLogger({ namespace: 'API:Server' });
 
@@ -48,7 +49,11 @@ const server = serve(
     // Start file watcher if PROJECT_PATH is configured
     if (watchPath) {
       try {
-        await startWatching({ projectPath: watchPath });
+        await startWatching({
+          projectPath: watchPath,
+          onFileChanged: (filePath) => parseSingleFile(filePath),
+          onFileRemoved: (filePath) => removeFileFromGraph(filePath),
+        });
         subscribeToWatchEvents();
         logger.info(`Watching project: ${watchPath}`);
       } catch (error) {

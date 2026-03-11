@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp src/analysis/rules/*.json dist/analysis/rules/",
     "dev": "tsc --watch",
     "test": "vitest",
     "clean": "rm -rf dist"
@@ -31,6 +31,8 @@
     "@codegraph/plugin-typescript": "workspace:*",
     "@codegraph/types": "workspace:*",
     "ai": "^6.0.0",
+    "chokidar": "5.0.0",
+    "fast-glob": "^3.3.3",
     "glob": "^10.3.10",
     "zod": "^3.23.8",
     "simple-git": "^3.30.0",
