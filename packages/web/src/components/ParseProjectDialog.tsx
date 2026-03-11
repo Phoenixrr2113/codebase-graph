@@ -19,8 +19,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { api } from '@/services/api';
-import { CheckCircle, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle, ChevronDown, Loader2 } from 'lucide-react';
 
 interface ParseProjectDialogProps {
   onProjectParsed?: (projectPath: string) => void;
@@ -31,6 +36,7 @@ export function ParseProjectDialog({ onProjectParsed }: ParseProjectDialogProps)
   const [path, setPath] = useState('');
   const [deepAnalysis, setDeepAnalysis] = useState(false);
   const [includeExternals, setIncludeExternals] = useState(false);
+  const [errorsOpen, setErrorsOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const parseMutation = useMutation({
@@ -71,6 +77,7 @@ export function ParseProjectDialog({ onProjectParsed }: ParseProjectDialogProps)
       setPath('');
       setDeepAnalysis(false);
       setIncludeExternals(false);
+      setErrorsOpen(false);
       parseMutation.reset();
       clearMutation.reset();
     }, 200);
@@ -78,6 +85,8 @@ export function ParseProjectDialog({ onProjectParsed }: ParseProjectDialogProps)
 
   const isPending = parseMutation.isPending || clearMutation.isPending;
   const isSuccess = parseMutation.isSuccess && parseMutation.data?.status === 'complete';
+  const errorCount = parseMutation.data?.stats?.errors ?? 0;
+  const fileErrors = parseMutation.data?.fileErrors ?? [];
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => {
@@ -129,7 +138,7 @@ export function ParseProjectDialog({ onProjectParsed }: ParseProjectDialogProps)
                   </div>
                   {deepAnalysis && (
                     <div className="text-xs text-amber-400/80 pl-6">
-                      ⚠️ Increases parsing time significantly for large codebases.
+                      Increases parsing time significantly for large codebases.
                     </div>
                   )}
                 </div>
@@ -150,7 +159,7 @@ export function ParseProjectDialog({ onProjectParsed }: ParseProjectDialogProps)
                     </div>
                     {includeExternals && (
                       <div className="text-xs text-amber-400/80 pl-6">
-                        ⚠️ External refs will appear as orphan nodes (no source code).
+                        External refs will appear as orphan nodes (no source code).
                       </div>
                     )}
                   </div>
@@ -158,10 +167,22 @@ export function ParseProjectDialog({ onProjectParsed }: ParseProjectDialogProps)
               </>
             )}
 
+            {/* Enhanced loading state */}
             {parseMutation.isPending && (
-              <div className="flex items-center gap-2 mt-3 text-slate-400">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm">Parsing files...</span>
+              <div className="bg-slate-950/50 border border-slate-800 rounded-lg p-4 mt-2">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-indigo-400 shrink-0" />
+                  <div>
+                    <div className="text-sm text-slate-200 font-medium">Parsing project...</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      This may take a minute for large codebases.
+                    </div>
+                  </div>
+                </div>
+                {/* Pulsing progress bar */}
+                <div className="mt-3 h-1 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-indigo-500/70 rounded-full animate-pulse w-2/3" />
+                </div>
               </div>
             )}
 
@@ -172,26 +193,67 @@ export function ParseProjectDialog({ onProjectParsed }: ParseProjectDialogProps)
             )}
 
             {isSuccess && parseMutation.data.stats && (
-              <div className="bg-emerald-950/50 border border-emerald-800 rounded-lg p-4 mt-2">
-                <div className="flex items-center gap-2 text-emerald-400 mb-2">
-                  <CheckCircle className="h-5 w-5" />
-                  <span className="font-medium">Indexing Complete</span>
+              <>
+                <div className="bg-emerald-950/50 border border-emerald-800 rounded-lg p-4 mt-2">
+                  <div className="flex items-center gap-2 text-emerald-400 mb-2">
+                    <CheckCircle className="h-5 w-5" />
+                    <span className="font-medium">Indexing Complete</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="text-slate-400">Files parsed:</div>
+                    <div className="text-slate-200 font-mono">{parseMutation.data.stats.files}</div>
+                    <div className="text-slate-400">Entities found:</div>
+                    <div className="text-slate-200 font-mono">{parseMutation.data.stats.entities}</div>
+                    <div className="text-slate-400">Edges created:</div>
+                    <div className="text-slate-200 font-mono">{parseMutation.data.stats.edges}</div>
+                    <div className="text-slate-400">Duration:</div>
+                    <div className="text-slate-200 font-mono">{(parseMutation.data.stats.durationMs / 1000).toFixed(2)}s</div>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="text-slate-400">Files parsed:</div>
-                  <div className="text-slate-200 font-mono">{parseMutation.data.stats.files}</div>
-                  <div className="text-slate-400">Entities found:</div>
-                  <div className="text-slate-200 font-mono">{parseMutation.data.stats.entities}</div>
-                  <div className="text-slate-400">Edges created:</div>
-                  <div className="text-slate-200 font-mono">{parseMutation.data.stats.edges}</div>
-                  <div className="text-slate-400">Duration:</div>
-                  <div className="text-slate-200 font-mono">{(parseMutation.data.stats.durationMs / 1000).toFixed(2)}s</div>
-                </div>
-              </div>
+
+                {/* Error summary banner */}
+                {errorCount > 0 && (
+                  <div className="flex items-center gap-2 text-amber-400 text-sm mt-1">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <span>{errorCount} {errorCount === 1 ? 'file' : 'files'} had errors</span>
+                  </div>
+                )}
+
+                {/* Collapsible file error details */}
+                {fileErrors.length > 0 && (
+                  <Collapsible open={errorsOpen} onOpenChange={setErrorsOpen}>
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-300 transition-colors mt-1"
+                      >
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 transition-transform ${errorsOpen ? 'rotate-0' : '-rotate-90'}`}
+                        />
+                        <span>Details ({fileErrors.length} {fileErrors.length === 1 ? 'error' : 'errors'})</span>
+                      </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="mt-2 max-h-48 overflow-y-auto rounded-md bg-slate-950 border border-slate-800 divide-y divide-slate-800">
+                        {fileErrors.map((fe, i) => (
+                          <div key={i} className="px-3 py-2 text-xs">
+                            <div className="text-red-400 font-mono truncate" title={fe.file}>
+                              {fe.file}
+                            </div>
+                            <div className="text-slate-500 mt-0.5 break-words">
+                              {fe.message}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
+              </>
             )}
 
             {clearMutation.isSuccess && (
-              <p className="text-amber-400 text-sm mt-2">✓ Graph cleared</p>
+              <p className="text-amber-400 text-sm mt-2">Graph cleared</p>
             )}
           </div>
 

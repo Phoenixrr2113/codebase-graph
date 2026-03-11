@@ -5,8 +5,8 @@
  * Main layout with three resizable panels using Shadcn resizable
  */
 
-import { useMemo, useRef, useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMemo, useRef, useCallback, useState } from 'react';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -16,16 +16,26 @@ import { useUIStore, useGraphStore } from '@/stores';
 import { GraphCanvas, GraphLegend } from '@/components/graph';
 import { EntityDetail } from '@/components/panels/EntityDetail';
 import { SearchPanel } from '@/components/panels/SearchPanel';
+import { QueryPanel } from '@/components/panels/QueryPanel';
+import { AnalyticsDashboard } from '@/components/panels/AnalyticsDashboard';
 import { ParseProjectDialog } from '@/components/ParseProjectDialog';
 import { ProjectSelector } from '@/components/ProjectSelector';
-import { projectKeys, graphKeys } from '@/hooks/useGraphData';
+import { projectKeys, graphKeys, useProjects } from '@/hooks/useGraphData';
 import { useFocusGraph } from '@/hooks/useFocusGraph';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { getEmbeddingStats } from '@/services/api';
+import { Terminal, Brain } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { GraphData, GraphNode, EdgeLabel } from '@codegraph/types';
 import type { GraphCanvasControls } from '@/components/graph/GraphCanvas';
 
 export function AppShell() {
   const { leftPanel, rightPanel, legendCollapsed, toggleLegend, nodeTypeFilters, edgeTypeFilters, selectedProjectId, setSelectedProjectId } = useUIStore();
   const { selectedNode, selectNode: setSelectedNode } = useGraphStore();
+
+  // Bottom panel state
+  const [bottomPanelVisible, setBottomPanelVisible] = useState(false);
+  const [bottomTab, setBottomTab] = useState<'query' | 'analytics'>('query');
 
   // Store graph controls to focus on nodes and show connections
   const graphControlsRef = useRef<GraphCanvasControls | null>(null);
@@ -50,6 +60,27 @@ export function AppShell() {
   }, []);
 
   const queryClient = useQueryClient();
+
+  // WebSocket for real-time graph updates
+  const { isConnected } = useWebSocket({
+    onGraphUpdate: () => {
+      queryClient.invalidateQueries({ queryKey: graphKeys.all });
+    },
+  });
+
+  // Embedding stats for header badge
+  const { data: embeddingStats } = useQuery({
+    queryKey: ['stats', 'embeddings'],
+    queryFn: getEmbeddingStats,
+    refetchInterval: 30_000,
+  });
+
+  // Projects list to resolve rootPath for AnalyticsDashboard
+  const { data: projectsData } = useProjects();
+  const currentProjectPath = useMemo(() => {
+    if (!selectedProjectId || !projectsData?.projects) return undefined;
+    return projectsData.projects.find(p => p.id === selectedProjectId)?.rootPath;
+  }, [selectedProjectId, projectsData]);
 
   // Handle when a project is parsed - fetch fresh project list and select it
   const handleProjectParsed = useCallback(async (projectPath: string) => {
@@ -146,74 +177,156 @@ export function AppShell() {
           <span className="text-xs text-slate-500">
             {nodes.length} nodes · {edges.length} edges
           </span>
+          {/* Embedding stats badge */}
+          {embeddingStats && (
+            <span className="flex items-center gap-1 text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full" title="Embedded nodes / Total nodes">
+              <Brain className="h-3 w-3 text-purple-400" />
+              {embeddingStats.totalWithEmbeddings}/{embeddingStats.totalNodes}
+            </span>
+          )}
+          {/* WebSocket connection indicator */}
+          <span
+            className={cn(
+              'h-2 w-2 rounded-full',
+              isConnected ? 'bg-emerald-400' : 'bg-red-400'
+            )}
+            title={isConnected ? 'WebSocket connected' : 'WebSocket disconnected'}
+          />
+          {/* Bottom panel toggle */}
+          <button
+            onClick={() => setBottomPanelVisible(v => !v)}
+            className={cn(
+              'p-1.5 rounded hover:bg-slate-800 transition-colors',
+              bottomPanelVisible ? 'text-indigo-400' : 'text-slate-500'
+            )}
+            title="Toggle Query/Analytics panel"
+          >
+            <Terminal className="h-4 w-4" />
+          </button>
           <ParseProjectDialog onProjectParsed={handleProjectParsed} />
         </div>
       </header>
 
       {/* Main content */}
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
-        {/* Left panel - Search/FileTree */}
-        {leftPanel.visible && (
-          <>
-            <ResizablePanel
-              defaultSize={leftPanel.size}
-              minSize={15}
-              maxSize={35}
-              className="bg-slate-900/30"
-            >
-              <SearchPanel onNodeSelect={handleNodeSelect} selectedProjectId={selectedProjectId} />
-            </ResizablePanel>
-            <ResizableHandle className="w-1 bg-slate-800 hover:bg-indigo-500 transition-colors" />
-          </>
-        )}
+      <ResizablePanelGroup direction="vertical" className="flex-1">
+        {/* Top section: existing horizontal 3-panel layout */}
+        <ResizablePanel defaultSize={bottomPanelVisible ? 70 : 100} minSize={30}>
+          <ResizablePanelGroup direction="horizontal" className="h-full">
+            {/* Left panel - Search/FileTree */}
+            {leftPanel.visible && (
+              <>
+                <ResizablePanel
+                  defaultSize={leftPanel.size}
+                  minSize={15}
+                  maxSize={35}
+                  className="bg-slate-900/30"
+                >
+                  <SearchPanel onNodeSelect={handleNodeSelect} selectedProjectId={selectedProjectId} />
+                </ResizablePanel>
+                <ResizableHandle className="w-1 bg-slate-800 hover:bg-indigo-500 transition-colors" />
+              </>
+            )}
 
-        {/* Center panel - Graph */}
-        <ResizablePanel defaultSize={55} minSize={30} className="relative">
-          <GraphCanvas
-            data={filteredGraphData}
-            onNodeSelect={handleNodeSelect}
-            onNodeDoubleClick={handleNodeDoubleClick}
-            onReady={handleGraphReady}
-            className="h-full"
-          />
-          {/* Expanding indicator */}
-          {isExpandingNode && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-indigo-600 text-white text-xs px-3 py-1 rounded-full animate-pulse">
-              Expanding node...
-            </div>
-          )}
-          {/* Legend overlay */}
-          <div className="absolute bottom-3 left-3 z-10">
-            <GraphLegend
-              collapsed={legendCollapsed}
-              onToggle={toggleLegend}
-            />
-          </div>
-          {/* Expanded nodes indicator */}
-          {expandedNodes.size > 0 && (
-            <div className="absolute bottom-3 right-3 z-10 text-xs text-slate-500 bg-slate-900/80 px-2 py-1 rounded">
-              {expandedNodes.size} nodes expanded
-            </div>
-          )}
+            {/* Center panel - Graph */}
+            <ResizablePanel defaultSize={55} minSize={30} className="relative">
+              <GraphCanvas
+                data={filteredGraphData}
+                onNodeSelect={handleNodeSelect}
+                onNodeDoubleClick={handleNodeDoubleClick}
+                onReady={handleGraphReady}
+                className="h-full"
+              />
+              {/* Expanding indicator */}
+              {isExpandingNode && (
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-indigo-600 text-white text-xs px-3 py-1 rounded-full animate-pulse">
+                  Expanding node...
+                </div>
+              )}
+              {/* Legend overlay */}
+              <div className="absolute bottom-3 left-3 z-10">
+                <GraphLegend
+                  collapsed={legendCollapsed}
+                  onToggle={toggleLegend}
+                />
+              </div>
+              {/* Expanded nodes indicator */}
+              {expandedNodes.size > 0 && (
+                <div className="absolute bottom-3 right-3 z-10 text-xs text-slate-500 bg-slate-900/80 px-2 py-1 rounded">
+                  {expandedNodes.size} nodes expanded
+                </div>
+              )}
+            </ResizablePanel>
+
+            {/* Right panel - Entity Detail */}
+            {rightPanel.visible && (
+              <>
+                <ResizableHandle className="w-1 bg-slate-800 hover:bg-indigo-500 transition-colors" />
+                <ResizablePanel
+                  defaultSize={rightPanel.size}
+                  minSize={20}
+                  maxSize={45}
+                  className="bg-slate-900/30"
+                >
+                  <EntityDetail
+                    node={selectedNode}
+                    graphData={filteredGraphData}
+                    onFocusNode={handleFocusNode}
+                    onShowConnections={handleShowConnections}
+                    onNodeSelect={handleNodeSelect}
+                  />
+                </ResizablePanel>
+              </>
+            )}
+          </ResizablePanelGroup>
         </ResizablePanel>
 
-        {/* Right panel - Entity Detail */}
-        {rightPanel.visible && (
+        {/* Bottom panel - Query / Analytics */}
+        {bottomPanelVisible && (
           <>
-            <ResizableHandle className="w-1 bg-slate-800 hover:bg-indigo-500 transition-colors" />
-            <ResizablePanel
-              defaultSize={rightPanel.size}
-              minSize={20}
-              maxSize={45}
-              className="bg-slate-900/30"
-            >
-              <EntityDetail
-                node={selectedNode}
-                graphData={filteredGraphData}
-                onFocusNode={handleFocusNode}
-                onShowConnections={handleShowConnections}
-                onNodeSelect={handleNodeSelect}
-              />
+            <ResizableHandle className="h-1 bg-slate-800 hover:bg-indigo-500 transition-colors" />
+            <ResizablePanel defaultSize={30} minSize={15} maxSize={50} className="bg-slate-900/50">
+              <div className="h-full flex flex-col">
+                {/* Tab bar */}
+                <div className="flex items-center gap-1 px-3 py-1.5 border-b border-slate-800">
+                  <button
+                    onClick={() => setBottomTab('query')}
+                    className={cn(
+                      'px-3 py-1 text-xs font-medium rounded transition-colors',
+                      bottomTab === 'query'
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    )}
+                  >
+                    Query
+                  </button>
+                  <button
+                    onClick={() => setBottomTab('analytics')}
+                    className={cn(
+                      'px-3 py-1 text-xs font-medium rounded transition-colors',
+                      bottomTab === 'analytics'
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    )}
+                  >
+                    Analytics
+                  </button>
+                  <button
+                    onClick={() => setBottomPanelVisible(false)}
+                    className="ml-auto p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded transition-colors"
+                    title="Close panel"
+                  >
+                    <span className="text-sm leading-none">&times;</span>
+                  </button>
+                </div>
+                {/* Tab content */}
+                <div className="flex-1 overflow-hidden">
+                  {bottomTab === 'query' ? (
+                    <QueryPanel />
+                  ) : (
+                    <AnalyticsDashboard projectPath={currentProjectPath} />
+                  )}
+                </div>
+              </div>
             </ResizablePanel>
           </>
         )}

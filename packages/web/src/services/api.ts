@@ -237,6 +237,108 @@ export async function search(
 }
 
 // ============================================================================
+// Hybrid Search Endpoint
+// ============================================================================
+
+export interface HybridSearchHit {
+  key: string;
+  nodeType: string;
+  name: string;
+  filePath?: string;
+  startLine?: number;
+  score: number;
+  sources: ('vector' | 'text' | 'graph')[];
+  vectorDistance?: number;
+  properties: Record<string, unknown>;
+}
+
+export interface HybridSearchResult {
+  hits: HybridSearchHit[];
+  relatedHits: Array<{
+    sourceKey: string;
+    nodeType: string;
+    name: string;
+    filePath?: string;
+    relationship: string;
+  }>;
+  stats: {
+    vectorHits: number;
+    textHits: number;
+    graphHits: number;
+    totalBeforeDedup: number;
+  };
+}
+
+export async function searchHybrid(
+  query: string,
+  options?: { limit?: number; nodeTypes?: string[]; includeKnowledge?: boolean; projectId?: string }
+): Promise<HybridSearchResult> {
+  return fetchAPI<HybridSearchResult>('/api/search/hybrid', {
+    params: {
+      q: query,
+      limit: options?.limit,
+      nodeTypes: options?.nodeTypes?.join(','),
+      includeKnowledge: options?.includeKnowledge,
+      projectId: options?.projectId,
+    },
+  });
+}
+
+// ============================================================================
+// Embedding Stats Endpoint
+// ============================================================================
+
+export interface EmbeddingStats {
+  totalWithEmbeddings: number;
+  totalNodes: number;
+  byType: Record<string, number>;
+}
+
+export async function getEmbeddingStats(): Promise<EmbeddingStats> {
+  return fetchAPI<EmbeddingStats>('/api/stats/embeddings');
+}
+
+// ============================================================================
+// Analytics Endpoints
+// ============================================================================
+
+export interface AnalyticsSummary {
+  security: { total: number; bySeverity: Record<string, number> };
+  complexity: { hotspots: number; averageComplexity: number };
+}
+
+export async function getAnalyticsSummary(projectPath: string): Promise<AnalyticsSummary> {
+  return fetchAPI<AnalyticsSummary>('/api/analytics/summary', {
+    params: { path: projectPath },
+  });
+}
+
+export async function getSecurityAnalysis(projectPath: string, severity?: string): Promise<unknown> {
+  return fetchAPI('/api/analytics/security', {
+    params: { path: projectPath, severity },
+  });
+}
+
+export async function getComplexityHotspots(projectPath: string, minComplexity?: number): Promise<unknown> {
+  return fetchAPI('/api/analytics/complexity', {
+    params: { path: projectPath, minComplexity },
+  });
+}
+
+export async function getImpactAnalysis(symbol: string, depth?: number): Promise<unknown> {
+  return fetchAPI(`/api/analytics/impact/${encodeURIComponent(symbol)}`, {
+    params: { depth },
+  });
+}
+
+export async function runAnalysis(projectPath: string): Promise<unknown> {
+  return fetchAPI('/api/analytics/run', {
+    method: 'POST',
+    body: JSON.stringify({ path: projectPath }),
+  });
+}
+
+// ============================================================================
 // Projects Endpoints
 // ============================================================================
 
@@ -262,7 +364,6 @@ export const api = {
     getFileSubgraph,
     getEntity: getEntityWithConnections,
     getNeighbors,
-    getStats,
   },
   parse: {
     project: parseProject,
@@ -274,7 +375,21 @@ export const api = {
     cypher: executeCypher,
     natural: queryNatural,
   },
-  search,
+  search: {
+    text: search,
+    hybrid: searchHybrid,
+  },
+  stats: {
+    graph: getStats,
+    embeddings: getEmbeddingStats,
+  },
+  analytics: {
+    summary: getAnalyticsSummary,
+    security: getSecurityAnalysis,
+    complexity: getComplexityHotspots,
+    impact: getImpactAnalysis,
+    run: runAnalysis,
+  },
   source: getSourceCode,
   projects: {
     list: getProjects,

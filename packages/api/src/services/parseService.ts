@@ -8,7 +8,7 @@
  * - removeFileFromGraph (API-specific)
  */
 
-import type { ParseResult } from '@codegraph/types';
+import type { ParseResult, FileError } from '@codegraph/types';
 import { indexProject, indexSingleFile, getGraphClient, codeGraphService } from '@codegraph/core';
 import { createLogger, traced } from '@codegraph/logger';
 import { getAnalyticsService } from './analyticsService';
@@ -35,22 +35,38 @@ export const parseProject = traced('parseProject', async function parseProject(
       client,
     });
 
+    // Parse error messages into structured file errors
+    // Core indexer formats them as "Failed: /path/to/file: error message"
+    const fileErrors: FileError[] = result.errorMessages.map((msg) => {
+      const match = msg.match(/^Failed:\s+(.+?):\s+(.+)$/);
+      if (match && match[1] && match[2]) {
+        return { file: match[1], message: match[2] };
+      }
+      return { file: 'unknown', message: msg };
+    });
+
     if (!result.success) {
-      return {
+      const errorResult: ParseResult = {
         status: 'error',
         error: result.errorMessages.join('; '),
       };
+      if (fileErrors.length > 0) errorResult.fileErrors = fileErrors;
+      return errorResult;
     }
 
-    return {
+    const parseResult: ParseResult = {
       status: 'complete',
       stats: {
         files: result.stats.files,
         entities: result.stats.entities,
         edges: result.stats.edges,
         durationMs: result.stats.durationMs,
+        errors: result.stats.errors,
       },
     };
+    if (fileErrors.length > 0) parseResult.fileErrors = fileErrors;
+
+    return parseResult;
   } catch (error) {
     return {
       status: 'error',

@@ -1,12 +1,13 @@
 /**
  * Search routes - /api/search
- * Full-text search across graph entities
+ * Full-text search and hybrid (vector + text + graph) search across graph entities
  * @module routes/search
  */
 
 import { Hono } from 'hono';
 import type { SearchResult, NodeLabel } from '@codegraph/types';
 import { codeGraphService } from '@codegraph/core';
+import type { CodeNodeType } from '@codegraph/core';
 
 const search = new Hono();
 
@@ -106,6 +107,57 @@ search.get('/', async (c) => {
       hasMore: page < totalPages,
     },
   });
+});
+
+/**
+ * GET /api/search/hybrid
+ * Hybrid search combining vector similarity, text matching, and graph traversal
+ *
+ * @query q - Search query string (required)
+ * @query limit - Maximum results to return (default: 30)
+ * @query nodeTypes - Comma-separated code node types to filter (e.g., "Function,Class")
+ * @query includeKnowledge - Include knowledge graph entities (default: false)
+ * @query projectId - Project ID to scope results to
+ * @returns HybridSearchResult with ranked hits, related nodes, and timing metadata
+ *
+ * @example
+ * GET /api/search/hybrid?q=authentication&nodeTypes=Function,Class&limit=20&projectId=abc-123
+ */
+search.get('/hybrid', async (c) => {
+  const q = c.req.query('q') ?? '';
+  const limitParam = c.req.query('limit');
+  const nodeTypesParam = c.req.query('nodeTypes');
+  const includeKnowledgeParam = c.req.query('includeKnowledge');
+  const projectId = c.req.query('projectId');
+
+  if (!q.trim()) {
+    return c.json({ hits: [], related: [], query: q, totalHits: 0, timing: {} });
+  }
+
+  const limit = limitParam ? Math.min(parseInt(limitParam, 10), 100) : 30;
+  const nodeTypes = nodeTypesParam
+    ? (nodeTypesParam.split(',') as CodeNodeType[])
+    : undefined;
+  const includeKnowledge = includeKnowledgeParam === 'true';
+
+  // Resolve projectId to rootPath for scope filtering
+  let scope: string | undefined;
+  if (projectId) {
+    scope = await codeGraphService.resolveProjectRootPath(projectId);
+  }
+
+  const options: {
+    limit: number;
+    nodeTypes?: CodeNodeType[];
+    includeKnowledge: boolean;
+    scope?: string;
+  } = { limit, includeKnowledge };
+  if (nodeTypes) options.nodeTypes = nodeTypes;
+  if (scope) options.scope = scope;
+
+  const result = await codeGraphService.hybridSearchCode(q, options);
+
+  return c.json(result);
 });
 
 export { search };

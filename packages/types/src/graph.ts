@@ -177,6 +177,16 @@ export interface ParseStats {
   edges: number;
   /** Duration in milliseconds */
   durationMs: number;
+  /** Number of files that failed to parse */
+  errors: number;
+}
+
+/** A single file-level parse error */
+export interface FileError {
+  /** Absolute file path */
+  file: string;
+  /** Error message */
+  message: string;
 }
 
 /** Parse operation result */
@@ -187,6 +197,8 @@ export interface ParseResult {
   stats?: ParseStats;
   /** Error message (if status is 'error') */
   error?: string;
+  /** Per-file errors encountered during parsing */
+  fileErrors?: FileError[];
 }
 
 // ============================================================================
