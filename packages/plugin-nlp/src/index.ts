@@ -18,10 +18,11 @@ export { EntityExtractor } from './extractor';
 export type { ExtractorConfig } from './extractor';
 
 // Extract-and-store bridge (extraction → knowledge graph)
-export { extractAndStore, extractAndStoreBatch, extractConversation } from './extract-and-store';
+export { extractAndStore, extractAndStoreBatch, extractConversation, ingestConversation } from './extract-and-store';
 export type {
   ExtractAndStoreConfig, ExtractAndStoreResult,
   ConversationExtractionConfig, ConversationExtractionResult,
+  IngestConversationConfig, IngestConversationResult,
 } from './extract-and-store';
 
 // Bridge linker (knowledge entities → code graph via ABOUT edges)
@@ -53,6 +54,13 @@ export type { Episode, ConversationFormat, ChunkOptions, ChunkResult } from './c
 // Entity resolution (cross-episode deduplication)
 export { resolveEntities } from './entity-resolution';
 export type { EntityResolutionConfig, EntityResolutionResult } from './entity-resolution';
+
+// Temporal conflict resolution (contradiction detection + edge invalidation)
+export { checkAndResolveConflicts } from './conflict-resolution';
+export type {
+  ConflictResolutionConfig, ConflictResolutionResult,
+  ConflictCandidate, ConflictResult,
+} from './conflict-resolution';
 
 // Embedding text construction (node → searchable natural language)
 export {

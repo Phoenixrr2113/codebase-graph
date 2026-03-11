@@ -17,7 +17,10 @@ import { EntityExtractor, type ExtractorConfig } from './extractor';
 import { buildEntityEmbeddingText } from './embedding-text';
 import { generateEmbeddings, isEmbeddingAvailable, type EmbeddingConfig } from './embeddings';
 import { linkEntitiesToCode, type BridgeLinkResult } from './bridge-linker';
-import type { ChunkResult, Episode } from './conversation';
+import type { ChunkResult, Episode, ConversationFormat } from './conversation';
+import { chunkConversation } from './conversation';
+import { resolveEntities, type EntityResolutionConfig } from './entity-resolution';
+import { checkAndResolveConflicts, type ConflictResolutionResult } from './conflict-resolution';
 
 const logger = createLogger({ namespace: 'nlp:extract-and-store' });
 
@@ -51,6 +54,11 @@ export interface ExtractAndStoreConfig {
    *  When provided, the extractor uses this text to resolve pronouns and references
    *  but only extracts entities from the primary text. */
   context?: string | undefined;
+
+  /** Enable temporal conflict resolution. When true, before storing new relationships,
+   *  checks for existing relationships between the same entities and uses LLM to
+   *  detect contradictions. Superseded edges get invalid_at set. Default: false. */
+  conflictResolution?: boolean;
 }
 
 export interface ExtractAndStoreResult {
@@ -66,6 +74,8 @@ export interface ExtractAndStoreResult {
   embedded?: number;
   /** Bridge linking result (if graphClient was provided) */
   bridgeLinked?: BridgeLinkResult;
+  /** Conflict resolution result (if conflictResolution was enabled) */
+  conflicts?: ConflictResolutionResult;
 }
 
 // ============================================================================
@@ -160,6 +170,51 @@ export async function extractAndStore(
     `Stored ${result.entities} entities, ${result.relationships} relationships${embedMsg} (sampleId: ${sampleId})`
   );
 
+  // Conflict resolution — detect and invalidate contradicted edges
+  let conflictResult: ConflictResolutionResult | undefined;
+  if (config.conflictResolution && kgRelationships.length > 0) {
+    try {
+      // Merge all per-relationship conflict results
+      let totalChecked = 0;
+      let totalContradictions = 0;
+      let totalInvalidated = 0;
+      const allDetails: ConflictResolutionResult['details'] = [];
+
+      const crConfig: Parameters<typeof checkAndResolveConflicts>[2] = {};
+      const llm = config.extractor?.languageModel;
+      if (llm) crConfig.llm = llm;
+
+      for (const rel of kgRelationships) {
+        const crResult = await checkAndResolveConflicts(ops, {
+          headText: rel.headText,
+          headType: rel.headType,
+          tailText: rel.tailText,
+          tailType: rel.tailType,
+          type: rel.type,
+        }, crConfig);
+        totalChecked += crResult.checked;
+        totalContradictions += crResult.contradictions;
+        totalInvalidated += crResult.invalidated;
+        allDetails.push(...crResult.details);
+      }
+
+      if (totalChecked > 0) {
+        conflictResult = {
+          checked: totalChecked,
+          contradictions: totalContradictions,
+          invalidated: totalInvalidated,
+          details: allDetails,
+        };
+        logger.info(
+          `Conflict resolution: ${totalChecked} checked, ${totalContradictions} contradictions, ${totalInvalidated} invalidated`,
+        );
+      }
+    } catch (err) {
+      // Conflict resolution is non-fatal
+      logger.warn(`Conflict resolution failed: ${err}`);
+    }
+  }
+
   // Bridge linking — auto-create ABOUT edges from entities to code nodes
   let bridgeResult: BridgeLinkResult | undefined;
   if (config.graphClient && kgEntities.length > 0) {
@@ -183,6 +238,7 @@ export async function extractAndStore(
   };
   if (totalEmbedded > 0) storeResult.embedded = totalEmbedded;
   if (bridgeResult) storeResult.bridgeLinked = bridgeResult;
+  if (conflictResult) storeResult.conflicts = conflictResult;
   return storeResult;
 }
 
@@ -418,6 +474,145 @@ export async function extractConversation(
     `Conversation extraction complete: ${result.entities} entities, ` +
     `${result.relationships} relationships from ${result.episodesWithEntities}/${result.totalEpisodes} episodes`,
   );
+
+  return result;
+}
+
+// ============================================================================
+// Full ingestion pipeline: text → chunk → extract → resolve → store
+// ============================================================================
+
+export interface IngestConversationConfig {
+  /** Conversation format (default: 'auto' — auto-detect).
+   *  Accepts string for MCP compatibility; validated at runtime. */
+  format?: string;
+  /** Source label for provenance tracking (e.g., 'slack-engineering') */
+  source?: string;
+  /** LLM model override for extraction */
+  model?: string;
+  /** Number of prior episodes to include as context (default: 4) */
+  contextWindow?: number;
+  /** Entity resolution config — omit to skip resolution */
+  entityResolution?: Partial<EntityResolutionConfig>;
+  /** Whether to run entity resolution after extraction (default: true) */
+  resolve?: boolean;
+  /** Direct extractor config override (e.g., for injecting a mock languageModel in tests) */
+  extractor?: Partial<ExtractorConfig>;
+  /** Enable temporal conflict resolution (default: false) */
+  conflictResolution?: boolean;
+}
+
+export interface IngestConversationResult {
+  /** Total episodes processed */
+  totalEpisodes: number;
+  /** Number of episodes that produced at least one entity */
+  episodesWithEntities: number;
+  /** Total entities stored across all episodes */
+  entities: number;
+  /** Total relationships stored */
+  relationships: number;
+  /** Total items with embeddings generated */
+  embedded: number;
+  /** Unique speakers detected in the conversation */
+  speakers: string[];
+  /** Detected or specified format */
+  format: string;
+  /** Entity resolution stats (if resolution was run) */
+  resolution?: {
+    merged: number;
+    kept: number;
+  };
+}
+
+/**
+ * Full conversation ingestion pipeline.
+ *
+ * Accepts raw conversation text and runs the complete pipeline:
+ * 1. Chunk into episodes (auto-detect format or use specified format)
+ * 2. Extract entities/relationships per episode with sliding context
+ * 3. Store in knowledge graph with embeddings
+ * 4. (Optional) Run entity resolution to merge cross-episode duplicates
+ *
+ * This is the top-level entry point called by the MCP `ingest_conversation` tool.
+ *
+ * @param text   - Raw conversation text (multi-turn)
+ * @param ops    - Knowledge graph operations instance
+ * @param config - Ingestion configuration
+ * @returns Aggregated results
+ */
+export async function ingestConversation(
+  text: string,
+  ops: KnowledgeOperations,
+  config: IngestConversationConfig = {},
+): Promise<IngestConversationResult> {
+  const shouldResolve = config.resolve ?? true;
+
+  logger.info(`ingestConversation: textLen=${text.length}, format=${config.format ?? 'auto'}, source=${config.source ?? 'none'}`);
+
+  // Step 1: Chunk the conversation into episodes
+  const validFormats = new Set(['chat', 'timestamped', 'paragraphs', 'auto']);
+  const format = (validFormats.has(config.format ?? '') ? config.format : 'auto') as ConversationFormat;
+  const chunkResult = chunkConversation(text, { format });
+
+  logger.info(
+    `Chunked into ${chunkResult.episodes.length} episodes, format=${chunkResult.format}, speakers=${chunkResult.speakers.join(',')}`,
+  );
+
+  if (chunkResult.episodes.length === 0) {
+    return {
+      totalEpisodes: 0,
+      episodesWithEntities: 0,
+      entities: 0,
+      relationships: 0,
+      embedded: 0,
+      speakers: [],
+      format: chunkResult.format,
+    };
+  }
+
+  // Step 2: Extract entities/relationships per episode with sliding context
+  const extractionConfig: ConversationExtractionConfig = {
+    contextWindow: config.contextWindow ?? 4,
+  };
+  if (config.source) extractionConfig.source = config.source;
+  if (config.extractor) {
+    // Direct extractor config (e.g., from tests injecting a mock languageModel)
+    extractionConfig.extractor = config.extractor;
+  } else if (config.model) {
+    extractionConfig.extractor = { model: config.model };
+  }
+  if (config.conflictResolution) {
+    extractionConfig.conflictResolution = true;
+  }
+
+  const extractResult = await extractConversation(chunkResult, ops, extractionConfig);
+
+  const result: IngestConversationResult = {
+    totalEpisodes: extractResult.totalEpisodes,
+    episodesWithEntities: extractResult.episodesWithEntities,
+    entities: extractResult.entities,
+    relationships: extractResult.relationships,
+    embedded: extractResult.embedded,
+    speakers: extractResult.speakers,
+    format: extractResult.format,
+  };
+
+  // Step 3: Entity resolution — merge cross-episode duplicates
+  if (shouldResolve && extractResult.entities > 1) {
+    try {
+      const resolutionResult = await resolveEntities(ops, config.entityResolution);
+      result.resolution = {
+        merged: resolutionResult.merges.length,
+        kept: resolutionResult.kept,
+      };
+      logger.info(
+        `Entity resolution: ${resolutionResult.merges.length} merges, ${resolutionResult.kept} kept`,
+      );
+    } catch (err) {
+      // Entity resolution is non-fatal — entities are still stored
+      logger.warn(`Entity resolution failed: ${err}`);
+    }
+  }
 
   return result;
 }

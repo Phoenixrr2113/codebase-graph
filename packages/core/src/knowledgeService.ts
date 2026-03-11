@@ -88,6 +88,44 @@ export type ExtractAndStoreFn = (
   };
 }>;
 
+/**
+ * Function signature for the conversation ingestion pipeline.
+ * Accepts conversation text + KnowledgeOperations + config,
+ * runs: chunk → extract per episode with sliding context → store.
+ * Provided by @codegraph/plugin-nlp.
+ */
+export type IngestConversationFn = (
+  text: string,
+  ops: KnowledgeOperations,
+  config?: {
+    format?: string;
+    source?: string;
+    model?: string;
+    contextWindow?: number;
+  },
+) => Promise<{
+  totalEpisodes: number;
+  episodesWithEntities: number;
+  entities: number;
+  relationships: number;
+  embedded: number;
+  speakers: string[];
+  format: string;
+}>;
+
+/** Result from ingestConversation */
+export interface KnowledgeConversationResult {
+  ingested: true;
+  totalEpisodes: number;
+  episodesWithEntities: number;
+  entities: number;
+  relationships: number;
+  embedded: number;
+  speakers: string[];
+  format: string;
+  source: string | null;
+}
+
 // ============================================================================
 // KnowledgeService
 // ============================================================================
@@ -216,7 +254,7 @@ class KnowledgeServiceImpl {
    */
   async recall(
     text: string,
-    options?: { type?: string; relationType?: string; limit?: number },
+    options?: { type?: string; relationType?: string; limit?: number; includeHistory?: boolean },
   ): Promise<KnowledgeRecallResult> {
     const ops = await getKnowledgeOps();
 
@@ -231,6 +269,7 @@ class KnowledgeServiceImpl {
     };
     if (options?.type !== undefined) relQuery.entityType = options.type;
     if (options?.relationType !== undefined) relQuery.relationType = options.relationType;
+    if (options?.includeHistory) relQuery.includeInvalidated = true;
     const rels = await ops.getRelationships(relQuery);
 
     return {
@@ -271,6 +310,52 @@ class KnowledgeServiceImpl {
     }
 
     return { decayed: decayResult.decayed, pruned };
+  }
+
+  /**
+   * Ingest a multi-turn conversation into the knowledge graph.
+   *
+   * Full episodic pipeline: chunk → extract per episode with sliding
+   * context → store. Speaker attribution, pronoun resolution, and
+   * temporal ordering are handled automatically.
+   *
+   * Requires an `ingestConversationFn` (from @codegraph/plugin-nlp)
+   * to keep the NLP dependency optional.
+   */
+  async ingestConversation(
+    text: string,
+    ingestConversationFn: IngestConversationFn,
+    options?: { format?: string; source?: string; model?: string; contextWindow?: number },
+  ): Promise<KnowledgeConversationResult> {
+    if (!text || text.trim().length === 0) {
+      throw new Error('Conversation text is required');
+    }
+
+    const ops = await getKnowledgeOps();
+    const config: {
+      format?: string;
+      source?: string;
+      model?: string;
+      contextWindow?: number;
+    } = {};
+    if (options?.format) config.format = options.format;
+    if (options?.source) config.source = options.source;
+    if (options?.model) config.model = options.model;
+    if (options?.contextWindow) config.contextWindow = options.contextWindow;
+
+    const result = await ingestConversationFn(text, ops, config);
+
+    return {
+      ingested: true,
+      totalEpisodes: result.totalEpisodes,
+      episodesWithEntities: result.episodesWithEntities,
+      entities: result.entities,
+      relationships: result.relationships,
+      embedded: result.embedded,
+      speakers: result.speakers,
+      format: result.format,
+      source: options?.source ?? null,
+    };
   }
 
   /**

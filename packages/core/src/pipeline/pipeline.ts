@@ -30,6 +30,26 @@ import {
   extractCalls as extractCSharpCalls,
   csharpPlugin,
 } from '@codegraph/plugin-csharp';
+import {
+  extractInheritance as extractJavaInheritance,
+  extractCalls as extractJavaCalls,
+  javaPlugin,
+} from '@codegraph/plugin-java';
+import {
+  extractInheritance as extractGoInheritance,
+  extractCalls as extractGoCalls,
+  goPlugin,
+} from '@codegraph/plugin-go';
+import {
+  extractInheritance as extractRustInheritance,
+  extractCalls as extractRustCalls,
+  rustPlugin,
+} from '@codegraph/plugin-rust';
+import {
+  extractInheritance as extractPhpInheritance,
+  extractCalls as extractPhpCalls,
+  phpPlugin,
+} from '@codegraph/plugin-php';
 import { languageRegistry } from './registry';
 import { stat, readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
@@ -52,6 +72,10 @@ export function registerPlugins(): void {
   languageRegistry.register(typescriptPlugin as any);
   languageRegistry.register(pythonPlugin as any);
   languageRegistry.register(csharpPlugin as any);
+  languageRegistry.register(javaPlugin as any);
+  languageRegistry.register(goPlugin as any);
+  languageRegistry.register(rustPlugin as any);
+  languageRegistry.register(phpPlugin as any);
 
   pluginsRegistered = true;
 }
@@ -68,6 +92,14 @@ export const SUPPORTED_EXTENSIONS: readonly string[] = [
   '.py', '.pyw', '.pyi',
   // C#
   '.cs',
+  // Java
+  '.java',
+  // Go
+  '.go',
+  // Rust
+  '.rs',
+  // PHP
+  '.php',
   // Markdown (processed via plugin-markdown, not tree-sitter)
   '.md', '.mdx', '.mdc',
 ];
@@ -77,6 +109,18 @@ export const PYTHON_EXTENSIONS: readonly string[] = ['.py', '.pyw', '.pyi'];
 
 /** C# file extensions */
 export const CSHARP_EXTENSIONS: readonly string[] = ['.cs'];
+
+/** Java file extensions */
+export const JAVA_EXTENSIONS: readonly string[] = ['.java'];
+
+/** Go file extensions */
+export const GO_EXTENSIONS: readonly string[] = ['.go'];
+
+/** Rust file extensions */
+export const RUST_EXTENSIONS: readonly string[] = ['.rs'];
+
+/** PHP file extensions */
+export const PHP_EXTENSIONS: readonly string[] = ['.php'];
 
 /** Markdown file extensions */
 export const MARKDOWN_EXTENSIONS: readonly string[] = ['.md', '.mdx', '.mdc'];
@@ -118,6 +162,30 @@ export function isCSharpFile(filePath: string): boolean {
   return CSHARP_EXTENSIONS.includes(ext);
 }
 
+/** Check if file is a Java file */
+export function isJavaFile(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  return JAVA_EXTENSIONS.includes(ext);
+}
+
+/** Check if file is a Go file */
+export function isGoFile(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  return GO_EXTENSIONS.includes(ext);
+}
+
+/** Check if file is a Rust file */
+export function isRustFile(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  return RUST_EXTENSIONS.includes(ext);
+}
+
+/** Check if file is a PHP file */
+export function isPhpFile(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  return PHP_EXTENSIONS.includes(ext);
+}
+
 /** Check if file is a Markdown file */
 export function isMarkdownFile(filePath: string): boolean {
   const ext = extname(filePath).toLowerCase();
@@ -125,9 +193,13 @@ export function isMarkdownFile(filePath: string): boolean {
 }
 
 /** Get the language category for a file */
-export function getLanguageCategory(filePath: string): 'typescript' | 'python' | 'csharp' | 'markdown' | 'unknown' {
+export function getLanguageCategory(filePath: string): 'typescript' | 'python' | 'csharp' | 'java' | 'go' | 'rust' | 'php' | 'markdown' | 'unknown' {
   if (isPythonFile(filePath)) return 'python';
   if (isCSharpFile(filePath)) return 'csharp';
+  if (isJavaFile(filePath)) return 'java';
+  if (isGoFile(filePath)) return 'go';
+  if (isRustFile(filePath)) return 'rust';
+  if (isPhpFile(filePath)) return 'php';
   if (isMarkdownFile(filePath)) return 'markdown';
   const ext = extname(filePath).toLowerCase();
   if (['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'].includes(ext)) return 'typescript';
@@ -283,6 +355,38 @@ export function buildParsedFileEntities(
         specifiers: imp.specifiers.map((s) => s.name),
       });
     }
+  } else if (isJavaFile(file.path)) {
+    for (const imp of extracted.imports) {
+      importsEdges.push({
+        fromFilePath: file.path,
+        toFilePath: `external:${imp.source}`,
+        specifiers: imp.specifiers.map((s) => s.name),
+      });
+    }
+  } else if (isGoFile(file.path)) {
+    for (const imp of extracted.imports) {
+      importsEdges.push({
+        fromFilePath: file.path,
+        toFilePath: `external:${imp.source}`,
+        specifiers: imp.specifiers.map((s) => s.name),
+      });
+    }
+  } else if (isRustFile(file.path)) {
+    for (const imp of extracted.imports) {
+      importsEdges.push({
+        fromFilePath: file.path,
+        toFilePath: `external:${imp.source}`,
+        specifiers: imp.specifiers.map((s) => s.name),
+      });
+    }
+  } else if (isPhpFile(file.path)) {
+    for (const imp of extracted.imports) {
+      importsEdges.push({
+        fromFilePath: file.path,
+        toFilePath: `external:${imp.source}`,
+        specifiers: imp.specifiers.map((s) => s.name),
+      });
+    }
   } else {
     importsEdges = extracted.imports
       .filter((imp) => imp.resolvedPath)
@@ -310,6 +414,96 @@ export function buildParsedFileEntities(
     }
   } else if (isCSharpFile(file.path)) {
     const inheritanceRefs = extractCSharpInheritance(rootNode as any, file.path);
+    for (const ref of inheritanceRefs) {
+      const cls = extracted.classes.find((c) => c.name === ref.childName);
+      const iface = extracted.interfaces.find((i) => i.name === ref.childName);
+
+      if (ref.type === 'extends') {
+        if (cls) {
+          extendsEdges.push({
+            childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
+            parentId: `Class:external:${ref.parentName}`,
+          });
+        } else if (iface) {
+          extendsEdges.push({
+            childId: `Interface:${file.path}:${iface.name}:${iface.startLine}`,
+            parentId: `Interface:external:${ref.parentName}`,
+          });
+        }
+      } else if (ref.type === 'implements' && cls) {
+        implementsEdges.push({
+          classId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
+          interfaceId: `Interface:external:${ref.parentName}`,
+        });
+      }
+    }
+  } else if (isJavaFile(file.path)) {
+    const inheritanceRefs = extractJavaInheritance(rootNode as any, file.path);
+    for (const ref of inheritanceRefs) {
+      const cls = extracted.classes.find((c) => c.name === ref.childName);
+      const iface = extracted.interfaces.find((i) => i.name === ref.childName);
+
+      if (ref.type === 'extends') {
+        if (cls) {
+          extendsEdges.push({
+            childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
+            parentId: `Class:external:${ref.parentName}`,
+          });
+        } else if (iface) {
+          extendsEdges.push({
+            childId: `Interface:${file.path}:${iface.name}:${iface.startLine}`,
+            parentId: `Interface:external:${ref.parentName}`,
+          });
+        }
+      } else if (ref.type === 'implements' && cls) {
+        implementsEdges.push({
+          classId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
+          interfaceId: `Interface:external:${ref.parentName}`,
+        });
+      }
+    }
+  } else if (isGoFile(file.path)) {
+    const inheritanceRefs = extractGoInheritance(rootNode as any, file.path);
+    for (const ref of inheritanceRefs) {
+      const cls = extracted.classes.find((c) => c.name === ref.childName);
+      const iface = extracted.interfaces.find((i) => i.name === ref.childName);
+
+      if (ref.type === 'extends') {
+        if (iface) {
+          extendsEdges.push({
+            childId: `Interface:${file.path}:${iface.name}:${iface.startLine}`,
+            parentId: `Interface:external:${ref.parentName}`,
+          });
+        }
+      } else if (ref.type === 'implements' && cls) {
+        implementsEdges.push({
+          classId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
+          interfaceId: `Interface:external:${ref.parentName}`,
+        });
+      }
+    }
+  } else if (isRustFile(file.path)) {
+    const inheritanceRefs = extractRustInheritance(rootNode as any, file.path);
+    for (const ref of inheritanceRefs) {
+      const cls = extracted.classes.find((c) => c.name === ref.childName);
+      const iface = extracted.interfaces.find((i) => i.name === ref.childName);
+
+      if (ref.type === 'extends') {
+        if (iface) {
+          extendsEdges.push({
+            childId: `Interface:${file.path}:${iface.name}:${iface.startLine}`,
+            parentId: `Interface:external:${ref.parentName}`,
+          });
+        }
+      } else if (ref.type === 'implements' && cls) {
+        implementsEdges.push({
+          classId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
+          interfaceId: `Interface:external:${ref.parentName}`,
+        });
+      }
+    }
+  } else if (isPhpFile(file.path)) {
+    const inheritanceRefs = extractPhpInheritance(rootNode as any, file.path);
     for (const ref of inheritanceRefs) {
       const cls = extracted.classes.find((c) => c.name === ref.childName);
       const iface = extracted.interfaces.find((i) => i.name === ref.childName);
@@ -377,6 +571,46 @@ export function buildParsedFileEntities(
         file.path,
       );
       callEdges = csharpCalls.map((call) => ({
+        callerId: `Function:${call.filePath}:${call.callerName}`,
+        calleeId: `Function:${call.filePath}:${call.calleeName}`,
+        line: call.line,
+      }));
+    } else if (isJavaFile(file.path)) {
+      const javaCalls = extractJavaCalls(
+        rootNode as unknown as import('@codegraph/types').SyntaxNode,
+        file.path,
+      );
+      callEdges = javaCalls.map((call) => ({
+        callerId: `Function:${call.filePath}:${call.callerName}`,
+        calleeId: `Function:${call.filePath}:${call.calleeName}`,
+        line: call.line,
+      }));
+    } else if (isGoFile(file.path)) {
+      const goCalls = extractGoCalls(
+        rootNode as unknown as import('@codegraph/types').SyntaxNode,
+        file.path,
+      );
+      callEdges = goCalls.map((call) => ({
+        callerId: `Function:${call.filePath}:${call.callerName}`,
+        calleeId: `Function:${call.filePath}:${call.calleeName}`,
+        line: call.line,
+      }));
+    } else if (isRustFile(file.path)) {
+      const rustCalls = extractRustCalls(
+        rootNode as unknown as import('@codegraph/types').SyntaxNode,
+        file.path,
+      );
+      callEdges = rustCalls.map((call) => ({
+        callerId: `Function:${call.filePath}:${call.callerName}`,
+        calleeId: `Function:${call.filePath}:${call.calleeName}`,
+        line: call.line,
+      }));
+    } else if (isPhpFile(file.path)) {
+      const phpCalls = extractPhpCalls(
+        rootNode as unknown as import('@codegraph/types').SyntaxNode,
+        file.path,
+      );
+      callEdges = phpCalls.map((call) => ({
         callerId: `Function:${call.filePath}:${call.callerName}`,
         calleeId: `Function:${call.filePath}:${call.calleeName}`,
         line: call.line,

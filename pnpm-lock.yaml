@@ -314,15 +314,27 @@ importers:
       '@codegraph/plugin-csharp':
         specifier: workspace:*
         version: link:../plugin-csharp
+      '@codegraph/plugin-go':
+        specifier: workspace:*
+        version: link:../plugin-go
+      '@codegraph/plugin-java':
+        specifier: workspace:*
+        version: link:../plugin-java
       '@codegraph/plugin-markdown':
         specifier: workspace:*
         version: link:../plugin-markdown
       '@codegraph/plugin-nlp':
         specifier: workspace:*
         version: link:../plugin-nlp
+      '@codegraph/plugin-php':
+        specifier: workspace:*
+        version: link:../plugin-php
       '@codegraph/plugin-python':
         specifier: workspace:*
         version: link:../plugin-python
+      '@codegraph/plugin-rust':
+        specifier: workspace:*
+        version: link:../plugin-rust
       '@codegraph/plugin-typescript':
         specifier: workspace:*
         version: link:../plugin-typescript
@@ -440,6 +452,50 @@ importers:
         specifier: ^3.0.4
         version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
+  packages/plugin-go:
+    dependencies:
+      '@codegraph/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@codegraph/types':
+        specifier: workspace:*
+        version: link:../types
+      tree-sitter:
+        specifier: ^0.21.1
+        version: 0.21.1
+      tree-sitter-go:
+        specifier: ^0.23.4
+        version: 0.23.4(tree-sitter@0.21.1)
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.4
+        version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
+
+  packages/plugin-java:
+    dependencies:
+      '@codegraph/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@codegraph/types':
+        specifier: workspace:*
+        version: link:../types
+      tree-sitter:
+        specifier: ^0.21.1
+        version: 0.21.1
+      tree-sitter-java:
+        specifier: ^0.23.5
+        version: 0.23.5(tree-sitter@0.21.1)
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.4
+        version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
+
   packages/plugin-markdown:
     dependencies:
       '@codegraph/logger':
@@ -511,6 +567,28 @@ importers:
         specifier: ^4.0.0
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
+  packages/plugin-php:
+    dependencies:
+      '@codegraph/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@codegraph/types':
+        specifier: workspace:*
+        version: link:../types
+      tree-sitter:
+        specifier: ^0.21.1
+        version: 0.21.1
+      tree-sitter-php:
+        specifier: ^0.23.11
+        version: 0.23.12(tree-sitter@0.21.1)
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.4
+        version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
+
   packages/plugin-python:
     dependencies:
       '@codegraph/logger':
@@ -529,6 +607,28 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
+
+  packages/plugin-rust:
+    dependencies:
+      '@codegraph/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@codegraph/types':
+        specifier: workspace:*
+        version: link:../types
+      tree-sitter:
+        specifier: ^0.21.1
+        version: 0.21.1
+      tree-sitter-rust:
+        specifier: 0.23.1
+        version: 0.23.1(tree-sitter@0.21.1)
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.4
+        version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
   packages/plugin-typescript:
     dependencies:
@@ -4417,8 +4517,32 @@ packages:
       tree_sitter:
         optional: true
 
+  tree-sitter-go@0.23.4:
+    resolution: {integrity: sha512-iQaHEs4yMa/hMo/ZCGqLfG61F0miinULU1fFh+GZreCRtKylFLtvn798ocCZjO2r/ungNZgAY1s1hPFyAwkc7w==}
+    peerDependencies:
+      tree-sitter: ^0.21.1
+    peerDependenciesMeta:
+      tree-sitter:
+        optional: true
+
+  tree-sitter-java@0.23.5:
+    resolution: {integrity: sha512-Yju7oQ0Xx7GcUT01mUglPP+bYfvqjNCGdxqigTnew9nLGoII42PNVP3bHrYeMxswiCRM0yubWmN5qk+zsg0zMA==}
+    peerDependencies:
+      tree-sitter: ^0.21.1
+    peerDependenciesMeta:
+      tree-sitter:
+        optional: true
+
   tree-sitter-javascript@0.23.1:
     resolution: {integrity: sha512-/bnhbrTD9frUYHQTiYnPcxyHORIw157ERBa6dqzaKxvR/x3PC4Yzd+D1pZIMS6zNg2v3a8BZ0oK7jHqsQo9fWA==}
+    peerDependencies:
+      tree-sitter: ^0.21.1
+    peerDependenciesMeta:
+      tree-sitter:
+        optional: true
+
+  tree-sitter-php@0.23.12:
+    resolution: {integrity: sha512-VwkBVOahhC2NYXK/Fuqq30NxuL/6c2hmbxEF4jrB7AyR5rLc7nT27mzF3qoi+pqx9Gy2AbXnGezF7h4MeM6YRA==}
     peerDependencies:
       tree-sitter: ^0.21.1
     peerDependenciesMeta:
@@ -4432,6 +4556,14 @@ packages:
       tree_sitter: '*'
     peerDependenciesMeta:
       tree_sitter:
+        optional: true
+
+  tree-sitter-rust@0.23.1:
+    resolution: {integrity: sha512-wrMptzUAfbl3DbNrldZveyNM2CWmRw2VvEo2j/855qQbMMz4dlCF+TBwRN/1FL1S6cYvAEAJaCMesGqhocFJhQ==}
+    peerDependencies:
+      tree-sitter: ^0.21.1
+    peerDependenciesMeta:
+      tree-sitter:
         optional: true
 
   tree-sitter-typescript@0.23.2:
@@ -8846,7 +8978,28 @@ snapshots:
       node-gyp-build: 4.8.4
       tree-sitter: 0.21.1
 
+  tree-sitter-go@0.23.4(tree-sitter@0.21.1):
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+    optionalDependencies:
+      tree-sitter: 0.21.1
+
+  tree-sitter-java@0.23.5(tree-sitter@0.21.1):
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+    optionalDependencies:
+      tree-sitter: 0.21.1
+
   tree-sitter-javascript@0.23.1(tree-sitter@0.21.1):
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+    optionalDependencies:
+      tree-sitter: 0.21.1
+
+  tree-sitter-php@0.23.12(tree-sitter@0.21.1):
     dependencies:
       node-addon-api: 8.5.0
       node-gyp-build: 4.8.4
@@ -8857,6 +9010,13 @@ snapshots:
     dependencies:
       node-addon-api: 7.1.1
       node-gyp-build: 4.8.4
+      tree-sitter: 0.21.1
+
+  tree-sitter-rust@0.23.1(tree-sitter@0.21.1):
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+    optionalDependencies:
       tree-sitter: 0.21.1
 
   tree-sitter-typescript@0.23.2(tree-sitter@0.21.1):

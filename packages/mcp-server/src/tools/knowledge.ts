@@ -142,7 +142,7 @@ export const queryKnowledgeToolDefinition: ToolDefinition = {
 
 export const recallToolDefinition: ToolDefinition = {
   name: 'recall',
-  description: 'Recall everything known about an entity — returns all relationships where the entity appears as head or tail. Like asking "what do I know about X?"',
+  description: 'Recall everything known about an entity — returns all currently-valid relationships where the entity appears as head or tail. Like asking "what do I know about X?" By default, superseded/invalidated facts are excluded. Set includeHistory=true to see the full timeline including invalidated facts.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -161,6 +161,10 @@ export const recallToolDefinition: ToolDefinition = {
       limit: {
         type: 'number',
         description: 'Maximum relationships to return (default: 50)',
+      },
+      includeHistory: {
+        type: 'boolean',
+        description: 'If true, also return invalidated/superseded facts (default: false — only current facts)',
       },
     },
     required: ['text'],
@@ -189,6 +193,42 @@ export const decayAndPruneToolDefinition: ToolDefinition = {
   },
 };
 
+export const ingestConversationToolDefinition: ToolDefinition = {
+  name: 'ingest_conversation',
+  description:
+    'Ingest a multi-turn conversation into the knowledge graph. Runs the full episodic pipeline: ' +
+    'chunk into episodes → extract entities/relationships per episode with sliding context for ' +
+    'pronoun resolution → store with embeddings → deduplicate via entity resolution. ' +
+    'Handles chat transcripts, meeting notes, Slack threads, etc.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      text: {
+        type: 'string',
+        description:
+          'Full conversation text. Supports multiple formats:\n' +
+          '- Chat: "Alice: hello\\nBob: hi there"\n' +
+          '- Timestamped: "[2024-01-15 09:00] Alice: hello"\n' +
+          '- Paragraphs: plain text separated by blank lines\n' +
+          '- Auto-detected if format is not specified',
+      },
+      format: {
+        type: 'string',
+        description: 'Conversation format: "chat", "timestamped", "paragraphs", or "auto" (default: "auto")',
+      },
+      source: {
+        type: 'string',
+        description: 'Optional source label for provenance tracking (e.g., "slack-engineering", "meeting-2024-01-15")',
+      },
+      model: {
+        type: 'string',
+        description: 'Optional OpenRouter model override for extraction (default: google/gemini-2.5-flash-preview)',
+      },
+    },
+    required: ['text'],
+  },
+};
+
 export const getKnowledgeStatsToolDefinition: ToolDefinition = {
   name: 'get_knowledge_stats',
   description: 'Get statistics about the knowledge graph: total entities, average relevance, low-relevance count, oldest/newest access timestamps.',
@@ -206,6 +246,7 @@ export const knowledgeToolDefinitions: ToolDefinition[] = [
   storeEntityToolDefinition,
   storeRelationshipToolDefinition,
   storeFactToolDefinition,
+  ingestConversationToolDefinition,
   queryKnowledgeToolDefinition,
   recallToolDefinition,
   decayAndPruneToolDefinition,
@@ -348,10 +389,11 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
 
 export async function handleRecall(args: Record<string, unknown>) {
   try {
-    const opts: { type?: string; relationType?: string; limit?: number } = {};
+    const opts: { type?: string; relationType?: string; limit?: number; includeHistory?: boolean } = {};
     if (args.type != null) opts.type = args.type as string;
     if (args.relationType != null) opts.relationType = args.relationType as string;
     if (args.limit != null) opts.limit = args.limit as number;
+    if (args.includeHistory != null) opts.includeHistory = args.includeHistory as boolean;
     return await knowledgeService.recall(args.text as string, opts);
   } catch (error) {
     logger.error('recall failed', error);
@@ -376,6 +418,40 @@ export async function handleDecayAndPrune(args: Record<string, unknown>) {
   }
 }
 
+export async function handleIngestConversation(args: Record<string, unknown>): Promise<unknown> {
+  try {
+    const text = args.text as string;
+    if (!text || text.trim().length === 0) {
+      return { error: 'Conversation text is required' };
+    }
+
+    // Dynamic import to avoid requiring @codegraph/plugin-nlp when not using this tool
+    const nlp = await import('@codegraph/plugin-nlp');
+    const opts: { format?: string; source?: string; model?: string } = {};
+    if (args.format != null) opts.format = args.format as string;
+    if (args.source != null) opts.source = args.source as string;
+    if (args.model != null) opts.model = args.model as string;
+
+    // Wrap ingestConversation to match IngestConversationFn signature
+    const ingestFn = async (
+      t: string,
+      ops: Parameters<typeof nlp.ingestConversation>[1],
+      config?: { format?: string; source?: string; model?: string; contextWindow?: number },
+    ) => {
+      return nlp.ingestConversation(t, ops, config);
+    };
+
+    return await knowledgeService.ingestConversation(text, ingestFn, opts);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    if (msg.includes('OPENROUTER_API_KEY') || msg.includes('API key')) {
+      return { error: 'OPENROUTER_API_KEY environment variable is not set. Set it to use LLM extraction.' };
+    }
+    logger.error('ingest_conversation failed', error);
+    return { error: msg };
+  }
+}
+
 export async function handleGetKnowledgeStats() {
   try {
     return await knowledgeService.getKnowledgeStats();
@@ -393,6 +469,7 @@ export const knowledgeHandlers: Record<string, (args: Record<string, unknown>) =
   store_entity: handleStoreEntity,
   store_relationship: handleStoreRelationship,
   store_fact: handleStoreFact,
+  ingest_conversation: handleIngestConversation,
   query_knowledge: handleQueryKnowledge,
   recall: handleRecall,
   decay_and_prune: handleDecayAndPrune,

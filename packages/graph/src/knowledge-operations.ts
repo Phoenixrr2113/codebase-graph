@@ -154,7 +154,9 @@ export interface KnowledgeOperations {
 
   // --- Relationship CRUD ---
   createRelationship(rel: KnowledgeRelationship): Promise<void>;
-  getRelationships(query: { entityText?: string; entityType?: string; relationType?: string; limit?: number }): Promise<RelationshipResult[]>;
+  getRelationships(query: { entityText?: string; entityType?: string; relationType?: string; limit?: number; includeInvalidated?: boolean }): Promise<RelationshipResult[]>;
+  /** Invalidate a relationship by setting invalid_at to now. Used by conflict resolution. */
+  invalidateRelationship(headText: string, headType: string, tailText: string, tailType: string, relationType: string): Promise<boolean>;
 
   // --- Batch Import ---
   importEntitiesAndRelationships(
@@ -332,8 +334,31 @@ const KG_CYPHER = {
     SET r.sampleIds = coalesce(r.sampleIds, []) + [$sampleId]
   `,
 
-  /** Get relationships for an entity */
+  /** Invalidate a relationship — set invalid_at to mark it as superseded */
+  INVALIDATE_RELATIONSHIP: `
+    MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
+    WHERE h.text = $headText AND h.type = $headType
+      AND t.text = $tailText AND t.type = $tailType
+      AND r.type = $relType
+      AND r.invalid_at IS NULL
+    SET r.invalid_at = $now
+    RETURN r.type as type
+  `,
+
+  /** Get relationships for an entity (valid only — excludes invalidated) */
   GET_RELATIONSHIPS: `
+    MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
+    WHERE h.text = $entityText
+      AND r.invalid_at IS NULL
+    RETURN h.text as headText, h.type as headType,
+           t.text as tailText, t.type as tailType,
+           r.type as relationType, r.confidence as confidence,
+           r.fact as fact
+    LIMIT $limit
+  `,
+
+  /** Get relationships for an entity (including invalidated — for history) */
+  GET_RELATIONSHIPS_ALL: `
     MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
     WHERE h.text = $entityText
     RETURN h.text as headText, h.type as headType,
@@ -346,6 +371,7 @@ const KG_CYPHER = {
   GET_RELATIONSHIPS_BY_TYPE: `
     MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
     WHERE r.type = $relationType
+      AND r.invalid_at IS NULL
     RETURN h.text as headText, h.type as headType,
            t.text as tailText, t.type as tailType,
            r.type as relationType, r.confidence as confidence,
@@ -355,7 +381,8 @@ const KG_CYPHER = {
 
   GET_RELATIONSHIPS_BY_ENTITY_TYPE: `
     MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
-    WHERE h.type = $entityType OR t.type = $entityType
+    WHERE (h.type = $entityType OR t.type = $entityType)
+      AND r.invalid_at IS NULL
     RETURN h.text as headText, h.type as headType,
            t.text as tailText, t.type as tailType,
            r.type as relationType, r.confidence as confidence,
@@ -365,6 +392,7 @@ const KG_CYPHER = {
 
   GET_ALL_RELATIONSHIPS: `
     MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
+    WHERE r.invalid_at IS NULL
     RETURN h.text as headText, h.type as headType,
            t.text as tailText, t.type as tailType,
            r.type as relationType, r.confidence as confidence,
@@ -760,19 +788,39 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
   }
 
   @trace()
+  async invalidateRelationship(
+    headText: string,
+    headType: string,
+    tailText: string,
+    tailType: string,
+    relationType: string,
+  ): Promise<boolean> {
+    const now = Date.now();
+    const result = await this.client.query<{ type: string }>(
+      KG_CYPHER.INVALIDATE_RELATIONSHIP,
+      {
+        params: { headText, headType, tailText, tailType, relType: relationType, now },
+      }
+    );
+    return result.data.length > 0;
+  }
+
+  @trace()
   async getRelationships(query: {
     entityText?: string;
     entityType?: string;
     relationType?: string;
     limit?: number;
+    includeInvalidated?: boolean;
   }): Promise<RelationshipResult[]> {
     const limit = query.limit ?? 50;
+    const includeInvalidated = query.includeInvalidated ?? false;
 
     let cypher: string;
     let params: QueryParams;
 
     if (query.entityText) {
-      cypher = KG_CYPHER.GET_RELATIONSHIPS;
+      cypher = includeInvalidated ? KG_CYPHER.GET_RELATIONSHIPS_ALL : KG_CYPHER.GET_RELATIONSHIPS;
       params = { entityText: query.entityText, limit };
     } else if (query.relationType) {
       cypher = KG_CYPHER.GET_RELATIONSHIPS_BY_TYPE;
