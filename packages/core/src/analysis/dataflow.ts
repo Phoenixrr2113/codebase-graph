@@ -267,13 +267,13 @@ function detectTaintSink(
           const taintedArg = args?.text || '';
 
           return {
-            category,
+            category: category as TaintSinkCategory,
             pattern: calleeText,
             taintedArgument: taintedArg,
             file: filePath,
             line: node.startPosition.row + 1,
             column: node.startPosition.column,
-            severity,
+            severity: severity as TaintSink['severity'],
           };
         }
       }
@@ -295,13 +295,13 @@ function detectTaintSink(
           const taintedArg = right?.text || '';
 
           return {
-            category,
+            category: category as TaintSinkCategory,
             pattern: leftText,
             taintedArgument: taintedArg,
             file: filePath,
             line: node.startPosition.row + 1,
             column: node.startPosition.column,
-            severity,
+            severity: severity as TaintSink['severity'],
           };
         }
       }
