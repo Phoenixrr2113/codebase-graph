@@ -1,10 +1,5 @@
 import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, type LanguageModel } from 'ai';
 import { createLogger } from '@codegraph/logger';
-
-/** Check if an error is a structured output generation failure */
-function isNoOutputError(error: unknown): boolean {
-  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
-}
 import type {
   Sample,
   AnnotatedSample,
@@ -26,6 +21,11 @@ import {
   type ExtractionResponse,
   type BatchExtractionResponse,
 } from './schemas';
+
+/** Check if an error is a structured output generation failure */
+function isNoOutputError(error: unknown): boolean {
+  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
+}
 
 const logger = createLogger({ namespace: 'nlp:extractor' });
 

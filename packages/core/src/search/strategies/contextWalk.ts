@@ -12,11 +12,6 @@
  */
 
 import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, type LanguageModel } from 'ai';
-
-/** Check if an error is a structured output generation failure */
-function isNoOutputError(error: unknown): boolean {
-  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
-}
 import { createLogger } from '@codegraph/logger';
 import { ContextWalkStepSchema, type ContextWalkStep } from '@codegraph/plugin-nlp';
 import type {
@@ -28,6 +23,11 @@ import type {
   SearchRelatedItem,
 } from '../types';
 import { hybridSearch, type HybridSearchOptions, type HybridSearchResult } from '../../hybridSearch';
+
+/** Check if an error is a structured output generation failure */
+function isNoOutputError(error: unknown): boolean {
+  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
+}
 
 const logger = createLogger({ namespace: 'core:search:context-walk' });
 

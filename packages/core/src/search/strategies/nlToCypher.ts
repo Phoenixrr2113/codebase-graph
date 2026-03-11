@@ -12,11 +12,6 @@
  */
 
 import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError } from 'ai';
-
-/** Check if an error is a structured output generation failure */
-function isNoOutputError(error: unknown): boolean {
-  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
-}
 import { createLogger } from '@codegraph/logger';
 import { NLToCypherSchema, type NLToCypher } from '@codegraph/plugin-nlp';
 import type {
@@ -26,6 +21,11 @@ import type {
   SearchContext,
   SearchResultItem,
 } from '../types';
+
+/** Check if an error is a structured output generation failure */
+function isNoOutputError(error: unknown): boolean {
+  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
+}
 
 const logger = createLogger({ namespace: 'core:search:nl-to-cypher' });
 

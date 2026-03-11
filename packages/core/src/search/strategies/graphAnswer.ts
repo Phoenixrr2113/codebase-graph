@@ -11,11 +11,6 @@
  */
 
 import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, type LanguageModel } from 'ai';
-
-/** Check if an error is a structured output generation failure (handles both old and new error types) */
-function isNoOutputError(error: unknown): boolean {
-  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
-}
 import { createLogger } from '@codegraph/logger';
 import { GraphAnswerSchema, type GraphAnswer } from '@codegraph/plugin-nlp';
 import type {
@@ -26,6 +21,11 @@ import type {
   SearchResultItem,
 } from '../types';
 import { hybridSearch, type HybridSearchOptions } from '../../hybridSearch';
+
+/** Check if an error is a structured output generation failure */
+function isNoOutputError(error: unknown): boolean {
+  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
+}
 
 const logger = createLogger({ namespace: 'core:search:graph-answer' });
 
