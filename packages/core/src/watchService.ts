@@ -113,8 +113,10 @@ export class WatchService extends EventEmitter {
     this.watcher.on('change', (path) => this.handleFileEvent('change', path));
     this.watcher.on('unlink', (path) => this.handleFileEvent('unlink', path));
     this.watcher.on('error', (error) => {
-      logger.error('Error:', error);
-      this.emit('error', error);
+      logger.error('File watcher error (non-fatal):', error);
+      if (this.listenerCount('error') > 0) {
+        this.emit('error', error);
+      }
     });
 
     this.isRunning = true;

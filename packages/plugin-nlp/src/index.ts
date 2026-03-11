@@ -16,11 +16,13 @@
 // Centralized LLM model factory (multi-provider: OpenRouter, Ollama)
 export {
   getLLMModel,
+  getLLMComplexModel,
   getLLMModelSync,
   getLLMModelName,
   getLLMProvider,
   getLLMConfigResolved,
   isLLMAvailable,
+  isComplexLLMAvailable,
 } from './llm';
 export type { LLMProvider, LLMConfig } from './llm';
 

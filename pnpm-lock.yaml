@@ -529,6 +529,9 @@ importers:
 
   packages/plugin-nlp:
     dependencies:
+      '@ai-sdk/openai-compatible':
+        specifier: ^2.0.35
+        version: 2.0.35(zod@3.25.76)
       '@codegraph/graph':
         specifier: workspace:*
         version: link:../graph
@@ -551,9 +554,6 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
-      '@ai-sdk/openai-compatible':
-        specifier: ^2.0.35
-        version: 2.0.35(zod@3.25.76)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.7

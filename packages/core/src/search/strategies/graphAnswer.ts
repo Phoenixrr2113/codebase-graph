@@ -10,7 +10,7 @@
  * - "What decisions were made about the database?"
  */
 
-import { generateObject, NoObjectGeneratedError } from 'ai';
+import { generateObject, NoObjectGeneratedError, type LanguageModel } from 'ai';
 import { createLogger } from '@codegraph/logger';
 import { GraphAnswerSchema, type GraphAnswer } from '@codegraph/plugin-nlp';
 import type {
@@ -31,7 +31,7 @@ export class GraphAnswerStrategy implements SearchStrategy {
   readonly requiresLLM = true;
 
   async search(request: SearchRequest, context: SearchContext): Promise<SearchResponse> {
-    if (!context.llm) {
+    if (!context.llm && !context.complexLlm) {
       throw new Error('GRAPH_ANSWER requires an LLM');
     }
 
@@ -64,46 +64,77 @@ export class GraphAnswerStrategy implements SearchStrategy {
     // Step 2: Gather context from top hits
     const contextText = this.buildContextFromHits(hybridResult, request.query);
 
-    // Step 3: Generate answer using LLM
-    try {
-      const { object: answer } = (await generateObject({
-        model: context.llm,
-        schema: GraphAnswerSchema,
-        prompt: this.buildAnswerPrompt(request.query, contextText),
-        temperature: 0.2,
-      })) as { object: GraphAnswer };
+    // Step 3: Generate answer using LLM (with fallback from complex → default)
+    const modelsToTry: LanguageModel[] = [];
+    if (context.complexLlm) modelsToTry.push(context.complexLlm);
+    if (context.llm && context.llm !== context.complexLlm) modelsToTry.push(context.llm);
+    if (modelsToTry.length === 0 && context.llm) modelsToTry.push(context.llm);
 
-      return {
-        results,
-        answer: answer.answer,
-        answerConfidence: answer.confidence,
-        answerSources: answer.sources,
-        total: results.length,
-        meta: {
-          searchType: 'GRAPH_ANSWER',
-          durationMs: 0, // filled by registry
-          vectorHits: hybridResult.meta.vectorHits,
-          textHits: hybridResult.meta.textHits,
-          contextNodes: hybridResult.hits.length,
-        },
-      };
-    } catch (error) {
-      if (NoObjectGeneratedError.isInstance(error)) {
-        logger.warn('GRAPH_ANSWER: LLM failed to generate structured answer');
+    for (let i = 0; i < modelsToTry.length; i++) {
+      const model = modelsToTry[i]!;
+      const isLastModel = i === modelsToTry.length - 1;
+
+      try {
+        const { object: answer } = (await generateObject({
+          model,
+          schema: GraphAnswerSchema,
+          prompt: this.buildAnswerPrompt(request.query, contextText),
+          temperature: 0.2,
+        })) as { object: GraphAnswer };
+
         return {
           results,
-          answer: 'Unable to generate an answer from the available context.',
-          answerConfidence: 0,
+          answer: answer.answer,
+          answerConfidence: answer.confidence,
+          answerSources: answer.sources,
           total: results.length,
           meta: {
             searchType: 'GRAPH_ANSWER',
-            durationMs: 0,
-            error: 'LLM parse failure',
+            durationMs: 0, // filled by registry
+            vectorHits: hybridResult.meta.vectorHits,
+            textHits: hybridResult.meta.textHits,
+            contextNodes: hybridResult.hits.length,
+            ...(i > 0 ? { fallbackUsed: true } : {}),
           },
         };
+      } catch (error) {
+        if (NoObjectGeneratedError.isInstance(error)) {
+          logger.warn('GRAPH_ANSWER: LLM failed to generate structured answer');
+          if (isLastModel) {
+            return {
+              results,
+              answer: 'Unable to generate an answer from the available context.',
+              answerConfidence: 0,
+              total: results.length,
+              meta: {
+                searchType: 'GRAPH_ANSWER',
+                durationMs: 0,
+                error: 'LLM parse failure',
+              },
+            };
+          }
+          // Try next model
+          continue;
+        }
+
+        // For other errors (API failures, rate limits, auth), try fallback
+        if (!isLastModel) {
+          const msg = error instanceof Error ? error.message : String(error);
+          logger.warn(`GRAPH_ANSWER: Model failed (${msg}), trying fallback model`);
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
+
+    // Should not reach here, but just in case
+    return {
+      results,
+      answer: 'Unable to generate an answer.',
+      answerConfidence: 0,
+      total: results.length,
+      meta: { searchType: 'GRAPH_ANSWER', durationMs: 0, error: 'No models available' },
+    };
   }
 
   private buildContextFromHits(

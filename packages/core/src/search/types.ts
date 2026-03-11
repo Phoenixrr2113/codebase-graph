@@ -41,6 +41,8 @@ export interface SearchContext {
   client: GraphClient;
   /** LLM for answer generation, query translation, routing (optional for non-LLM types) */
   llm?: LanguageModel;
+  /** Complex LLM for multi-step reasoning (GRAPH_ANSWER, CONTEXT_WALK). Falls back to llm if not set. */
+  complexLlm?: LanguageModel;
   /** Embedding config for vector search */
   embeddings?: EmbeddingConfig;
 }

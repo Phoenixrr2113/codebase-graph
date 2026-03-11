@@ -19,6 +19,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^2.0.35",
     "@codegraph/graph": "workspace:*",
     "@codegraph/logger": "workspace:*",
     "@codegraph/types": "workspace:*",
@@ -28,7 +29,6 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@ai-sdk/openai-compatible": "^2.0.35",
     "@types/node": "^22.0.0",
     "typescript": "^5.7.3",
     "vitest": "^4.0.0"

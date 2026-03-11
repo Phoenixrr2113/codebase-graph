@@ -13,7 +13,7 @@ import {
   createDefaultSearchRegistry,
 } from '@codegraph/core';
 import type { SearchResponse } from '@codegraph/core';
-import { getLLMModel, isLLMAvailable } from '@codegraph/plugin-nlp';
+import { getLLMModel, getLLMComplexModel, isLLMAvailable } from '@codegraph/plugin-nlp';
 import { createLogger } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'API:Query' });
@@ -110,10 +110,11 @@ query.post(
       const registry = getRegistry();
       const client = await getGraphClient();
       const llm = await getLLMModel();
+      const complexLlm = await getLLMComplexModel();
 
       const response: SearchResponse = await registry.search(
         { query: question, type: 'SMART_SEARCH', limit: 50 },
-        { client, llm },
+        { client, llm, ...(complexLlm ? { complexLlm } : {}) },
       );
 
       // Map SearchResponse to the endpoint's shape.

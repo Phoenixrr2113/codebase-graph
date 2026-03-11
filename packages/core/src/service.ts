@@ -1447,9 +1447,11 @@ class CodeGraphServiceImpl {
 
     // Dynamically check for LLM availability
     try {
-      const { isLLMAvailable, getLLMModel } = await import('@codegraph/plugin-nlp');
+      const { isLLMAvailable, getLLMModel, getLLMComplexModel } = await import('@codegraph/plugin-nlp');
       if (isLLMAvailable()) {
         context.llm = await getLLMModel();
+        const complexLlm = await getLLMComplexModel();
+        if (complexLlm) context.complexLlm = complexLlm;
       }
     } catch {
       // plugin-nlp not available — strategies that require LLM will fail gracefully

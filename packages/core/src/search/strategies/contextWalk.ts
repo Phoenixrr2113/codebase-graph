@@ -11,7 +11,7 @@
  * - "What components depend on the AuthService?"
  */
 
-import { generateObject, NoObjectGeneratedError } from 'ai';
+import { generateObject, NoObjectGeneratedError, type LanguageModel } from 'ai';
 import { createLogger } from '@codegraph/logger';
 import { ContextWalkStepSchema, type ContextWalkStep } from '@codegraph/plugin-nlp';
 import type {
@@ -99,10 +99,53 @@ export class ContextWalkStrategy implements SearchStrategy {
     'Iterative multi-round graph exploration using LLM-guided traversal';
   readonly requiresLLM = true;
 
+  /**
+   * Generate a ContextWalkStep with model fallback (complex → default).
+   * Throws only if ALL models fail with non-recoverable errors.
+   */
+  private async generateStepWithFallback(
+    models: LanguageModel[],
+    prompt: string,
+  ): Promise<ContextWalkStep | null> {
+    for (let i = 0; i < models.length; i++) {
+      const model = models[i]!;
+      const isLast = i === models.length - 1;
+      try {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore — Zod schema type inference depth issue
+        const { object } = (await generateObject({
+          model,
+          schema: ContextWalkStepSchema,
+          prompt,
+          temperature: 0.2,
+        })) as { object: ContextWalkStep };
+        return object;
+      } catch (error) {
+        if (NoObjectGeneratedError.isInstance(error)) {
+          if (isLast) return null;
+          continue;
+        }
+        if (!isLast) {
+          const msg = error instanceof Error ? error.message : String(error);
+          logger.warn(`CONTEXT_WALK: Model failed (${msg}), trying fallback`);
+          continue;
+        }
+        throw error;
+      }
+    }
+    return null;
+  }
+
   async search(request: SearchRequest, context: SearchContext): Promise<SearchResponse> {
-    if (!context.llm) {
+    if (!context.llm && !context.complexLlm) {
       throw new Error('CONTEXT_WALK requires an LLM');
     }
+
+    // Build ordered model list for fallback: complex first, then default
+    const models: LanguageModel[] = [];
+    if (context.complexLlm) models.push(context.complexLlm);
+    if (context.llm && context.llm !== context.complexLlm) models.push(context.llm);
+    if (models.length === 0 && context.llm) models.push(context.llm);
 
     const maxRounds = (request.options?.['maxRounds'] as number) ?? MAX_ROUNDS;
     const state: WalkState = {
@@ -140,25 +183,15 @@ export class ContextWalkStrategy implements SearchStrategy {
         break;
       }
 
-      // Ask LLM what to do next
+      // Ask LLM what to do next (with fallback)
       const contextSummary = this.buildContextSummary(state);
-      let step: ContextWalkStep;
-      try {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore — Zod schema type inference depth issue
-        const { object } = (await generateObject({
-          model: context.llm,
-          schema: ContextWalkStepSchema,
-          prompt: this.buildStepPrompt(request.query, contextSummary, state.walkHistory),
-          temperature: 0.2,
-        })) as { object: ContextWalkStep };
-        step = object;
-      } catch (error) {
-        if (NoObjectGeneratedError.isInstance(error)) {
-          logger.warn('CONTEXT_WALK: LLM failed to generate step, forcing answer');
-          break;
-        }
-        throw error;
+      const step = await this.generateStepWithFallback(
+        models,
+        this.buildStepPrompt(request.query, contextSummary, state.walkHistory),
+      );
+      if (!step) {
+        logger.warn('CONTEXT_WALK: All models failed to generate step, forcing answer');
+        break;
       }
 
       state.walkHistory.push(
@@ -211,19 +244,15 @@ export class ContextWalkStrategy implements SearchStrategy {
 
     // Step 3: If no answer yet, force one from the collected context
     if (!finalAnswer && state.discoveredNodes.length > 0) {
-      try {
-        const contextSummary = this.buildContextSummary(state);
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore — Zod schema type inference depth issue
-        const { object } = (await generateObject({
-          model: context.llm,
-          schema: ContextWalkStepSchema,
-          prompt: this.buildFinalAnswerPrompt(request.query, contextSummary, state.walkHistory),
-          temperature: 0.2,
-        })) as { object: ContextWalkStep };
-        finalAnswer = object.answer ?? 'Unable to synthesize an answer from the explored context.';
+      const contextSummary = this.buildContextSummary(state);
+      const finalStep = await this.generateStepWithFallback(
+        models,
+        this.buildFinalAnswerPrompt(request.query, contextSummary, state.walkHistory),
+      );
+      if (finalStep?.answer) {
+        finalAnswer = finalStep.answer;
         finalConfidence = 0.6; // Lower confidence when forced
-      } catch {
+      } else {
         finalAnswer = 'Unable to synthesize an answer from the explored context.';
         finalConfidence = 0.3;
       }
