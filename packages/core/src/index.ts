@@ -52,6 +52,29 @@ export type {
   CodeNodeType,
 } from './hybridSearch';
 
+// Search strategy registry (WS12)
+export {
+  SearchRegistry,
+  createSearchRegistry,
+  createDefaultSearchRegistry,
+} from './search';
+export {
+  HybridSearchStrategy,
+  GraphAnswerStrategy,
+  NLToCypherStrategy,
+  SmartSearchStrategy,
+  ContextWalkStrategy,
+} from './search';
+export type {
+  SearchType,
+  SearchContext,
+  SearchRequest,
+  SearchResponse,
+  SearchResultItem,
+  SearchRelatedItem,
+  SearchStrategy,
+} from './search';
+
 // Git history sync
 export { syncGitHistory } from './gitSync';
 export type { GitSyncResult, GitSyncOptions } from './gitSync';

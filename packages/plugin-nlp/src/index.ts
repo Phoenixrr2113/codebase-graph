@@ -13,6 +13,35 @@
  * reduces type drift automatically.
  */
 
+// Centralized LLM model factory (multi-provider: OpenRouter, Ollama)
+export {
+  getLLMModel,
+  getLLMModelSync,
+  getLLMModelName,
+  getLLMProvider,
+  getLLMConfigResolved,
+  isLLMAvailable,
+} from './llm';
+export type { LLMProvider, LLMConfig } from './llm';
+
+// Zod schemas for structured LLM output (extraction + WS12 search types)
+export {
+  ExtractionResponseSchema,
+  BatchExtractionResponseSchema,
+  GraphAnswerSchema,
+  NLToCypherSchema,
+  SearchRouteSchema,
+  ContextWalkStepSchema,
+} from './schemas';
+export type {
+  ExtractionResponse,
+  BatchExtractionResponse,
+  GraphAnswer,
+  NLToCypher,
+  SearchRoute,
+  ContextWalkStep,
+} from './schemas';
+
 // Core extractor
 export { EntityExtractor } from './extractor';
 export type { ExtractorConfig } from './extractor';

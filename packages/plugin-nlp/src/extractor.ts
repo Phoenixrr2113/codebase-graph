@@ -1,5 +1,4 @@
-import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { generateText, type LanguageModel } from 'ai';
+import { generateObject, NoObjectGeneratedError, type LanguageModel } from 'ai';
 import { createLogger } from '@codegraph/logger';
 import type {
   Sample,
@@ -15,17 +14,15 @@ import {
   normalizeEntityType,
   normalizeRelationshipType,
 } from '@codegraph/types';
+import { getLLMModelSync, getLLMModelName } from './llm';
+import {
+  ExtractionResponseSchema,
+  BatchExtractionResponseSchema,
+  type ExtractionResponse,
+  type BatchExtractionResponse,
+} from './schemas';
 
 const logger = createLogger({ namespace: 'nlp:extractor' });
-
-let _openrouter: ReturnType<typeof createOpenRouter> | null = null;
-
-function getOpenRouter() {
-  if (!_openrouter) {
-    _openrouter = createOpenRouter();
-  }
-  return _openrouter;
-}
 
 export type ExtractorConfig = {
   model: string | undefined;
@@ -36,14 +33,65 @@ export type ExtractorConfig = {
   domain: KnowledgeDomain | undefined;
 };
 
-const DEFAULT_MODEL = 'google/gemini-2.5-flash-preview';
-
 /**
  * Format type descriptions for inclusion in LLM prompts.
  * Each type gets a short description so the LLM understands when to use it.
  */
 function formatTypeList(types: TypeDescription[]): string {
   return types.map((t) => `- ${t.type}: ${t.description}`).join('\n');
+}
+
+/**
+ * Post-process extracted entities: ground them in the source text, compute
+ * character offsets, and normalize type synonyms.
+ *
+ * Entities whose text is not found in the source are silently dropped
+ * (text grounding requirement).
+ */
+function groundEntities(
+  raw: ExtractionResponse['entities'],
+  sampleText: string,
+): EntityAnnotation[] {
+  return raw
+    .map((e, i) => {
+      const start = sampleText.indexOf(e.text);
+      if (start < 0) return null; // text grounding: must exist in source
+      const normalizedType = normalizeEntityType(e.type);
+      return {
+        id: `e-${i}`,
+        start,
+        end: start + e.text.length,
+        text: e.text,
+        type: normalizedType,
+        confidence: 0.9,
+      };
+    })
+    .filter((e): e is EntityAnnotation => e !== null);
+}
+
+/**
+ * Post-process extracted relationships: resolve head/tail entity references,
+ * normalize type synonyms, and drop relationships where entities can't be found.
+ */
+function resolveRelationships(
+  raw: ExtractionResponse['relationships'],
+  entities: EntityAnnotation[],
+): RelationshipAnnotation[] {
+  return raw
+    .map((r, i) => {
+      const head = entities.find((e) => e.text === r.headText);
+      const tail = entities.find((e) => e.text === r.tailText);
+      if (!head || !tail) return null;
+      const normalizedType = normalizeRelationshipType(r.type);
+      return {
+        id: `r-${i}`,
+        headEntityId: head.id,
+        tailEntityId: tail.id,
+        type: normalizedType,
+        confidence: 0.9,
+      };
+    })
+    .filter((r): r is RelationshipAnnotation => r !== null);
 }
 
 export class EntityExtractor {
@@ -54,15 +102,39 @@ export class EntityExtractor {
 
   constructor(config: Partial<ExtractorConfig> = {}) {
     this.config = {
-      model: config.model ?? DEFAULT_MODEL,
+      model: config.model ?? getLLMModelName(),
       temperature: config.temperature ?? 0.1,
       domain: config.domain ?? 'se',
     };
     this.model =
-      config.languageModel ?? (getOpenRouter().chat(this.config.model) as unknown as LanguageModel);
+      config.languageModel ?? getLLMModelSync({ model: this.config.model });
     this.entityTypes = getPreferredEntityTypes(this.config.domain);
     this.relationshipTypes = getPreferredRelationshipTypes(this.config.domain);
     logger.debug(`EntityExtractor created with model: ${this.config.model}, domain: ${this.config.domain}`);
+  }
+
+  /**
+   * Safely call generateObject, returning empty results on parse failures.
+   * This handles cases where the LLM returns non-JSON or malformed output.
+   */
+  private async safeGenerateExtraction(
+    prompt: string,
+  ): Promise<ExtractionResponse> {
+    try {
+      const { object } = await generateObject({
+        model: this.model,
+        schema: ExtractionResponseSchema,
+        prompt,
+        temperature: this.config.temperature,
+      });
+      return object;
+    } catch (error) {
+      if (NoObjectGeneratedError.isInstance(error)) {
+        logger.warn(`LLM returned unparseable response — returning empty result`);
+        return { entities: [], relationships: [] };
+      }
+      throw error;
+    }
   }
 
   async extract(sample: Sample): Promise<AnnotatedSample> {
@@ -71,15 +143,12 @@ export class EntityExtractor {
     const prompt = this.buildPrompt(sample.text);
 
     try {
-      const { text } = await generateText({
-        model: this.model,
-        prompt,
-        temperature: this.config.temperature,
-      });
+      const object = await this.safeGenerateExtraction(prompt);
 
-      logger.debug(`LLM response: ${text.slice(0, 500)}`);
+      logger.debug(`LLM structured response: ${object.entities.length} entities, ${object.relationships.length} relationships`);
 
-      const { entities, relationships } = this.parseResponse(text, sample.text);
+      const entities = groundEntities(object.entities, sample.text);
+      const relationships = resolveRelationships(object.relationships, entities);
 
       return {
         ...sample,
@@ -116,15 +185,12 @@ export class EntityExtractor {
     const prompt = this.buildContextPrompt(sample.text, context);
 
     try {
-      const { text } = await generateText({
-        model: this.model,
-        prompt,
-        temperature: this.config.temperature,
-      });
+      const object = await this.safeGenerateExtraction(prompt);
 
-      logger.debug(`LLM response (context): ${text.slice(0, 500)}`);
+      logger.debug(`LLM structured response (context): ${object.entities.length} entities, ${object.relationships.length} relationships`);
 
-      const { entities, relationships } = this.parseResponse(text, sample.text);
+      const entities = groundEntities(object.entities, sample.text);
+      const relationships = resolveRelationships(object.relationships, entities);
 
       return {
         ...sample,
@@ -146,16 +212,21 @@ export class EntityExtractor {
     const prompt = this.buildBatchPrompt(samples);
 
     try {
-      const { text } = await generateText({
+      const { object } = await generateObject({
         model: this.model,
+        schema: BatchExtractionResponseSchema,
         prompt,
         temperature: this.config.temperature,
       });
 
-      logger.debug(`LLM response: ${text.slice(0, 500)}`);
+      logger.debug(`LLM batch response: ${object.results.length} results`);
 
-      return this.parseBatchResponse(text, samples);
+      return this.processBatchResponse(object, samples);
     } catch (error) {
+      if (NoObjectGeneratedError.isInstance(error)) {
+        logger.warn('LLM returned unparseable batch response — returning empty results');
+        return [];
+      }
       logger.error('extractBatch failed', error);
       throw error;
     }
@@ -180,15 +251,12 @@ export class EntityExtractor {
     const prompt = this.buildFewShotPrompt(sample.text, examples);
 
     try {
-      const { text } = await generateText({
-        model: this.model,
-        prompt,
-        temperature: this.config.temperature,
-      });
+      const object = await this.safeGenerateExtraction(prompt);
 
-      logger.debug(`LLM response: ${text.slice(0, 500)}`);
+      logger.debug(`LLM structured response (few-shot): ${object.entities.length} entities, ${object.relationships.length} relationships`);
 
-      const { entities, relationships } = this.parseResponse(text, sample.text);
+      const entities = groundEntities(object.entities, sample.text);
+      const relationships = resolveRelationships(object.relationships, entities);
 
       return {
         ...sample,
@@ -240,22 +308,12 @@ ${examplesText}
 
 ## Your Task
 
-Label the following text using the same format as the examples above.
+Extract entities and relationships from the following text, following the patterns shown in the examples above.
 
 ### Text to Label:
 "${text}"
 
-### Output (JSON only, no explanation):
-{
-  "entities": [
-    { "text": "<exact text from sample>", "type": "<EntityType>" }
-  ],
-  "relationships": [
-    { "headText": "<entity text>", "tailText": "<entity text>", "type": "<RelationshipType>" }
-  ]
-}
-
-Respond with valid JSON only.`;
+Extract all entities (with exact text from the sample) and relationships between them.`;
   }
 
   private buildContextPrompt(text: string, context: string): string {
@@ -286,22 +344,9 @@ ${context}
 ## CURRENT MESSAGE (extract from this only):
 "${text}"
 
-## Output Format
-Return a JSON object:
-{
-  "entities": [
-    { "text": "<exact text from CURRENT MESSAGE>", "type": "<EntityType>" }
-  ],
-  "relationships": [
-    { "headText": "<entity text>", "tailText": "<entity text>", "type": "<RelationshipType>" }
-  ]
-}
-
 Extract all relevant entities and relationships from the CURRENT MESSAGE.
 Use context to resolve pronouns (he/she/they/it) to actual names.
-Focus on concrete entities like people, projects, decisions, goals, problems, etc.
-
-Respond with valid JSON only, no explanation.`;
+Focus on concrete entities like people, projects, decisions, goals, problems, etc.`;
   }
 
   private buildPrompt(text: string): string {
@@ -320,22 +365,9 @@ ${relTypeList}
 ## Text to Process
 "${text}"
 
-## Output Format
-Return a JSON object:
-{
-  "entities": [
-    { "text": "<exact text from sample>", "type": "<EntityType>" }
-  ],
-  "relationships": [
-    { "headText": "<entity text>", "tailText": "<entity text>", "type": "<RelationshipType>" }
-  ]
-}
-
 Extract as many relevant entities and relationships as possible.
 Focus on concrete entities like people, projects, decisions, goals, problems, etc.
-For relationships, only include clear, meaningful connections.
-
-Respond with valid JSON only, no explanation.`;
+For relationships, only include clear, meaningful connections.`;
   }
 
   private buildBatchPrompt(samples: Sample[]): string {
@@ -356,125 +388,38 @@ ${relTypeList}
 
 ${samplesText}
 
-## Output Format
-Return a JSON object with results for each sample:
-{
-  "results": [
-    {
-      "sampleId": "<sample id>",
-      "entities": [
-        { "text": "<exact text from sample>", "type": "<EntityType>" }
-      ],
-      "relationships": [
-        { "headText": "<entity text>", "tailText": "<entity text>", "type": "<RelationshipType>" }
-      ]
-    }
-  ]
-}
-
-Extract as many relevant entities and relationships as possible.
+Extract as many relevant entities and relationships as possible from EACH sample.
 Focus on concrete entities like people, projects, decisions, goals, problems, etc.
-For relationships, only include clear, meaningful connections.
-
-Respond with valid JSON only, no explanation.`;
+For relationships, only include clear, meaningful connections.`;
   }
 
-  private parseResponse(
-    text: string,
-    sampleText: string
-  ): { entities: EntityAnnotation[]; relationships: RelationshipAnnotation[] } {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      logger.warn(`No JSON found in response: ${text.slice(0, 200)}`);
-      return { entities: [], relationships: [] };
+  /**
+   * Process structured batch response: ground entities, resolve relationships,
+   * and build AnnotatedSample results.
+   */
+  private processBatchResponse(
+    response: BatchExtractionResponse,
+    samples: Sample[],
+  ): AnnotatedSample[] {
+    const results: AnnotatedSample[] = [];
+
+    for (const result of response.results) {
+      const sample = samples.find((s) => s.id === result.sampleId);
+      if (!sample) continue;
+
+      const entities = groundEntities(result.entities, sample.text);
+      const relationships = resolveRelationships(result.relationships, entities);
+
+      results.push({
+        ...sample,
+        entities,
+        relationships,
+        annotatedBy: 'auto',
+        annotatedAt: new Date().toISOString(),
+        modelVersion: this.config.model,
+      });
     }
 
-    try {
-      const parsed = JSON.parse(jsonMatch[0]) as {
-        entities?: Array<{ text: string; type: string }>;
-        relationships?: Array<{ headText: string; tailText: string; type: string }>;
-      };
-
-      const entities: EntityAnnotation[] = (parsed.entities ?? [])
-        .map((e, i) => {
-          const start = sampleText.indexOf(e.text);
-          if (start < 0) return null; // text grounding: must exist in source
-          const normalizedType = normalizeEntityType(e.type);
-          return {
-            id: `e-${i}`,
-            start,
-            end: start + e.text.length,
-            text: e.text,
-            type: normalizedType,
-            confidence: 0.9,
-          };
-        })
-        .filter((e): e is EntityAnnotation => e !== null);
-
-      const relationships: RelationshipAnnotation[] = (parsed.relationships ?? [])
-        .map((r, i) => {
-          const head = entities.find((e) => e.text === r.headText);
-          const tail = entities.find((e) => e.text === r.tailText);
-          if (!head || !tail) return null;
-          const normalizedType = normalizeRelationshipType(r.type);
-          return {
-            id: `r-${i}`,
-            headEntityId: head.id,
-            tailEntityId: tail.id,
-            type: normalizedType,
-            confidence: 0.9,
-          };
-        })
-        .filter((r): r is RelationshipAnnotation => r !== null);
-
-      return { entities, relationships };
-    } catch (error) {
-      logger.error(`Failed to parse response: ${text.slice(0, 200)}`, error);
-      return { entities: [], relationships: [] };
-    }
-  }
-
-  private parseBatchResponse(text: string, samples: Sample[]): AnnotatedSample[] {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      logger.warn(`No JSON found in response: ${text.slice(0, 500)}`);
-      return [];
-    }
-
-    try {
-      const parsed = JSON.parse(jsonMatch[0]) as {
-        results?: Array<{
-          sampleId: string;
-          entities?: Array<{ text: string; type: string }>;
-          relationships?: Array<{ headText: string; tailText: string; type: string }>;
-        }>;
-      };
-
-      const results: AnnotatedSample[] = [];
-
-      for (const result of parsed.results ?? []) {
-        const sample = samples.find((s) => s.id === result.sampleId);
-        if (!sample) continue;
-
-        const { entities, relationships } = this.parseResponse(
-          JSON.stringify({ entities: result.entities, relationships: result.relationships }),
-          sample.text
-        );
-
-        results.push({
-          ...sample,
-          entities,
-          relationships,
-          annotatedBy: 'auto',
-          annotatedAt: new Date().toISOString(),
-          modelVersion: this.config.model,
-        });
-      }
-
-      return results;
-    } catch (error) {
-      logger.error(`Failed to parse batch response: ${text.slice(0, 500)}`, error);
-      return [];
-    }
+    return results;
   }
 }

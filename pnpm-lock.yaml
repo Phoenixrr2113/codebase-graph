@@ -341,6 +341,9 @@ importers:
       '@codegraph/types':
         specifier: workspace:*
         version: link:../types
+      ai:
+        specifier: ^6.0.0
+        version: 6.0.116(zod@3.25.76)
       glob:
         specifier: ^10.3.10
         version: 10.5.0
@@ -350,6 +353,9 @@ importers:
       tree-sitter:
         specifier: ^0.21.1
         version: 0.21.1
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.7.3
@@ -557,6 +563,9 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
+      '@ai-sdk/openai-compatible':
+        specifier: ^2.0.35
+        version: 2.0.35(zod@3.25.76)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.7
@@ -768,6 +777,12 @@ packages:
 
   '@ai-sdk/gateway@3.0.66':
     resolution: {integrity: sha512-SIQ0YY0iMuv+07HLsZ+bB990zUJ6S4ujORAh+Jv1V2KGNn73qQKnGO0JBk+w+Res8YqOFSycwDoWcFlQrVxS4A==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/openai-compatible@2.0.35':
+    resolution: {integrity: sha512-g3wA57IAQFb+3j4YuFndgkUdXyRETZVvbfAWM+UX7bZSxA3xjes0v3XKgIdKdekPtDGsh4ZX2byHD0gJIMPfiA==}
     engines: {node: '>=18'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -4938,6 +4953,12 @@ snapshots:
       '@ai-sdk/provider-utils': 4.0.19(zod@4.3.5)
       '@vercel/oidc': 3.1.0
       zod: 4.3.5
+
+  '@ai-sdk/openai-compatible@2.0.35(zod@3.25.76)':
+    dependencies:
+      '@ai-sdk/provider': 3.0.8
+      '@ai-sdk/provider-utils': 4.0.19(zod@3.25.76)
+      zod: 3.25.76
 
   '@ai-sdk/provider-utils@4.0.19(zod@3.25.76)':
     dependencies:
