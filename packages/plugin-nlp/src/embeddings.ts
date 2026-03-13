@@ -58,7 +58,7 @@ const LOCAL_DIMENSIONS = 768;
 
 const CLOUD_MODEL = 'openai/text-embedding-3-small';
 const CLOUD_DIMENSIONS = 1536;
-const CLOUD_BATCH_SIZE = 96;
+const CLOUD_BATCH_SIZE = 250;
 
 // ---------------------------------------------------------------------------
 // Provider: Local (nomic-embed-text-v1.5 via @huggingface/transformers)
@@ -149,6 +149,9 @@ async function embedCloud(text: string, model: string): Promise<number[]> {
   return result.embeddings[0]!;
 }
 
+/** Max concurrent API requests to avoid rate limits */
+const CLOUD_CONCURRENCY = 10;
+
 async function embedCloudBatch(
   texts: string[],
   model: string,
@@ -157,16 +160,28 @@ async function embedCloudBatch(
   // Call doEmbed directly — see embedCloud comment for rationale.
   const embeddingModel = await getCloudEmbeddingModel(model);
 
-  const allEmbeddings: number[][] = [];
-
-  // Process in chunks to respect API limits
+  // Split into chunks
+  const chunks: string[][] = [];
   for (let i = 0; i < texts.length; i += batchSize) {
-    const chunk = texts.slice(i, i + batchSize);
-    const result = await embeddingModel.doEmbed({ values: chunk, headers: {} });
-    allEmbeddings.push(...result.embeddings);
+    chunks.push(texts.slice(i, i + batchSize));
   }
 
-  return allEmbeddings;
+  // Send chunks concurrently (bounded by CLOUD_CONCURRENCY)
+  const results: number[][][] = new Array(chunks.length);
+  for (let wave = 0; wave < chunks.length; wave += CLOUD_CONCURRENCY) {
+    const waveChunks = chunks.slice(wave, wave + CLOUD_CONCURRENCY);
+    const waveResults = await Promise.all(
+      waveChunks.map(async (chunk) => {
+        const result = await embeddingModel.doEmbed({ values: chunk, headers: {} });
+        return result.embeddings;
+      }),
+    );
+    for (let j = 0; j < waveResults.length; j++) {
+      results[wave + j] = waveResults[j]!;
+    }
+  }
+
+  return results.flat();
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +204,10 @@ function resolveLocalModel(config?: EmbeddingConfig): string {
 }
 
 function resolveCloudModel(config?: EmbeddingConfig): string {
-  return config?.cloudModel ?? CLOUD_MODEL;
+  if (config?.cloudModel) return config.cloudModel;
+  const envModel = process.env['CODEGRAPH_CLOUD_MODEL'];
+  if (envModel) return envModel;
+  return CLOUD_MODEL;
 }
 
 function resolveCloudBatchSize(config?: EmbeddingConfig): number {

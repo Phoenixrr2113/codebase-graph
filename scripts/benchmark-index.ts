@@ -21,12 +21,13 @@ const args = process.argv.slice(2);
 const noClear = args.includes('--no-clear');
 const force = args.includes('--force');
 const withEmbeddings = args.includes('--embeddings');
+const cloudEmbeddings = args.includes('--cloud');
 const label = args.filter(a => !a.startsWith('--'))[0] ?? 'unlabeled';
 
 async function main() {
   console.log(`\n=== Benchmark: ${label} ===`);
   console.log(`Target: ${ROOT}`);
-  console.log(`Clear: ${!noClear} | Force: ${force} | Embeddings: ${withEmbeddings}`);
+  console.log(`Clear: ${!noClear} | Force: ${force} | Embeddings: ${withEmbeddings} | Cloud: ${cloudEmbeddings}`);
   console.log(`Time: ${new Date().toISOString()}\n`);
 
   const client = await getGraphClient();
@@ -47,7 +48,9 @@ async function main() {
   const result = await indexProject(ROOT, {
     client,
     deepAnalysis: true,
-    embeddings: withEmbeddings ? undefined : false,
+    embeddings: (withEmbeddings || cloudEmbeddings)
+      ? (cloudEmbeddings ? { provider: 'openrouter' as const } : undefined)
+      : false,
     force,
   });
 

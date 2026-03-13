@@ -198,19 +198,21 @@ export class FalkorDBDriver implements DatabaseDriver {
     }
 
     // --- Vector indexes (HNSW for embedding similarity search) ---
-    // 768-dim = nomic-embed-text-v1.5 local model
+    // Dimension defaults to 768 (nomic-embed-text-v1.5 local model).
+    // Set CODEGRAPH_EMBEDDING_DIM for other models (e.g. 1536 for cloud).
+    const embDim = parseInt(process.env['CODEGRAPH_EMBEDDING_DIM'] ?? '768', 10);
     const vectorTargets = [
       'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Entity',
     ];
     for (const label of vectorTargets) {
       await safeIndex(
-        `CREATE VECTOR INDEX FOR (n:${label}) ON (n.embedding) OPTIONS {dimension: 768, similarityFunction: 'cosine'}`
+        `CREATE VECTOR INDEX FOR (n:${label}) ON (n.embedding) OPTIONS {dimension: ${embDim}, similarityFunction: 'cosine'}`
       );
     }
 
     // Vector index on RELATES_TO edge (fact_embedding for knowledge graph)
     await safeIndex(
-      `CREATE VECTOR INDEX FOR ()-[r:RELATES_TO]-() ON (r.fact_embedding) OPTIONS {dimension: 768, similarityFunction: 'cosine'}`
+      `CREATE VECTOR INDEX FOR ()-[r:RELATES_TO]-() ON (r.fact_embedding) OPTIONS {dimension: ${embDim}, similarityFunction: 'cosine'}`
     );
   }
 
