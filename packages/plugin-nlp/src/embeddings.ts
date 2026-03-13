@@ -127,10 +127,14 @@ async function getCloudEmbeddingModel(model: string) {
 }
 
 async function embedCloud(text: string, model: string): Promise<number[]> {
-  const { embed } = await import('ai');
+  // Call doEmbed directly instead of AI SDK's embed() wrapper.
+  // The embed() wrapper in ai@6.0.116 crashes with "Cannot read properties
+  // of undefined (reading 'length')" because @openrouter/ai-sdk-provider@1.5.4
+  // doesn't include a `warnings` array in its doEmbed response, and the SDK's
+  // logWarnings() assumes warnings is always defined.
   const embeddingModel = await getCloudEmbeddingModel(model);
-  const { embedding } = await embed({ model: embeddingModel, value: text });
-  return embedding;
+  const result = await embeddingModel.doEmbed({ values: [text], headers: {} });
+  return result.embeddings[0]!;
 }
 
 async function embedCloudBatch(
@@ -138,7 +142,7 @@ async function embedCloudBatch(
   model: string,
   batchSize: number,
 ): Promise<number[][]> {
-  const { embedMany } = await import('ai');
+  // Call doEmbed directly — see embedCloud comment for rationale.
   const embeddingModel = await getCloudEmbeddingModel(model);
 
   const allEmbeddings: number[][] = [];
@@ -146,8 +150,8 @@ async function embedCloudBatch(
   // Process in chunks to respect API limits
   for (let i = 0; i < texts.length; i += batchSize) {
     const chunk = texts.slice(i, i + batchSize);
-    const { embeddings } = await embedMany({ model: embeddingModel, values: chunk });
-    allEmbeddings.push(...embeddings);
+    const result = await embeddingModel.doEmbed({ values: chunk, headers: {} });
+    allEmbeddings.push(...result.embeddings);
   }
 
   return allEmbeddings;
