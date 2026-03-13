@@ -50,6 +50,7 @@ export type { SyntaxTree, LanguageType } from './parser';
 export {
   registerPlugins,
   createFileEntity,
+  createFileEntityFromContent,
   extractEntitiesForFile,
   enrichFunctionsWithComplexity,
   buildParsedFileEntities,

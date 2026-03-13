@@ -66,7 +66,7 @@ export class WatchService extends EventEmitter {
     super();
     this.projectPath = config.projectPath;
     this.ignorePatterns = [...DEFAULT_IGNORE_PATTERNS, ...(config.ignorePatterns ?? [])];
-    this.debounceMs = config.debounceMs ?? 500;
+    this.debounceMs = config.debounceMs ?? 50;
     this.processInitial = config.processInitial ?? false;
     this.onFileChanged = config.onFileChanged;
     this.onFileRemoved = config.onFileRemoved;

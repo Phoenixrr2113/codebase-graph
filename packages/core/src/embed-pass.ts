@@ -182,16 +182,29 @@ export async function embedParsedEntities(
     return { embedded: 0, skipped: items.length, durationMs: performance.now() - start };
   }
 
-  // Update each entity in the graph
+  // Batch update all embeddings using UNWIND (7 queries max instead of N)
   let embedded = 0;
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]!;
-    const embedding = embeddings[i]!;
-    try {
-      await ops.updateEmbedding(item.nodeType, item.identifier, embedding, item.textHash);
-      embedded++;
-    } catch (err) {
-      logger.warn(`Failed to update embedding for ${item.nodeType}: ${err}`);
+  const batchItems = items.map((item, i) => ({
+    nodeType: item.nodeType,
+    identifier: item.identifier,
+    embedding: embeddings[i]!,
+    embeddingTextHash: item.textHash,
+  }));
+
+  try {
+    embedded = await ops.batchUpdateEmbeddings(batchItems);
+  } catch (err) {
+    // Fall back to individual writes
+    logger.warn(`Batch embedding update failed, falling back to individual: ${err}`);
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!;
+      const embedding = embeddings[i]!;
+      try {
+        await ops.updateEmbedding(item.nodeType, item.identifier, embedding, item.textHash);
+        embedded++;
+      } catch (writeErr) {
+        logger.warn(`Failed to update embedding for ${item.nodeType}: ${writeErr}`);
+      }
     }
   }
 

@@ -217,15 +217,23 @@ export function getLanguageCategory(filePath: string): 'typescript' | 'python' |
 export async function createFileEntity(filePath: string): Promise<FileEntity> {
   const fileStat = await stat(filePath);
   const content = await readFile(filePath, 'utf-8');
+  return createFileEntityFromContent(filePath, content, fileStat.mtime);
+}
+
+/**
+ * Create a FileEntity from already-read content (avoids a second disk read).
+ * Used by the indexer when the content was already read for parsing.
+ */
+export function createFileEntityFromContent(filePath: string, content: string, mtime: Date): FileEntity {
   const loc = content.split('\n').length;
   const hash = createHash('sha256').update(content).digest('hex').slice(0, 16);
 
   return {
     path: filePath,
     name: basename(filePath),
-    extension: extname(filePath).slice(1), // Remove leading dot
+    extension: extname(filePath).slice(1),
     loc,
-    lastModified: fileStat.mtime.toISOString(),
+    lastModified: mtime.toISOString(),
     hash,
   };
 }
