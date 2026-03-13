@@ -150,7 +150,7 @@ async function embedCloud(text: string, model: string): Promise<number[]> {
 }
 
 /** Max concurrent API requests to avoid rate limits */
-const CLOUD_CONCURRENCY = 10;
+const CLOUD_CONCURRENCY = 20;
 
 async function embedCloudBatch(
   texts: string[],
