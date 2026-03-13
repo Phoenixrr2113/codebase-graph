@@ -43,7 +43,7 @@ export type { EmbedNodesOptions, EmbedNodesResult } from './embed-nodes';
 export type { EmbeddableNodeType } from './embed-nodes';
 
 // Hybrid search orchestration
-export { hybridSearch } from './hybridSearch';
+export { hybridSearch, extractSearchTerms } from './hybridSearch';
 export type {
   HybridSearchHit,
   HybridSearchResult,
@@ -318,7 +318,7 @@ export type {
 } from './analysis';
 
 // Service layer (Phase 3A)
-export { codeGraphService } from './service';
+export { codeGraphService, warmupSearch } from './service';
 export type { CodeGraphService } from './service';
 export type {
   ServiceSearchResult,

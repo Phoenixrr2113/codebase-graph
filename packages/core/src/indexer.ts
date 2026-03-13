@@ -21,11 +21,13 @@ import {
   buildParsedFileEntities,
   countEntities,
   countEdges,
+  isMarkdownFile,
   SUPPORTED_EXTENSIONS,
   DEFAULT_IGNORE_PATTERNS,
 } from './pipeline';
+import { parseMarkdownContent } from '@codegraph/plugin-markdown';
 import { createOperations, type GraphClient } from '@codegraph/graph';
-import type { ProjectEntity } from '@codegraph/types';
+import type { ProjectEntity, ExtractedDocumentEntities } from '@codegraph/types';
 import type { EmbeddingConfig } from '@codegraph/plugin-nlp';
 import { getGraphClient } from './graphClient';
 import { embedParsedEntities, embedAllParsedEntities } from './embed-pass';
@@ -98,6 +100,8 @@ export async function indexProject(
     embeddings?: EmbeddingConfig | false;
     /** Number of files to process in parallel (default: 20) */
     concurrency?: number;
+    /** Run embedding pass in background without blocking index return (default: false) */
+    deferEmbeddings?: boolean;
   } = {},
 ): Promise<IndexResult> {
   const startTime = Date.now();
@@ -236,12 +240,26 @@ export async function indexProject(
     // Progress logging interval (every 10% or every 50 files, whichever is smaller)
     const progressInterval = Math.max(1, Math.min(50, Math.floor(totalToProcess / 10)));
 
-    // Phase 1: Parse all files in parallel batches
+    // Separate markdown files from code files — they use different parsers
+    const codeFiles: FileWithContent[] = [];
+    const markdownFiles: FileWithContent[] = [];
+    for (const file of filesToProcess) {
+      if (isMarkdownFile(file.path)) {
+        markdownFiles.push(file);
+      } else {
+        codeFiles.push(file);
+      }
+    }
+    if (markdownFiles.length > 0) {
+      logger.info(`Split: ${codeFiles.length} code files, ${markdownFiles.length} markdown files`);
+    }
+
+    // Phase 1a: Parse code files in parallel batches (tree-sitter)
     type ParsedResult = { file: string; built: ReturnType<typeof buildParsedFileEntities>; extracted: ReturnType<typeof extractEntitiesForFile> };
     const allParsed: ParsedResult[] = [];
 
-    for (let i = 0; i < totalToProcess; i += concurrency) {
-      const batch = filesToProcess.slice(i, i + concurrency);
+    for (let i = 0; i < codeFiles.length; i += concurrency) {
+      const batch = codeFiles.slice(i, i + concurrency);
 
       const parsed = await Promise.allSettled(
         batch.map(async (file) => {
@@ -280,21 +298,50 @@ export async function indexProject(
       }
 
       // Progress logging for parse phase
-      const processed = Math.min(i + concurrency, totalToProcess);
-      if (processed % progressInterval === 0 || processed === totalToProcess) {
+      const processed = Math.min(i + concurrency, codeFiles.length);
+      if (processed % progressInterval === 0 || processed === codeFiles.length) {
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        logger.info(`Parse: ${processed}/${totalToProcess} files (${elapsed}s)`);
+        logger.info(`Parse (code): ${processed}/${codeFiles.length} files (${elapsed}s)`);
       }
     }
 
+    // Phase 1b: Parse markdown files in parallel batches (remark/unified)
+    const allDocuments: ExtractedDocumentEntities[] = [];
+
+    for (let i = 0; i < markdownFiles.length; i += concurrency) {
+      const batch = markdownFiles.slice(i, i + concurrency);
+
+      const parsed = await Promise.allSettled(
+        batch.map(async (file) => {
+          return parseMarkdownContent(file.content, file.path);
+        }),
+      );
+
+      for (let j = 0; j < parsed.length; j++) {
+        const result = parsed[j]!;
+        if (result.status === 'rejected') {
+          totalErrors++;
+          const msg = `Failed (md): ${batch[j]!.path}: ${result.reason instanceof Error ? result.reason.message : result.reason}`;
+          errorMessages.push(msg);
+          logger.warn(msg);
+          continue;
+        }
+        allDocuments.push(result.value);
+      }
+    }
+
+    if (markdownFiles.length > 0) {
+      logger.info(`Parse (markdown): ${allDocuments.length}/${markdownFiles.length} documents`);
+    }
+
     const parseDurationMs = Date.now() - startTime - hashDurationMs;
-    logger.info(`Phase 1 (parse) complete: ${allParsed.length} files in ${parseDurationMs}ms`);
+    logger.info(`Phase 1 (parse) complete: ${allParsed.length} code + ${allDocuments.length} docs in ${parseDurationMs}ms`);
 
     // Phase 2: Bulk upsert ALL entities in chunked UNWIND batches
     // Process in chunks of 500 files to avoid oversized queries
     const UPSERT_CHUNK_SIZE = 500;
 
-    if (allParsed.length > 0) {
+    if (allParsed.length > 0 || allDocuments.length > 0) {
       const upsertStart = Date.now();
 
       for (let i = 0; i < allParsed.length; i += UPSERT_CHUNK_SIZE) {
@@ -328,26 +375,52 @@ export async function indexProject(
         }
       }
 
+      // Upsert document entities (markdown) in the same phase
+      if (allDocuments.length > 0) {
+        try {
+          await ops.batchUpsertDocuments(allDocuments);
+          totalFiles += allDocuments.length;
+          for (const doc of allDocuments) {
+            totalEntities += 1 + doc.sections.length + doc.codeBlocks.length + doc.links.length;
+            totalEdges += doc.sections.length + doc.codeBlocks.length + doc.links.length; // CONTAINS edges
+          }
+        } catch (err) {
+          logger.warn(`Document bulk write failed: ${err instanceof Error ? err.message : err}`);
+          totalErrors += allDocuments.length;
+        }
+      }
+
       const upsertDurationMs = Date.now() - upsertStart;
       logger.info(`Phase 2 (upsert) complete: ${totalFiles} files in ${upsertDurationMs}ms`);
 
-      // Phase 3: Embeddings (deferred, runs after structure is committed)
+      // Phase 3: Embeddings (runs after structure is committed)
       // Uses cross-file batching with incremental hash comparison
       if (embeddingsEnabled) {
-        const embedStart = Date.now();
-        try {
-          const embedResult = await embedAllParsedEntities(
-            allParsed.map(r => r.built),
-            ops,
-            embeddingConfig,
-          );
-          totalEmbedded = embedResult.embedded;
-        } catch (err) {
-          logger.warn(`Embedding pass failed: ${err instanceof Error ? err.message : err}`);
-        }
-        const embedDurationMs = Date.now() - embedStart;
-        if (totalEmbedded > 0) {
-          logger.info(`Phase 3 (embed) complete: ${totalEmbedded} entities in ${embedDurationMs}ms`);
+        const builtList = allParsed.map(r => r.built);
+
+        if (options.deferEmbeddings) {
+          // Fire-and-forget: graph structure is searchable immediately
+          embedAllParsedEntities(builtList, ops, embeddingConfig)
+            .then(result => {
+              if (result.embedded > 0) {
+                logger.info(`Background embedding complete: ${result.embedded} entities in ${result.durationMs.toFixed(0)}ms`);
+              }
+            })
+            .catch(err => {
+              logger.warn(`Background embedding failed: ${err instanceof Error ? err.message : err}`);
+            });
+        } else {
+          const embedStart = Date.now();
+          try {
+            const embedResult = await embedAllParsedEntities(builtList, ops, embeddingConfig);
+            totalEmbedded = embedResult.embedded;
+          } catch (err) {
+            logger.warn(`Embedding pass failed: ${err instanceof Error ? err.message : err}`);
+          }
+          const embedDurationMs = Date.now() - embedStart;
+          if (totalEmbedded > 0) {
+            logger.info(`Phase 3 (embed) complete: ${totalEmbedded} entities in ${embedDurationMs}ms`);
+          }
         }
       }
     }
@@ -406,6 +479,20 @@ export async function indexSingleFile(
   embeddingConfig?: EmbeddingConfig | false,
 ): Promise<{ success: boolean; entities: number; edges: number; embedded?: number; error?: string }> {
   try {
+    const graphClient = client ?? await getGraphClient();
+    const ops = createOperations(graphClient);
+
+    // Markdown files use a different parser (remark/unified, not tree-sitter)
+    if (isMarkdownFile(filePath)) {
+      const content = await readFile(filePath, 'utf-8');
+      const docEntities = await parseMarkdownContent(content, filePath);
+      await ops.batchUpsertDocuments([docEntities]);
+
+      const entityCount = 1 + docEntities.sections.length + docEntities.codeBlocks.length + docEntities.links.length;
+      const edgeCount = docEntities.sections.length + docEntities.codeBlocks.length + docEntities.links.length;
+      return { success: true, entities: entityCount, edges: edgeCount };
+    }
+
     await initParser();
 
     // Read file once, reuse for parsing and entity creation
@@ -425,8 +512,6 @@ export async function indexSingleFile(
       projectRoot,
     );
 
-    const graphClient = client ?? await getGraphClient();
-    const ops = createOperations(graphClient);
     await ops.batchUpsert(parsed);
 
     // Embedding pass

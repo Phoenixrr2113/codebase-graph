@@ -15,6 +15,10 @@ import type {
   CommitEntity,
   NodeLabel,
   EdgeLabel,
+  MarkdownDocumentEntity,
+  SectionEntity,
+  CodeBlockEntity,
+  LinkEntity,
 } from '@codegraph/types';
 
 // ============================================================================
@@ -155,6 +159,52 @@ export interface CommitNodeProps extends ProvenanceNodeProps {
   author: string;
   email: string;
   date: string;
+}
+
+/**
+ * MarkdownDocument node properties for Cypher operations
+ */
+export interface MarkdownDocumentNodeProps {
+  path: string;
+  name: string;
+  title: string | null;
+  frontmatter: string | null; // JSON serialized
+  hash: string;
+  lastModified: string;
+}
+
+/**
+ * Section node properties for Cypher operations
+ */
+export interface SectionNodeProps {
+  heading: string;
+  level: number;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+}
+
+/**
+ * CodeBlock node properties for Cypher operations
+ */
+export interface CodeBlockNodeProps {
+  language: string | null;
+  content: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+}
+
+/**
+ * Link node properties for Cypher operations
+ */
+export interface LinkNodeProps {
+  text: string;
+  target: string;
+  isInternal: boolean;
+  filePath: string;
+  line: number;
+  anchor: string | null;
 }
 
 // ============================================================================
@@ -306,6 +356,60 @@ export function commitToNodeProps(entity: CommitEntity): CommitNodeProps {
     sourcePipeline: entity.sourcePipeline ?? null,
     sourceTask: entity.sourceTask ?? null,
     processedAt: entity.processedAt ?? null,
+  };
+}
+
+/**
+ * Convert MarkdownDocumentEntity to Cypher-compatible node properties
+ */
+export function markdownDocumentToNodeProps(entity: MarkdownDocumentEntity): MarkdownDocumentNodeProps {
+  return {
+    path: entity.path,
+    name: entity.name,
+    title: entity.title,
+    frontmatter: Object.keys(entity.frontmatter).length > 0 ? JSON.stringify(entity.frontmatter) : null,
+    hash: entity.hash,
+    lastModified: entity.lastModified,
+  };
+}
+
+/**
+ * Convert SectionEntity to Cypher-compatible node properties
+ */
+export function sectionToNodeProps(entity: SectionEntity): SectionNodeProps {
+  return {
+    heading: entity.heading,
+    level: entity.level,
+    filePath: entity.filePath,
+    startLine: entity.startLine,
+    endLine: entity.endLine,
+  };
+}
+
+/**
+ * Convert CodeBlockEntity to Cypher-compatible node properties
+ */
+export function codeBlockToNodeProps(entity: CodeBlockEntity): CodeBlockNodeProps {
+  return {
+    language: entity.language,
+    content: entity.content,
+    filePath: entity.filePath,
+    startLine: entity.startLine,
+    endLine: entity.endLine,
+  };
+}
+
+/**
+ * Convert LinkEntity to Cypher-compatible node properties
+ */
+export function linkToNodeProps(entity: LinkEntity): LinkNodeProps {
+  return {
+    text: entity.text,
+    target: entity.target,
+    isInternal: entity.isInternal,
+    filePath: entity.filePath,
+    line: entity.line,
+    anchor: entity.anchor ?? null,
   };
 }
 

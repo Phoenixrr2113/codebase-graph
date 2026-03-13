@@ -362,7 +362,8 @@ describe('Search Strategies (FalkorDB Integration)', () => {
       const response = await registry.search(request, context);
 
       expect(response.routedTo).toBe('HYBRID');
-      expect(response.routingReason).toContain('HYBRID');
+      expect(response.routingReason).toContain('Heuristic');
+      expect(response.routingReason).toContain('high confidence');
       expect(response.total).toBeGreaterThan(0);
       expect(response.meta.searchType).toBe('SMART_SEARCH');
 

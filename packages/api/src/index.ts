@@ -13,7 +13,7 @@ import { serve } from '@hono/node-server';
 import { createLogger } from '@codegraph/logger';
 import { app } from './app';
 import { setupWebSocket, injectWebSocketToServer, subscribeToWatchEvents } from './websocket';
-import { startWatching } from '@codegraph/core';
+import { startWatching, warmupSearch } from '@codegraph/core';
 import { parseSingleFile, removeFileFromGraph } from './services';
 
 const logger = createLogger({ namespace: 'API:Server' });
@@ -42,6 +42,11 @@ const server = serve(
     logger.info(`CodeGraph API is running at http://${info.address}:${info.port}`);
     logger.info(`Health check: http://localhost:${info.port}/health`);
     logger.info(`WebSocket: ws://localhost:${info.port}/ws`);
+
+    // Pre-warm search infrastructure (LLM providers, embedding model, registry)
+    warmupSearch().catch((err) => {
+      logger.warn('Search warmup failed (non-fatal):', err);
+    });
 
     // Inject WebSocket into the server
     injectWebSocketToServer(server);

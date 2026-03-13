@@ -102,6 +102,10 @@ export const ContextWalkStepSchema = z.object({
   /** For "refine": how to adjust the search */
   refinedQuery: z.string().optional().describe('Refined search query'),
   reasoning: z.string().describe('Explanation of the decision'),
+  /** 0-1 confidence that the currently collected context is sufficient to answer */
+  confidence: z.number().min(0).max(1).optional().describe(
+    'Your confidence (0-1) that you have enough context to answer. 0.8+ means very confident.',
+  ),
 });
 
 export type ContextWalkStep = z.infer<typeof ContextWalkStepSchema>;

@@ -306,7 +306,7 @@ async function checkAndTriggerStalenessReindex(): Promise<void> {
     Promise.all(
       activePaths.map(async (rootPath) => {
         try {
-          const result = await indexProject(rootPath);
+          const result = await indexProject(rootPath, { deferEmbeddings: true });
           logger.info(`Staleness re-index complete: ${result.projectName} (${result.stats.files} files)`);
         } catch (err) {
           logger.warn(`Staleness re-index failed for ${rootPath}:`, err);

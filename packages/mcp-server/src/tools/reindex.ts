@@ -87,6 +87,7 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
         const result = await indexProject(input.scope, {
           force: input.mode === 'full',
           deepAnalysis: true,
+          deferEmbeddings: true,
         });
 
         // Sync git history after indexing
@@ -142,6 +143,7 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
         const result = await indexProject(rootPath, {
           force: input.mode === 'full',
           deepAnalysis: true,
+          deferEmbeddings: true,
         });
         totalFiles += result.stats.files;
         totalEntities += result.stats.entities;

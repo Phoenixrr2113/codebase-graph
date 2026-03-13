@@ -8,6 +8,10 @@ import TreeSitter from 'tree-sitter';
 import { grammars as tsGrammars } from '@codegraph/plugin-typescript';
 import { getGrammar as getPythonGrammar } from '@codegraph/plugin-python';
 import { getGrammar as getCSharpGrammar } from '@codegraph/plugin-csharp';
+import { getGrammar as getJavaGrammar } from '@codegraph/plugin-java';
+import { getGrammar as getGoGrammar } from '@codegraph/plugin-go';
+import { getGrammar as getRustGrammar } from '@codegraph/plugin-rust';
+import { getGrammar as getPhpGrammar } from '@codegraph/plugin-php';
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { withTrace, createLogger } from '@codegraph/logger';
@@ -19,7 +23,7 @@ const logger = createLogger({ namespace: 'Parser' });
 // ============================================================================
 
 /** Supported language types */
-export type LanguageType = 'typescript' | 'tsx' | 'javascript' | 'jsx' | 'python' | 'csharp';
+export type LanguageType = 'typescript' | 'tsx' | 'javascript' | 'jsx' | 'python' | 'csharp' | 'java' | 'go' | 'rust' | 'php';
 
 /** Syntax tree wrapper with metadata */
 export interface SyntaxTree {
@@ -52,6 +56,14 @@ const EXTENSION_MAP: Record<string, LanguageType> = {
   '.pyi': 'python',
   // C#
   '.cs': 'csharp',
+  // Java
+  '.java': 'java',
+  // Go
+  '.go': 'go',
+  // Rust
+  '.rs': 'rust',
+  // PHP
+  '.php': 'php',
 };
 
 // ============================================================================
@@ -64,6 +76,10 @@ const parser = new TreeSitter();
 const { typescript: tsLanguage, tsx: tsxLanguage } = tsGrammars;
 const pythonLanguage = getPythonGrammar();
 const csharpLanguage = getCSharpGrammar();
+const javaLanguage = getJavaGrammar();
+const goLanguage = getGoGrammar();
+const rustLanguage = getRustGrammar();
+const phpLanguage = getPhpGrammar();
 
 let initialized = false;
 
@@ -123,6 +139,14 @@ export function parseCode(code: string, language: LanguageType): SyntaxTree {
     lang = pythonLanguage;
   } else if (language === 'csharp') {
     lang = csharpLanguage;
+  } else if (language === 'java') {
+    lang = javaLanguage;
+  } else if (language === 'go') {
+    lang = goLanguage;
+  } else if (language === 'rust') {
+    lang = rustLanguage;
+  } else if (language === 'php') {
+    lang = phpLanguage;
   } else if (language === 'tsx' || language === 'jsx') {
     lang = tsxLanguage;
   } else {

@@ -73,6 +73,10 @@ export {
   type VariableNodeProps,
   type TypeNodeProps,
   type ComponentNodeProps,
+  type MarkdownDocumentNodeProps,
+  type SectionNodeProps,
+  type CodeBlockNodeProps,
+  type LinkNodeProps,
   // Entity to node mappers
   fileToNodeProps,
   functionToNodeProps,
@@ -81,6 +85,10 @@ export {
   variableToNodeProps,
   typeToNodeProps,
   componentToNodeProps,
+  markdownDocumentToNodeProps,
+  sectionToNodeProps,
+  codeBlockToNodeProps,
+  linkToNodeProps,
   // ID generation
   generateNodeId,
   generateFileNodeId,

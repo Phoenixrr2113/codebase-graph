@@ -308,6 +308,31 @@ export function isEmbeddingAvailable(config?: EmbeddingConfig): boolean {
 }
 
 /**
+ * Pre-load the local embedding model so the first embedding request
+ * doesn't pay the ~2-4s ONNX initialization cost.
+ *
+ * Call this at server startup (fire-and-forget). Non-fatal: logs and returns
+ * on any error. No-op when using cloud embeddings.
+ */
+export async function warmupEmbedding(config?: EmbeddingConfig): Promise<void> {
+  const provider = resolveProvider(config);
+  if (provider !== 'local') {
+    logger.debug('Embedding warmup skipped (using cloud provider)');
+    return;
+  }
+
+  const model = resolveLocalModel(config);
+  const start = performance.now();
+  try {
+    await getLocalExtractor(model);
+    const ms = (performance.now() - start).toFixed(0);
+    logger.info(`Embedding model warmed up in ${ms}ms`);
+  } catch (err) {
+    logger.warn(`Embedding warmup failed: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+/**
  * Reset the cached local model (for testing).
  * @internal
  */

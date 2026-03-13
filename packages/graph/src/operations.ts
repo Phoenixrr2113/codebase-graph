@@ -17,6 +17,10 @@ import {
   typeToNodeProps,
   componentToNodeProps,
   commitToNodeProps,
+  markdownDocumentToNodeProps,
+  sectionToNodeProps,
+  codeBlockToNodeProps,
+  linkToNodeProps,
   type ParsedFileEntities,
   type FileEntity,
   type FunctionEntity,
@@ -27,7 +31,7 @@ import {
   type ComponentEntity,
   type CommitEntity,
 } from './schema';
-import type { ProjectEntity } from '@codegraph/types';
+import type { ProjectEntity, ExtractedDocumentEntities } from '@codegraph/types';
 
 // ============================================================================
 // Cypher Query Templates — FalkorDB (default)
@@ -478,6 +482,57 @@ const CYPHER = {
     MERGE (f)-[:CONTAINS]->(comp)
   `,
 
+  // --- Document entities (markdown) ---
+
+  BATCH_UPSERT_DOCUMENTS: `
+    UNWIND $items AS item
+    MERGE (d:MarkdownDocument {path: item.path})
+    SET d.name = item.name,
+        d.title = item.title,
+        d.frontmatter = item.frontmatter,
+        d.hash = item.hash,
+        d.lastModified = item.lastModified
+  `,
+
+  BATCH_UPSERT_SECTIONS: `
+    UNWIND $items AS item
+    MERGE (s:Section {filePath: item.filePath, startLine: item.startLine})
+    SET s.heading = item.heading,
+        s.level = item.level,
+        s.endLine = item.endLine
+    WITH s, item
+    MATCH (d:MarkdownDocument {path: item.filePath})
+    MERGE (d)-[:CONTAINS]->(s)
+  `,
+
+  BATCH_UPSERT_CODEBLOCKS: `
+    UNWIND $items AS item
+    MERGE (cb:CodeBlock {filePath: item.filePath, startLine: item.startLine})
+    SET cb.language = item.language,
+        cb.content = item.content,
+        cb.endLine = item.endLine
+    WITH cb, item
+    MATCH (d:MarkdownDocument {path: item.filePath})
+    MERGE (d)-[:CONTAINS]->(cb)
+  `,
+
+  BATCH_UPSERT_LINKS: `
+    UNWIND $items AS item
+    MERGE (l:Link {filePath: item.filePath, line: item.line, target: item.target})
+    SET l.text = item.text,
+        l.isInternal = item.isInternal,
+        l.anchor = item.anchor
+    WITH l, item
+    MATCH (d:MarkdownDocument {path: item.filePath})
+    MERGE (d)-[:CONTAINS]->(l)
+  `,
+
+  DELETE_DOCUMENT_ENTITIES: `
+    MATCH (d:MarkdownDocument {path: $path})
+    OPTIONAL MATCH (d)-[:CONTAINS]->(child)
+    DETACH DELETE child, d
+  `,
+
   BATCH_CREATE_CALL_EDGES: `
     UNWIND $items AS item
     MATCH (caller:Function {name: item.callerName, filePath: item.callerFile})
@@ -675,6 +730,12 @@ export interface GraphOperations {
 
   /** Batch link multiple files to a project in one query */
   linkProjectFiles(projectId: string, filePaths: string[]): Promise<void>;
+
+  /** Batch upsert document entities (markdown files: document + sections + codeBlocks + links) */
+  batchUpsertDocuments(docsList: ExtractedDocumentEntities[]): Promise<void>;
+
+  /** Delete a markdown document and all its contained entities */
+  deleteDocumentEntities(filePath: string): Promise<void>;
 
   /** Batch update embeddings for multiple entities using UNWIND (7 queries max instead of N) */
   batchUpdateEmbeddings(items: Array<{
@@ -1080,6 +1141,46 @@ class GraphOperationsImpl implements GraphOperations {
     if (filePaths.length === 0) return;
     const items = filePaths.map(fp => ({ projectId, filePath: fp }));
     await this.client.query(CYPHER.BATCH_LINK_PROJECT_FILES, { params: { items } });
+  }
+
+  @trace()
+  async batchUpsertDocuments(docsList: ExtractedDocumentEntities[]): Promise<void> {
+    if (docsList.length === 0) return;
+
+    // Collect all document entities by type
+    const documents = docsList.map(d => markdownDocumentToNodeProps(d.document));
+    const sections = docsList.flatMap(d => d.sections.map(s => sectionToNodeProps(s)));
+    const codeBlocks = docsList.flatMap(d => d.codeBlocks.map(cb => codeBlockToNodeProps(cb)));
+    const links = docsList.flatMap(d => d.links.map(l => linkToNodeProps(l)));
+
+    // Upsert documents first (parent nodes for CONTAINS edges)
+    if (documents.length > 0) {
+      await this.client.query(CYPHER.BATCH_UPSERT_DOCUMENTS, { params: { items: documents } });
+    }
+
+    // Upsert child entities (with CONTAINS edges to documents)
+    const childOps: Promise<void>[] = [];
+    if (sections.length > 0) {
+      childOps.push(
+        this.client.query(CYPHER.BATCH_UPSERT_SECTIONS, { params: { items: sections } }).then(() => {}),
+      );
+    }
+    if (codeBlocks.length > 0) {
+      childOps.push(
+        this.client.query(CYPHER.BATCH_UPSERT_CODEBLOCKS, { params: { items: codeBlocks } }).then(() => {}),
+      );
+    }
+    if (links.length > 0) {
+      childOps.push(
+        this.client.query(CYPHER.BATCH_UPSERT_LINKS, { params: { items: links } }).then(() => {}),
+      );
+    }
+    await Promise.all(childOps);
+  }
+
+  @trace()
+  async deleteDocumentEntities(filePath: string): Promise<void> {
+    await this.client.query(CYPHER.DELETE_DOCUMENT_ENTITIES, { params: { path: filePath } });
   }
 
   @trace()

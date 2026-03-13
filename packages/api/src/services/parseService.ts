@@ -33,6 +33,7 @@ export const parseProject = traced('parseProject', async function parseProject(
       includeExternals: options.includeExternals ?? false,
       ignorePatterns,
       client,
+      deferEmbeddings: true, // Graph is searchable immediately; embeddings generate in background
     });
 
     // Parse error messages into structured file errors

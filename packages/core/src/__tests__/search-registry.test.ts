@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { SearchRegistry, createSearchRegistry } from '../search/registry';
-import { SmartSearchStrategy } from '../search/strategies/smartSearch';
+import { SmartSearchStrategy, isQuestion, heuristicRoute } from '../search/strategies/smartSearch';
 import type {
   SearchStrategy,
   SearchRequest,
@@ -273,5 +273,126 @@ describe('createSearchRegistry', () => {
   it('should create an empty registry', () => {
     const registry = createSearchRegistry();
     expect(registry.listTypes()).toEqual([]);
+  });
+});
+
+// ============================================================================
+// isQuestion — linguistic question detection
+// ============================================================================
+
+describe('isQuestion', () => {
+  // Wh-questions (interrogative pronouns/adverbs)
+  it.each([
+    'What does the auth module do?',
+    'what is this function',
+    'How does data flow from API to DB?',
+    'Why is this function deprecated?',
+    'Who created the payment service?',
+    'When was this last modified?',
+    'Where is the config stored?',
+    'Which class implements Logger?',
+    'Whose responsibility is error handling?',
+  ])('should detect wh-question: "%s"', (query) => {
+    expect(isQuestion(query)).toBe(true);
+  });
+
+  // Yes/no questions (subject-auxiliary inversion)
+  it.each([
+    'Is this function deprecated?',
+    'Is parseCode used anywhere',
+    'Does the auth module support OAuth?',
+    'Does it handle errors',
+    'Do we need to update the schema?',
+    'Can I call this from a worker thread?',
+    'Are there any tests for this?',
+    'Should we use the singleton pattern here?',
+    'Could this cause a race condition?',
+    'Would this break backward compatibility?',
+    'Will this work with the new API?',
+    'Has anyone reviewed this code?',
+    'Have the tests been updated?',
+    'Was this method renamed?',
+    'Were the dependencies updated?',
+    'Did this change in the last release?',
+  ])('should detect yes/no question: "%s"', (query) => {
+    expect(isQuestion(query)).toBe(true);
+  });
+
+  // Negative contractions
+  it.each([
+    "Isn't this deprecated?",
+    "Doesn't it support OAuth?",
+    "Don't we need tests for this?",
+    "Can't this be simplified?",
+    "Won't this break the build?",
+    "Shouldn't we add error handling?",
+  ])('should detect negative question: "%s"', (query) => {
+    expect(isQuestion(query)).toBe(true);
+  });
+
+  // Imperative knowledge requests
+  it.each([
+    'Explain the authentication flow',
+    'Describe the search module',
+    'explain how indexing works',
+  ])('should detect knowledge request: "%s"', (query) => {
+    expect(isQuestion(query)).toBe(true);
+  });
+
+  // Explicit question mark on any text
+  it.each([
+    'auth module support OAuth?',
+    'this deprecated?',
+    'tests passing?',
+  ])('should detect question mark: "%s"', (query) => {
+    expect(isQuestion(query)).toBe(true);
+  });
+
+  // NON-questions — these must NOT be detected as questions
+  it.each([
+    'parseCode',
+    'hybridSearch',
+    'SearchRegistry',
+    'embedding',
+    'Show me all functions that call sendEmail',
+    'Find every class that implements Logger',
+    'List all files in the search module',
+    'auth module',
+    'search implementation',
+    'the sendEmail function',
+    'import handler from utils',
+  ])('should NOT detect as question: "%s"', (query) => {
+    expect(isQuestion(query)).toBe(false);
+  });
+});
+
+// ============================================================================
+// heuristicRoute — integration with isQuestion
+// ============================================================================
+
+describe('heuristicRoute', () => {
+  it('should route yes/no questions to GRAPH_ANSWER', () => {
+    const result = heuristicRoute('Is this function deprecated?');
+    expect(result.strategy).toBe('GRAPH_ANSWER');
+    expect(result.reason).toBe('question pattern');
+  });
+
+  it('should route "does" questions to GRAPH_ANSWER', () => {
+    const result = heuristicRoute('Does the auth module support OAuth?');
+    expect(result.strategy).toBe('GRAPH_ANSWER');
+    expect(result.reason).toBe('question pattern');
+  });
+
+  it('should route "can" questions to GRAPH_ANSWER', () => {
+    const result = heuristicRoute('Can I call this from a worker thread?');
+    expect(result.strategy).toBe('GRAPH_ANSWER');
+    expect(result.reason).toBe('question pattern');
+  });
+
+  it('should NOT route single camelCase words as questions', () => {
+    const result = heuristicRoute('describe');
+    // Single word camelCase → HYBRID (symbol lookup), not GRAPH_ANSWER
+    expect(result.strategy).toBe('HYBRID');
+    expect(result.confidence).toBe('high');
   });
 });

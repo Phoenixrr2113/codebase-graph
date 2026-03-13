@@ -13,6 +13,7 @@
 
 import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError } from 'ai';
 import { createLogger } from '@codegraph/logger';
+import { withRetry } from '@codegraph/plugin-nlp';
 import { NLToCypherSchema, type NLToCypher } from '@codegraph/plugin-nlp';
 import type {
   SearchStrategy,
@@ -102,12 +103,14 @@ export class NLToCypherStrategy implements SearchStrategy {
     let cypherResult: NLToCypher;
 
     try {
-      const { output } = (await generateText({
-        model: context.llm,
+      const { output } = (await withRetry(() => generateText({
+        model: context.llm!,
         output: Output.object({ schema: NLToCypherSchema }),
+        system: this.buildSystemPrompt(),
         prompt: this.buildTranslationPrompt(request.query),
         temperature: 0.1,
-      })) as { output: NLToCypher };
+        maxOutputTokens: 500,
+      }))) as { output: NLToCypher };
 
       cypherResult = output;
     } catch (error) {
@@ -183,7 +186,8 @@ export class NLToCypherStrategy implements SearchStrategy {
     }
   }
 
-  private buildTranslationPrompt(query: string): string {
+  /** System prompt: role, schema, rules, and few-shot examples (separated from user query) */
+  private buildSystemPrompt(): string {
     return `You are a Cypher query expert for FalkorDB (a Redis-based graph database).
 Translate the user's natural language question into a valid Cypher query.
 
@@ -198,12 +202,12 @@ ${SCHEMA_DESCRIPTION}
 4. Always include a RETURN clause with useful fields (name, filePath, startLine, etc).
 5. Limit results to 50 unless the user asks for more.
 6. For "how does X work" questions, find the entity and its relationships (what it calls, contains, imports).
-7. Use labels(n) to return node types when useful.
+7. Use labels(n) to return node types when useful.`;
+  }
 
-## User Question:
-"${query}"
-
-Generate a Cypher query that answers this question.`;
+  /** User prompt: just the query */
+  private buildTranslationPrompt(query: string): string {
+    return `Generate a Cypher query that answers this question: "${query}"`;
   }
 
   /**

@@ -348,6 +348,20 @@ function generateNodeId(label: NodeLabel, props: Record<string, unknown>): strin
 }
 
 // ============================================================================
+// Cached singletons for search (PERF.15)
+// ============================================================================
+
+/** Module-level search registry — strategies are stateless, safe to reuse */
+let _searchRegistry: ReturnType<typeof createDefaultSearchRegistry> | null = null;
+
+function getSearchRegistry() {
+  if (!_searchRegistry) {
+    _searchRegistry = createDefaultSearchRegistry();
+  }
+  return _searchRegistry;
+}
+
+// ============================================================================
 // CodeGraphService
 // ============================================================================
 
@@ -1445,7 +1459,7 @@ class CodeGraphServiceImpl {
     const client = await getGraphClient();
     const context: SearchContext = { client };
 
-    // Dynamically check for LLM availability
+    // LLM models are cached inside getLLMModel/getLLMComplexModel (PERF.15)
     try {
       const { isLLMAvailable, getLLMModel, getLLMComplexModel } = await import('@codegraph/plugin-nlp');
       if (isLLMAvailable()) {
@@ -1457,7 +1471,7 @@ class CodeGraphServiceImpl {
       // plugin-nlp not available — strategies that require LLM will fail gracefully
     }
 
-    const registry = createDefaultSearchRegistry();
+    const registry = getSearchRegistry();
     const searchType = strategy as SearchType;
 
     const request: { query: string; type: SearchType; limit?: number; scope?: string } = {
@@ -1901,3 +1915,37 @@ export const codeGraphService = new CodeGraphServiceImpl();
 
 /** Type alias for the service */
 export type CodeGraphService = typeof codeGraphService;
+
+// ============================================================================
+// Warmup (PERF.15)
+// ============================================================================
+
+/**
+ * Pre-initialize LLM providers, embedding models, and the search registry.
+ *
+ * Call this at server startup so the first search request doesn't pay
+ * cold-start costs (dynamic imports, ONNX model load, provider creation).
+ *
+ * Non-fatal: logs warnings on failure but doesn't throw.
+ */
+export async function warmupSearch(): Promise<void> {
+  const start = performance.now();
+
+  // 1. Pre-warm search registry
+  getSearchRegistry();
+
+  // 2. Pre-warm LLM providers + embedding model
+  try {
+    const nlp = await import('@codegraph/plugin-nlp');
+    await Promise.all([
+      nlp.warmupLLM(),
+      nlp.warmupEmbedding(),
+    ]);
+  } catch {
+    // plugin-nlp not available — non-fatal
+  }
+
+  const ms = (performance.now() - start).toFixed(0);
+  const { createLogger: cl } = await import('@codegraph/logger');
+  cl({ namespace: 'core:warmup' }).info(`Search warmup complete in ${ms}ms`);
+}

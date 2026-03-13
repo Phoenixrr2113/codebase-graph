@@ -4,7 +4,7 @@
  */
 
 import { createMCPServer } from './server';
-import { closeGraphClient } from '@codegraph/core';
+import { closeGraphClient, warmupSearch } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'MCP:Main' });
@@ -30,6 +30,11 @@ async function main(): Promise<void> {
 
   try {
     await server.start();
+
+    // Pre-warm search infrastructure in background (PERF.15)
+    warmupSearch().catch((err) => {
+      logger.warn('Search warmup failed (non-fatal):', err);
+    });
   } catch (error) {
     logger.error('Failed to start MCP server', { error });
     process.exit(1);

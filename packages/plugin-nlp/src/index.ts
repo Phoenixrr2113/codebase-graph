@@ -23,6 +23,8 @@ export {
   getLLMConfigResolved,
   isLLMAvailable,
   isComplexLLMAvailable,
+  warmupLLM,
+  withRetry,
 } from './llm';
 export type { LLMProvider, LLMConfig } from './llm';
 
@@ -70,6 +72,7 @@ export {
   getEmbeddingDimensions,
   getEmbeddingProvider,
   isEmbeddingAvailable,
+  warmupEmbedding,
 } from './embeddings';
 export type {
   EmbeddingProvider,

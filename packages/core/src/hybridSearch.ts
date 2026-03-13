@@ -148,47 +148,60 @@ export async function hybridSearch(
 
   // Accumulate hits in a map for dedup
   const hitMap = new Map<string, HybridSearchHit>();
+  const kgOps = (includeKnowledge || includeAbout) ? createKnowledgeOperations(client) : null;
 
   // ----------------------------------------------------------------
-  // Step 1: Embed the query (if embedding available)
+  // Steps 1-3: Embedding/vector and text pipelines run in parallel
   // ----------------------------------------------------------------
-  let queryEmbedding: number[] | null = null;
-  let embeddingAvailable = false;
 
+  // Text pipeline: starts immediately (no embedding dependency)
+  const textPipelinePromise = Promise.all([
+    textSearchNodes(client, query, nodeTypes, limit, options.scope),
+    kgOps
+      ? kgOps.searchEntities({ textContains: query, limit })
+      : Promise.resolve([] as EntitySearchResult[]),
+  ]);
+
+  // Vector pipeline: embed query → fan out vector searches (runs concurrently with text)
   const embeddingConfig = options.embeddings;
-  if (isEmbeddingAvailable(embeddingConfig)) {
+  const vectorPipelinePromise = (async (): Promise<{
+    codeResults: VectorSearchResult[][];
+    kgResults: EntitySearchResult[];
+  } | null> => {
+    if (!isEmbeddingAvailable(embeddingConfig)) return null;
+
+    let queryEmbedding: number[];
     try {
       const result = await generateEmbedding(query, embeddingConfig);
       queryEmbedding = result.embedding;
-      embeddingAvailable = true;
       logger.debug(`Query embedded: ${result.dimensions}d via ${result.provider}`);
     } catch (err) {
       logger.warn(`Failed to embed query: ${err}`);
+      return null;
     }
-  }
 
-  // ----------------------------------------------------------------
-  // Step 2: Vector search (parallel across node types)
-  // ----------------------------------------------------------------
+    const [codeResults, kgResults] = await Promise.all([
+      Promise.all(nodeTypes.map((nt) => ops.searchByVector(nt, queryEmbedding, limit))),
+      kgOps
+        ? kgOps.searchEntitiesByVector(queryEmbedding, limit)
+        : Promise.resolve([] as EntitySearchResult[]),
+    ]);
+
+    return { codeResults, kgResults };
+  })();
+
+  // Await both pipelines concurrently
+  const [[textResults, kgTextResults], vectorPipeline] = await Promise.all([
+    textPipelinePromise,
+    vectorPipelinePromise,
+  ]);
+
+  const embeddingAvailable = vectorPipeline !== null;
+
+  // Merge vector results into hitMap
   let vectorHitCount = 0;
-
-  if (queryEmbedding) {
-    // Run vector searches in parallel
-    const vectorPromises: Promise<VectorSearchResult[]>[] = nodeTypes.map(
-      (nt) => ops.searchByVector(nt, queryEmbedding!, limit),
-    );
-
-    // Knowledge graph vector search
-    let knowledgePromise: Promise<EntitySearchResult[]> | null = null;
-    if (includeKnowledge) {
-      const kgOps = createKnowledgeOperations(client);
-      knowledgePromise = kgOps.searchEntitiesByVector(queryEmbedding, limit);
-    }
-
-    const vectorResults = await Promise.all(vectorPromises);
-
-    // Merge vector results
-    for (const results of vectorResults) {
+  if (vectorPipeline) {
+    for (const results of vectorPipeline.codeResults) {
       for (const r of results) {
         const key = makeCodeKey(r.nodeType, r.filePath, r.name);
         if (options.scope && r.filePath && !r.filePath.startsWith(options.scope)) continue;
@@ -210,44 +223,37 @@ export async function hybridSearch(
       }
     }
 
-    // Merge knowledge graph vector results
-    if (knowledgePromise) {
-      const kgResults = await knowledgePromise;
-      for (const r of kgResults) {
-        const key = `entity:${r.id}`;
-        const dist = (r as unknown as Record<string, unknown>)['distance'] as number | undefined;
-        const score = dist != null ? distanceToScore(dist) * vectorWeight : 0.5 * vectorWeight;
-        const kgHit: HybridSearchHit = {
-          key,
-          nodeType: 'Entity',
-          name: r.text,
-          score,
-          sources: ['vector'],
-          properties: {
-            id: r.id,
-            type: r.type,
-            confidence: r.confidence,
-            relevanceScore: r.relevanceScore,
-          },
-        };
-        if (dist != null) kgHit.vectorDistance = dist;
-        mergeHit(hitMap, kgHit);
-        vectorHitCount++;
-      }
+    for (const r of vectorPipeline.kgResults) {
+      const key = `entity:${r.id}`;
+      const dist = (r as unknown as Record<string, unknown>)['distance'] as number | undefined;
+      const score = dist != null ? distanceToScore(dist) * vectorWeight : 0.5 * vectorWeight;
+      const kgHit: HybridSearchHit = {
+        key,
+        nodeType: 'Entity',
+        name: r.text,
+        score,
+        sources: ['vector'],
+        properties: {
+          id: r.id,
+          type: r.type,
+          confidence: r.confidence,
+          relevanceScore: r.relevanceScore,
+        },
+      };
+      if (dist != null) kgHit.vectorDistance = dist;
+      mergeHit(hitMap, kgHit);
+      vectorHitCount++;
     }
   }
 
-  // ----------------------------------------------------------------
-  // Step 3: Text search (name CONTAINS)
-  // ----------------------------------------------------------------
+  // Merge text results into hitMap
+  // Score based on how well the node name matches the extracted search terms.
+  // Higher score for: exact match > camelCase symbol match > partial keyword match
+  const searchTerms = extractSearchTerms(query);
   let textHitCount = 0;
-
-  const textResults = await textSearchNodes(client, query, nodeTypes, limit, options.scope);
   for (const r of textResults) {
     const key = makeCodeKey(r.nodeType, r.filePath, r.name);
-    // Exact name match gets full text weight; partial match gets half
-    const isExact = r.name.toLowerCase() === query.toLowerCase();
-    const score = (isExact ? 1.0 : 0.5) * textWeight;
+    const score = scoreTextHit(r.name, query, searchTerms) * textWeight;
     mergeHit(hitMap, {
       key,
       nodeType: r.nodeType,
@@ -261,29 +267,23 @@ export async function hybridSearch(
     textHitCount++;
   }
 
-  // Knowledge text search
-  if (includeKnowledge) {
-    const kgOps = createKnowledgeOperations(client);
-    const kgTextResults = await kgOps.searchEntities({ textContains: query, limit });
-    for (const r of kgTextResults) {
-      const key = `entity:${r.id}`;
-      const isExact = r.text.toLowerCase() === query.toLowerCase();
-      const score = (isExact ? 1.0 : 0.5) * textWeight;
-      mergeHit(hitMap, {
-        key,
-        nodeType: 'Entity',
-        name: r.text,
-        score,
-        sources: ['text'],
-        properties: {
-          id: r.id,
-          type: r.type,
-          confidence: r.confidence,
-          relevanceScore: r.relevanceScore,
-        },
-      });
-      textHitCount++;
-    }
+  for (const r of kgTextResults) {
+    const key = `entity:${r.id}`;
+    const score = scoreTextHit(r.text, query, searchTerms) * textWeight;
+    mergeHit(hitMap, {
+      key,
+      nodeType: 'Entity',
+      name: r.text,
+      score,
+      sources: ['text'],
+      properties: {
+        id: r.id,
+        type: r.type,
+        confidence: r.confidence,
+        relevanceScore: r.relevanceScore,
+      },
+    });
+    textHitCount++;
   }
 
   // ----------------------------------------------------------------
@@ -294,99 +294,98 @@ export async function hybridSearch(
     .slice(0, limit);
 
   // ----------------------------------------------------------------
-  // Step 5: Graph traversal (expand top hits with related nodes)
+  // Steps 5-6: Graph + ABOUT traversal in parallel
   // ----------------------------------------------------------------
   const related: RelatedHit[] = [];
   let graphExpanded = 0;
+  let aboutExpanded = 0;
 
-  if (expandGraph && allHits.length > 0) {
-    // Only expand code nodes (not knowledge entities)
-    // Prioritize File nodes — they have the richest graph structure (CONTAINS, IMPORTS)
-    const codeHits = allHits
-      .filter((h) => h.nodeType !== 'Entity' && h.filePath)
-      .sort((a, b) => {
-        if (a.nodeType === 'File' && b.nodeType !== 'File') return -1;
-        if (a.nodeType !== 'File' && b.nodeType === 'File') return 1;
-        return 0; // preserve score order within same priority
-      })
-      .slice(0, 10);
+  // Prepare hit lists for traversal
+  const codeHitsForGraph = expandGraph
+    ? allHits
+        .filter((h) => h.nodeType !== 'Entity' && h.filePath)
+        .sort((a, b) => {
+          if (a.nodeType === 'File' && b.nodeType !== 'File') return -1;
+          if (a.nodeType !== 'File' && b.nodeType === 'File') return 1;
+          return 0;
+        })
+        .slice(0, 10)
+    : [];
 
-    for (const hit of codeHits) {
-      try {
-        const neighbors = await traverseNeighbors(
-          client, hit.nodeType, hit.name, hit.filePath!, maxHops,
-        );
-        for (const n of neighbors) {
-          if (options.scope && n.filePath && !n.filePath.startsWith(options.scope)) continue;
-          related.push({ ...n, sourceKey: hit.key });
-          graphExpanded++;
-        }
-      } catch {
-        // Traversal failures are non-fatal
-      }
+  const codeHitsForAbout = includeAbout
+    ? allHits.filter((h) => h.nodeType !== 'Entity' && h.name).slice(0, 10)
+    : [];
+
+  const entityHitsForAbout = includeAbout
+    ? allHits.filter((h) => h.nodeType === 'Entity').slice(0, 10)
+    : [];
+
+  // Fan out all traversals in parallel
+  const [graphTraversals, codeAboutTraversals, entityAboutTraversals] = await Promise.all([
+    // Graph traversal: all hits in parallel
+    Promise.all(
+      codeHitsForGraph.map((hit) =>
+        traverseNeighbors(client, hit.nodeType, hit.name, hit.filePath!, maxHops)
+          .catch(() => [] as TraversalHit[]),
+      ),
+    ),
+    // ABOUT: code nodes → knowledge entities
+    kgOps
+      ? Promise.all(
+          codeHitsForAbout.map((hit) =>
+            kgOps.getAboutEdgesForCodeNode(hit.nodeType, hit.name, 5)
+              .catch(() => [] as { entityText: string; entityType: string; confidence: number }[]),
+          ),
+        )
+      : [],
+    // ABOUT: knowledge entities → code nodes
+    kgOps
+      ? Promise.all(
+          entityHitsForAbout.map((hit) =>
+            kgOps.getAboutEdgesForEntity(hit.name, (hit.properties.type as string) ?? '', 5)
+              .catch(() => [] as { targetValue: string; targetLabel: string; confidence: number }[]),
+          ),
+        )
+      : [],
+  ]);
+
+  // Collect graph traversal results
+  for (let i = 0; i < codeHitsForGraph.length; i++) {
+    for (const n of graphTraversals[i]!) {
+      if (options.scope && n.filePath && !n.filePath.startsWith(options.scope)) continue;
+      related.push({ ...n, sourceKey: codeHitsForGraph[i]!.key });
+      graphExpanded++;
     }
   }
 
-  // ----------------------------------------------------------------
-  // Step 6: ABOUT edge traversal (cross-layer links)
-  // ----------------------------------------------------------------
-  let aboutExpanded = 0;
-
-  if (includeAbout && allHits.length > 0) {
-    const kgOps = createKnowledgeOperations(client);
-
-    // For code nodes: find knowledge entities linked via ABOUT
-    const codeHitsForAbout = allHits
-      .filter((h) => h.nodeType !== 'Entity' && h.name)
-      .slice(0, 10);
-
-    for (const hit of codeHitsForAbout) {
-      try {
-        const aboutEdges = await kgOps.getAboutEdgesForCodeNode(
-          hit.nodeType, hit.name, 5,
-        );
-        for (const edge of aboutEdges) {
-          related.push({
-            sourceKey: hit.key,
-            name: edge.entityText,
-            nodeType: 'Entity',
-            edgeLabel: 'ABOUT',
-            direction: 'incoming',
-            entityType: edge.entityType,
-            aboutConfidence: edge.confidence,
-          });
-          aboutExpanded++;
-        }
-      } catch {
-        // ABOUT traversal failures are non-fatal
-      }
+  // Collect ABOUT results: code → entity
+  for (let i = 0; i < codeHitsForAbout.length; i++) {
+    for (const edge of codeAboutTraversals[i]!) {
+      related.push({
+        sourceKey: codeHitsForAbout[i]!.key,
+        name: edge.entityText,
+        nodeType: 'Entity',
+        edgeLabel: 'ABOUT',
+        direction: 'incoming',
+        entityType: edge.entityType,
+        aboutConfidence: edge.confidence,
+      });
+      aboutExpanded++;
     }
+  }
 
-    // For knowledge entities: find code nodes linked via ABOUT
-    const entityHits = allHits
-      .filter((h) => h.nodeType === 'Entity')
-      .slice(0, 10);
-
-    for (const hit of entityHits) {
-      try {
-        const entityType = (hit.properties.type as string) ?? '';
-        const aboutEdges = await kgOps.getAboutEdgesForEntity(
-          hit.name, entityType, 5,
-        );
-        for (const edge of aboutEdges) {
-          related.push({
-            sourceKey: hit.key,
-            name: edge.targetValue,
-            nodeType: edge.targetLabel,
-            edgeLabel: 'ABOUT',
-            direction: 'outgoing',
-            aboutConfidence: edge.confidence,
-          });
-          aboutExpanded++;
-        }
-      } catch {
-        // ABOUT traversal failures are non-fatal
-      }
+  // Collect ABOUT results: entity → code
+  for (let i = 0; i < entityHitsForAbout.length; i++) {
+    for (const edge of entityAboutTraversals[i]!) {
+      related.push({
+        sourceKey: entityHitsForAbout[i]!.key,
+        name: edge.targetValue,
+        nodeType: edge.targetLabel,
+        edgeLabel: 'ABOUT',
+        direction: 'outgoing',
+        aboutConfidence: edge.confidence,
+      });
+      aboutExpanded++;
     }
   }
 
@@ -421,6 +420,45 @@ function makeCodeKey(nodeType: string, filePath: string | undefined, name: strin
   return `${nodeType}:${filePath ?? ''}:${name}`;
 }
 
+/**
+ * Score a text hit based on how well the node name matches the query.
+ *
+ * Scoring tiers (0-1):
+ * - 1.0: Exact match (node name equals query string)
+ * - 0.9: Node name contains a camelCase/PascalCase identifier from the query
+ * - 0.5-0.8: Partial match — scored by fraction of search terms found in name
+ * - 0.3: Docstring-only match (name doesn't match but node was found via docstring)
+ */
+function scoreTextHit(name: string, originalQuery: string, searchTerms: string[]): number {
+  const nameLower = name.toLowerCase();
+  const queryLower = originalQuery.toLowerCase().trim();
+
+  // Exact match — highest score
+  if (nameLower === queryLower) return 1.0;
+
+  // Check if the name contains any of the original camelCase/PascalCase terms
+  // (these are likely the exact symbol the user is asking about)
+  if (searchTerms.length > 0) {
+    const firstTerm = searchTerms[0]!;
+    if (nameLower === firstTerm.toLowerCase()) return 0.95;
+    if (nameLower.includes(firstTerm.toLowerCase())) return 0.9;
+  }
+
+  // Count how many search terms appear in the name
+  let matchCount = 0;
+  for (const term of searchTerms) {
+    if (nameLower.includes(term.toLowerCase())) matchCount++;
+  }
+
+  if (matchCount > 0) {
+    // Score: 0.5 base + 0.3 * fraction of terms matched
+    return 0.5 + 0.3 * (matchCount / searchTerms.length);
+  }
+
+  // No name match — hit was found via docstring search only
+  return 0.3;
+}
+
 /** Convert Euclidean distance to a 0-1 score (closer = higher) */
 function distanceToScore(distance: number): number {
   // Euclidean distance ≥ 0. For normalized embeddings, max is ~2.0
@@ -453,6 +491,98 @@ function mergeHit(
 }
 
 // ============================================================================
+// Query preprocessing — keyword extraction for NL queries
+// ============================================================================
+
+/**
+ * Stop words to filter out of NL queries.
+ * Inspired by LlamaIndex's simple_extract_keywords.
+ */
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'do', 'does', 'did', 'have', 'has', 'had', 'will', 'shall', 'would',
+  'should', 'could', 'can', 'may', 'might', 'must', 'need', 'not',
+  'and', 'or', 'but', 'if', 'of', 'in', 'on', 'at', 'to', 'for',
+  'with', 'from', 'by', 'about', 'into', 'through', 'between',
+  'that', 'this', 'it', 'its', 'their', 'these', 'those',
+  'what', 'which', 'who', 'whom', 'whose', 'when', 'where', 'why', 'how',
+  'all', 'each', 'every', 'both', 'few', 'many', 'much', 'some', 'any',
+  'other', 'more', 'most', 'own', 'same', 'such', 'very', 'just', 'also',
+  'than', 'then', 'there', 'here', 'only',
+  // Imperative verbs common in NL queries about code
+  'show', 'find', 'list', 'get', 'tell', 'explain', 'describe', 'give',
+  'me', 'my', 'i',
+]);
+
+/**
+ * Extract search terms from a query string.
+ *
+ * Handles both direct symbol lookups ("hybridSearch") and NL queries
+ * ("What does the hybridSearch function do?").
+ *
+ * Uses three complementary techniques (all zero-latency, no LLM):
+ * 1. camelCase/PascalCase identifier detection (code-specific)
+ * 2. Stopword removal (LlamaIndex simple_extract_keywords pattern)
+ * 3. Identifier sub-word splitting (code search best practice)
+ *
+ * @returns Array of search terms, highest-priority first
+ */
+export function extractSearchTerms(query: string): string[] {
+  const trimmed = query.trim();
+
+  // Fast path: if the query is already a single symbol, return it as-is
+  if (/^[a-zA-Z_$][a-zA-Z0-9_$.]*$/.test(trimmed)) {
+    return [trimmed];
+  }
+
+  const terms: string[] = [];
+  const seen = new Set<string>();
+
+  const addTerm = (t: string) => {
+    const lower = t.toLowerCase();
+    if (lower.length > 1 && !seen.has(lower)) {
+      seen.add(lower);
+      terms.push(t);
+    }
+  };
+
+  // 1. Extract camelCase identifiers (e.g., "hybridSearch", "indexProject")
+  //    These are highest-priority — likely the exact symbol the user is asking about
+  const camelCaseMatches = trimmed.match(/\b[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*\b/g) ?? [];
+  for (const m of camelCaseMatches) addTerm(m);
+
+  // 2. Extract PascalCase identifiers (e.g., "SearchRegistry", "GraphClient")
+  const pascalCaseMatches = trimmed.match(/\b[A-Z][a-z]+(?:[A-Z][a-z0-9]+)+\b/g) ?? [];
+  for (const m of pascalCaseMatches) addTerm(m);
+
+  // 3. Extract snake_case identifiers
+  const snakeCaseMatches = trimmed.match(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g) ?? [];
+  for (const m of snakeCaseMatches) addTerm(m);
+
+  // 4. Split camelCase/PascalCase identifiers into sub-words
+  //    "hybridSearch" → ["hybrid", "search"]
+  //    This enables fuzzy matching: "hybrid search" in query matches "hybridSearch" node
+  for (const m of [...camelCaseMatches, ...pascalCaseMatches]) {
+    const subWords = m
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+    for (const w of subWords) addTerm(w);
+  }
+
+  // 5. Tokenize remaining words, remove stopwords
+  const words = trimmed
+    .split(/[\s,;:!?.()\[\]{}'"`]+/)
+    .map((w) => w.replace(/^[^a-zA-Z]+|[^a-zA-Z0-9]+$/g, ''))
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w.toLowerCase()));
+  for (const w of words) addTerm(w);
+
+  return terms;
+}
+
+// ============================================================================
 // Text search across code node types
 // ============================================================================
 
@@ -463,6 +593,15 @@ interface TextSearchHit {
   startLine: number;
 }
 
+/**
+ * Text search using extracted keywords with OR semantics.
+ *
+ * For each search term, checks:
+ *   - n.name CONTAINS term (symbol name matching)
+ *   - n.docstring CONTAINS term (documentation matching, for NL queries)
+ *
+ * Runs a single Cypher query with OR across all terms.
+ */
 async function textSearchNodes(
   client: GraphClient,
   query: string,
@@ -470,6 +609,9 @@ async function textSearchNodes(
   limit: number,
   scope?: string,
 ): Promise<TextSearchHit[]> {
+  const terms = extractSearchTerms(query);
+  if (terms.length === 0) return [];
+
   const dialect = client.dialect;
   const firstLabel = dialect.firstLabelExpr('n');
 
@@ -481,21 +623,46 @@ async function textSearchNodes(
 
   const scopeFilter = scope ? 'AND n.filePath STARTS WITH $scope' : '';
 
-  // Case-insensitive name search
-  // File nodes store their path as `path`; all other code nodes use `filePath`
+  // Build OR conditions for each search term:
+  // Match against name (primary) and docstring (secondary)
+  const termConditions = terms.map((_, i) => {
+    const nameMatch = `toLower(n.name) CONTAINS toLower($term${i})`;
+    const docMatch = `(n.docstring IS NOT NULL AND toLower(n.docstring) CONTAINS toLower($term${i}))`;
+    return `(${nameMatch} OR ${docMatch})`;
+  });
+
+  // Any term matching is sufficient (OR semantics)
+  const matchFilter = termConditions.length === 1
+    ? termConditions[0]
+    : `(${termConditions.join(' OR ')})`;
+
+  // Case-insensitive name search with relevance-based ordering.
+  // Nodes matching more terms in name rank higher than docstring-only matches.
+  // File nodes store their path as `path`; all other code nodes use `filePath`.
+  const nameMatchScores = terms.map((_, i) =>
+    `CASE WHEN toLower(n.name) CONTAINS toLower($term${i}) THEN 1 ELSE 0 END`,
+  );
+  const relevanceExpr = nameMatchScores.length === 1
+    ? nameMatchScores[0]
+    : `(${nameMatchScores.join(' + ')})`;
+
   const cypher = `
     MATCH (n)
     WHERE ${labelFilter}
-      AND toLower(n.name) CONTAINS toLower($query)
+      AND ${matchFilter}
       ${scopeFilter}
     RETURN n.name AS name, ${firstLabel} AS nodeType,
            CASE WHEN ${dialect.labelCheckExpr('n', 'File')} THEN n.path ELSE n.filePath END AS filePath,
            n.startLine AS startLine
-    ORDER BY n.name
+    ORDER BY ${relevanceExpr} DESC, n.name
     LIMIT $limit
   `;
 
-  const params: Record<string, string | number | boolean | null | Array<unknown>> = { query, limit };
+  const params: Record<string, string | number | boolean | null | Array<unknown>> = { limit };
+  // Add each search term as a query parameter
+  for (let i = 0; i < terms.length; i++) {
+    params[`term${i}`] = terms[i]!;
+  }
   if (scope) params.scope = scope;
 
   try {

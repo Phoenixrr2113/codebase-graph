@@ -179,6 +179,12 @@ export class FalkorDBDriver implements DatabaseDriver {
       await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.processedAt)`);
     }
 
+    // --- Document entity range indexes (markdown support) ---
+    await safeIndex(`CREATE INDEX FOR (d:MarkdownDocument) ON (d.path)`);
+    await safeIndex(`CREATE INDEX FOR (s:Section) ON (s.filePath)`);
+    await safeIndex(`CREATE INDEX FOR (cb:CodeBlock) ON (cb.filePath)`);
+    await safeIndex(`CREATE INDEX FOR (l:Link) ON (l.filePath)`);
+
     // --- Fulltext indexes (text search) ---
     const fulltextTargets = ['Function', 'Class', 'Component', 'Interface', 'Type', 'Entity'];
     for (const label of fulltextTargets) {

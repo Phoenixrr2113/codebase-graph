@@ -12,7 +12,7 @@
 
 import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, type LanguageModel } from 'ai';
 import { createLogger } from '@codegraph/logger';
-import { GraphAnswerSchema, type GraphAnswer } from '@codegraph/plugin-nlp';
+import { GraphAnswerSchema, type GraphAnswer, withRetry } from '@codegraph/plugin-nlp';
 import type {
   SearchStrategy,
   SearchRequest,
@@ -80,12 +80,14 @@ export class GraphAnswerStrategy implements SearchStrategy {
       const isLastModel = i === modelsToTry.length - 1;
 
       try {
-        const { output: answer } = (await generateText({
+        const { output: answer } = (await withRetry(() => generateText({
           model,
           output: Output.object({ schema: GraphAnswerSchema }),
+          system: this.ANSWER_SYSTEM_PROMPT,
           prompt: this.buildAnswerPrompt(request.query, contextText),
           temperature: 0.2,
-        })) as { output: GraphAnswer };
+          maxOutputTokens: 1000,
+        }))) as { output: GraphAnswer };
 
         return {
           results,
@@ -179,17 +181,32 @@ export class GraphAnswerStrategy implements SearchStrategy {
     return lines.join('\n');
   }
 
-  private buildAnswerPrompt(query: string, context: string): string {
-    return `You are a code assistant that answers questions about a software codebase.
-Use ONLY the information from the graph context below to answer the question.
-If the context doesn't contain enough information, say so honestly.
+  /** System prompt: role, instructions, and few-shot examples */
+  private readonly ANSWER_SYSTEM_PROMPT = `You are a code assistant that answers questions about a software codebase using graph-structured context (nodes and relationships).
 
-## Graph Context (nodes and relationships found in the codebase)
+## Instructions:
+- Use ONLY the information from the provided graph context to answer the question.
+- If the context doesn't contain enough information, say so honestly.
+- Include specific names, file paths, and relationships when available.
+- Reference node types (Function, Class, File, etc.) to ground your answer.
+- Cite relationship edges (CALLS, IMPORTS, CONTAINS, etc.) when explaining how things connect.
+
+## Examples:
+
+Question: "What does the SearchRegistry do?"
+Context: [Class] SearchRegistry (src/search/registry.ts), [Function] register, [Function] search, SearchRegistry --[HAS_METHOD]--> register, SearchRegistry --[HAS_METHOD]--> search
+Answer: The SearchRegistry class (in src/search/registry.ts) manages search strategies. It has two key methods: register() for adding strategies and search() for dispatching queries to the appropriate strategy.
+
+Question: "What files handle authentication?"
+Context: [File] auth.ts (src/auth.ts), [File] middleware.ts (src/middleware.ts), [Function] validateToken, auth.ts --[CONTAINS]--> validateToken, middleware.ts --[IMPORTS]--> auth.ts
+Answer: Authentication is handled by two files: auth.ts (src/auth.ts) which contains the validateToken() function, and middleware.ts (src/middleware.ts) which imports auth.ts to use its authentication logic in the middleware pipeline.`;
+
+  /** User prompt: context + question */
+  private buildAnswerPrompt(query: string, context: string): string {
+    return `## Graph Context (nodes and relationships found in the codebase)
 ${context}
 
 ## Question
-${query}
-
-Answer the question based on the graph context. Include specific names, file paths, and relationships when available.`;
+${query}`;
   }
 }
