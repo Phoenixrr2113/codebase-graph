@@ -34,7 +34,7 @@ export { indexProject, indexSingleFile, isProjectIndexed } from './indexer';
 export type { IndexStats, IndexResult } from './indexer';
 
 // Embedding pass (generates + stores embeddings during indexing pipeline)
-export { embedParsedEntities } from './embed-pass';
+export { embedParsedEntities, embedAllParsedEntities } from './embed-pass';
 export type { EmbedPassResult } from './embed-pass';
 
 // Retroactive embedding (generate embeddings for existing graph nodes)

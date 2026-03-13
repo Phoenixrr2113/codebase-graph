@@ -557,6 +557,23 @@ const CYPHER = {
     SET comp.embedding = vecf32($embedding), comp.embeddingTextHash = $embeddingTextHash
   `,
 
+  // --- Get existing embedding hashes for incremental embedding ---
+  GET_EMBEDDING_HASHES_FOR_FILES: `
+    UNWIND $filePaths AS fp
+    MATCH (f:File {path: fp})
+    OPTIONAL MATCH (f)-[:CONTAINS]->(e)
+    WHERE e.embeddingTextHash IS NOT NULL
+    WITH fp, collect({
+      nodeType: labels(e)[0],
+      name: CASE WHEN e:Variable THEN e.name ELSE e.name END,
+      filePath: e.filePath,
+      startLine: CASE WHEN e:Variable THEN e.line ELSE e.startLine END,
+      hash: e.embeddingTextHash
+    }) AS entityHashes,
+    CASE WHEN f.embeddingTextHash IS NOT NULL THEN f.embeddingTextHash ELSE null END AS fileHash
+    RETURN fp AS filePath, fileHash, entityHashes
+  `,
+
   // --- Batch embedding UNWIND queries ---
   BATCH_UPDATE_FILE_EMBEDDINGS: `
     UNWIND $items AS item
@@ -692,6 +709,9 @@ export interface GraphOperations {
 
   /** Create DELETED_IN edges from all entities in a file to a commit */
   createDeletedInEdgesForFile(filePath: string, commitHash: string): Promise<number>;
+
+  /** Get existing embedding text hashes for entities in the given files (for incremental embedding) */
+  getEmbeddingHashesForFiles(filePaths: string[]): Promise<Map<string, string>>;
 
   /** Update embedding + embeddingTextHash for a node in the graph */
   updateEmbedding(
@@ -1102,6 +1122,48 @@ class GraphOperationsImpl implements GraphOperations {
     await Promise.all(ops);
 
     return items.length;
+  }
+
+  @trace()
+  async getEmbeddingHashesForFiles(filePaths: string[]): Promise<Map<string, string>> {
+    if (filePaths.length === 0) return new Map();
+
+    // Build a map of "nodeType:name:filePath:startLine" → embeddingTextHash
+    const hashMap = new Map<string, string>();
+
+    // Process in chunks to avoid query size limits
+    const CHUNK = 200;
+    for (let i = 0; i < filePaths.length; i += CHUNK) {
+      const chunk = filePaths.slice(i, i + CHUNK);
+      try {
+        const result = await this.client.roQuery<{
+          filePath: string;
+          fileHash: string | null;
+          entityHashes: Array<{
+            nodeType: string;
+            name: string;
+            filePath: string;
+            startLine: number;
+            hash: string;
+          }>;
+        }>(CYPHER.GET_EMBEDDING_HASHES_FOR_FILES, { params: { filePaths: chunk } });
+
+        for (const row of (result.data ?? [])) {
+          if (row.fileHash) {
+            hashMap.set(`File::${row.filePath}:0`, row.fileHash);
+          }
+          for (const entity of row.entityHashes) {
+            if (entity.hash) {
+              hashMap.set(`${entity.nodeType}:${entity.name}:${entity.filePath}:${entity.startLine}`, entity.hash);
+            }
+          }
+        }
+      } catch {
+        // Non-fatal — will just regenerate all embeddings for this chunk
+      }
+    }
+
+    return hashMap;
   }
 
   // Project operations

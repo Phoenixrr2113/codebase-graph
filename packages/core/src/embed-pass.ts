@@ -215,3 +215,132 @@ export async function embedParsedEntities(
 
   return { embedded, skipped: items.length - embedded, durationMs };
 }
+
+// ============================================================================
+// Bulk cross-file embedding (PERF.3 + PERF.9)
+// ============================================================================
+
+/**
+ * Build a cache key for an embeddable item (matches the format used by getEmbeddingHashesForFiles).
+ */
+function itemCacheKey(item: EmbeddableItem): string {
+  if (item.nodeType === 'File') {
+    return `File::${item.identifier['path']}:0`;
+  }
+  const startLine = item.nodeType === 'Variable'
+    ? item.identifier['line']
+    : item.identifier['startLine'];
+  return `${item.nodeType}:${item.identifier['name']}:${item.identifier['filePath']}:${startLine}`;
+}
+
+/**
+ * Generate and store embeddings for ALL entities across multiple ParsedFileEntities.
+ *
+ * Improvements over per-file embedParsedEntities:
+ * 1. Incremental: queries existing embeddingTextHash values, skips unchanged entities
+ * 2. Cross-file batching: one generateEmbeddings call for all entities
+ * 3. One batchUpdateEmbeddings call for all results (7 UNWIND queries total)
+ *
+ * Call this after all entities are upserted to the graph.
+ */
+export async function embedAllParsedEntities(
+  parsedList: ParsedFileEntities[],
+  ops: GraphOperations,
+  config?: EmbeddingConfig,
+): Promise<EmbedPassResult> {
+  const start = performance.now();
+
+  if (!isEmbeddingAvailable(config)) {
+    return { embedded: 0, skipped: 0, durationMs: 0 };
+  }
+
+  // 1. Collect all embeddable items across all files
+  const allItems: EmbeddableItem[] = [];
+  for (const parsed of parsedList) {
+    allItems.push(...collectEmbeddableItems(parsed));
+  }
+
+  if (allItems.length === 0) {
+    return { embedded: 0, skipped: 0, durationMs: 0 };
+  }
+
+  logger.info(`Embedding pass: ${allItems.length} entities across ${parsedList.length} files`);
+
+  // 2. Query existing embedding hashes for incremental skip
+  const filePaths = parsedList.map(p => p.file.path);
+  let existingHashes = new Map<string, string>();
+  try {
+    existingHashes = await ops.getEmbeddingHashesForFiles(filePaths);
+    if (existingHashes.size > 0) {
+      logger.info(`Found ${existingHashes.size} existing embedding hashes for comparison`);
+    }
+  } catch {
+    // Non-fatal — will regenerate all
+  }
+
+  // 3. Filter out unchanged entities
+  const itemsToEmbed: EmbeddableItem[] = [];
+  let skippedUnchanged = 0;
+  for (const item of allItems) {
+    const key = itemCacheKey(item);
+    const existing = existingHashes.get(key);
+    if (existing === item.textHash) {
+      skippedUnchanged++;
+    } else {
+      itemsToEmbed.push(item);
+    }
+  }
+
+  if (skippedUnchanged > 0) {
+    logger.info(`Incremental embedding: ${skippedUnchanged} unchanged, ${itemsToEmbed.length} to generate`);
+  }
+
+  if (itemsToEmbed.length === 0) {
+    const durationMs = performance.now() - start;
+    return { embedded: 0, skipped: skippedUnchanged, durationMs };
+  }
+
+  // 4. Generate embeddings for all texts in one batch
+  const texts = itemsToEmbed.map(item => item.text);
+  let embeddings: number[][];
+  try {
+    const genStart = performance.now();
+    const result = await generateEmbeddings(texts, config);
+    embeddings = result.embeddings;
+    const genMs = (performance.now() - genStart).toFixed(0);
+    logger.info(`Generated ${embeddings.length} embeddings in ${genMs}ms (${(Number(genMs) / embeddings.length).toFixed(1)}ms/entity)`);
+  } catch (err) {
+    logger.warn(`Embedding generation failed: ${err}`);
+    return { embedded: 0, skipped: allItems.length, durationMs: performance.now() - start };
+  }
+
+  // 5. Batch write all embeddings using UNWIND
+  let embedded = 0;
+  const batchItems = itemsToEmbed.map((item, i) => ({
+    nodeType: item.nodeType,
+    identifier: item.identifier,
+    embedding: embeddings[i]!,
+    embeddingTextHash: item.textHash,
+  }));
+
+  try {
+    embedded = await ops.batchUpdateEmbeddings(batchItems);
+  } catch (err) {
+    logger.warn(`Batch embedding write failed, falling back to individual: ${err}`);
+    for (let i = 0; i < itemsToEmbed.length; i++) {
+      const item = itemsToEmbed[i]!;
+      const embedding = embeddings[i]!;
+      try {
+        await ops.updateEmbedding(item.nodeType, item.identifier, embedding, item.textHash);
+        embedded++;
+      } catch (writeErr) {
+        logger.warn(`Failed to update embedding for ${item.nodeType}: ${writeErr}`);
+      }
+    }
+  }
+
+  const durationMs = performance.now() - start;
+  logger.info(`Embedding pass complete: ${embedded} embedded, ${skippedUnchanged} skipped in ${durationMs.toFixed(0)}ms`);
+
+  return { embedded, skipped: skippedUnchanged + (itemsToEmbed.length - embedded), durationMs };
+}

@@ -20,12 +20,13 @@ const ROOT = resolve(__dirname, '..');
 const args = process.argv.slice(2);
 const noClear = args.includes('--no-clear');
 const force = args.includes('--force');
+const withEmbeddings = args.includes('--embeddings');
 const label = args.filter(a => !a.startsWith('--'))[0] ?? 'unlabeled';
 
 async function main() {
   console.log(`\n=== Benchmark: ${label} ===`);
   console.log(`Target: ${ROOT}`);
-  console.log(`Clear: ${!noClear} | Force: ${force}`);
+  console.log(`Clear: ${!noClear} | Force: ${force} | Embeddings: ${withEmbeddings}`);
   console.log(`Time: ${new Date().toISOString()}\n`);
 
   const client = await getGraphClient();
@@ -46,7 +47,7 @@ async function main() {
   const result = await indexProject(ROOT, {
     client,
     deepAnalysis: true,
-    embeddings: false,
+    embeddings: withEmbeddings ? undefined : false,
     force,
   });
 
@@ -59,6 +60,7 @@ async function main() {
   console.log(`Entities:   ${result.stats.entities}`);
   console.log(`Edges:      ${result.stats.edges}`);
   console.log(`Errors:     ${result.stats.errors}`);
+  console.log(`Embedded:   ${result.stats.embedded ?? 0}`);
   console.log(`Duration:   ${result.stats.durationMs}ms (${(result.stats.durationMs / 1000).toFixed(2)}s)`);
 
   if (result.errorMessages.length > 0) {
@@ -69,7 +71,7 @@ async function main() {
     }
   }
 
-  console.log(`\n[BENCHMARK] ${label} | files=${result.stats.files} | entities=${result.stats.entities} | edges=${result.stats.edges} | errors=${result.stats.errors} | duration_ms=${result.stats.durationMs} | skipped=${result.stats.skipped ?? 0}`);
+  console.log(`\n[BENCHMARK] ${label} | files=${result.stats.files} | entities=${result.stats.entities} | edges=${result.stats.edges} | embedded=${result.stats.embedded ?? 0} | errors=${result.stats.errors} | duration_ms=${result.stats.durationMs} | skipped=${result.stats.skipped ?? 0}`);
 
   await closeGraphClient();
 }

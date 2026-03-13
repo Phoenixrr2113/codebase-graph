@@ -28,7 +28,7 @@ import { createOperations, type GraphClient } from '@codegraph/graph';
 import type { ProjectEntity } from '@codegraph/types';
 import type { EmbeddingConfig } from '@codegraph/plugin-nlp';
 import { getGraphClient } from './graphClient';
-import { embedParsedEntities } from './embed-pass';
+import { embedParsedEntities, embedAllParsedEntities } from './embed-pass';
 import { createLogger } from '@codegraph/logger';
 import { stat, readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
@@ -332,15 +332,18 @@ export async function indexProject(
       logger.info(`Phase 2 (upsert) complete: ${totalFiles} files in ${upsertDurationMs}ms`);
 
       // Phase 3: Embeddings (deferred, runs after structure is committed)
+      // Uses cross-file batching with incremental hash comparison
       if (embeddingsEnabled) {
         const embedStart = Date.now();
-        for (const { file, built } of allParsed) {
-          try {
-            const embedResult = await embedParsedEntities(built, ops, embeddingConfig);
-            totalEmbedded += embedResult.embedded;
-          } catch (err) {
-            logger.warn(`Embedding failed for ${file}: ${err instanceof Error ? err.message : err}`);
-          }
+        try {
+          const embedResult = await embedAllParsedEntities(
+            allParsed.map(r => r.built),
+            ops,
+            embeddingConfig,
+          );
+          totalEmbedded = embedResult.embedded;
+        } catch (err) {
+          logger.warn(`Embedding pass failed: ${err instanceof Error ? err.message : err}`);
         }
         const embedDurationMs = Date.now() - embedStart;
         if (totalEmbedded > 0) {
