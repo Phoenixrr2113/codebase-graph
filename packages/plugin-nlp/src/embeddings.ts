@@ -82,7 +82,9 @@ async function getLocalExtractor(model: string): Promise<LocalExtractorFn> {
     const start = performance.now();
 
     const { pipeline } = await import('@huggingface/transformers');
-    const extractor = await pipeline('feature-extraction', model, { dtype: 'fp32' });
+    // Use quantized int8 model for ~2x faster inference vs fp32.
+    // Quality difference is negligible for code embeddings.
+    const extractor = await pipeline('feature-extraction', model, { dtype: 'q8' });
 
     const loadMs = performance.now() - start;
     logger.info(`Local embedding model loaded in ${(loadMs / 1000).toFixed(1)}s`);
@@ -101,16 +103,26 @@ async function embedLocal(text: string, model: string): Promise<number[]> {
   return Array.from(output.data);
 }
 
+/** Batch size for grouped ONNX inference. Texts in one batch are padded to
+ *  equal length, so keep small to avoid wasting compute on padding. */
+const ONNX_BATCH_SIZE = 16;
+
 async function embedLocalBatch(texts: string[], model: string): Promise<number[][]> {
   const extractor = await getLocalExtractor(model);
   const results: number[][] = [];
 
-  // Process sequentially — the ONNX runtime handles one at a time on CPU.
-  // Batching at the pipeline level doesn't improve throughput on CPU and
-  // can cause OOM for large batches. ~10ms/item is already fast.
-  for (const text of texts) {
-    const output = await extractor(text, { pooling: 'mean', normalize: true });
-    results.push(Array.from(output.data));
+  // Process in small batches — the ONNX runtime can leverage SIMD for
+  // batched tensor ops, reducing per-item overhead vs one-at-a-time.
+  // Batch size is kept small because tokenizer pads all inputs to the
+  // length of the longest text in the batch.
+  for (let i = 0; i < texts.length; i += ONNX_BATCH_SIZE) {
+    const batch = texts.slice(i, i + ONNX_BATCH_SIZE);
+    const output = await extractor(batch, { pooling: 'mean', normalize: true });
+    const dims = output.dims;
+    const embeddingDim = dims[dims.length - 1]!;
+    for (let j = 0; j < batch.length; j++) {
+      results.push(Array.from(output.data.slice(j * embeddingDim, (j + 1) * embeddingDim)));
+    }
   }
 
   return results;
