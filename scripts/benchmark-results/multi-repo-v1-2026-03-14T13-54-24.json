@@ -1,0 +1,2272 @@
+{
+  "label": "multi-repo-v1",
+  "timestamp": "2026-03-14T13:54:24.019Z",
+  "config": {
+    "embeddings": false,
+    "llm": false,
+    "reindex": false,
+    "nodeCount": 154350,
+    "projectCount": 16
+  },
+  "summary": {
+    "total": 96,
+    "passed": 79,
+    "failed": 17,
+    "skipped": 22,
+    "passRate": 82.3,
+    "latency": {
+      "avg": 154,
+      "p50": 22,
+      "p95": 575
+    },
+    "searchQuality": {
+      "queries": 55,
+      "top1": 54.5,
+      "top3": 58.2,
+      "mrr": 0.58
+    }
+  },
+  "byCategory": {
+    "operational": {
+      "tests": 14,
+      "passed": 14,
+      "passRate": 100,
+      "top1": null,
+      "mrr": null
+    },
+    "find_symbol": {
+      "tests": 13,
+      "passed": 12,
+      "passRate": 92.3,
+      "top1": 100,
+      "mrr": 1
+    },
+    "search_name": {
+      "tests": 10,
+      "passed": 6,
+      "passRate": 60,
+      "top1": 60,
+      "mrr": 0.611
+    },
+    "search_fulltext": {
+      "tests": 14,
+      "passed": 11,
+      "passRate": 78.6,
+      "top1": 35.7,
+      "mrr": 0.414
+    },
+    "search_cross_mode": {
+      "tests": 4,
+      "passed": 4,
+      "passRate": 100,
+      "top1": 25,
+      "mrr": 0.424
+    },
+    "fuzzy_typo": {
+      "tests": 6,
+      "passed": 0,
+      "passRate": 0,
+      "top1": 0,
+      "mrr": 0
+    },
+    "adversarial": {
+      "tests": 5,
+      "passed": 5,
+      "passRate": 100,
+      "top1": null,
+      "mrr": null
+    },
+    "get_context": {
+      "tests": 7,
+      "passed": 7,
+      "passRate": 100,
+      "top1": 71.4,
+      "mrr": 0.74
+    },
+    "impact_analysis": {
+      "tests": 5,
+      "passed": 4,
+      "passRate": 80,
+      "top1": null,
+      "mrr": null
+    },
+    "complexity": {
+      "tests": 3,
+      "passed": 3,
+      "passRate": 100,
+      "top1": null,
+      "mrr": null
+    },
+    "cypher": {
+      "tests": 3,
+      "passed": 3,
+      "passRate": 100,
+      "top1": 100,
+      "mrr": 1
+    },
+    "cross_file": {
+      "tests": 7,
+      "passed": 5,
+      "passRate": 71.4,
+      "top1": 0,
+      "mrr": 0.111
+    },
+    "multi_repo": {
+      "tests": 5,
+      "passed": 5,
+      "passRate": 100,
+      "top1": null,
+      "mrr": null
+    }
+  },
+  "results": [
+    {
+      "id": "op-ping",
+      "tool": "ping",
+      "description": "Connectivity test",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 0,
+      "passed": true,
+      "resultSize": 98
+    },
+    {
+      "id": "op-index-status",
+      "tool": "get_index_status",
+      "description": "Index health",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 5,
+      "passed": true,
+      "resultSize": 2333
+    },
+    {
+      "id": "op-stats",
+      "tool": "get_stats",
+      "description": "Graph statistics",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 487,
+      "passed": true,
+      "resultSize": 2794
+    },
+    {
+      "id": "op-source",
+      "tool": "get_source",
+      "description": "Read source file",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 2893
+    },
+    {
+      "id": "op-repo-map",
+      "tool": "get_repo_map",
+      "description": "Repository map",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 798,
+      "passed": true,
+      "resultSize": 6643
+    },
+    {
+      "id": "op-vuln",
+      "tool": "find_vulnerabilities",
+      "description": "Security scan",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 1781,
+      "passed": true,
+      "resultSize": 5003
+    },
+    {
+      "id": "op-refactor",
+      "tool": "analyze_file_for_refactoring",
+      "description": "Refactoring analysis",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 2301
+    },
+    {
+      "id": "op-history",
+      "tool": "get_symbol_history",
+      "description": "Git history",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 163
+    },
+    {
+      "id": "op-explain",
+      "tool": "explain_code",
+      "description": "Explain code",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 3,
+      "passed": true,
+      "resultSize": 9376
+    },
+    {
+      "id": "op-dataflow",
+      "tool": "trace_data_flow",
+      "description": "Data flow trace",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 7,
+      "passed": true,
+      "resultSize": 120
+    },
+    {
+      "id": "op-kg-store",
+      "tool": "store_entity",
+      "description": "Store entity",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 113
+    },
+    {
+      "id": "op-kg-query",
+      "tool": "query_knowledge",
+      "description": "Query entities",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 433
+    },
+    {
+      "id": "op-kg-recall",
+      "tool": "recall",
+      "description": "Recall entity",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 78
+    },
+    {
+      "id": "op-kg-stats",
+      "tool": "get_knowledge_stats",
+      "description": "KG stats",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 143
+    },
+    {
+      "id": "fs-createClient",
+      "tool": "find_symbol",
+      "description": "find_symbol: createClient",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 31,
+      "passed": true,
+      "resultSize": 366,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "createClient"
+        ],
+        "expectedSymbols": [
+          "createClient"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "client.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-hybridSearch",
+      "tool": "find_symbol",
+      "description": "find_symbol: hybridSearch",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 26,
+      "passed": true,
+      "resultSize": 191,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "hybridSearch"
+        ],
+        "expectedSymbols": [
+          "hybridSearch"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "hybridSearch.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-indexProject",
+      "tool": "find_symbol",
+      "description": "find_symbol: indexProject",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 23,
+      "passed": true,
+      "resultSize": 365,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "indexProject"
+        ],
+        "expectedSymbols": [
+          "indexProject"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "indexer.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-SearchRegistry",
+      "tool": "find_symbol",
+      "description": "find_symbol: SearchRegistry",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 176,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "SearchRegistry"
+        ],
+        "expectedSymbols": [
+          "SearchRegistry"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "registry.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-parseCode",
+      "tool": "find_symbol",
+      "description": "find_symbol: parseCode",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 22,
+      "passed": true,
+      "resultSize": 375,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "parseCode"
+        ],
+        "expectedSymbols": [
+          "parseCode"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "parser.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-generateEmbedding",
+      "tool": "find_symbol",
+      "description": "find_symbol: generateEmbedding",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 22,
+      "passed": true,
+      "resultSize": 392,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "generateEmbedding"
+        ],
+        "expectedSymbols": [
+          "generateEmbedding"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "embeddings.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-analyzeImpact",
+      "tool": "find_symbol",
+      "description": "find_symbol: analyzeImpact",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 23,
+      "passed": false,
+      "resultSize": 718,
+      "error": "Wrong file: /path/to/user/Desktop/codebase-graph/packages/mcp-server/src/tools/analyzeImpact.ts (expected impact.ts)",
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "analyzeImpact"
+        ],
+        "expectedSymbols": [
+          "analyzeImpact"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "impact.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-FalkorDBDriver",
+      "tool": "find_symbol",
+      "description": "find_symbol: FalkorDBDriver",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 178,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "FalkorDBDriver"
+        ],
+        "expectedSymbols": [
+          "FalkorDBDriver"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "falkordb.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-scanForVulnerabilities",
+      "tool": "find_symbol",
+      "description": "find_symbol: scanForVulnerabilities",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 22,
+      "passed": true,
+      "resultSize": 402,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "scanForVulnerabilities"
+        ],
+        "expectedSymbols": [
+          "scanForVulnerabilities"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "security.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-createLanguagePlugin",
+      "tool": "find_symbol",
+      "description": "find_symbol: createLanguagePlugin",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 21,
+      "passed": true,
+      "resultSize": 204,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "createLanguagePlugin"
+        ],
+        "expectedSymbols": [
+          "createLanguagePlugin"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "index.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-linkEntitiesToCode",
+      "tool": "find_symbol",
+      "description": "find_symbol: linkEntitiesToCode",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 22,
+      "passed": true,
+      "resultSize": 204,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "linkEntitiesToCode"
+        ],
+        "expectedSymbols": [
+          "linkEntitiesToCode"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "bridge-linker.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-createOperations",
+      "tool": "find_symbol",
+      "description": "find_symbol: createOperations",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 21,
+      "passed": true,
+      "resultSize": 382,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "createOperations"
+        ],
+        "expectedSymbols": [
+          "createOperations"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "operations.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-notfound",
+      "tool": "find_symbol",
+      "description": "Not-found: graceful",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 22,
+      "passed": true,
+      "resultSize": 89
+    },
+    {
+      "id": "sn-hybridSearch",
+      "tool": "search",
+      "description": "search name: \"hybridSearch\" → hybridSearch",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 7,
+      "passed": true,
+      "resultSize": 1575,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "hybridSearch",
+          "makeCodeKey",
+          "distanceToScore",
+          "mergeHit",
+          "textSearchNodes"
+        ],
+        "expectedSymbols": [
+          "hybridSearch"
+        ]
+      }
+    },
+    {
+      "id": "sn-indexProject",
+      "tool": "search",
+      "description": "search name: \"indexProject\" → indexProject",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 167,
+      "passed": true,
+      "resultSize": 409,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "indexProject",
+          "indexProject"
+        ],
+        "expectedSymbols": [
+          "indexProject"
+        ]
+      }
+    },
+    {
+      "id": "sn-createClient",
+      "tool": "search",
+      "description": "search name: \"createClient\" → createClient",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 168,
+      "passed": true,
+      "resultSize": 410,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "createClient",
+          "createClient"
+        ],
+        "expectedSymbols": [
+          "createClient"
+        ]
+      }
+    },
+    {
+      "id": "sn-parseCode",
+      "tool": "search",
+      "description": "search name: \"parseCode\" → parseCode",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 171,
+      "passed": true,
+      "resultSize": 417,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "parseCode",
+          "parseCode"
+        ],
+        "expectedSymbols": [
+          "parseCode"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-embed",
+      "tool": "search",
+      "description": "search partial: \"embed\"",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 5,
+      "passed": false,
+      "resultSize": 1425,
+      "error": "None of [embedAllNodes, embedParsedEntities, generateEmbedding] in Top-10: [logger, VALID_TYPES, embedCommand, startTime, client]",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "logger",
+          "VALID_TYPES",
+          "embedCommand",
+          "startTime",
+          "client"
+        ],
+        "expectedSymbols": [
+          "embedAllNodes",
+          "embedParsedEntities",
+          "generateEmbedding"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-analyze",
+      "tool": "search",
+      "description": "search partial: \"analyze\"",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 9,
+      "passed": false,
+      "resultSize": 1544,
+      "error": "None of [analyzeImpact, analyzeRefactoring, analyzeDataflow] in Top-10: [logger, analyzeCommand, result, callers, client]",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.1111111111111111,
+        "foundAt": 9,
+        "actualTop5": [
+          "logger",
+          "analyzeCommand",
+          "result",
+          "callers",
+          "client"
+        ],
+        "expectedSymbols": [
+          "analyzeImpact",
+          "analyzeRefactoring",
+          "analyzeDataflow"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-scan",
+      "tool": "search",
+      "description": "search partial: \"scan\"",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 11,
+      "passed": true,
+      "resultSize": 1633,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "scanFilesystem",
+          "scanOpts",
+          "scanForVulnerabilities",
+          "scanFile",
+          "ScanOptions"
+        ],
+        "expectedSymbols": [
+          "scanForVulnerabilities",
+          "scanFile"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-parse",
+      "tool": "search",
+      "description": "search partial: \"parse\"",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 5,
+      "passed": false,
+      "resultSize": 1551,
+      "error": "None of [parseCode, parseFile, parseFiles] in Top-10: [parseErrors, parsedFile, ParseStats, ParseResult, ParsedFileEntities]",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "parseErrors",
+          "parsedFile",
+          "ParseStats",
+          "ParseResult",
+          "ParsedFileEntities"
+        ],
+        "expectedSymbols": [
+          "parseCode",
+          "parseFile",
+          "parseFiles"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-create",
+      "tool": "search",
+      "description": "search partial: \"create\"",
+      "category": "search_name",
+      "difficulty": "hard",
+      "latencyMs": 7,
+      "passed": true,
+      "resultSize": 1537,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "createClient",
+          "created",
+          "created",
+          "createMCPServer",
+          "createLogger"
+        ],
+        "expectedSymbols": [
+          "createClient",
+          "createOperations",
+          "createQueries"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-get",
+      "tool": "search",
+      "description": "search partial: \"get\"",
+      "category": "search_name",
+      "difficulty": "hard",
+      "latencyMs": 4,
+      "passed": false,
+      "resultSize": 1622,
+      "error": "None of [getGraphClient, getSecurityRules] in Top-10: [getQueryClient, getPreferredEntityTypes, getPreferredRelationshipTypes, getGrammarForExtension, getSupportedExtensions]",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "getQueryClient",
+          "getPreferredEntityTypes",
+          "getPreferredRelationshipTypes",
+          "getGrammarForExtension",
+          "getSupportedExtensions"
+        ],
+        "expectedSymbols": [
+          "getGraphClient",
+          "getSecurityRules"
+        ]
+      }
+    },
+    {
+      "id": "ft-createClient",
+      "tool": "search_code",
+      "description": "fulltext: \"createClient\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 489,
+      "passed": true,
+      "resultSize": 1868,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "createClient"
+        ],
+        "expectedSymbols": [
+          "createClient"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/client.ts"
+        ],
+        "expectedFiles": [
+          "client.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-hybridSearch",
+      "tool": "search_code",
+      "description": "fulltext: \"hybridSearch\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 333,
+      "passed": true,
+      "resultSize": 6133,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "HybridSearchHit",
+          "HybridSearchResult",
+          "hybridSearchCode",
+          "HybridSearchStrategy",
+          "HybridSearchOptions"
+        ],
+        "expectedSymbols": [
+          "hybridSearch"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": true,
+        "reciprocalRank": 0.2,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/web/src/services/api.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/web/src/services/api.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/service.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/search/strategies/hybrid.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/hybridSearch.ts"
+        ],
+        "expectedFiles": [
+          "hybridSearch.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-embedding",
+      "tool": "search_code",
+      "description": "fulltext: \"embedding\"",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 592,
+      "passed": true,
+      "resultSize": 13231,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "embedding",
+          "embeddingModel",
+          "isEmbeddingAvailable",
+          "AZURE_EMBEDDING_API_VERSION",
+          "AZURE_EMBEDDING_DEPLOYMENT"
+        ],
+        "expectedSymbols": [
+          "generateEmbedding",
+          "embedAllNodes"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/plugin-nlp/src/embeddings.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/plugin-nlp/src/embeddings.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/plugin-nlp/src/embeddings.ts",
+          "/path/to/user/Desktop/projects/LightRAG/examples/lightrag_azure_openai_demo.py",
+          "/path/to/user/Desktop/projects/LightRAG/examples/lightrag_azure_openai_demo.py"
+        ],
+        "expectedFiles": [
+          "embeddings.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-vulnerability",
+      "tool": "search_code",
+      "description": "fulltext: \"vulnerability\"",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 416,
+      "passed": false,
+      "resultSize": 8713,
+      "error": "Expected [scanForVulnerabilities] not in Top-5: [getPaymentVulnerabilityTypes, Vulnerability, ServiceVulnerability, ServiceVulnerability, getVulnerabilityTypes]",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.16666666666666666,
+        "foundAt": 6,
+        "actualTop5": [
+          "getPaymentVulnerabilityTypes",
+          "Vulnerability",
+          "ServiceVulnerability",
+          "ServiceVulnerability",
+          "getVulnerabilityTypes"
+        ],
+        "expectedSymbols": [
+          "scanForVulnerabilities"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.125,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/rules/payment.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/mcp-server/src/tools/findVulnerabilities.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/service.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/services/types.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/rules/rule-loader.ts"
+        ],
+        "expectedFiles": [
+          "security.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-driver",
+      "tool": "search_code",
+      "description": "fulltext: \"driver\"",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 354,
+      "passed": true,
+      "resultSize": 7287,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "driver",
+          "DatabaseDriver",
+          "DriverConfig",
+          "DriverFactory",
+          "FalkorDBDriver"
+        ],
+        "expectedSymbols": [
+          "FalkorDBDriver"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": true,
+        "reciprocalRank": 0.2,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/client.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/driver.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/driver.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/driver-registry.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/drivers/falkordb.ts"
+        ],
+        "expectedFiles": [
+          "falkordb.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-pipeline",
+      "tool": "search_code",
+      "description": "fulltext: \"pipeline\"",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 293,
+      "passed": false,
+      "resultSize": 4258,
+      "error": "Expected [PipelineRunner] not in Top-5: [PipelineOptions, plugin, ExtractionPipelineConfig, PipelineEventType, PipelineResult]",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "PipelineOptions",
+          "plugin",
+          "ExtractionPipelineConfig",
+          "PipelineEventType",
+          "PipelineResult"
+        ],
+        "expectedSymbols": [
+          "PipelineRunner"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": true,
+        "reciprocalRank": 0.2,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/pipeline.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/pipeline.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/pipeline-tasks.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/types.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/runner.ts"
+        ],
+        "expectedFiles": [
+          "runner.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-complexity",
+      "tool": "search_code",
+      "description": "fulltext: \"complexity\"",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 485,
+      "passed": false,
+      "resultSize": 9167,
+      "error": "Expected [calculateCyclomatic,calculateCognitive] not in Top-5: [ComplexityTab, complexity, COMPLEXITY_THRESHOLDS, complexity, ComplexityTabProps]",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "ComplexityTab",
+          "complexity",
+          "COMPLEXITY_THRESHOLDS",
+          "complexity",
+          "ComplexityTabProps"
+        ],
+        "expectedSymbols": [
+          "calculateCyclomatic",
+          "calculateCognitive"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 0.5,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/web/src/components/panels/AnalyticsDashboard.tsx",
+          "/path/to/user/Desktop/codebase-graph/packages/plugin-typescript/src/complexity.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/plugin-typescript/src/complexity.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/impact.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/web/src/components/panels/AnalyticsDashboard.tsx"
+        ],
+        "expectedFiles": [
+          "complexity.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-refactoring",
+      "tool": "search_code",
+      "description": "fulltext: \"refactoring\"",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 484,
+      "passed": true,
+      "resultSize": 9710,
+      "topK": {
+        "top1": false,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 0.3333333333333333,
+        "foundAt": 3,
+        "actualTop5": [
+          "needsRefactoring",
+          "getRefactoringSummary",
+          "analyzeRefactoring",
+          "RefactoringAnalysisInput",
+          "RefactoringAnalysisOptions"
+        ],
+        "expectedSymbols": [
+          "analyzeRefactoring"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/refactoring.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/refactoring.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/service.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/refactoring.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/refactoring.ts"
+        ],
+        "expectedFiles": [
+          "refactoring.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-graph-client-connection",
+      "tool": "search_code",
+      "description": "fulltext multi: \"graph client connection\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 383,
+      "passed": true,
+      "resultSize": 8795,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "graphClient",
+          "client",
+          "GraphClient",
+          "GraphClientError",
+          "GraphClientImpl"
+        ],
+        "expectedSymbols": [
+          "createClient",
+          "getGraphClient"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 0.3333333333333333,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/indexer.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/services/graph-data-service.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/client.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/client.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/client.ts"
+        ],
+        "expectedFiles": [
+          "client.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-change-detection-hash",
+      "tool": "search_code",
+      "description": "fulltext multi: \"change detection hash\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 555,
+      "passed": true,
+      "resultSize": 21544,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.043478260869565216,
+        "foundAt": 23,
+        "actualTop5": [
+          "findings",
+          "ChangeDetectionOptions",
+          "ChangeInfo",
+          "ChangeType",
+          "ChangeSummary"
+        ],
+        "expectedSymbols": [
+          "calculateFileHash"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 0.5,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/security.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/changeDetection.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/mcp-server/src/tools/symbolHistory.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/changeDetection.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/changeDetection.ts"
+        ],
+        "expectedFiles": [
+          "changeDetection.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-vector-search-cosine",
+      "tool": "search_code",
+      "description": "fulltext multi: \"vector search cosine\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 537,
+      "passed": true,
+      "resultSize": 28075,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "VectorSearchResult",
+          "searchByVector",
+          "searchEntitiesByVector",
+          "SearchInput",
+          "hitsToResultItems"
+        ],
+        "expectedSymbols": [
+          "hybridSearch"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/operations.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/operations.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/knowledge-operations.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/mcp-server/src/tools/search.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/search/strategies/contextWalk.ts"
+        ],
+        "expectedFiles": [
+          "hybridSearch.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-tree-sitter-parser",
+      "tool": "search_code",
+      "description": "fulltext multi: \"tree-sitter parser\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 519,
+      "passed": true,
+      "resultSize": 13659,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "ParseResult",
+          "parseResult",
+          "tree",
+          "SyntaxTree",
+          "LanguageType"
+        ],
+        "expectedSymbols": [
+          "initParser",
+          "parseCode"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 0.3333333333333333,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/types/src/graph.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/api/src/services/parseService.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/parser.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/parser.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/parser.ts"
+        ],
+        "expectedFiles": [
+          "parser.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-knowledge-entity-store",
+      "tool": "search_code",
+      "description": "fulltext multi: \"knowledge entity store\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 544,
+      "passed": true,
+      "resultSize": 14015,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "KnowledgeStoreResult",
+          "storeEntity",
+          "KnowledgeRelationshipStoreResult",
+          "KnowledgeEntity",
+          "getEntity"
+        ],
+        "expectedSymbols": [
+          "createKnowledgeOperations"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": true,
+        "reciprocalRank": 0.25,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/knowledgeService.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/knowledgeService.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/knowledgeService.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/knowledge-operations.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/graph/src/knowledge-operations.ts"
+        ],
+        "expectedFiles": [
+          "knowledge-operations.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-security-taint-source",
+      "tool": "search_code",
+      "description": "fulltext multi: \"security taint source\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 575,
+      "passed": true,
+      "resultSize": 25384,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": true,
+        "reciprocalRank": 0.25,
+        "foundAt": 4,
+        "actualTop5": [
+          "containsTaintSource",
+          "TaintSourceCategory",
+          "detectTaintSource",
+          "TaintSource",
+          "getTaintSourcePatterns"
+        ],
+        "expectedSymbols": [
+          "isTaintSource",
+          "analyzeDataflow"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 0.5,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/security.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/dataflow.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/dataflow.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/dataflow.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/analysis/dataflow.ts"
+        ],
+        "expectedFiles": [
+          "dataflow.ts"
+        ]
+      }
+    },
+    {
+      "id": "xm-embedding-name",
+      "tool": "search",
+      "description": "cross-mode name: \"embedding\"",
+      "category": "search_cross_mode",
+      "difficulty": "medium",
+      "latencyMs": 6,
+      "passed": true,
+      "resultSize": 1633,
+      "topK": {
+        "top1": false,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 0.3333333333333333,
+        "foundAt": 3,
+        "actualTop5": [
+          "testLocalEmbeddings",
+          "testFactEmbeddingWorkaround",
+          "embedding",
+          "generateKnowledgeEmbeddings",
+          "embeddingConfig"
+        ],
+        "expectedSymbols": [
+          "generateEmbedding",
+          "embedAllNodes",
+          "embedParsedEntities"
+        ]
+      }
+    },
+    {
+      "id": "xm-embedding-fulltext",
+      "tool": "search_code",
+      "description": "cross-mode fulltext: \"embedding\"",
+      "category": "search_cross_mode",
+      "difficulty": "medium",
+      "latencyMs": 589,
+      "passed": true,
+      "resultSize": 13231,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "embedding",
+          "embeddingModel",
+          "isEmbeddingAvailable",
+          "AZURE_EMBEDDING_API_VERSION",
+          "AZURE_EMBEDDING_DEPLOYMENT"
+        ],
+        "expectedSymbols": [
+          "generateEmbedding",
+          "embedAllNodes",
+          "embedParsedEntities"
+        ]
+      }
+    },
+    {
+      "id": "xm-security-name",
+      "tool": "search",
+      "description": "cross-mode name: security scan",
+      "category": "search_cross_mode",
+      "difficulty": "medium",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 1642,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.1111111111111111,
+        "foundAt": 9,
+        "actualTop5": [
+          "rules",
+          "getTaintSources",
+          "getSqlInjectionPatterns",
+          "getXssPatterns",
+          "getCommandInjectionPatterns"
+        ],
+        "expectedSymbols": [
+          "scanForVulnerabilities",
+          "scanFile"
+        ]
+      }
+    },
+    {
+      "id": "xm-security-fulltext",
+      "tool": "search_code",
+      "description": "cross-mode fulltext: security scan",
+      "category": "search_cross_mode",
+      "difficulty": "medium",
+      "latencyMs": 439,
+      "passed": true,
+      "resultSize": 18472,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": true,
+        "reciprocalRank": 0.25,
+        "foundAt": 4,
+        "actualTop5": [
+          "findings",
+          "SecurityFinding",
+          "SecurityAnalysisResult",
+          "scanForVulnerabilities",
+          "ScanOptions"
+        ],
+        "expectedSymbols": [
+          "scanForVulnerabilities",
+          "scanFile"
+        ]
+      }
+    },
+    {
+      "id": "fz-hybirdsearch",
+      "tool": "search",
+      "description": "typo: hybirdsearch → hybridSearch",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 175,
+      "passed": false,
+      "resultSize": 137,
+      "error": "No results for typo query \"hybirdsearch\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "hybridSearch"
+        ]
+      }
+    },
+    {
+      "id": "fz-createClint",
+      "tool": "search",
+      "description": "typo: createClint → createClient",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 170,
+      "passed": false,
+      "resultSize": 136,
+      "error": "No results for typo query \"createClint\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "createClient"
+        ]
+      }
+    },
+    {
+      "id": "fz-indxProject",
+      "tool": "search",
+      "description": "typo: indxProject → indexProject",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 173,
+      "passed": false,
+      "resultSize": 136,
+      "error": "No results for typo query \"indxProject\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "indexProject"
+        ]
+      }
+    },
+    {
+      "id": "fz-parscode",
+      "tool": "search",
+      "description": "typo: parscode → parseCode",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 172,
+      "passed": false,
+      "resultSize": 133,
+      "error": "No results for typo query \"parscode\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "parseCode"
+        ]
+      }
+    },
+    {
+      "id": "fz-vulnrabilities",
+      "tool": "search",
+      "description": "typo: vulnrabilities",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 168,
+      "passed": false,
+      "resultSize": 139,
+      "error": "No results for typo query \"vulnrabilities\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "scanForVulnerabilities"
+        ]
+      }
+    },
+    {
+      "id": "fz-embeding",
+      "tool": "search",
+      "description": "typo: embeding",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 174,
+      "passed": false,
+      "resultSize": 133,
+      "error": "No results for typo query \"embeding\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "generateEmbedding",
+          "embedAllNodes"
+        ]
+      }
+    },
+    {
+      "id": "adv-empty-query",
+      "tool": "search",
+      "description": "Empty query: graceful",
+      "category": "adversarial",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 45
+    },
+    {
+      "id": "adv-long-query",
+      "tool": "search_code",
+      "description": "Very long query: no crash",
+      "category": "adversarial",
+      "difficulty": "medium",
+      "latencyMs": 524,
+      "passed": true,
+      "resultSize": 19173
+    },
+    {
+      "id": "adv-special-chars",
+      "tool": "search",
+      "description": "Special chars: no crash",
+      "category": "adversarial",
+      "difficulty": "medium",
+      "latencyMs": 169,
+      "passed": true,
+      "resultSize": 161
+    },
+    {
+      "id": "adv-sql-injection",
+      "tool": "search",
+      "description": "Cypher injection: safe",
+      "category": "adversarial",
+      "difficulty": "hard",
+      "latencyMs": 177,
+      "passed": true,
+      "resultSize": 157
+    },
+    {
+      "id": "adv-unicode",
+      "tool": "search",
+      "description": "Unicode query: no crash",
+      "category": "adversarial",
+      "difficulty": "medium",
+      "latencyMs": 169,
+      "passed": true,
+      "resultSize": 144
+    },
+    {
+      "id": "ctx-file-client",
+      "tool": "get_context",
+      "description": "context file: client.ts",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 47,
+      "passed": true,
+      "resultSize": 7784,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.05263157894736842,
+        "foundAt": 19,
+        "actualTop5": [
+          "constructor",
+          "constructor",
+          "graph",
+          "dialect",
+          "query"
+        ],
+        "expectedSymbols": [
+          "createClient"
+        ]
+      }
+    },
+    {
+      "id": "ctx-file-hybridSearch",
+      "tool": "get_context",
+      "description": "context file: hybridSearch.ts",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 131,
+      "passed": true,
+      "resultSize": 28143,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "hybridSearch",
+          "makeCodeKey",
+          "distanceToScore",
+          "mergeHit",
+          "textSearchNodes"
+        ],
+        "expectedSymbols": [
+          "hybridSearch"
+        ]
+      }
+    },
+    {
+      "id": "ctx-file-operations",
+      "tool": "get_context",
+      "description": "context file: operations.ts",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 194,
+      "passed": true,
+      "resultSize": 56823,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "createOperations",
+          "projectFromRow",
+          "getProjects",
+          "getProjectByRoot",
+          "getProjectByRoot"
+        ],
+        "expectedSymbols": [
+          "createOperations"
+        ]
+      }
+    },
+    {
+      "id": "ctx-file-indexer",
+      "tool": "get_context",
+      "description": "context file: indexer.ts",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 91,
+      "passed": true,
+      "resultSize": 19201,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.125,
+        "foundAt": 8,
+        "actualTop5": [
+          "isProjectIndexed",
+          "getGraphClient",
+          "syncConfigToGraph",
+          "indexSingleFile",
+          "embedParsedEntities"
+        ],
+        "expectedSymbols": [
+          "indexProject"
+        ]
+      }
+    },
+    {
+      "id": "ctx-sym-createClient",
+      "tool": "get_context",
+      "description": "context symbol: createClient",
+      "category": "get_context",
+      "difficulty": "medium",
+      "latencyMs": 36,
+      "passed": true,
+      "resultSize": 921,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "createClient"
+        ],
+        "expectedSymbols": [
+          "createClient"
+        ]
+      }
+    },
+    {
+      "id": "ctx-sym-hybridSearch",
+      "tool": "get_context",
+      "description": "context symbol: hybridSearch",
+      "category": "get_context",
+      "difficulty": "medium",
+      "latencyMs": 33,
+      "passed": true,
+      "resultSize": 3438,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "hybridSearch"
+        ],
+        "expectedSymbols": [
+          "hybridSearch"
+        ]
+      }
+    },
+    {
+      "id": "ctx-sym-indexProject",
+      "tool": "get_context",
+      "description": "context symbol: indexProject",
+      "category": "get_context",
+      "difficulty": "medium",
+      "latencyMs": 34,
+      "passed": true,
+      "resultSize": 2177,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "indexProject"
+        ],
+        "expectedSymbols": [
+          "indexProject"
+        ]
+      }
+    },
+    {
+      "id": "imp-createClient",
+      "tool": "analyze_impact",
+      "description": "impact: createClient",
+      "category": "impact_analysis",
+      "difficulty": "easy",
+      "latencyMs": 12,
+      "passed": false,
+      "resultSize": 265,
+      "error": "Expected callers for createClient but got none"
+    },
+    {
+      "id": "imp-hybridSearch",
+      "tool": "analyze_impact",
+      "description": "impact: hybridSearch",
+      "category": "impact_analysis",
+      "difficulty": "medium",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 2371
+    },
+    {
+      "id": "imp-parseCode",
+      "tool": "analyze_impact",
+      "description": "impact: parseCode",
+      "category": "impact_analysis",
+      "difficulty": "medium",
+      "latencyMs": 10,
+      "passed": true,
+      "resultSize": 1417
+    },
+    {
+      "id": "imp-generateEmbedding",
+      "tool": "analyze_impact",
+      "description": "impact: generateEmbedding",
+      "category": "impact_analysis",
+      "difficulty": "hard",
+      "latencyMs": 11,
+      "passed": true,
+      "resultSize": 1716
+    },
+    {
+      "id": "imp-indexProject",
+      "tool": "analyze_impact",
+      "description": "impact: indexProject",
+      "category": "impact_analysis",
+      "difficulty": "medium",
+      "latencyMs": 10,
+      "passed": true,
+      "resultSize": 933
+    },
+    {
+      "id": "cx-low",
+      "tool": "get_complexity_report",
+      "description": "Hotspots threshold 5",
+      "category": "complexity",
+      "difficulty": "easy",
+      "latencyMs": 12,
+      "passed": true,
+      "resultSize": 9181
+    },
+    {
+      "id": "cx-high",
+      "tool": "get_complexity_report",
+      "description": "Hotspots threshold 15",
+      "category": "complexity",
+      "difficulty": "medium",
+      "latencyMs": 10,
+      "passed": true,
+      "resultSize": 9181
+    },
+    {
+      "id": "cx-sorted",
+      "tool": "get_complexity_report",
+      "description": "Hotspots sorted desc",
+      "category": "complexity",
+      "difficulty": "medium",
+      "latencyMs": 14,
+      "passed": true,
+      "resultSize": 9181
+    },
+    {
+      "id": "cy-list-functions",
+      "tool": "query",
+      "description": "List functions",
+      "category": "cypher",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 386
+    },
+    {
+      "id": "cy-find-createClient",
+      "tool": "query",
+      "description": "Find createClient",
+      "category": "cypher",
+      "difficulty": "easy",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 383,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "createClient",
+          "createClient"
+        ],
+        "expectedSymbols": [
+          "createClient"
+        ]
+      }
+    },
+    {
+      "id": "cy-node-types",
+      "tool": "query",
+      "description": "Node type counts",
+      "category": "cypher",
+      "difficulty": "easy",
+      "latencyMs": 32,
+      "passed": true,
+      "resultSize": 626
+    },
+    {
+      "id": "xf-callers-hybridSearch",
+      "tool": "query",
+      "description": "Callers of hybridSearch",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 3,
+      "passed": true,
+      "resultSize": 325
+    },
+    {
+      "id": "xf-callers-createClient",
+      "tool": "query",
+      "description": "Callers of createClient (should include getGraphClient)",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 3,
+      "passed": false,
+      "resultSize": 176,
+      "error": "No callers — CALLS edges missing"
+    },
+    {
+      "id": "xf-callees-indexProject",
+      "tool": "query",
+      "description": "What does indexProject call? (should be many)",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 3,
+      "passed": true,
+      "resultSize": 326
+    },
+    {
+      "id": "xf-largest-files",
+      "tool": "query",
+      "description": "Files with most functions",
+      "category": "cross_file",
+      "difficulty": "easy",
+      "latencyMs": 17,
+      "passed": true,
+      "resultSize": 639
+    },
+    {
+      "id": "xf-class-methods",
+      "tool": "query",
+      "description": "Methods of SearchRegistry class",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 2,
+      "passed": false,
+      "resultSize": 176,
+      "error": "No methods for SearchRegistry"
+    },
+    {
+      "id": "xf-transitive-2hop",
+      "tool": "query",
+      "description": "Transitive callers of generateEmbedding (2 hops)",
+      "category": "cross_file",
+      "difficulty": "hard",
+      "latencyMs": 3,
+      "passed": true,
+      "resultSize": 259
+    },
+    {
+      "id": "xf-file-functions-client",
+      "tool": "query",
+      "description": "Functions in client.ts",
+      "category": "cross_file",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 386,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.1111111111111111,
+        "foundAt": 9,
+        "actualTop5": [
+          "constructor",
+          "constructor",
+          "graph",
+          "dialect",
+          "query"
+        ],
+        "expectedSymbols": [
+          "createClient"
+        ]
+      }
+    },
+    {
+      "id": "mr-count-projects",
+      "tool": "query",
+      "description": "Count indexed projects",
+      "category": "multi_repo",
+      "difficulty": "easy",
+      "latencyMs": 0,
+      "passed": true,
+      "resultSize": 1465
+    },
+    {
+      "id": "mr-total-files",
+      "tool": "query",
+      "description": "Total files across all projects",
+      "category": "multi_repo",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 190
+    },
+    {
+      "id": "mr-search-app",
+      "tool": "search",
+      "description": "Search \"app\" across repos — should find results from multiple projects",
+      "category": "multi_repo",
+      "difficulty": "medium",
+      "latencyMs": 8,
+      "passed": true,
+      "resultSize": 2673
+    },
+    {
+      "id": "mr-search-config",
+      "tool": "search",
+      "description": "Search \"config\" — every project has config",
+      "category": "multi_repo",
+      "difficulty": "medium",
+      "latencyMs": 8,
+      "passed": true,
+      "resultSize": 2863
+    },
+    {
+      "id": "mr-fulltext-auth",
+      "tool": "search_code",
+      "description": "Fulltext \"authentication\" — should find across repos",
+      "category": "multi_repo",
+      "difficulty": "medium",
+      "latencyMs": 493,
+      "passed": true,
+      "resultSize": 36343
+    }
+  ]
+}

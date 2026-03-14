@@ -1,0 +1,2252 @@
+{
+  "label": "dynamic-v2",
+  "timestamp": "2026-03-14T14:37:38.788Z",
+  "config": {
+    "embeddings": false,
+    "reindex": false,
+    "nodeCount": 154351,
+    "projects": 16
+  },
+  "groundTruth": {
+    "functions": 100,
+    "classes": 50,
+    "filesWithFunctions": 50,
+    "callEdges": 100,
+    "projects": [
+      "codebase-graph",
+      "LightRAG",
+      "cognee",
+      "graphiti",
+      "crewAI-main",
+      "bolt.new-main",
+      "openclaw",
+      "qwik",
+      "screenshot-to-code-main",
+      "openui",
+      "code-gen",
+      "context-engine",
+      "Next-js-Boilerplate-main",
+      "banking-main",
+      "figma_clone-main",
+      "novel-main"
+    ]
+  },
+  "summary": {
+    "total": 99,
+    "passed": 77,
+    "failed": 22,
+    "skipped": 0,
+    "passRate": 77.8,
+    "latency": {
+      "avg": 126,
+      "p50": 32,
+      "p95": 492
+    },
+    "searchQuality": {
+      "queries": 67,
+      "top1": 53.7,
+      "top3": 53.7,
+      "mrr": 0.545
+    }
+  },
+  "byCategory": {
+    "operational": {
+      "tests": 9,
+      "passed": 9,
+      "top1": null,
+      "mrr": null
+    },
+    "find_symbol": {
+      "tests": 17,
+      "passed": 17,
+      "top1": 100,
+      "mrr": 1
+    },
+    "search_name": {
+      "tests": 12,
+      "passed": 0,
+      "top1": 0,
+      "mrr": 0
+    },
+    "search_fulltext": {
+      "tests": 16,
+      "passed": 16,
+      "top1": 50,
+      "mrr": 0.526
+    },
+    "search_cross_mode": {
+      "tests": 6,
+      "passed": 3,
+      "top1": 50,
+      "mrr": 0.5
+    },
+    "fuzzy_typo": {
+      "tests": 6,
+      "passed": 0,
+      "top1": 0,
+      "mrr": 0
+    },
+    "adversarial": {
+      "tests": 5,
+      "passed": 5,
+      "top1": null,
+      "mrr": null
+    },
+    "get_context": {
+      "tests": 8,
+      "passed": 8,
+      "top1": 100,
+      "mrr": 1
+    },
+    "impact_analysis": {
+      "tests": 6,
+      "passed": 6,
+      "top1": null,
+      "mrr": null
+    },
+    "complexity": {
+      "tests": 3,
+      "passed": 3,
+      "top1": null,
+      "mrr": null
+    },
+    "cross_file": {
+      "tests": 8,
+      "passed": 7,
+      "top1": 33.3,
+      "mrr": 0.364
+    },
+    "multi_repo": {
+      "tests": 3,
+      "passed": 3,
+      "top1": null,
+      "mrr": null
+    }
+  },
+  "results": [
+    {
+      "id": "op-ping",
+      "tool": "ping",
+      "description": "Connectivity",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 0,
+      "passed": true,
+      "resultSize": 98
+    },
+    {
+      "id": "op-index-status",
+      "tool": "get_index_status",
+      "description": "Index status",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 5,
+      "passed": true,
+      "resultSize": 2333
+    },
+    {
+      "id": "op-stats",
+      "tool": "get_stats",
+      "description": "Graph stats",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 441,
+      "passed": true,
+      "resultSize": 2794
+    },
+    {
+      "id": "op-repo-map",
+      "tool": "get_repo_map",
+      "description": "Repo map",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 704,
+      "passed": true,
+      "resultSize": 6643
+    },
+    {
+      "id": "op-vuln",
+      "tool": "find_vulnerabilities",
+      "description": "Security scan",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 1660,
+      "passed": true,
+      "resultSize": 5042
+    },
+    {
+      "id": "op-cx",
+      "tool": "get_complexity_report",
+      "description": "Complexity report",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 27,
+      "passed": true,
+      "resultSize": 9181
+    },
+    {
+      "id": "op-kg-store",
+      "tool": "store_entity",
+      "description": "Store entity",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 116
+    },
+    {
+      "id": "op-kg-stats",
+      "tool": "get_knowledge_stats",
+      "description": "KG stats",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 143
+    },
+    {
+      "id": "op-source",
+      "tool": "get_source",
+      "description": "Read swagger-ui-bundle.js",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 14,
+      "passed": true,
+      "resultSize": 3097531
+    },
+    {
+      "id": "fs-test_validate_env_file_ac",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_validate_env_file_accepts_container_ssl_paths_for_compose_target",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 23,
+      "passed": true,
+      "resultSize": 242,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_validate_env_file_accepts_container_ssl_paths_for_compose_target"
+        ],
+        "expectedSymbols": [
+          "test_validate_env_file_accepts_container_ssl_paths_for_compose_target"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_beautiful_soup_loade",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_beautiful_soup_loader_is_selected_loader_if_preferred_loader_provided",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 22,
+      "passed": true,
+      "resultSize": 268,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_beautiful_soup_loader_is_selected_loader_if_preferred_loader_provided"
+        ],
+        "expectedSymbols": [
+          "test_beautiful_soup_loader_is_selected_loader_if_preferred_loader_provided"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_url_adding_e2e.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_env_base_flow_preser",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_env_base_flow_preserves_existing_vllm_rerank_settings_on_rerun",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 22,
+      "passed": true,
+      "resultSize": 241,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_env_base_flow_preserves_existing_vllm_rerank_settings_on_rerun"
+        ],
+        "expectedSymbols": [
+          "test_env_base_flow_preserves_existing_vllm_rerank_settings_on_rerun"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_search_access_contro",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_search_access_control_only_context_returns_dataset_shaped_dicts",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 22,
+      "passed": true,
+      "resultSize": 245,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_search_access_control_only_context_returns_dataset_shaped_dicts"
+        ],
+        "expectedSymbols": [
+          "test_search_access_control_only_context_returns_dataset_shaped_dicts"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_search.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_find_generated_compo",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_find_generated_compose_file_falls_back_to_order_without_profile",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 21,
+      "passed": true,
+      "resultSize": 240,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_find_generated_compose_file_falls_back_to_order_without_profile"
+        ],
+        "expectedSymbols": [
+          "test_find_generated_compose_file_falls_back_to_order_without_profile"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_generate_completion_",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_generate_completion_with_session_feedback_only_returns_thanks_skips_add_qa",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 21,
+      "passed": true,
+      "resultSize": 274,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_generate_completion_with_session_feedback_only_returns_thanks_skips_add_qa"
+        ],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_feedback_only_returns_thanks_skips_add_qa"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_session_manager.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_env_base_flow_preser",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_env_base_flow_preserves_existing_vllm_rerank_cuda_device_on_rerun",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 21,
+      "passed": true,
+      "resultSize": 244,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_env_base_flow_preserves_existing_vllm_rerank_cuda_device_on_rerun"
+        ],
+        "expectedSymbols": [
+          "test_env_base_flow_preserves_existing_vllm_rerank_cuda_device_on_rerun"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-'CallExpression[callee.ty",
+      "tool": "find_symbol",
+      "description": "find_symbol: 'CallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       CallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"]'",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 22,
+      "passed": true,
+      "resultSize": 567,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "'CallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       CallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"]'"
+        ],
+        "expectedSymbols": [
+          "'CallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       CallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"]'"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "jsxKey.ts"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_graph_completion_ext",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_graph_completion_extension_context_complex_duplicate_queries",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 21,
+      "passed": true,
+      "resultSize": 283,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_graph_completion_extension_context_complex_duplicate_queries"
+        ],
+        "expectedSymbols": [
+          "test_graph_completion_extension_context_complex_duplicate_queries"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_graph_completion_retriever_context_extension.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_calculate_top_triple",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_calculate_top_triplet_importances_raises_on_missing_attribute",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 20,
+      "passed": true,
+      "resultSize": 249,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_calculate_top_triplet_importances_raises_on_missing_attribute"
+        ],
+        "expectedSymbols": [
+          "test_calculate_top_triplet_importances_raises_on_missing_attribute"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "cognee_graph_test.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_extract_failure_pres",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_extract_failure_preserves_chunks_and_allows_delete_with_cache_cleanup",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 19,
+      "passed": true,
+      "resultSize": 250,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_extract_failure_preserves_chunks_and_allows_delete_with_cache_cleanup"
+        ],
+        "expectedSymbols": [
+          "test_extract_failure_preserves_chunks_and_allows_delete_with_cache_cleanup"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_doc_status_chunk_preservation.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_generate_docker_comp",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_generate_docker_compose_preserves_list_style_lightrag_environment",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 20,
+      "passed": true,
+      "resultSize": 242,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_generate_docker_compose_preserves_list_style_lightrag_environment"
+        ],
+        "expectedSymbols": [
+          "test_generate_docker_compose_preserves_list_style_lightrag_environment"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-cls-refractor_visitors_jso",
+      "tool": "find_symbol",
+      "description": "find_symbol class: refractor_visitors_json_schema_link_description_LinkDescriptionVisitor",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 247,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "refractor_visitors_json_schema_link_description_LinkDescriptionVisitor"
+        ],
+        "expectedSymbols": [
+          "refractor_visitors_json_schema_link_description_LinkDescriptionVisitor"
+        ]
+      }
+    },
+    {
+      "id": "fs-cls-DependentSchemasVisito",
+      "tool": "find_symbol",
+      "description": "find_symbol class: DependentSchemasVisitor_DependentSchemasVisitor",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 0,
+      "passed": true,
+      "resultSize": 224,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "DependentSchemasVisitor_DependentSchemasVisitor"
+        ],
+        "expectedSymbols": [
+          "DependentSchemasVisitor_DependentSchemasVisitor"
+        ]
+      }
+    },
+    {
+      "id": "fs-cls-ExternalDocumentation_",
+      "tool": "find_symbol",
+      "description": "find_symbol class: ExternalDocumentation_ExternalDocumentation",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 220,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "ExternalDocumentation_ExternalDocumentation"
+        ],
+        "expectedSymbols": [
+          "ExternalDocumentation_ExternalDocumentation"
+        ]
+      }
+    },
+    {
+      "id": "fs-cls-TestConditionalAuthent",
+      "tool": "find_symbol",
+      "description": "find_symbol class: TestConditionalAuthenticationEdgeCases",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 232,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "TestConditionalAuthenticationEdgeCases"
+        ],
+        "expectedSymbols": [
+          "TestConditionalAuthenticationEdgeCases"
+        ]
+      }
+    },
+    {
+      "id": "fs-notfound",
+      "tool": "find_symbol",
+      "description": "Not-found: graceful",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 21,
+      "passed": true,
+      "resultSize": 100
+    },
+    {
+      "id": "sn-exact-test_generate_completi",
+      "tool": "search",
+      "description": "search exact: \"test_generate_completion_with_session_cache_disabled_calls_generate_completion_only\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 162,
+      "passed": false,
+      "resultSize": 208,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_cache_disabled_calls_generate_completion_only"
+        ]
+      }
+    },
+    {
+      "id": "sn-exact-test_validate_env_file",
+      "tool": "search",
+      "description": "search exact: \"test_validate_env_file_rejects_mongo_vector_storage_without_atlas_uri\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 166,
+      "passed": false,
+      "resultSize": 194,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_validate_env_file_rejects_mongo_vector_storage_without_atlas_uri"
+        ]
+      }
+    },
+    {
+      "id": "sn-exact-test_generate_completi",
+      "tool": "search",
+      "description": "search exact: \"test_generate_completion_with_session_unavailable_returns_completion_only\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 162,
+      "passed": false,
+      "resultSize": 198,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_unavailable_returns_completion_only"
+        ]
+      }
+    },
+    {
+      "id": "sn-exact-test_beautiful_soup_lo",
+      "tool": "search",
+      "description": "search exact: \"test_beautiful_soup_loader_successfully_loads_file_if_required_args_present\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 168,
+      "passed": false,
+      "resultSize": 200,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_beautiful_soup_loader_successfully_loads_file_if_required_args_present"
+        ]
+      }
+    },
+    {
+      "id": "sn-exact-test_generate_completi",
+      "tool": "search",
+      "description": "search exact: \"test_generate_completion_with_conversation_history_and_custom_system_prompt\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 163,
+      "passed": false,
+      "resultSize": 200,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_generate_completion_with_conversation_history_and_custom_system_prompt"
+        ]
+      }
+    },
+    {
+      "id": "sn-exact-test_extract_nodes_and",
+      "tool": "search",
+      "description": "search exact: \"test_extract_nodes_and_edges_bulk_custom_instructions_multiple_episodes\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 162,
+      "passed": false,
+      "resultSize": 196,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_extract_nodes_and_edges_bulk_custom_instructions_multiple_episodes"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-_relevant",
+      "tool": "search",
+      "description": "search partial: \"_relevant\" → test_brute_force_triplet_search_with_node_name_sets_relevant_ids_to_none",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 163,
+      "passed": false,
+      "resultSize": 134,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_brute_force_triplet_search_with_node_name_sets_relevant_ids_to_none"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-_feedback",
+      "tool": "search",
+      "description": "search partial: \"_feedback\" → test_detect_feedback_llm_returns_wrong_type_returns_not_detected",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 161,
+      "passed": false,
+      "resultSize": 134,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_detect_feedback_llm_returns_wrong_type_returns_not_detected"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-_overrides",
+      "tool": "search",
+      "description": "search partial: \"_overrides\" → test_generate_docker_compose_uses_template_images_even_with_old_env_overrides",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 162,
+      "passed": false,
+      "resultSize": 135,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_generate_docker_compose_uses_template_images_even_with_old_env_overrides"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-_preserves",
+      "tool": "search",
+      "description": "search partial: \"_preserves\" → test_env_server_flow_preserves_existing_compose_ssl_when_env_paths_are_stale",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 163,
+      "passed": false,
+      "resultSize": 135,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_env_server_flow_preserves_existing_compose_ssl_when_env_paths_are_stale"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-expression",
+      "tool": "search",
+      "description": "search partial: \"expression\" → 'CallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       CallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"]'",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 172,
+      "passed": false,
+      "resultSize": 614,
+      "error": "\"'CallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       CallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"]'\" not in Top-10 for \"expression\": [parseCallExpression, hasTemplateExpressions, hasTemplateExpressions]",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "parseCallExpression",
+          "hasTemplateExpressions",
+          "hasTemplateExpressions"
+        ],
+        "expectedSymbols": [
+          "'CallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       CallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"map\"],\\\n       OptionalCallExpression[callee.type=\"OptionalMemberExpression\"][callee.property.name=\"map\"]'"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-_beautiful",
+      "tool": "search",
+      "description": "search partial: \"_beautiful\" → test_beautiful_soup_loader_is_selected_loader_if_preferred_loader_provided",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 159,
+      "passed": false,
+      "resultSize": 135,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_beautiful_soup_loader_is_selected_loader_if_preferred_loader_provided"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-test_get_graph_complet",
+      "tool": "search_code",
+      "description": "fulltext: \"test_get_graph_completion_cot_batch_queries_context_on_empty_graph\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 60,
+      "passed": true,
+      "resultSize": 333,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_get_graph_completion_cot_batch_queries_context_on_empty_graph"
+        ],
+        "expectedSymbols": [
+          "test_get_graph_completion_cot_batch_queries_context_on_empty_graph"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/cognee/cognee/tests/integration/retrieval/test_graph_completion_retriever_cot.py"
+        ],
+        "expectedFiles": [
+          "test_graph_completion_retriever_cot.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-test_validate_env_file",
+      "tool": "search_code",
+      "description": "fulltext: \"test_validate_env_file_handles_supported_and_unsupported_uri_schemes\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 58,
+      "passed": true,
+      "resultSize": 306,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_validate_env_file_handles_supported_and_unsupported_uri_schemes"
+        ],
+        "expectedSymbols": [
+          "test_validate_env_file_handles_supported_and_unsupported_uri_schemes"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/LightRAG/tests/test_interactive_setup_outputs.py"
+        ],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-validate_async_task_ca",
+      "tool": "search_code",
+      "description": "fulltext: \"validate_async_task_cannot_include_sequential_async_tasks_in_context\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 57,
+      "passed": true,
+      "resultSize": 287,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "validate_async_task_cannot_include_sequential_async_tasks_in_context"
+        ],
+        "expectedSymbols": [
+          "validate_async_task_cannot_include_sequential_async_tasks_in_context"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/crewAI-main/src/crewai/crew.py"
+        ],
+        "expectedFiles": [
+          "crew.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-test_validate_env_file",
+      "tool": "search_code",
+      "description": "fulltext: \"test_validate_env_file_rejects_container_ssl_paths_for_host_target\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 59,
+      "passed": true,
+      "resultSize": 301,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_validate_env_file_rejects_container_ssl_paths_for_host_target"
+        ],
+        "expectedSymbols": [
+          "test_validate_env_file_rejects_container_ssl_paths_for_host_target"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/LightRAG/tests/test_interactive_setup_outputs.py"
+        ],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-test_get_session_raise",
+      "tool": "search_code",
+      "description": "fulltext: \"test_get_session_raises_when_default_user_raises_database_not_created\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 59,
+      "passed": true,
+      "resultSize": 318,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_get_session_raises_when_default_user_raises_database_not_created"
+        ],
+        "expectedSymbols": [
+          "test_get_session_raises_when_default_user_raises_database_not_created"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/cognee/cognee/tests/unit/api/v1/session/test_session_api.py"
+        ],
+        "expectedFiles": [
+          "test_session_api.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-test_filter_top_k_even",
+      "tool": "search_code",
+      "description": "fulltext: \"test_filter_top_k_events_includes_unknown_as_infinite_but_not_in_top_k\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 59,
+      "passed": true,
+      "resultSize": 329,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_filter_top_k_events_includes_unknown_as_infinite_but_not_in_top_k"
+        ],
+        "expectedSymbols": [
+          "test_filter_top_k_events_includes_unknown_as_infinite_but_not_in_top_k"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/cognee/cognee/tests/unit/modules/retrieval/temporal_retriever_test.py"
+        ],
+        "expectedFiles": [
+          "temporal_retriever_test.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_duplicate",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_duplicate\" → test_resolve_with_llm_invalid_duplicate_name_defaults_to_extracted",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 773,
+      "passed": true,
+      "resultSize": 13462,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "duplicate",
+          "mergeEntities",
+          "MIN_DUPLICATE_TEXT_LENGTH",
+          "_remove_duplicate_edges",
+          "filter_existing_duplicate_of_edges"
+        ],
+        "expectedSymbols": [
+          "test_resolve_with_llm_invalid_duplicate_name_defaults_to_extracted"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_preserves",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_preserves\" → test_collect_security_config_preserves_explicit_empty_whitelist_on_rerun",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 492,
+      "passed": true,
+      "resultSize": 15388,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.125,
+        "foundAt": 8,
+        "actualTop5": [
+          "close",
+          "IngestConversationResult",
+          "test_add_triplet_preserves_existing_attributes",
+          "test_array_preserves_all_elements",
+          "test_build_directed_uuid_map_preserves_direction"
+        ],
+        "expectedSymbols": [
+          "test_collect_security_config_preserves_explicit_empty_whitelist_on_rerun"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_preserves",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_preserves\" → test_merge_failure_preserves_chunks_and_skip_cache_cleanup_when_disabled",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 492,
+      "passed": true,
+      "resultSize": 15388,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "close",
+          "IngestConversationResult",
+          "test_add_triplet_preserves_existing_attributes",
+          "test_array_preserves_all_elements",
+          "test_build_directed_uuid_map_preserves_direction"
+        ],
+        "expectedSymbols": [
+          "test_merge_failure_preserves_chunks_and_skip_cache_cleanup_when_disabled"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_preserves",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_preserves\" → test_env_base_flow_preserves_existing_vllm_rerank_cuda_device_on_rerun",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 479,
+      "passed": true,
+      "resultSize": 15388,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.0625,
+        "foundAt": 16,
+        "actualTop5": [
+          "close",
+          "IngestConversationResult",
+          "test_add_triplet_preserves_existing_attributes",
+          "test_array_preserves_all_elements",
+          "test_build_directed_uuid_map_preserves_direction"
+        ],
+        "expectedSymbols": [
+          "test_env_base_flow_preserves_existing_vllm_rerank_cuda_device_on_rerun"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_relevant",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_relevant\" → test_brute_force_triplet_search_with_node_name_sets_relevant_ids_to_none",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 477,
+      "passed": true,
+      "resultSize": 14455,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.125,
+        "foundAt": 8,
+        "actualTop5": [
+          "relatedToItems",
+          "relationships",
+          "ContextWalkStrategy",
+          "NLToCypherStrategy",
+          "extract_relevant_node_ids"
+        ],
+        "expectedSymbols": [
+          "test_brute_force_triplet_search_with_node_name_sets_relevant_ids_to_none"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_completion",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_completion\" → test_generate_completion_with_session_feedback_and_followup_persists_and_adds_qa",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 488,
+      "passed": true,
+      "resultSize": 13278,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.041666666666666664,
+        "foundAt": 24,
+        "actualTop5": [
+          "close",
+          "OPENAI_BATCH_COMPLETION_WINDOW",
+          "_completion_kwargs",
+          "_completion_kwargs",
+          "_completion_kwargs"
+        ],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_feedback_and_followup_persists_and_adds_qa"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-agents",
+      "tool": "search_code",
+      "description": "fulltext multi: \"agents render\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 190,
+      "passed": true,
+      "resultSize": 1501,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "#renderField"
+        ],
+        "expectedSymbols": [
+          "renderAgentSkillRow"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/openclaw/src/canvas-host/a2ui/a2ui.bundle.js"
+        ],
+        "expectedFiles": [
+          "agents.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-lightrag",
+      "tool": "search_code",
+      "description": "fulltext multi: \"lightrag export\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 469,
+      "passed": true,
+      "resultSize": 9165,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.06666666666666667,
+        "foundAt": 15,
+        "actualTop5": [
+          "LIGHTRAG_NAME",
+          "LIGHTRAG_TAG",
+          "LLMProvider",
+          "EntityExtractor",
+          "LightRAG"
+        ],
+        "expectedSymbols": [
+          "export_data"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": true,
+        "reciprocalRank": 0.2,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/LightRAG/lightrag/base.py",
+          "/path/to/user/Desktop/projects/LightRAG/lightrag/base.py",
+          "/path/to/user/Desktop/codebase-graph/packages/plugin-nlp/src/llm.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/plugin-nlp/src/extractor.ts",
+          "/path/to/user/Desktop/projects/LightRAG/lightrag/lightrag.py"
+        ],
+        "expectedFiles": [
+          "lightrag.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-app",
+      "tool": "search_code",
+      "description": "fulltext multi: \"app rend\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 187,
+      "passed": true,
+      "resultSize": 1501,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "#renderField"
+        ],
+        "expectedSymbols": [
+          "render"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/openclaw/src/canvas-host/a2ui/a2ui.bundle.js"
+        ],
+        "expectedFiles": [
+          "app.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-index.qwik",
+      "tool": "search_code",
+      "description": "fulltext multi: \"index.qwik for\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 261,
+      "passed": true,
+      "resultSize": 3279,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "IndexResult",
+          "isWildcard",
+          "isInsideClass"
+        ],
+        "expectedSymbols": [
+          "Form"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/indexer.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/plugin-java/src/index.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/plugin-python/src/index.ts"
+        ],
+        "expectedFiles": [
+          "index.qwik.mjs"
+        ]
+      }
+    },
+    {
+      "id": "xm-name-test_env_base_flow",
+      "tool": "search",
+      "description": "cross-mode name: \"test_env_base_flow_resets_remote_rerank_host_when_switching_to_vllm\"",
+      "category": "search_cross_mode",
+      "difficulty": "easy",
+      "latencyMs": 161,
+      "passed": false,
+      "resultSize": 192,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_env_base_flow_resets_remote_rerank_host_when_switching_to_vllm"
+        ]
+      }
+    },
+    {
+      "id": "xm-ft-test_env_base_flow_r",
+      "tool": "search_code",
+      "description": "cross-mode fulltext: \"test_env_base_flow_resets_remote_rerank_host_when_switching_to_vllm\"",
+      "category": "search_cross_mode",
+      "difficulty": "medium",
+      "latencyMs": 59,
+      "passed": true,
+      "resultSize": 304,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_env_base_flow_resets_remote_rerank_host_when_switching_to_vllm"
+        ],
+        "expectedSymbols": [
+          "test_env_base_flow_resets_remote_rerank_host_when_switching_to_vllm"
+        ]
+      }
+    },
+    {
+      "id": "xm-name-test_detect_feedba",
+      "tool": "search",
+      "description": "cross-mode name: \"test_detect_feedback_llm_returns_wrong_type_returns_not_detected\"",
+      "category": "search_cross_mode",
+      "difficulty": "easy",
+      "latencyMs": 159,
+      "passed": false,
+      "resultSize": 189,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_detect_feedback_llm_returns_wrong_type_returns_not_detected"
+        ]
+      }
+    },
+    {
+      "id": "xm-ft-test_detect_feedback",
+      "tool": "search_code",
+      "description": "cross-mode fulltext: \"test_detect_feedback_llm_returns_wrong_type_returns_not_detected\"",
+      "category": "search_cross_mode",
+      "difficulty": "medium",
+      "latencyMs": 58,
+      "passed": true,
+      "resultSize": 323,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_detect_feedback_llm_returns_wrong_type_returns_not_detected"
+        ],
+        "expectedSymbols": [
+          "test_detect_feedback_llm_returns_wrong_type_returns_not_detected"
+        ]
+      }
+    },
+    {
+      "id": "xm-name-test_prepare_compo",
+      "tool": "search",
+      "description": "cross-mode name: \"test_prepare_compose_runtime_overrides_normalizes_server_binding\"",
+      "category": "search_cross_mode",
+      "difficulty": "easy",
+      "latencyMs": 166,
+      "passed": false,
+      "resultSize": 189,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_prepare_compose_runtime_overrides_normalizes_server_binding"
+        ]
+      }
+    },
+    {
+      "id": "xm-ft-test_prepare_compose",
+      "tool": "search_code",
+      "description": "cross-mode fulltext: \"test_prepare_compose_runtime_overrides_normalizes_server_binding\"",
+      "category": "search_cross_mode",
+      "difficulty": "medium",
+      "latencyMs": 62,
+      "passed": true,
+      "resultSize": 298,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_prepare_compose_runtime_overrides_normalizes_server_binding"
+        ],
+        "expectedSymbols": [
+          "test_prepare_compose_runtime_overrides_normalizes_server_binding"
+        ]
+      }
+    },
+    {
+      "id": "fz-test_generate_comlpetion",
+      "tool": "search",
+      "description": "typo: \"test_generate_comlpetion_with_session_feedback_only_empty_response_to_user_fallback\" → test_generate_completion_with_session_feedback_only_empty_response_to_user_fallback",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 161,
+      "passed": false,
+      "resultSize": 208,
+      "error": "No results for typo \"test_generate_comlpetion_with_session_feedback_only_empty_response_to_user_fallback\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_feedback_only_empty_response_to_user_fallback"
+        ]
+      }
+    },
+    {
+      "id": "fz-test_generate_docker_com",
+      "tool": "search",
+      "description": "typo: \"test_generate_docker_compose_escapes_dolla_rsigns_in_overrides_and_service_secrets\" → test_generate_docker_compose_escapes_dollar_signs_in_overrides_and_service_secrets",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 160,
+      "passed": false,
+      "resultSize": 207,
+      "error": "No results for typo \"test_generate_docker_compose_escapes_dolla_rsigns_in_overrides_and_service_secrets\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_generate_docker_compose_escapes_dollar_signs_in_overrides_and_service_secrets"
+        ]
+      }
+    },
+    {
+      "id": "fz-test_generat_edocker_com",
+      "tool": "search",
+      "description": "typo: \"test_generat_edocker_compose_inserts_managed_services_before_top_level_sections\" → test_generate_docker_compose_inserts_managed_services_before_top_level_sections",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 160,
+      "passed": false,
+      "resultSize": 204,
+      "error": "No results for typo \"test_generat_edocker_compose_inserts_managed_services_before_top_level_sections\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_generate_docker_compose_inserts_managed_services_before_top_level_sections"
+        ]
+      }
+    },
+    {
+      "id": "fz-test_beautiflu_soup_load",
+      "tool": "search",
+      "description": "typo: \"test_beautiflu_soup_loader_successfully_loads_file_if_required_args_present\" → test_beautiful_soup_loader_successfully_loads_file_if_required_args_present",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 162,
+      "passed": false,
+      "resultSize": 200,
+      "error": "No results for typo \"test_beautiflu_soup_loader_successfully_loads_file_if_required_args_present\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_beautiful_soup_loader_successfully_loads_file_if_required_args_present"
+        ]
+      }
+    },
+    {
+      "id": "fz-test_build_index_aprams_",
+      "tool": "search",
+      "description": "typo: \"test_build_index_aprams_returns_none_for_autoindex_when_index_params_is_none\" → test_build_index_params_returns_none_for_autoindex_when_index_params_is_none",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 161,
+      "passed": false,
+      "resultSize": 201,
+      "error": "No results for typo \"test_build_index_aprams_returns_none_for_autoindex_when_index_params_is_none\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_build_index_params_returns_none_for_autoindex_when_index_params_is_none"
+        ]
+      }
+    },
+    {
+      "id": "fz-'CallExpression[callee.t",
+      "tool": "search",
+      "description": "typo: \"'CallExpression[callee.type=\"MemberExpression\"][calele.property.name=\"from\"]'\" → 'CallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"from\"]'",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 159,
+      "passed": false,
+      "resultSize": 206,
+      "error": "No results for typo \"'CallExpression[callee.type=\"MemberExpression\"][calele.property.name=\"from\"]'\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "'CallExpression[callee.type=\"MemberExpression\"][callee.property.name=\"from\"]'"
+        ]
+      }
+    },
+    {
+      "id": "adv-empty",
+      "tool": "search",
+      "description": "Empty query",
+      "category": "adversarial",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 45
+    },
+    {
+      "id": "adv-long",
+      "tool": "search_code",
+      "description": "Very long query",
+      "category": "adversarial",
+      "difficulty": "medium",
+      "latencyMs": 314,
+      "passed": true,
+      "resultSize": 7486
+    },
+    {
+      "id": "adv-special",
+      "tool": "search",
+      "description": "Special chars",
+      "category": "adversarial",
+      "difficulty": "medium",
+      "latencyMs": 158,
+      "passed": true,
+      "resultSize": 161
+    },
+    {
+      "id": "adv-injection",
+      "tool": "search",
+      "description": "Cypher injection",
+      "category": "adversarial",
+      "difficulty": "hard",
+      "latencyMs": 159,
+      "passed": true,
+      "resultSize": 157
+    },
+    {
+      "id": "adv-unicode",
+      "tool": "search",
+      "description": "Unicode",
+      "category": "adversarial",
+      "difficulty": "medium",
+      "latencyMs": 159,
+      "passed": true,
+      "resultSize": 136
+    },
+    {
+      "id": "ctx-file-nodes.py",
+      "tool": "get_context",
+      "description": "context file: nodes.py",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 7,
+      "passed": true,
+      "resultSize": 15384,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "__getattr__",
+          "__init__",
+          "get_by_group_ids",
+          "get_by_uuids",
+          "get_by_uuid"
+        ],
+        "expectedSymbols": [
+          "__getattr__"
+        ]
+      }
+    },
+    {
+      "id": "ctx-file-tui.ts",
+      "tool": "get_context",
+      "description": "context file: tui.ts",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 5,
+      "passed": true,
+      "resultSize": 21819,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "finish",
+          "updateFooter",
+          "setActivityStatus",
+          "setConnectionStatus",
+          "renderStatus"
+        ],
+        "expectedSymbols": [
+          "finish"
+        ]
+      }
+    },
+    {
+      "id": "ctx-file-monitor.ts",
+      "tool": "get_context",
+      "description": "context file: monitor.ts",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 11,
+      "passed": true,
+      "resultSize": 68495,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "resolveWebhookPathFromConfig",
+          "stop",
+          "monitorBlueBubblesProvider",
+          "processReaction",
+          "restartTypingSoon"
+        ],
+        "expectedSymbols": [
+          "resolveWebhookPathFromConfig"
+        ]
+      }
+    },
+    {
+      "id": "ctx-file-postgres_impl.py",
+      "tool": "get_context",
+      "description": "context file: postgres_impl.py",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 6,
+      "passed": true,
+      "resultSize": 53282,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "namespace_to_table_name",
+          "drop",
+          "search_labels",
+          "get_popular_labels",
+          "get_all_edges"
+        ],
+        "expectedSymbols": [
+          "namespace_to_table_name"
+        ]
+      }
+    },
+    {
+      "id": "ctx-sym-test_collect_neo4j_con",
+      "tool": "get_context",
+      "description": "context symbol: test_collect_neo4j_config_bundled_service_pins_username_to_default",
+      "category": "get_context",
+      "difficulty": "medium",
+      "latencyMs": 32,
+      "passed": true,
+      "resultSize": 416,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_collect_neo4j_config_bundled_service_pins_username_to_default"
+        ],
+        "expectedSymbols": [
+          "test_collect_neo4j_config_bundled_service_pins_username_to_default"
+        ]
+      }
+    },
+    {
+      "id": "ctx-sym-test_build_index_param",
+      "tool": "get_context",
+      "description": "context symbol: test_build_index_params_raises_when_index_params_is_none_for_custom_type",
+      "category": "get_context",
+      "difficulty": "medium",
+      "latencyMs": 31,
+      "passed": true,
+      "resultSize": 382,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_build_index_params_raises_when_index_params_is_none_for_custom_type"
+        ],
+        "expectedSymbols": [
+          "test_build_index_params_raises_when_index_params_is_none_for_custom_type"
+        ]
+      }
+    },
+    {
+      "id": "ctx-sym-test_brute_force_tripl",
+      "tool": "get_context",
+      "description": "context symbol: test_brute_force_triplet_search_with_node_name_sets_relevant_ids_to_none",
+      "category": "get_context",
+      "difficulty": "medium",
+      "latencyMs": 32,
+      "passed": true,
+      "resultSize": 421,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_brute_force_triplet_search_with_node_name_sets_relevant_ids_to_none"
+        ],
+        "expectedSymbols": [
+          "test_brute_force_triplet_search_with_node_name_sets_relevant_ids_to_none"
+        ]
+      }
+    },
+    {
+      "id": "ctx-sym-test_generate_completi",
+      "tool": "get_context",
+      "description": "context symbol: test_generate_completion_with_session_feedback_detected_no_last_qa_id_adds_qa",
+      "category": "get_context",
+      "difficulty": "medium",
+      "latencyMs": 32,
+      "passed": true,
+      "resultSize": 439,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_generate_completion_with_session_feedback_detected_no_last_qa_id_adds_qa"
+        ],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_feedback_detected_no_last_qa_id_adds_qa"
+        ]
+      }
+    },
+    {
+      "id": "imp-called-testAboutEdge",
+      "tool": "analyze_impact",
+      "description": "impact (has callers): testAboutEdge",
+      "category": "impact_analysis",
+      "difficulty": "medium",
+      "latencyMs": 10,
+      "passed": true,
+      "resultSize": 554
+    },
+    {
+      "id": "imp-called-makeQueryClient",
+      "tool": "analyze_impact",
+      "description": "impact (has callers): makeQueryClient",
+      "category": "impact_analysis",
+      "difficulty": "medium",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 691
+    },
+    {
+      "id": "imp-called-getGrammarForExtensi",
+      "tool": "analyze_impact",
+      "description": "impact (has callers): getGrammarForExtension",
+      "category": "impact_analysis",
+      "difficulty": "medium",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 3198
+    },
+    {
+      "id": "imp-test_generate_completion",
+      "tool": "analyze_impact",
+      "description": "impact: test_generate_completion_with_session_cache_disabled_calls_generate_completion_only",
+      "category": "impact_analysis",
+      "difficulty": "easy",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 336
+    },
+    {
+      "id": "imp-test_generate_completion",
+      "tool": "analyze_impact",
+      "description": "impact: test_generate_completion_with_session_feedback_only_empty_response_to_user_fallback",
+      "category": "impact_analysis",
+      "difficulty": "easy",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 336
+    },
+    {
+      "id": "imp-test_summarize_context_t",
+      "tool": "analyze_impact",
+      "description": "impact: test_summarize_context_true_run_feedback_detection_true_returns_three_tuple",
+      "category": "impact_analysis",
+      "difficulty": "easy",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 328
+    },
+    {
+      "id": "cx-low",
+      "tool": "get_complexity_report",
+      "description": "Hotspots threshold 5",
+      "category": "complexity",
+      "difficulty": "easy",
+      "latencyMs": 11,
+      "passed": true,
+      "resultSize": 9181
+    },
+    {
+      "id": "cx-high",
+      "tool": "get_complexity_report",
+      "description": "Hotspots threshold 15",
+      "category": "complexity",
+      "difficulty": "medium",
+      "latencyMs": 8,
+      "passed": true,
+      "resultSize": 9181
+    },
+    {
+      "id": "cx-sorted",
+      "tool": "get_complexity_report",
+      "description": "Sorted descending",
+      "category": "complexity",
+      "difficulty": "medium",
+      "latencyMs": 12,
+      "passed": true,
+      "resultSize": 9181
+    },
+    {
+      "id": "xf-calls-extractUseDecl",
+      "tool": "query",
+      "description": "CALLS: extractImports → extractUseDecl",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 3,
+      "passed": true,
+      "resultSize": 279
+    },
+    {
+      "id": "xf-calls-getGrammarForExten",
+      "tool": "query",
+      "description": "CALLS: isSupported → getGrammarForEx",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 3,
+      "passed": true,
+      "resultSize": 415
+    },
+    {
+      "id": "xf-calls-getGrammarForExten",
+      "tool": "query",
+      "description": "CALLS: isSupported → getGrammarForEx",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 415
+    },
+    {
+      "id": "xf-calls-calculateCyclomati",
+      "tool": "query",
+      "description": "CALLS: calculateComple → calculateCyclom",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 206
+    },
+    {
+      "id": "xf-contains-nodes.py",
+      "tool": "query",
+      "description": "CONTAINS: nodes.py → __getattr__",
+      "category": "cross_file",
+      "difficulty": "easy",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 750,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.09090909090909091,
+        "foundAt": 11,
+        "actualTop5": [
+          "queued_add_nodes",
+          "extract_nodes",
+          "delete_data_related_nodes",
+          "delete_dataset_related_nodes",
+          "get_global_data_related_nodes"
+        ],
+        "expectedSymbols": [
+          "__getattr__"
+        ]
+      }
+    },
+    {
+      "id": "xf-contains-test_crew_agent_pars",
+      "tool": "query",
+      "description": "CONTAINS: test_crew_agent_parser.py → increment_formatting_errors",
+      "category": "cross_file",
+      "difficulty": "easy",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 1109,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "increment_formatting_errors",
+          "test_integration_valid_and_invalid",
+          "test_parsing_with_special_characters",
+          "test_parsing_with_whitespace",
+          "test_safe_repair_json_special_characters_key"
+        ],
+        "expectedSymbols": [
+          "increment_formatting_errors"
+        ]
+      }
+    },
+    {
+      "id": "xf-contains-crew.py",
+      "tool": "query",
+      "description": "CONTAINS: crew.py → __repr__",
+      "category": "cross_file",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": false,
+      "resultSize": 616,
+      "error": "__repr__ not in: [crew, write_poem, poem_writer, crew, reporting_task, research_task, reporting_analyst, researcher, crew, reporting_task]",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "crew",
+          "write_poem",
+          "poem_writer",
+          "crew",
+          "reporting_task"
+        ],
+        "expectedSymbols": [
+          "__repr__"
+        ]
+      }
+    },
+    {
+      "id": "xf-node-types",
+      "tool": "query",
+      "description": "Node type distribution",
+      "category": "cross_file",
+      "difficulty": "easy",
+      "latencyMs": 32,
+      "passed": true,
+      "resultSize": 626
+    },
+    {
+      "id": "mr-projects",
+      "tool": "query",
+      "description": "Count projects",
+      "category": "multi_repo",
+      "difficulty": "easy",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 553
+    },
+    {
+      "id": "mr-cross-search",
+      "tool": "search",
+      "description": "Search spans projects",
+      "category": "multi_repo",
+      "difficulty": "medium",
+      "latencyMs": 8,
+      "passed": true,
+      "resultSize": 2863
+    },
+    {
+      "id": "mr-total-files",
+      "tool": "query",
+      "description": "Total files across repos",
+      "category": "multi_repo",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 190
+    }
+  ]
+}

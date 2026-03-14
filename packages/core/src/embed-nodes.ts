@@ -283,7 +283,7 @@ const rowMappers = {
 
 /** Identifier extractors for each node type */
 const identifierExtractors: Record<EmbeddableNodeType, (e: Record<string, unknown>) => Record<string, unknown>> = {
-  File: (e) => ({ path: e.path }),
+  File: (e) => ({ filePath: e.path }),
   Function: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
   Class: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
   Interface: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),

@@ -67,6 +67,7 @@ function buildHybridOpts(
     expandGraph: true,
     maxHops,
     includeAboutEdges: true,
+    minRRFScore: 0.2, // Lower RRF cutoff — CONTEXT_WALK needs broader exploration than default
   };
   if (context.embeddings) opts.embeddings = context.embeddings;
   if (scope) opts.scope = scope;
@@ -230,24 +231,16 @@ Related: handleRequest --[CALLS]--> validateInput, handleRequest --[CALLS]--> sa
     const seedOpts = buildHybridOpts(10, 1, context, request.scope);
     const seedResult = await hybridSearch(request.query, context.client, seedOpts);
 
-    // Add seed results to state — both direct hits and graph-traversal neighbors.
-    // Promoting related nodes into discoveredNodes ensures that 1-hop neighbors
-    // found via graph edges (e.g., a "client" variable found via CONTAINS from a file)
-    // are included in the final results, not just in the relationship list.
+    // Add seed results to state — direct hits become discoveredNodes,
+    // graph-traversal neighbors go into discoveredRelated only.
+    // The LLM can see relationships in the context summary and choose
+    // to expand relevant nodes. Promoting all neighbors immediately
+    // would flood MAX_CONTEXT_NODES before the LLM gets to walk.
     for (const item of hitsToResultItems(seedResult)) {
       this.addNode(state, item);
     }
     for (const item of relatedToItems(seedResult)) {
       this.addRelated(state, item);
-      // Promote graph-traversal neighbors into discoveredNodes for richer context
-      const nodeItem: SearchResultItem = {
-        name: item.name,
-        nodeType: item.nodeType,
-        score: 0.3, // Lower score than direct hits
-        sources: ['graph'],
-      };
-      if (item.filePath) nodeItem.filePath = item.filePath;
-      this.addNode(state, nodeItem);
     }
     state.walkHistory.push(
       `Round 0 (seed): Found ${seedResult.hits.length} nodes and ${seedResult.related.length} relationships for "${request.query}"`,
@@ -299,7 +292,7 @@ Related: handleRequest --[CALLS]--> validateInput, handleRequest --[CALLS]--> sa
       state.walkHistory.push(
         `Round ${round}: Action=${step.action}, Reasoning="${step.reasoning}"`,
       );
-      logger.debug(`CONTEXT_WALK round ${round}: ${step.action} — ${step.reasoning}`);
+      logger.debug(`CONTEXT_WALK round ${round}: ${step.action}${step.expandTarget ? ` target="${step.expandTarget}"` : ''}${step.refinedQuery ? ` query="${step.refinedQuery}"` : ''} — ${step.reasoning}`);
 
       // Confidence-based early exit: if LLM is highly confident it can answer, do so now
       if (step.confidence != null && step.confidence >= CONFIDENCE_EXIT_THRESHOLD && step.action !== 'answer') {

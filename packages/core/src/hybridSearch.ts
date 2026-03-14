@@ -115,6 +115,8 @@ export interface HybridSearchOptions {
   textWeight?: number;
   /** Traverse ABOUT edges to include cross-layer results (default: true) */
   includeAboutEdges?: boolean;
+  /** Minimum normalized RRF score to include (default: 0.4). Set to 0 to disable. */
+  minRRFScore?: number;
 }
 
 // ============================================================================
@@ -205,7 +207,7 @@ export async function hybridSearch(
   // Collect vector results into ranked list (sorted by relevance for RRF).
   // Filter out weak matches (score < 0.55 ≈ distance > 0.82) to avoid diluting
   // text results with semantically distant nodes.
-  const MIN_VECTOR_SCORE = 0.55;
+  const MIN_VECTOR_SCORE = 0.65;
   let vectorHitCount = 0;
   if (vectorPipeline) {
     for (const results of vectorPipeline.codeResults) {
@@ -318,10 +320,18 @@ export async function hybridSearch(
   textHitsList.sort((a, b) => b.internalScore - a.internalScore);
 
   // Fuse using Reciprocal Rank Fusion
-  const allHits = rrfFuse([
+  const fusedHits = rrfFuse([
     { hits: vectorHitsList.map((v) => v.hit), weight: vectorWeight, name: 'vector' },
     { hits: textHitsList.map((t) => t.hit), weight: textWeight, name: 'text' },
-  ]).slice(0, limit);
+  ]);
+
+  // Drop results whose normalized RRF score is too far below the top hit.
+  // This prunes tangential vector matches that dilute precision for focused queries.
+  // Callers like CONTEXT_WALK can set minRRFScore=0 for broader exploration.
+  const minRRFScore = options.minRRFScore ?? 0.4;
+  const allHits = fusedHits
+    .filter((h) => h.score >= minRRFScore)
+    .slice(0, limit);
 
   // ----------------------------------------------------------------
   // Steps 5-6: Graph + ABOUT traversal in parallel

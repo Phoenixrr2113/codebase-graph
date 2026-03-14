@@ -1,0 +1,2255 @@
+{
+  "label": "dynamic-v1",
+  "timestamp": "2026-03-14T14:02:06.129Z",
+  "config": {
+    "embeddings": false,
+    "reindex": false,
+    "nodeCount": 154350,
+    "projects": 16
+  },
+  "groundTruth": {
+    "functions": 100,
+    "classes": 50,
+    "filesWithFunctions": 50,
+    "callEdges": 100,
+    "projects": [
+      "codebase-graph",
+      "LightRAG",
+      "cognee",
+      "graphiti",
+      "crewAI-main",
+      "bolt.new-main",
+      "openclaw",
+      "qwik",
+      "screenshot-to-code-main",
+      "openui",
+      "code-gen",
+      "context-engine",
+      "Next-js-Boilerplate-main",
+      "banking-main",
+      "figma_clone-main",
+      "novel-main"
+    ]
+  },
+  "summary": {
+    "total": 99,
+    "passed": 78,
+    "failed": 21,
+    "skipped": 0,
+    "passRate": 78.8,
+    "latency": {
+      "avg": 133,
+      "p50": 38,
+      "p95": 550
+    },
+    "searchQuality": {
+      "queries": 67,
+      "top1": 53.7,
+      "top3": 55.2,
+      "mrr": 0.55
+    }
+  },
+  "byCategory": {
+    "operational": {
+      "tests": 9,
+      "passed": 9,
+      "top1": null,
+      "mrr": null
+    },
+    "find_symbol": {
+      "tests": 17,
+      "passed": 17,
+      "top1": 100,
+      "mrr": 1
+    },
+    "search_name": {
+      "tests": 12,
+      "passed": 0,
+      "top1": 0,
+      "mrr": 0
+    },
+    "search_fulltext": {
+      "tests": 16,
+      "passed": 16,
+      "top1": 43.8,
+      "mrr": 0.484
+    },
+    "search_cross_mode": {
+      "tests": 6,
+      "passed": 3,
+      "top1": 50,
+      "mrr": 0.5
+    },
+    "fuzzy_typo": {
+      "tests": 6,
+      "passed": 0,
+      "top1": 0,
+      "mrr": 0
+    },
+    "adversarial": {
+      "tests": 5,
+      "passed": 5,
+      "top1": null,
+      "mrr": null
+    },
+    "get_context": {
+      "tests": 8,
+      "passed": 8,
+      "top1": 100,
+      "mrr": 1
+    },
+    "impact_analysis": {
+      "tests": 6,
+      "passed": 6,
+      "top1": null,
+      "mrr": null
+    },
+    "complexity": {
+      "tests": 3,
+      "passed": 3,
+      "top1": null,
+      "mrr": null
+    },
+    "cross_file": {
+      "tests": 8,
+      "passed": 8,
+      "top1": 66.7,
+      "mrr": 0.7
+    },
+    "multi_repo": {
+      "tests": 3,
+      "passed": 3,
+      "top1": null,
+      "mrr": null
+    }
+  },
+  "results": [
+    {
+      "id": "op-ping",
+      "tool": "ping",
+      "description": "Connectivity",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 0,
+      "passed": true,
+      "resultSize": 98
+    },
+    {
+      "id": "op-index-status",
+      "tool": "get_index_status",
+      "description": "Index status",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 6,
+      "passed": true,
+      "resultSize": 2333
+    },
+    {
+      "id": "op-stats",
+      "tool": "get_stats",
+      "description": "Graph stats",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 462,
+      "passed": true,
+      "resultSize": 2794
+    },
+    {
+      "id": "op-repo-map",
+      "tool": "get_repo_map",
+      "description": "Repo map",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 724,
+      "passed": true,
+      "resultSize": 6643
+    },
+    {
+      "id": "op-vuln",
+      "tool": "find_vulnerabilities",
+      "description": "Security scan",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 1627,
+      "passed": true,
+      "resultSize": 5042
+    },
+    {
+      "id": "op-cx",
+      "tool": "get_complexity_report",
+      "description": "Complexity report",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 22,
+      "passed": true,
+      "resultSize": 9181
+    },
+    {
+      "id": "op-kg-store",
+      "tool": "store_entity",
+      "description": "Store entity",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 116
+    },
+    {
+      "id": "op-kg-stats",
+      "tool": "get_knowledge_stats",
+      "description": "KG stats",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 143
+    },
+    {
+      "id": "op-source",
+      "tool": "get_source",
+      "description": "Read swagger-ui-bundle.js",
+      "category": "operational",
+      "difficulty": "easy",
+      "latencyMs": 14,
+      "passed": true,
+      "resultSize": 3097531
+    },
+    {
+      "id": "fs-test_env_base_flow_preser",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_env_base_flow_preserves_existing_vllm_rerank_device_on_gpu_host",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 29,
+      "passed": true,
+      "resultSize": 242,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_env_base_flow_preserves_existing_vllm_rerank_device_on_gpu_host"
+        ],
+        "expectedSymbols": [
+          "test_env_base_flow_preserves_existing_vllm_rerank_device_on_gpu_host"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_search_access_contro",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_search_access_control_only_context_returns_dataset_shaped_dicts",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 25,
+      "passed": true,
+      "resultSize": 245,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_search_access_control_only_context_returns_dataset_shaped_dicts"
+        ],
+        "expectedSymbols": [
+          "test_search_access_control_only_context_returns_dataset_shaped_dicts"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_search.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_agents_do_not_get_de",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_agents_do_not_get_delegation_tools_with_there_is_only_one_agent",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 22,
+      "passed": true,
+      "resultSize": 224,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_agents_do_not_get_delegation_tools_with_there_is_only_one_agent"
+        ],
+        "expectedSymbols": [
+          "test_agents_do_not_get_delegation_tools_with_there_is_only_one_agent"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "crew_test.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_run_feedback_detecti",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_run_feedback_detection_true_runs_detect_feedback_in_parallel",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 21,
+      "passed": true,
+      "resultSize": 250,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_run_feedback_detection_true_runs_detect_feedback_in_parallel"
+        ],
+        "expectedSymbols": [
+          "test_run_feedback_detection_true_runs_detect_feedback_in_parallel"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_completion.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_env_base_flow_regist",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_env_base_flow_registers_vllm_rerank_service_for_docker_deployment",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 20,
+      "passed": true,
+      "resultSize": 244,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_env_base_flow_registers_vllm_rerank_service_for_docker_deployment"
+        ],
+        "expectedSymbols": [
+          "test_env_base_flow_registers_vllm_rerank_service_for_docker_deployment"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_extract_nodes_and_ed",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_extract_nodes_and_edges_bulk_custom_instructions_multiple_episodes",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 20,
+      "passed": true,
+      "resultSize": 246,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_extract_nodes_and_edges_bulk_custom_instructions_multiple_episodes"
+        ],
+        "expectedSymbols": [
+          "test_extract_nodes_and_edges_bulk_custom_instructions_multiple_episodes"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_bulk_utils.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_collect_provider_con",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_collect_provider_config_preserves_supported_binding_on_rerun",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 19,
+      "passed": true,
+      "resultSize": 239,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_collect_provider_config_preserves_supported_binding_on_rerun"
+        ],
+        "expectedSymbols": [
+          "test_collect_provider_config_preserves_supported_binding_on_rerun"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_validate_env_file_ha",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_validate_env_file_handles_supported_and_unsupported_uri_schemes",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 20,
+      "passed": true,
+      "resultSize": 242,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_validate_env_file_handles_supported_and_unsupported_uri_schemes"
+        ],
+        "expectedSymbols": [
+          "test_validate_env_file_handles_supported_and_unsupported_uri_schemes"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_brute_force_triplet_",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_brute_force_triplet_search_collection_not_found_at_top_level",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 21,
+      "passed": true,
+      "resultSize": 266,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_brute_force_triplet_search_collection_not_found_at_top_level"
+        ],
+        "expectedSymbols": [
+          "test_brute_force_triplet_search_collection_not_found_at_top_level"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_brute_force_triplet_search.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_generate_completion_",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_generate_completion_with_session_no_user_id_calls_generate_completion_only",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 19,
+      "passed": true,
+      "resultSize": 274,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_generate_completion_with_session_no_user_id_calls_generate_completion_only"
+        ],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_no_user_id_calls_generate_completion_only"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_session_manager.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_generate_completion_",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_generate_completion_with_session_feedback_and_followup_persists_and_adds_qa",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 20,
+      "passed": true,
+      "resultSize": 275,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_generate_completion_with_session_feedback_and_followup_persists_and_adds_qa"
+        ],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_feedback_and_followup_persists_and_adds_qa"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_session_manager.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-test_switching_both_provi",
+      "tool": "find_symbol",
+      "description": "find_symbol: test_switching_both_providers_off_bedrock_clears_saved_aws_credentials",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 20,
+      "passed": true,
+      "resultSize": 244,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_switching_both_providers_off_bedrock_clears_saved_aws_credentials"
+        ],
+        "expectedSymbols": [
+          "test_switching_both_providers_off_bedrock_clears_saved_aws_credentials"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "fs-cls-json_schema_Properties",
+      "tool": "find_symbol",
+      "description": "find_symbol class: json_schema_PropertiesVisitor_PropertiesVisitor",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 224,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "json_schema_PropertiesVisitor_PropertiesVisitor"
+        ],
+        "expectedSymbols": [
+          "json_schema_PropertiesVisitor_PropertiesVisitor"
+        ]
+      }
+    },
+    {
+      "id": "fs-cls-PatternPropertiesVisit",
+      "tool": "find_symbol",
+      "description": "find_symbol class: PatternPropertiesVisitor_PatternPropertiesVisitor",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 226,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "PatternPropertiesVisitor_PatternPropertiesVisitor"
+        ],
+        "expectedSymbols": [
+          "PatternPropertiesVisitor_PatternPropertiesVisitor"
+        ]
+      }
+    },
+    {
+      "id": "fs-cls-schema_PatternProperti",
+      "tool": "find_symbol",
+      "description": "find_symbol class: schema_PatternPropertiesVisitor_PatternPropertiesVisitor",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 0,
+      "passed": true,
+      "resultSize": 233,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "schema_PatternPropertiesVisitor_PatternPropertiesVisitor"
+        ],
+        "expectedSymbols": [
+          "schema_PatternPropertiesVisitor_PatternPropertiesVisitor"
+        ]
+      }
+    },
+    {
+      "id": "fs-cls-link_description_LinkD",
+      "tool": "find_symbol",
+      "description": "find_symbol class: link_description_LinkDescriptionVisitor",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 216,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "link_description_LinkDescriptionVisitor"
+        ],
+        "expectedSymbols": [
+          "link_description_LinkDescriptionVisitor"
+        ]
+      }
+    },
+    {
+      "id": "fs-notfound",
+      "tool": "find_symbol",
+      "description": "Not-found: graceful",
+      "category": "find_symbol",
+      "difficulty": "easy",
+      "latencyMs": 19,
+      "passed": true,
+      "resultSize": 100
+    },
+    {
+      "id": "sn-exact-test_switching_both_pr",
+      "tool": "search",
+      "description": "search exact: \"test_switching_both_providers_off_bedrock_clears_saved_aws_credentials\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 160,
+      "passed": false,
+      "resultSize": 195,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_switching_both_providers_off_bedrock_clears_saved_aws_credentials"
+        ]
+      }
+    },
+    {
+      "id": "sn-exact-test_validate_env_file",
+      "tool": "search",
+      "description": "search exact: \"test_validate_env_file_rejects_container_ssl_paths_for_host_target\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 160,
+      "passed": false,
+      "resultSize": 191,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_validate_env_file_rejects_container_ssl_paths_for_host_target"
+        ]
+      }
+    },
+    {
+      "id": "sn-exact-test_validate_env_file",
+      "tool": "search",
+      "description": "search exact: \"test_validate_env_file_accepts_container_ssl_paths_for_compose_target\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 161,
+      "passed": false,
+      "resultSize": 194,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_validate_env_file_accepts_container_ssl_paths_for_compose_target"
+        ]
+      }
+    },
+    {
+      "id": "sn-exact-test_env_storage_flow_",
+      "tool": "search",
+      "description": "search exact: \"test_env_storage_flow_preserves_existing_compose_ssl_when_env_paths_are_stale\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 159,
+      "passed": false,
+      "resultSize": 202,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_env_storage_flow_preserves_existing_compose_ssl_when_env_paths_are_stale"
+        ]
+      }
+    },
+    {
+      "id": "sn-exact-test_generate_docker_c",
+      "tool": "search",
+      "description": "search exact: \"test_generate_docker_compose_escapes_dollar_signs_in_overrides_and_service_secrets\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 160,
+      "passed": false,
+      "resultSize": 207,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_generate_docker_compose_escapes_dollar_signs_in_overrides_and_service_secrets"
+        ]
+      }
+    },
+    {
+      "id": "sn-exact-test_agents_do_not_get",
+      "tool": "search",
+      "description": "search exact: \"test_agents_do_not_get_delegation_tools_with_there_is_only_one_agent\"",
+      "category": "search_name",
+      "difficulty": "easy",
+      "latencyMs": 158,
+      "passed": false,
+      "resultSize": 193,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_agents_do_not_get_delegation_tools_with_there_is_only_one_agent"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-_control",
+      "tool": "search",
+      "description": "search partial: \"_control\" → test_search_access_control_only_context_returns_dataset_shaped_dicts",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 159,
+      "passed": false,
+      "resultSize": 133,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_search_access_control_only_context_returns_dataset_shaped_dicts"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-_filtered",
+      "tool": "search",
+      "description": "search partial: \"_filtered\" → test_brute_force_triplet_search_wide_search_limit_filtered_search",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 159,
+      "passed": false,
+      "resultSize": 134,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_brute_force_triplet_search_wide_search_limit_filtered_search"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-_preserves",
+      "tool": "search",
+      "description": "search partial: \"_preserves\" → test_env_base_flow_preserves_existing_vllm_rerank_device_on_gpu_host",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 163,
+      "passed": false,
+      "resultSize": 135,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_env_base_flow_preserves_existing_vllm_rerank_device_on_gpu_host"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-_similarity",
+      "tool": "search",
+      "description": "search partial: \"_similarity\" → test_resolve_with_similarity_multiple_exact_matches_defers_to_llm",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 160,
+      "passed": false,
+      "resultSize": 136,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_resolve_with_similarity_multiple_exact_matches_defers_to_llm"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-_embedding",
+      "tool": "search",
+      "description": "search partial: \"_embedding\" → test_env_base_flow_defaults_new_vllm_embedding_to_cuda_on_gpu_host",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 166,
+      "passed": false,
+      "resultSize": 271,
+      "error": "\"test_env_base_flow_defaults_new_vllm_embedding_to_cuda_on_gpu_host\" not in Top-10 for \"_embedding\": [MAX_DEFERRED_EMBEDDINGS]",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "MAX_DEFERRED_EMBEDDINGS"
+        ],
+        "expectedSymbols": [
+          "test_env_base_flow_defaults_new_vllm_embedding_to_cuda_on_gpu_host"
+        ]
+      }
+    },
+    {
+      "id": "sn-partial-_gracefully",
+      "tool": "search",
+      "description": "search partial: \"_gracefully\" → test_create_tutorial_notebooks_handles_tutorial_error_gracefully",
+      "category": "search_name",
+      "difficulty": "medium",
+      "latencyMs": 167,
+      "passed": false,
+      "resultSize": 136,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_create_tutorial_notebooks_handles_tutorial_error_gracefully"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-test_brute_force_tripl",
+      "tool": "search_code",
+      "description": "fulltext: \"test_brute_force_triplet_search_creates_fragment_when_not_provided\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 61,
+      "passed": true,
+      "resultSize": 330,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_brute_force_triplet_search_creates_fragment_when_not_provided"
+        ],
+        "expectedSymbols": [
+          "test_brute_force_triplet_search_creates_fragment_when_not_provided"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/cognee/cognee/tests/unit/modules/retrieval/test_brute_force_triplet_search.py"
+        ],
+        "expectedFiles": [
+          "test_brute_force_triplet_search.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-test_env_storage_flow_",
+      "tool": "search_code",
+      "description": "fulltext: \"test_env_storage_flow_preserves_existing_compose_ssl_when_env_paths_are_stale\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 61,
+      "passed": true,
+      "resultSize": 324,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_env_storage_flow_preserves_existing_compose_ssl_when_env_paths_are_stale"
+        ],
+        "expectedSymbols": [
+          "test_env_storage_flow_preserves_existing_compose_ssl_when_env_paths_are_stale"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/LightRAG/tests/test_interactive_setup_outputs.py"
+        ],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-test_async_kickoff_for",
+      "tool": "search_code",
+      "description": "fulltext: \"test_async_kickoff_for_each_async_basic_functionality_and_output\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 60,
+      "passed": true,
+      "resultSize": 279,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_async_kickoff_for_each_async_basic_functionality_and_output"
+        ],
+        "expectedSymbols": [
+          "test_async_kickoff_for_each_async_basic_functionality_and_output"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/crewAI-main/tests/crew_test.py"
+        ],
+        "expectedFiles": [
+          "crew_test.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-test_env_base_flow_pre",
+      "tool": "search_code",
+      "description": "fulltext: \"test_env_base_flow_preserves_existing_vllm_embedding_cuda_device_on_rerun\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 60,
+      "passed": true,
+      "resultSize": 316,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_env_base_flow_preserves_existing_vllm_embedding_cuda_device_on_rerun"
+        ],
+        "expectedSymbols": [
+          "test_env_base_flow_preserves_existing_vllm_embedding_cuda_device_on_rerun"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/LightRAG/tests/test_interactive_setup_outputs.py"
+        ],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-test_resolve_with_simi",
+      "tool": "search_code",
+      "description": "fulltext: \"test_resolve_with_similarity_multiple_exact_matches_defers_to_llm\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 59,
+      "passed": true,
+      "resultSize": 307,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_resolve_with_similarity_multiple_exact_matches_defers_to_llm"
+        ],
+        "expectedSymbols": [
+          "test_resolve_with_similarity_multiple_exact_matches_defers_to_llm"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/graphiti/tests/utils/maintenance/test_node_operations.py"
+        ],
+        "expectedFiles": [
+          "test_node_operations.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-exact-test_switching_both_pr",
+      "tool": "search_code",
+      "description": "fulltext: \"test_switching_both_providers_off_bedrock_clears_saved_aws_credentials\"",
+      "category": "search_fulltext",
+      "difficulty": "easy",
+      "latencyMs": 61,
+      "passed": true,
+      "resultSize": 310,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_switching_both_providers_off_bedrock_clears_saved_aws_credentials"
+        ],
+        "expectedSymbols": [
+          "test_switching_both_providers_off_bedrock_clears_saved_aws_credentials"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/LightRAG/tests/test_interactive_setup_outputs.py"
+        ],
+        "expectedFiles": [
+          "test_interactive_setup_outputs.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_completion",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_completion\" → test_generate_completion_with_session_cache_disabled_calls_generate_completion_only",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 701,
+      "passed": true,
+      "resultSize": 13278,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.041666666666666664,
+        "foundAt": 24,
+        "actualTop5": [
+          "close",
+          "OPENAI_BATCH_COMPLETION_WINDOW",
+          "_completion_kwargs",
+          "_completion_kwargs",
+          "_completion_kwargs"
+        ],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_cache_disabled_calls_generate_completion_only"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_instructions",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_instructions\" → test_extract_nodes_and_edges_bulk_custom_instructions_none_by_default",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 514,
+      "passed": true,
+      "resultSize": 17381,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.0625,
+        "foundAt": 16,
+        "actualTop5": [
+          "rules",
+          "document",
+          "ExplainCodeInput",
+          "GRAPHITI_MCP_INSTRUCTIONS",
+          "MERGE_SUMMARIES_INSTRUCTIONS"
+        ],
+        "expectedSymbols": [
+          "test_extract_nodes_and_edges_bulk_custom_instructions_none_by_default"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_database",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_database\" → test_get_session_raises_when_default_user_raises_database_not_created",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 449,
+      "passed": true,
+      "resultSize": 53195,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "constructor",
+          "NLToCypherStrategy",
+          "46a6ce2bd2b2_expand_dataset_database_with_json_.py",
+          "76625596c5c3_expand_dataset_database_for_multi_user.py",
+          "_clear_database"
+        ],
+        "expectedSymbols": [
+          "test_get_session_raises_when_default_user_raises_database_not_created"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_overrides",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_overrides\" → test_generate_files_keep_host_env_values_and_inject_compose_overrides",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 496,
+      "passed": true,
+      "resultSize": 11180,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.1,
+        "foundAt": 10,
+        "actualTop5": [
+          "Skeleton",
+          "DETAIL_LABEL_OVERRIDES",
+          "NATIVE_NAME_OVERRIDES",
+          "SUBSYSTEM_COLOR_OVERRIDES",
+          "apply_cli_overrides"
+        ],
+        "expectedSymbols": [
+          "test_generate_files_keep_host_env_values_and_inject_compose_overrides"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_gracefully",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_gracefully\" → test_create_tutorial_notebooks_handles_tutorial_error_gracefully",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 517,
+      "passed": true,
+      "resultSize": 12030,
+      "topK": {
+        "top1": false,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 0.5,
+        "foundAt": 2,
+        "actualTop5": [
+          "stopWatching",
+          "test_create_tutorial_notebooks_handles_tutorial_error_gracefully",
+          "test_embedding_failure_falls_back_gracefully",
+          "countAboutEdges",
+          "close"
+        ],
+        "expectedSymbols": [
+          "test_create_tutorial_notebooks_handles_tutorial_error_gracefully"
+        ]
+      }
+    },
+    {
+      "id": "ft-partial-_completion",
+      "tool": "search_code",
+      "description": "fulltext partial: \"_completion\" → test_generate_completion_with_session_feedback_only_empty_response_to_user_fallback",
+      "category": "search_fulltext",
+      "difficulty": "medium",
+      "latencyMs": 505,
+      "passed": true,
+      "resultSize": 13278,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.041666666666666664,
+        "foundAt": 24,
+        "actualTop5": [
+          "close",
+          "OPENAI_BATCH_COMPLETION_WINDOW",
+          "_completion_kwargs",
+          "_completion_kwargs",
+          "_completion_kwargs"
+        ],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_feedback_only_empty_response_to_user_fallback"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-document_routes",
+      "tool": "search_code",
+      "description": "fulltext multi: \"document_routes _pipeline\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 345,
+      "passed": true,
+      "resultSize": 4391,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "PipelineOptions",
+          "PipelineResult",
+          "PipelineEvent",
+          "PipelineEventType",
+          "PipelineRunConfig"
+        ],
+        "expectedSymbols": [
+          "cancel_pipeline"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/pipeline.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/runner.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/types.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/types.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/types.ts"
+        ],
+        "expectedFiles": [
+          "document_routes.py"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-qwik-0.100.0",
+      "tool": "search_code",
+      "description": "fulltext multi: \"qwik-0.100.0 gc\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 189,
+      "passed": true,
+      "resultSize": 2047,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "q",
+          "LanguageType"
+        ],
+        "expectedSymbols": [
+          "Gc"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "/path/to/user/Desktop/codebase-graph/packages/api/src/routes/search.ts",
+          "/path/to/user/Desktop/codebase-graph/packages/core/src/pipeline/parser.ts"
+        ],
+        "expectedFiles": [
+          "qwik-0.100.0.js"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-app",
+      "tool": "search_code",
+      "description": "fulltext multi: \"app rend\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 197,
+      "passed": true,
+      "resultSize": 1501,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "#renderField"
+        ],
+        "expectedSymbols": [
+          "render"
+        ]
+      },
+      "topKFiles": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/openclaw/src/canvas-host/a2ui/a2ui.bundle.js"
+        ],
+        "expectedFiles": [
+          "app.ts"
+        ]
+      }
+    },
+    {
+      "id": "ft-multi-tailwindcss.min",
+      "tool": "search_code",
+      "description": "fulltext multi: \"tailwindcss.min ou\"",
+      "category": "search_fulltext",
+      "difficulty": "hard",
+      "latencyMs": 550,
+      "passed": true,
+      "resultSize": 17887,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [
+          "tailwindcss.min.js",
+          "ADMIN_METHOD_PREFIXES",
+          "ADMIN_SCOPE",
+          "ADMIN_SCOPE",
+          "ANTHROPIC_SETUP_TOKEN_MIN_LENGTH"
+        ],
+        "expectedSymbols": [
+          "ou"
+        ]
+      },
+      "topKFiles": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "actualTop5": [
+          "/path/to/user/Desktop/projects/openui/frontend/public/annotator/tailwindcss.min.js",
+          "/path/to/user/Desktop/projects/openclaw/src/gateway/server-methods.ts",
+          "/path/to/user/Desktop/projects/openclaw/src/gateway/server-methods.ts",
+          "/path/to/user/Desktop/projects/openclaw/src/gateway/server-broadcast.ts",
+          "/path/to/user/Desktop/projects/openclaw/src/commands/auth-token.ts"
+        ],
+        "expectedFiles": [
+          "tailwindcss.min.js"
+        ]
+      }
+    },
+    {
+      "id": "xm-name-test_generate_comp",
+      "tool": "search",
+      "description": "cross-mode name: \"test_generate_completion_with_session_feedback_persistence_failure_returns_response\"",
+      "category": "search_cross_mode",
+      "difficulty": "easy",
+      "latencyMs": 162,
+      "passed": false,
+      "resultSize": 208,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_feedback_persistence_failure_returns_response"
+        ]
+      }
+    },
+    {
+      "id": "xm-ft-test_generate_comple",
+      "tool": "search_code",
+      "description": "cross-mode fulltext: \"test_generate_completion_with_session_feedback_persistence_failure_returns_response\"",
+      "category": "search_cross_mode",
+      "difficulty": "medium",
+      "latencyMs": 59,
+      "passed": true,
+      "resultSize": 358,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_generate_completion_with_session_feedback_persistence_failure_returns_response"
+        ],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_feedback_persistence_failure_returns_response"
+        ]
+      }
+    },
+    {
+      "id": "xm-name-test_collect_obser",
+      "tool": "search",
+      "description": "cross-mode name: \"test_collect_observability_config_clears_existing_values_on_rerun\"",
+      "category": "search_cross_mode",
+      "difficulty": "easy",
+      "latencyMs": 161,
+      "passed": false,
+      "resultSize": 190,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_collect_observability_config_clears_existing_values_on_rerun"
+        ]
+      }
+    },
+    {
+      "id": "xm-ft-test_collect_observa",
+      "tool": "search_code",
+      "description": "cross-mode fulltext: \"test_collect_observability_config_clears_existing_values_on_rerun\"",
+      "category": "search_cross_mode",
+      "difficulty": "medium",
+      "latencyMs": 60,
+      "passed": true,
+      "resultSize": 300,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_collect_observability_config_clears_existing_values_on_rerun"
+        ],
+        "expectedSymbols": [
+          "test_collect_observability_config_clears_existing_values_on_rerun"
+        ]
+      }
+    },
+    {
+      "id": "xm-name-test_graph_complet",
+      "tool": "search",
+      "description": "cross-mode name: \"test_graph_completion_extension_context_complex_duplicate_queries\"",
+      "category": "search_cross_mode",
+      "difficulty": "easy",
+      "latencyMs": 161,
+      "passed": false,
+      "resultSize": 190,
+      "error": "No results",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_graph_completion_extension_context_complex_duplicate_queries"
+        ]
+      }
+    },
+    {
+      "id": "xm-ft-test_graph_completio",
+      "tool": "search_code",
+      "description": "cross-mode fulltext: \"test_graph_completion_extension_context_complex_duplicate_queries\"",
+      "category": "search_cross_mode",
+      "difficulty": "medium",
+      "latencyMs": 59,
+      "passed": true,
+      "resultSize": 345,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_graph_completion_extension_context_complex_duplicate_queries"
+        ],
+        "expectedSymbols": [
+          "test_graph_completion_extension_context_complex_duplicate_queries"
+        ]
+      }
+    },
+    {
+      "id": "fz-teste_nv_base_flow_prese",
+      "tool": "search",
+      "description": "typo: \"teste_nv_base_flow_preserves_existing_vllm_rerank_settings_on_rerun\" → test_env_base_flow_preserves_existing_vllm_rerank_settings_on_rerun",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 162,
+      "passed": false,
+      "resultSize": 192,
+      "error": "No results for typo \"teste_nv_base_flow_preserves_existing_vllm_rerank_settings_on_rerun\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_env_base_flow_preserves_existing_vllm_rerank_settings_on_rerun"
+        ]
+      }
+    },
+    {
+      "id": "fz-test_generate_completion",
+      "tool": "search",
+      "description": "typo: \"test_generate_completion_with_session_feedback_scoren_ormalization\" → test_generate_completion_with_session_feedback_score_normalization",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 161,
+      "passed": false,
+      "resultSize": 191,
+      "error": "No results for typo \"test_generate_completion_with_session_feedback_scoren_ormalization\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_generate_completion_with_session_feedback_score_normalization"
+        ]
+      }
+    },
+    {
+      "id": "fz-test_burte_force_triplet",
+      "tool": "search",
+      "description": "typo: \"test_burte_force_triplet_search_collection_not_found_at_top_level\" → test_brute_force_triplet_search_collection_not_found_at_top_level",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 162,
+      "passed": false,
+      "resultSize": 190,
+      "error": "No results for typo \"test_burte_force_triplet_search_collection_not_found_at_top_level\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_brute_force_triplet_search_collection_not_found_at_top_level"
+        ]
+      }
+    },
+    {
+      "id": "fz-test_etxract_nodes_and_e",
+      "tool": "search",
+      "description": "typo: \"test_etxract_nodes_and_edges_bulk_passes_custom_instructions_to_extract_edges\" → test_extract_nodes_and_edges_bulk_passes_custom_instructions_to_extract_edges",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 163,
+      "passed": false,
+      "resultSize": 202,
+      "error": "No results for typo \"test_etxract_nodes_and_edges_bulk_passes_custom_instructions_to_extract_edges\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_extract_nodes_and_edges_bulk_passes_custom_instructions_to_extract_edges"
+        ]
+      }
+    },
+    {
+      "id": "fz-tset_generate_docker_com",
+      "tool": "search",
+      "description": "typo: \"tset_generate_docker_compose_removes_lightrag_env_file_to_preserve_dollar_values\" → test_generate_docker_compose_removes_lightrag_env_file_to_preserve_dollar_values",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 162,
+      "passed": false,
+      "resultSize": 205,
+      "error": "No results for typo \"tset_generate_docker_compose_removes_lightrag_env_file_to_preserve_dollar_values\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_generate_docker_compose_removes_lightrag_env_file_to_preserve_dollar_values"
+        ]
+      }
+    },
+    {
+      "id": "fz-test_calculate_top_tripl",
+      "tool": "search",
+      "description": "typo: \"test_calculate_top_triplet_importances_raises_on_misisng_attribute\" → test_calculate_top_triplet_importances_raises_on_missing_attribute",
+      "category": "fuzzy_typo",
+      "difficulty": "hard",
+      "latencyMs": 163,
+      "passed": false,
+      "resultSize": 191,
+      "error": "No results for typo \"test_calculate_top_triplet_importances_raises_on_misisng_attribute\"",
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0,
+        "actualTop5": [],
+        "expectedSymbols": [
+          "test_calculate_top_triplet_importances_raises_on_missing_attribute"
+        ]
+      }
+    },
+    {
+      "id": "adv-empty",
+      "tool": "search",
+      "description": "Empty query",
+      "category": "adversarial",
+      "difficulty": "easy",
+      "latencyMs": 0,
+      "passed": true,
+      "resultSize": 45
+    },
+    {
+      "id": "adv-long",
+      "tool": "search_code",
+      "description": "Very long query",
+      "category": "adversarial",
+      "difficulty": "medium",
+      "latencyMs": 306,
+      "passed": true,
+      "resultSize": 7486
+    },
+    {
+      "id": "adv-special",
+      "tool": "search",
+      "description": "Special chars",
+      "category": "adversarial",
+      "difficulty": "medium",
+      "latencyMs": 161,
+      "passed": true,
+      "resultSize": 161
+    },
+    {
+      "id": "adv-injection",
+      "tool": "search",
+      "description": "Cypher injection",
+      "category": "adversarial",
+      "difficulty": "hard",
+      "latencyMs": 160,
+      "passed": true,
+      "resultSize": 157
+    },
+    {
+      "id": "adv-unicode",
+      "tool": "search",
+      "description": "Unicode",
+      "category": "adversarial",
+      "difficulty": "medium",
+      "latencyMs": 160,
+      "passed": true,
+      "resultSize": 136
+    },
+    {
+      "id": "ctx-file-shared_storage.py",
+      "tool": "get_context",
+      "description": "context file: shared_storage.py",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 5,
+      "passed": true,
+      "resultSize": 28428,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "get_pipeline_status_lock",
+          "get_default_workspace",
+          "set_default_workspace",
+          "finalize_share_data",
+          "get_namespace_lock"
+        ],
+        "expectedSymbols": [
+          "get_pipeline_status_lock"
+        ]
+      }
+    },
+    {
+      "id": "ctx-file-agent_test.py",
+      "tool": "get_context",
+      "description": "context file: agent_test.py",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 4,
+      "passed": true,
+      "resultSize": 18382,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_agent_with_knowledge_sources",
+          "test_agent_execute_task_with_ollama",
+          "test_agent_execute_task_with_custom_llm",
+          "dummy_tool",
+          "test_agent_execute_task_with_tool"
+        ],
+        "expectedSymbols": [
+          "test_agent_with_knowledge_sources"
+        ]
+      }
+    },
+    {
+      "id": "ctx-file-swagger-ui-bundle.js",
+      "tool": "get_context",
+      "description": "context file: swagger-ui-bundle.js",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 575,
+      "passed": true,
+      "resultSize": 1166399,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "render",
+          "updateSpec",
+          "persistConfigs",
+          "SwaggerUI",
+          "config_merge"
+        ],
+        "expectedSymbols": [
+          "render"
+        ]
+      }
+    },
+    {
+      "id": "ctx-file-base.py",
+      "tool": "get_context",
+      "description": "context file: base.py",
+      "category": "get_context",
+      "difficulty": "easy",
+      "latencyMs": 5,
+      "passed": true,
+      "resultSize": 31671,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "reference_list",
+          "metadata",
+          "reference_list",
+          "get_doc_by_file_path",
+          "get_all_status_counts"
+        ],
+        "expectedSymbols": [
+          "reference_list"
+        ]
+      }
+    },
+    {
+      "id": "ctx-sym-test_extract_failure_b",
+      "tool": "get_context",
+      "description": "context symbol: test_extract_failure_before_chunking_preserves_previous_chunk_snapshot",
+      "category": "get_context",
+      "difficulty": "medium",
+      "latencyMs": 46,
+      "passed": true,
+      "resultSize": 292,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_extract_failure_before_chunking_preserves_previous_chunk_snapshot"
+        ],
+        "expectedSymbols": [
+          "test_extract_failure_before_chunking_preserves_previous_chunk_snapshot"
+        ]
+      }
+    },
+    {
+      "id": "ctx-sym-test_brute_force_tripl",
+      "tool": "get_context",
+      "description": "context symbol: test_brute_force_triplet_search_creates_fragment_when_not_provided",
+      "category": "get_context",
+      "difficulty": "medium",
+      "latencyMs": 38,
+      "passed": true,
+      "resultSize": 364,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_brute_force_triplet_search_creates_fragment_when_not_provided"
+        ],
+        "expectedSymbols": [
+          "test_brute_force_triplet_search_creates_fragment_when_not_provided"
+        ]
+      }
+    },
+    {
+      "id": "ctx-sym-test_extract_nodes_and",
+      "tool": "get_context",
+      "description": "context symbol: test_extract_nodes_and_edges_bulk_passes_custom_instructions_to_extract_edges",
+      "category": "get_context",
+      "difficulty": "medium",
+      "latencyMs": 34,
+      "passed": true,
+      "resultSize": 384,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_extract_nodes_and_edges_bulk_passes_custom_instructions_to_extract_edges"
+        ],
+        "expectedSymbols": [
+          "test_extract_nodes_and_edges_bulk_passes_custom_instructions_to_extract_edges"
+        ]
+      }
+    },
+    {
+      "id": "ctx-sym-test_security_check_re",
+      "tool": "get_context",
+      "description": "context symbol: test_security_check_reports_api_key_only_with_explicit_api_wildcard_whitelist",
+      "category": "get_context",
+      "difficulty": "medium",
+      "latencyMs": 31,
+      "passed": true,
+      "resultSize": 422,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_security_check_reports_api_key_only_with_explicit_api_wildcard_whitelist"
+        ],
+        "expectedSymbols": [
+          "test_security_check_reports_api_key_only_with_explicit_api_wildcard_whitelist"
+        ]
+      }
+    },
+    {
+      "id": "imp-called-pass",
+      "tool": "analyze_impact",
+      "description": "impact (has callers): pass",
+      "category": "impact_analysis",
+      "difficulty": "medium",
+      "latencyMs": 10,
+      "passed": true,
+      "resultSize": 1898
+    },
+    {
+      "id": "imp-called-makeQueryClient",
+      "tool": "analyze_impact",
+      "description": "impact (has callers): makeQueryClient",
+      "category": "impact_analysis",
+      "difficulty": "medium",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 691
+    },
+    {
+      "id": "imp-called-getGrammarForExtensi",
+      "tool": "analyze_impact",
+      "description": "impact (has callers): getGrammarForExtension",
+      "category": "impact_analysis",
+      "difficulty": "medium",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 3198
+    },
+    {
+      "id": "imp-test_env_base_flow_prese",
+      "tool": "analyze_impact",
+      "description": "impact: test_env_base_flow_preserves_existing_provider_bindings_on_rerun",
+      "category": "impact_analysis",
+      "difficulty": "easy",
+      "latencyMs": 10,
+      "passed": true,
+      "resultSize": 317
+    },
+    {
+      "id": "imp-test_generate_docker_com",
+      "tool": "analyze_impact",
+      "description": "impact: test_generate_docker_compose_inserts_managed_services_before_top_level_sections",
+      "category": "impact_analysis",
+      "difficulty": "easy",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 332
+    },
+    {
+      "id": "imp-test_generate_completion",
+      "tool": "analyze_impact",
+      "description": "impact: test_generate_completion_with_session_feedback_only_empty_response_to_user_fallback",
+      "category": "impact_analysis",
+      "difficulty": "easy",
+      "latencyMs": 10,
+      "passed": true,
+      "resultSize": 336
+    },
+    {
+      "id": "cx-low",
+      "tool": "get_complexity_report",
+      "description": "Hotspots threshold 5",
+      "category": "complexity",
+      "difficulty": "easy",
+      "latencyMs": 11,
+      "passed": true,
+      "resultSize": 9181
+    },
+    {
+      "id": "cx-high",
+      "tool": "get_complexity_report",
+      "description": "Hotspots threshold 15",
+      "category": "complexity",
+      "difficulty": "medium",
+      "latencyMs": 8,
+      "passed": true,
+      "resultSize": 9181
+    },
+    {
+      "id": "cx-sorted",
+      "tool": "get_complexity_report",
+      "description": "Sorted descending",
+      "category": "complexity",
+      "difficulty": "medium",
+      "latencyMs": 13,
+      "passed": true,
+      "resultSize": 9181
+    },
+    {
+      "id": "xf-calls-query",
+      "tool": "query",
+      "description": "CALLS: testDimensionFl → query",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 429
+    },
+    {
+      "id": "xf-calls-extractUseDecl",
+      "tool": "query",
+      "description": "CALLS: extractImports → extractUseDecl",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 279
+    },
+    {
+      "id": "xf-calls-walk",
+      "tool": "query",
+      "description": "CALLS: calculateCognit → walk",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 411
+    },
+    {
+      "id": "xf-calls-walk",
+      "tool": "query",
+      "description": "CALLS: calculateNestin → walk",
+      "category": "cross_file",
+      "difficulty": "medium",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 411
+    },
+    {
+      "id": "xf-contains-telemetry.py",
+      "tool": "query",
+      "description": "CONTAINS: telemetry.py → operation",
+      "category": "cross_file",
+      "difficulty": "easy",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 725,
+      "topK": {
+        "top1": false,
+        "top3": false,
+        "top5": false,
+        "reciprocalRank": 0.1,
+        "foundAt": 10,
+        "actualTop5": [
+          "test_telemetry_dev_env",
+          "test_telemetry_disabled",
+          "test_telemetry_enabled",
+          "run_tasks_with_telemetry",
+          "capture_event"
+        ],
+        "expectedSymbols": [
+          "operation"
+        ]
+      }
+    },
+    {
+      "id": "xf-contains-test_milvus_index_co",
+      "tool": "query",
+      "description": "CONTAINS: test_milvus_index_config.py → test_get_config_field_names_single_source_of_truth",
+      "category": "cross_file",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 1028,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "test_get_config_field_names_single_source_of_truth",
+          "test_get_config_field_names",
+          "test_all_refine_types_supported",
+          "test_all_sq_types_supported",
+          "test_all_metric_types_supported"
+        ],
+        "expectedSymbols": [
+          "test_get_config_field_names_single_source_of_truth"
+        ]
+      }
+    },
+    {
+      "id": "xf-contains-a2ui.bundle.js",
+      "tool": "query",
+      "description": "CONTAINS: a2ui.bundle.js → render",
+      "category": "cross_file",
+      "difficulty": "easy",
+      "latencyMs": 2,
+      "passed": true,
+      "resultSize": 649,
+      "topK": {
+        "top1": true,
+        "top3": true,
+        "top5": true,
+        "reciprocalRank": 1,
+        "foundAt": 1,
+        "actualTop5": [
+          "render",
+          "#syncSurfaces",
+          "reset",
+          "applyMessages",
+          "#handleA2UIAction"
+        ],
+        "expectedSymbols": [
+          "render"
+        ]
+      }
+    },
+    {
+      "id": "xf-node-types",
+      "tool": "query",
+      "description": "Node type distribution",
+      "category": "cross_file",
+      "difficulty": "easy",
+      "latencyMs": 32,
+      "passed": true,
+      "resultSize": 626
+    },
+    {
+      "id": "mr-projects",
+      "tool": "query",
+      "description": "Count projects",
+      "category": "multi_repo",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 553
+    },
+    {
+      "id": "mr-cross-search",
+      "tool": "search",
+      "description": "Search spans projects",
+      "category": "multi_repo",
+      "difficulty": "medium",
+      "latencyMs": 9,
+      "passed": true,
+      "resultSize": 2863
+    },
+    {
+      "id": "mr-total-files",
+      "tool": "query",
+      "description": "Total files across repos",
+      "category": "multi_repo",
+      "difficulty": "easy",
+      "latencyMs": 1,
+      "passed": true,
+      "resultSize": 190
+    }
+  ]
+}
