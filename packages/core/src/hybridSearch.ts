@@ -694,11 +694,13 @@ async function textSearchNodes(
   const scopeFilter = scope ? 'AND n.filePath STARTS WITH $scope' : '';
 
   // Build OR conditions for each search term:
-  // Match against name (primary) and docstring (secondary)
+  // Match against name (primary), filePath (secondary), and docstring (tertiary)
   const termConditions = terms.map((_, i) => {
     const nameMatch = `toLower(n.name) CONTAINS toLower($term${i})`;
+    const pathMatch = `(n.filePath IS NOT NULL AND toLower(n.filePath) CONTAINS toLower($term${i}))`;
+    const filePathMatch = `(n.path IS NOT NULL AND toLower(n.path) CONTAINS toLower($term${i}))`;
     const docMatch = `(n.docstring IS NOT NULL AND toLower(n.docstring) CONTAINS toLower($term${i}))`;
-    return `(${nameMatch} OR ${docMatch})`;
+    return `(${nameMatch} OR ${pathMatch} OR ${filePathMatch} OR ${docMatch})`;
   });
 
   // Any term matching is sufficient (OR semantics)

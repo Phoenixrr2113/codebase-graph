@@ -31,8 +31,8 @@ const SCHEMA_DESCRIPTION = `
 ## FalkorDB Graph Schema
 
 ### Code Nodes (labels):
-- File: { name, filePath, language, linesOfCode, embedding }
-  - "name" is the filename only (e.g. "auth.ts"), "filePath" is the full path (e.g. "/Users/.../src/auth.ts")
+- File: { name, path, language, linesOfCode, embedding }
+  - "name" is the filename only (e.g. "auth.ts"), "path" is the full path (e.g. "/Users/.../src/auth.ts")
 - Function: { name, filePath, startLine, endLine, signature, docstring, complexity, linesOfCode, isExported, isAsync, embedding }
 - Class: { name, filePath, startLine, endLine, docstring, linesOfCode, isExported, isAbstract, embedding }
 - Interface: { name, filePath, startLine, endLine, docstring, isExported, embedding }
@@ -70,7 +70,7 @@ Find functions by name (fuzzy):
   MATCH (f:Function) WHERE toLower(f.name) CONTAINS toLower('payment') RETURN f.name, f.filePath, f.startLine LIMIT 20
 
 Find what a file contains:
-  MATCH (f:File)-[:CONTAINS]->(c) WHERE toLower(f.filePath) CONTAINS toLower('command-center') RETURN c.name, labels(c) AS type, c.startLine
+  MATCH (f:File)-[:CONTAINS]->(c) WHERE toLower(f.path) CONTAINS toLower('command-center') RETURN c.name, labels(c) AS type, c.startLine
 
 Functions that call a specific function:
   MATCH (caller:Function)-[:CALLS]->(callee:Function) WHERE toLower(callee.name) CONTAINS toLower('validate') RETURN caller.name, caller.filePath, callee.name LIMIT 20
@@ -83,6 +83,12 @@ Find classes implementing an interface:
 
 What does a component render:
   MATCH (c:Component)-[:RENDERS]->(child:Component) WHERE toLower(c.name) CONTAINS toLower('app') RETURN c.name, child.name, child.filePath
+
+Find functions in a specific file:
+  MATCH (f:File)-[:CONTAINS]->(fn:Function) WHERE toLower(f.path) CONTAINS toLower('client.ts') RETURN fn.name, fn.filePath, fn.startLine LIMIT 20
+
+Find all entities (functions, classes) in files matching a path:
+  MATCH (f:File)-[:CONTAINS]->(e) WHERE toLower(f.path) CONTAINS toLower('search') RETURN e.name, labels(e) AS type, f.path, e.startLine LIMIT 30
 `.trim();
 
 export class NLToCypherStrategy implements SearchStrategy {
