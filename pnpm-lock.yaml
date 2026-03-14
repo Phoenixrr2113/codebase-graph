@@ -27,8 +27,8 @@ importers:
         specifier: ^4.19.0
         version: 4.21.0
       turbo:
-        specifier: ^2.7.4
-        version: 2.7.4
+        specifier: ^2.8.17
+        version: 2.8.17
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -411,9 +411,6 @@ importers:
       '@types/node':
         specifier: ^22.12.0
         version: 22.19.7
-      ai:
-        specifier: ^6.0.0
-        version: 6.0.116(zod@4.3.5)
       tsx:
         specifier: ^4.19.2
         version: 4.21.0
@@ -546,6 +543,9 @@ importers:
       tree-sitter-c:
         specifier: ^0.23.0
         version: 0.23.6
+      tree-sitter-clojure:
+        specifier: ^0.1.0
+        version: 0.1.0
       tree-sitter-cpp:
         specifier: ^0.23.0
         version: 0.23.4
@@ -555,21 +555,42 @@ importers:
       tree-sitter-elixir:
         specifier: ^0.3.0
         version: 0.3.5
+      tree-sitter-fsharp:
+        specifier: ^0.1.0
+        version: 0.1.0
+      tree-sitter-groovy:
+        specifier: ^0.1.0
+        version: 0.1.2
       tree-sitter-haskell:
         specifier: ^0.21.0
         version: 0.21.0
       tree-sitter-html:
         specifier: ^0.23.0
         version: 0.23.2
+      tree-sitter-json:
+        specifier: ^0.24.0
+        version: 0.24.8
       tree-sitter-kotlin:
         specifier: ^0.3.0
         version: 0.3.8
+      tree-sitter-objc:
+        specifier: ^3.0.0
+        version: 3.0.2
+      tree-sitter-ocaml:
+        specifier: ^0.23.0
+        version: 0.23.2
       tree-sitter-scala:
         specifier: ^0.22.0
         version: 0.22.1
       tree-sitter-swift:
         specifier: ^0.6.0
         version: 0.6.0
+      tree-sitter-verilog:
+        specifier: ^0.2.0
+        version: 0.2.0
+      tree-sitter-zig:
+        specifier: ^0.1.0
+        version: 0.1.0
     devDependencies:
       typescript:
         specifier: ^5.7.3
@@ -4333,6 +4354,9 @@ packages:
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
+  nan@2.25.0:
+    resolution: {integrity: sha512-0M90Ag7Xn5KMLLZ7zliPWP3rT90P6PN+IzVFS0VqmnPktBk3700xUVv8Ikm9EUaUE5SDWdp/BIxdENzVznpm1g==}
+
   nanoid@3.3.11:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
@@ -4991,6 +5015,9 @@ packages:
     engines: {node: '>=12.0.0'}
     hasBin: true
 
+  tree-sitter-clojure@0.1.0:
+    resolution: {integrity: sha512-oKfFdc0CS/fu919/IiCq3iSmbD4KC6nphJ+R4CGBuIQJ6bV4jebLtgBnH8+MEVkvKzhgcr4qLgtqf69r2SaJlg==}
+
   tree-sitter-cpp@0.23.4:
     resolution: {integrity: sha512-qR5qUDyhZ5jJ6V8/umiBxokRbe89bCGmcq/dk94wI4kN86qfdV8k0GHIUEKaqWgcu42wKal5E97LKpLeVW8sKw==}
     peerDependencies:
@@ -5012,8 +5039,25 @@ packages:
     peerDependencies:
       tree-sitter: ^0.21.0
 
+  tree-sitter-fsharp@0.1.0:
+    resolution: {integrity: sha512-TCK+Jkg3qvEe4o6JxqUlE+vUc9lWhHhD7Toglu5Y04/PKa9DgACzqU5Jp9BYZnyhgGLEe+30kVOyFTY/iC/n1Q==}
+    peerDependencies:
+      tree-sitter: ^0.21.0
+      tree_sitter: '*'
+    peerDependenciesMeta:
+      tree_sitter:
+        optional: true
+
   tree-sitter-go@0.23.4:
     resolution: {integrity: sha512-iQaHEs4yMa/hMo/ZCGqLfG61F0miinULU1fFh+GZreCRtKylFLtvn798ocCZjO2r/ungNZgAY1s1hPFyAwkc7w==}
+    peerDependencies:
+      tree-sitter: ^0.21.1
+    peerDependenciesMeta:
+      tree-sitter:
+        optional: true
+
+  tree-sitter-groovy@0.1.2:
+    resolution: {integrity: sha512-4dDUP3XKMwKfDCkm50EmUGPHblyPw0oXTv2ce0VrVYv8erxntsM3WTThC+vZgYT2yh+rYbbDVLsjvfGnHJQ8aw==}
     peerDependencies:
       tree-sitter: ^0.21.1
     peerDependenciesMeta:
@@ -5037,6 +5081,14 @@ packages:
       tree-sitter:
         optional: true
 
+  tree-sitter-java@0.23.4:
+    resolution: {integrity: sha512-WmqZPzvaHpAcAdJBjwMFwusL+ahp2Liv6T0ASWU7sxGZGceSdP5MpW+2DwLNOiWld39C1WR+9qk99hk4qHK5vw==}
+    peerDependencies:
+      tree-sitter: ^0.21.1
+    peerDependenciesMeta:
+      tree-sitter:
+        optional: true
+
   tree-sitter-java@0.23.5:
     resolution: {integrity: sha512-Yju7oQ0Xx7GcUT01mUglPP+bYfvqjNCGdxqigTnew9nLGoII42PNVP3bHrYeMxswiCRM0yubWmN5qk+zsg0zMA==}
     peerDependencies:
@@ -5053,6 +5105,14 @@ packages:
       tree-sitter:
         optional: true
 
+  tree-sitter-json@0.24.8:
+    resolution: {integrity: sha512-Tc9ZZYwHyWZ3Tt1VEw7Pa2scu1YO7/d2BCBbKTx5hXwig3UfdQjsOPkPyLpDJOn/m1UBEWYAtSdGAwCSyagBqQ==}
+    peerDependencies:
+      tree-sitter: ^0.21.1
+    peerDependenciesMeta:
+      tree-sitter:
+        optional: true
+
   tree-sitter-kotlin@0.3.8:
     resolution: {integrity: sha512-A4obq6bjzmYrA+F0JLLoheFPcofFkctNaZSpnDd+GPn1SfVZLY4/GG4C0cYVBTOShuPBGGAOPLM1JWLZQV4m1g==}
     peerDependencies:
@@ -5060,6 +5120,22 @@ packages:
       tree_sitter: '*'
     peerDependenciesMeta:
       tree_sitter:
+        optional: true
+
+  tree-sitter-objc@3.0.2:
+    resolution: {integrity: sha512-Hs0ohmx1u5M+0K7efoW+dv/corhBsfjftfIYLtp7dSGeJ+Zj4c33tDIboBYLs6qijRlz6wtHFxa0YX+FibLulA==}
+    peerDependencies:
+      tree-sitter: ^0.22.1
+    peerDependenciesMeta:
+      tree-sitter:
+        optional: true
+
+  tree-sitter-ocaml@0.23.2:
+    resolution: {integrity: sha512-8kDA4HZHK3sIjc4bYqlHbSdAopaREUWSBdMxgeHP2250jHAVKd49+LpHEDZT7qOGNtFZTgCVLFUKNfE+/6YqOA==}
+    peerDependencies:
+      tree-sitter: ^0.21.1
+    peerDependenciesMeta:
+      tree-sitter:
         optional: true
 
   tree-sitter-php@0.23.12:
@@ -5113,6 +5189,12 @@ packages:
       tree-sitter:
         optional: true
 
+  tree-sitter-verilog@0.2.0:
+    resolution: {integrity: sha512-pRaMHKsiNe9ytEoh3pnJX5IYlu/Nv0B7SX5h0QIx6jW6fyKzmjfS7Cj/YxxsiVNB2ppakbu7ofq80/4GqTs9XQ==}
+
+  tree-sitter-zig@0.1.0:
+    resolution: {integrity: sha512-Ky5+72K6sYCqCIkYixqCkoRQX/RGk6L/MpQvdDyau9BeB8Cd16SoEDW6nmef4LGVhs0xIhhN2MkZ/62/tPF/tA==}
+
   tree-sitter@0.22.4:
     resolution: {integrity: sha512-usbHZP9/oxNsUY65MQUsduGRqDHQOou1cagUSwjhoSYAmSahjQDAVsh9s+SlZkn8X8+O1FULRGwHu7AFP3kjzg==}
 
@@ -5130,38 +5212,38 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  turbo-darwin-64@2.7.4:
-    resolution: {integrity: sha512-xDR30ltfkSsRfGzABBckvl1nz1cZ3ssTujvdj+TPwOweeDRvZ0e06t5DS0rmRBvyKpgGs42K/EK6Mn2qLlFY9A==}
+  turbo-darwin-64@2.8.17:
+    resolution: {integrity: sha512-ZFkv2hv7zHpAPEXBF6ouRRXshllOavYc+jjcrYyVHvxVTTwJWsBZwJ/gpPzmOKGvkSjsEyDO5V6aqqtZzwVF+Q==}
     cpu: [x64]
     os: [darwin]
 
-  turbo-darwin-arm64@2.7.4:
-    resolution: {integrity: sha512-P7sjqXtOL/+nYWPvcDGWhi8wf8M8mZHHB8XEzw2VX7VJrS8IGHyJHGD1AYfDvhAEcr7pnk3gGifz3/xyhI655w==}
+  turbo-darwin-arm64@2.8.17:
+    resolution: {integrity: sha512-5DXqhQUt24ycEryXDfMNKEkW5TBHs+QmU23a2qxXwwFDaJsWcPo2obEhBxxdEPOv7qmotjad+09RGeWCcJ9JDw==}
     cpu: [arm64]
     os: [darwin]
 
-  turbo-linux-64@2.7.4:
-    resolution: {integrity: sha512-GofFOxRO/IhG8BcPyMSSB3Y2+oKQotsaYbHxL9yD6JPb20/o35eo+zUSyazOtilAwDHnak5dorAJFoFU8MIg2A==}
+  turbo-linux-64@2.8.17:
+    resolution: {integrity: sha512-KLUbz6w7F73D/Ihh51hVagrKR0/CTsPEbRkvXLXvoND014XJ4BCrQUqSxlQ4/hu+nqp1v5WlM85/h3ldeyujuA==}
     cpu: [x64]
     os: [linux]
 
-  turbo-linux-arm64@2.7.4:
-    resolution: {integrity: sha512-+RQKgNjksVPxYAyAgmDV7w/1qj++qca+nSNTAOKGOfJiDtSvRKoci89oftJ6anGs00uamLKVEQ712TI/tfNAIw==}
+  turbo-linux-arm64@2.8.17:
+    resolution: {integrity: sha512-pJK67XcNJH40lTAjFu7s/rUlobgVXyB3A3lDoq+/JccB3hf+SysmkpR4Itlc93s8LEaFAI4mamhFuTV17Z6wOg==}
     cpu: [arm64]
     os: [linux]
 
-  turbo-windows-64@2.7.4:
-    resolution: {integrity: sha512-rfak1+g+ON3czs1mDYsCS4X74ZmK6gOgRQTXjDICtzvR4o61paqtgAYtNPofcVsMWeF4wvCajSeoAkkeAnQ1kg==}
+  turbo-windows-64@2.8.17:
+    resolution: {integrity: sha512-EijeQ6zszDMmGZLP2vT2RXTs/GVi9rM0zv2/G4rNu2SSRSGFapgZdxgW4b5zUYLVaSkzmkpWlGfPfj76SW9yUg==}
     cpu: [x64]
     os: [win32]
 
-  turbo-windows-arm64@2.7.4:
-    resolution: {integrity: sha512-1ZgBNjNRbDu/fPeqXuX9i26x3CJ/Y1gcwUpQ+Vp7kN9Un6RZ9kzs164f/knrjcu5E+szCRexVjRSJay1k5jApA==}
+  turbo-windows-arm64@2.8.17:
+    resolution: {integrity: sha512-crpfeMPkfECd4V1PQ/hMoiyVcOy04+bWedu/if89S15WhOalHZ2BYUi6DOJhZrszY+mTT99OwpOsj4wNfb/GHQ==}
     cpu: [arm64]
     os: [win32]
 
-  turbo@2.7.4:
-    resolution: {integrity: sha512-bkO4AddmDishzJB2ze7aYYPaejMoJVfS0XnaR6RCdXFOY8JGJfQE+l9fKiV7uDPa5Ut44gmOWJL3894CIMeH9g==}
+  turbo@2.8.17:
+    resolution: {integrity: sha512-YwPsNSqU2f/RXU/+Kcb7cPkPZARxom4+me7LKEdN5jsvy2tpfze3zDZ4EiGrJnvOm9Avu9rK0aaYsP7qZ3iz7A==}
     hasBin: true
 
   tw-animate-css@1.3.3:
@@ -5471,13 +5553,6 @@ snapshots:
       '@vercel/oidc': 3.1.0
       zod: 3.25.76
 
-  '@ai-sdk/gateway@3.0.66(zod@4.3.5)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.19(zod@4.3.5)
-      '@vercel/oidc': 3.1.0
-      zod: 4.3.5
-
   '@ai-sdk/openai-compatible@2.0.35(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
@@ -5490,13 +5565,6 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.0.6
       zod: 3.25.76
-
-  '@ai-sdk/provider-utils@4.0.19(zod@4.3.5)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.8
-      '@standard-schema/spec': 1.1.0
-      eventsource-parser: 3.0.6
-      zod: 4.3.5
 
   '@ai-sdk/provider@3.0.8':
     dependencies:
@@ -7893,14 +7961,6 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       zod: 3.25.76
 
-  ai@6.0.116(zod@4.3.5):
-    dependencies:
-      '@ai-sdk/gateway': 3.0.66(zod@4.3.5)
-      '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.19(zod@4.3.5)
-      '@opentelemetry/api': 1.9.0
-      zod: 4.3.5
-
   ajv-formats@3.0.1(ajv@8.17.1):
     optionalDependencies:
       ajv: 8.17.1
@@ -9162,6 +9222,9 @@ snapshots:
 
   ms@2.1.3: {}
 
+  nan@2.25.0:
+    optional: true
+
   nanoid@3.3.11: {}
 
   negotiator@1.0.0: {}
@@ -9985,6 +10048,11 @@ snapshots:
   tree-sitter-cli@0.23.2:
     optional: true
 
+  tree-sitter-clojure@0.1.0:
+    dependencies:
+      nan: 2.25.0
+    optional: true
+
   tree-sitter-cpp@0.23.4:
     dependencies:
       node-addon-api: 8.5.0
@@ -10004,12 +10072,25 @@ snapshots:
       node-gyp-build: 4.8.4
     optional: true
 
+  tree-sitter-fsharp@0.1.0:
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+    optional: true
+
   tree-sitter-go@0.23.4(tree-sitter@0.22.4):
     dependencies:
       node-addon-api: 8.5.0
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.22.4
+
+  tree-sitter-groovy@0.1.2:
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+      tree-sitter-java: 0.23.4
+    optional: true
 
   tree-sitter-haskell@0.21.0:
     dependencies:
@@ -10018,6 +10099,12 @@ snapshots:
     optional: true
 
   tree-sitter-html@0.23.2:
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+    optional: true
+
+  tree-sitter-java@0.23.4:
     dependencies:
       node-addon-api: 8.5.0
       node-gyp-build: 4.8.4
@@ -10037,9 +10124,28 @@ snapshots:
     optionalDependencies:
       tree-sitter: 0.22.4
 
+  tree-sitter-json@0.24.8:
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+    optional: true
+
   tree-sitter-kotlin@0.3.8:
     dependencies:
       node-addon-api: 7.1.1
+      node-gyp-build: 4.8.4
+    optional: true
+
+  tree-sitter-objc@3.0.2:
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+      tree-sitter-c: 0.23.6
+    optional: true
+
+  tree-sitter-ocaml@0.23.2:
+    dependencies:
+      node-addon-api: 8.5.0
       node-gyp-build: 4.8.4
     optional: true
 
@@ -10085,6 +10191,16 @@ snapshots:
     optionalDependencies:
       tree-sitter: 0.22.4
 
+  tree-sitter-verilog@0.2.0:
+    dependencies:
+      nan: 2.25.0
+    optional: true
+
+  tree-sitter-zig@0.1.0:
+    dependencies:
+      nan: 2.25.0
+    optional: true
+
   tree-sitter@0.22.4:
     dependencies:
       node-addon-api: 8.5.0
@@ -10103,32 +10219,32 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
-  turbo-darwin-64@2.7.4:
+  turbo-darwin-64@2.8.17:
     optional: true
 
-  turbo-darwin-arm64@2.7.4:
+  turbo-darwin-arm64@2.8.17:
     optional: true
 
-  turbo-linux-64@2.7.4:
+  turbo-linux-64@2.8.17:
     optional: true
 
-  turbo-linux-arm64@2.7.4:
+  turbo-linux-arm64@2.8.17:
     optional: true
 
-  turbo-windows-64@2.7.4:
+  turbo-windows-64@2.8.17:
     optional: true
 
-  turbo-windows-arm64@2.7.4:
+  turbo-windows-arm64@2.8.17:
     optional: true
 
-  turbo@2.7.4:
+  turbo@2.8.17:
     optionalDependencies:
-      turbo-darwin-64: 2.7.4
-      turbo-darwin-arm64: 2.7.4
-      turbo-linux-64: 2.7.4
-      turbo-linux-arm64: 2.7.4
-      turbo-windows-64: 2.7.4
-      turbo-windows-arm64: 2.7.4
+      turbo-darwin-64: 2.8.17
+      turbo-darwin-arm64: 2.8.17
+      turbo-linux-64: 2.8.17
+      turbo-linux-arm64: 2.8.17
+      turbo-windows-64: 2.8.17
+      turbo-windows-arm64: 2.8.17
 
   tw-animate-css@1.3.3: {}
 
