@@ -11,64 +11,15 @@ import type {
   VariableEntity,
   ImportEntity,
   TypeEntity,
-  InheritanceReference,
   CallReference,
-  ExtractedEntities,
   SyntaxNode,
 } from '@codegraph/types';
-
-// ============================================================================
-// Grammar Export
-// ============================================================================
+import { findNodesOfType, generateEntityId } from '@codegraph/plugin-common';
+import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 /** Get the tree-sitter grammar for C# */
 export function getGrammar(): unknown {
   return CSharp;
-}
-
-/** Extension to grammar mapping */
-const extensionToGrammar: Record<string, unknown> = {
-  '.cs': CSharp,
-};
-
-/** Get the tree-sitter grammar for a file extension */
-export function getGrammarForExtension(ext: string): unknown | undefined {
-  const normalizedExt = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
-  return extensionToGrammar[normalizedExt];
-}
-
-/** Get all supported extensions */
-export function getSupportedExtensions(): string[] {
-  return Object.keys(extensionToGrammar);
-}
-
-/** Check if an extension is supported */
-export function isSupported(ext: string): boolean {
-  return getGrammarForExtension(ext) !== undefined;
-}
-
-// ============================================================================
-// AST Utilities
-// ============================================================================
-
-function findNodesOfType(root: SyntaxNode, types: string[]): SyntaxNode[] {
-  const results: SyntaxNode[] = [];
-
-  function visit(node: SyntaxNode) {
-    if (types.includes(node.type)) {
-      results.push(node);
-    }
-    for (const child of node.children) {
-      visit(child);
-    }
-  }
-
-  visit(root);
-  return results;
-}
-
-function generateEntityId(filePath: string, type: string, name: string, line: number): string {
-  return `${filePath}:${type}:${name}:${line}`;
 }
 
 /**
@@ -580,59 +531,6 @@ function extractXmlDocComment(node: SyntaxNode): string | undefined {
 }
 
 // ============================================================================
-// Inheritance Extraction
-// ============================================================================
-
-/**
- * Extract inheritance relationships from C# classes and interfaces
- * Returns InheritanceReference[] for EXTENDS/IMPLEMENTS edges
- */
-export function extractInheritance(root: SyntaxNode, filePath: string): InheritanceReference[] {
-  const refs: InheritanceReference[] = [];
-
-  const classes = extractClasses(root, filePath);
-  const interfaces = extractInterfaces(root, filePath);
-
-  // Class inheritance
-  for (const cls of classes) {
-    if (cls.extends) {
-      refs.push({
-        childName: cls.name,
-        parentName: cls.extends,
-        type: 'extends',
-        filePath,
-      });
-    }
-    if (cls.implements) {
-      for (const iface of cls.implements) {
-        refs.push({
-          childName: cls.name,
-          parentName: iface,
-          type: 'implements',
-          filePath,
-        });
-      }
-    }
-  }
-
-  // Interface extension
-  for (const iface of interfaces) {
-    if (iface.extends) {
-      for (const parent of iface.extends) {
-        refs.push({
-          childName: iface.name,
-          parentName: parent,
-          type: 'extends',
-          filePath,
-        });
-      }
-    }
-  }
-
-  return refs;
-}
-
-// ============================================================================
 // Call Extraction
 // ============================================================================
 
@@ -726,25 +624,6 @@ export function extractCalls(root: SyntaxNode, filePath: string): CallReference[
 }
 
 // ============================================================================
-// Extract All Entities (Single Pass)
-// ============================================================================
-
-/**
- * Extract all entities from a C# file in a single pass
- */
-export function extractAllEntities(root: SyntaxNode, filePath: string): ExtractedEntities {
-  return {
-    functions: extractFunctions(root, filePath),
-    classes: extractClasses(root, filePath),
-    interfaces: extractInterfaces(root, filePath),
-    variables: extractVariables(root, filePath),
-    imports: extractImports(root, filePath),
-    types: extractTypes(root, filePath),
-    components: [], // Not applicable for C#
-  };
-}
-
-// ============================================================================
 // Namespace Resolution (Placeholder for future)
 // ============================================================================
 
@@ -764,23 +643,34 @@ export function resolveCSharpImport(
 }
 
 // ============================================================================
-// Plugin Export
+// Plugin Export (via generic factory)
 // ============================================================================
 
-export const csharpPlugin = {
+export const csharpPlugin = createLanguagePlugin({
   id: 'csharp',
   displayName: 'C#',
   extensions: ['.cs'],
-  getGrammar,
-  extractors: {
+  grammar: CSharp,
+  nodeTypes: {
+    functions: ['method_declaration', 'constructor_declaration'],
+    classes: ['class_declaration', 'struct_declaration', 'record_declaration'],
+    interfaces: ['interface_declaration'],
+    variables: ['field_declaration', 'property_declaration'],
+    imports: ['using_directive'],
+    calls: ['invocation_expression'],
+  },
+  overrides: {
     extractFunctions,
     extractClasses,
     extractInterfaces,
     extractVariables,
     extractImports,
     extractTypes,
-    extractInheritance,
+    // extractInheritance — uses generic (derives from ClassEntity.extends/implements + InterfaceEntity.extends)
     extractCalls,
   },
-  extractAllEntities,
-};
+});
+
+// Re-export all extractors for backward compatibility
+export const extractAllEntities = csharpPlugin.extractAllEntities;
+export const extractInheritance = csharpPlugin.extractors.extractInheritance;

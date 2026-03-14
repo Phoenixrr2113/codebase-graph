@@ -1,20 +1,17 @@
 /**
  * Tree-sitter Parser for Multiple Languages
  * Uses native tree-sitter Node.js bindings for maximum performance
- * Grammars are provided by language plugins
+ *
+ * Grammars are resolved dynamically from the language registry.
+ * No hardcoded language imports — adding a language requires only
+ * registering a plugin with the registry.
  */
 
 import TreeSitter from 'tree-sitter';
-import { grammars as tsGrammars } from '@codegraph/plugin-typescript';
-import { getGrammar as getPythonGrammar } from '@codegraph/plugin-python';
-import { getGrammar as getCSharpGrammar } from '@codegraph/plugin-csharp';
-import { getGrammar as getJavaGrammar } from '@codegraph/plugin-java';
-import { getGrammar as getGoGrammar } from '@codegraph/plugin-go';
-import { getGrammar as getRustGrammar } from '@codegraph/plugin-rust';
-import { getGrammar as getPhpGrammar } from '@codegraph/plugin-php';
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
-import { withTrace, createLogger } from '@codegraph/logger';
+import { withTrace, createLogger, toErrorMessage } from '@codegraph/logger';
+import { languageRegistry } from './registry';
 
 const logger = createLogger({ namespace: 'Parser' });
 
@@ -22,8 +19,13 @@ const logger = createLogger({ namespace: 'Parser' });
 // Types
 // ============================================================================
 
-/** Supported language types */
-export type LanguageType = 'typescript' | 'tsx' | 'javascript' | 'jsx' | 'python' | 'csharp' | 'java' | 'go' | 'rust' | 'php';
+/**
+ * Language identifier string.
+ * No longer a fixed union — any registered plugin ID is valid.
+ * Common values: 'typescript', 'tsx', 'javascript', 'jsx', 'python',
+ * 'csharp', 'java', 'go', 'rust', 'php', etc.
+ */
+export type LanguageType = string;
 
 /** Syntax tree wrapper with metadata */
 export interface SyntaxTree {
@@ -39,49 +41,55 @@ export interface SyntaxTree {
   filePath?: string;
 }
 
-/** File extension to language mapping */
-const EXTENSION_MAP: Record<string, LanguageType> = {
-  // TypeScript/JavaScript
-  '.ts': 'typescript',
-  '.tsx': 'tsx',
-  '.js': 'javascript',
-  '.jsx': 'jsx',
-  '.mts': 'typescript',
-  '.cts': 'typescript',
-  '.mjs': 'javascript',
-  '.cjs': 'javascript',
-  // Python
-  '.py': 'python',
-  '.pyw': 'python',
-  '.pyi': 'python',
-  // C#
-  '.cs': 'csharp',
-  // Java
-  '.java': 'java',
-  // Go
-  '.go': 'go',
-  // Rust
-  '.rs': 'rust',
-  // PHP
-  '.php': 'php',
-};
-
 // ============================================================================
 // Parser State (Module-level singleton)
 // ============================================================================
 
 const parser = new TreeSitter();
 
-// Get grammars from language plugins
-const { typescript: tsLanguage, tsx: tsxLanguage } = tsGrammars;
-const pythonLanguage = getPythonGrammar();
-const csharpLanguage = getCSharpGrammar();
-const javaLanguage = getJavaGrammar();
-const goLanguage = getGoGrammar();
-const rustLanguage = getRustGrammar();
-const phpLanguage = getPhpGrammar();
+/** Cache grammars by extension to avoid repeated plugin lookups */
+const grammarCache = new Map<string, unknown>();
 
 let initialized = false;
+
+// ============================================================================
+// Internal Helpers
+// ============================================================================
+
+/**
+ * Get the tree-sitter grammar for a file extension from the registry.
+ * Uses plugin.getGrammarForExtension() if available (e.g., TypeScript
+ * needs different grammars for .ts vs .tsx), otherwise falls back
+ * to plugin.getGrammar().
+ */
+function resolveGrammar(ext: string): unknown | undefined {
+  const normalizedExt = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
+
+  if (grammarCache.has(normalizedExt)) {
+    return grammarCache.get(normalizedExt);
+  }
+
+  const plugin = languageRegistry.getForExtension(normalizedExt);
+  if (!plugin) return undefined;
+
+  const grammar = plugin.getGrammarForExtension
+    ? plugin.getGrammarForExtension(normalizedExt)
+    : plugin.getGrammar();
+
+  if (grammar) {
+    grammarCache.set(normalizedExt, grammar);
+  }
+
+  return grammar;
+}
+
+/**
+ * Resolve a language ID for a file extension from the registry.
+ */
+function resolveLanguageId(ext: string): string | undefined {
+  const normalizedExt = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
+  return languageRegistry.getForExtension(normalizedExt)?.id;
+}
 
 // ============================================================================
 // Public API
@@ -113,50 +121,62 @@ export function isInitialized(): boolean {
 
 /**
  * Get the language for a file extension.
+ * Queries the language registry dynamically.
  */
 export function getLanguageForExtension(ext: string): LanguageType | undefined {
-  return EXTENSION_MAP[ext.toLowerCase()];
+  return resolveLanguageId(ext);
 }
 
 /**
  * Parse source code string.
- * 
+ *
  * @param code - Source code to parse
- * @param language - LanguageType of the source code
+ * @param language - Language ID (plugin ID from the registry, e.g., 'python', 'typescript')
+ * @param ext - Optional file extension to resolve the correct grammar variant
+ *              (e.g., '.tsx' to select TSX grammar from the TypeScript plugin)
  * @returns Parsed syntax tree
- * @throws Error if parser not initialized or parsing fails
+ * @throws Error if parser not initialized or language not registered
  */
-export function parseCode(code: string, language: LanguageType): SyntaxTree {
+export function parseCode(code: string, language: LanguageType, ext?: string): SyntaxTree {
   if (!initialized) {
     // Auto-initialize for convenience
     initialized = true;
   }
 
-  // Select the appropriate language grammar
-  let lang: unknown;
-  
-  if (language === 'python') {
-    lang = pythonLanguage;
-  } else if (language === 'csharp') {
-    lang = csharpLanguage;
-  } else if (language === 'java') {
-    lang = javaLanguage;
-  } else if (language === 'go') {
-    lang = goLanguage;
-  } else if (language === 'rust') {
-    lang = rustLanguage;
-  } else if (language === 'php') {
-    lang = phpLanguage;
-  } else if (language === 'tsx' || language === 'jsx') {
-    lang = tsxLanguage;
-  } else {
-    // TypeScript grammar handles both TS and JS
-    lang = tsLanguage;
+  // Resolve grammar — prefer extension-specific grammar if ext is provided
+  let grammar: unknown;
+
+  if (ext) {
+    grammar = resolveGrammar(ext);
+  }
+
+  if (!grammar) {
+    // Fall back to looking up by language ID
+    const plugin = languageRegistry.getById(language);
+    if (plugin) {
+      grammar = plugin.getGrammar();
+    }
+  }
+
+  // Backward compatibility: if language looks like a filename (e.g. 'test.ts'),
+  // extract the extension and try to resolve the grammar from it.
+  if (!grammar && language.includes('.')) {
+    const dotIdx = language.lastIndexOf('.');
+    const inferredExt = language.slice(dotIdx);
+    grammar = resolveGrammar(inferredExt);
+  }
+
+  if (!grammar) {
+    const registered = languageRegistry.getRegisteredPlugins().map(p => p.id).join(', ');
+    throw new Error(
+      `No grammar found for language '${language}'${ext ? ` (ext: ${ext})` : ''}. ` +
+      `Registered languages: ${registered || 'none — call registerPlugins() first'}`,
+    );
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  parser.setLanguage(lang as any);
-  
+  parser.setLanguage(grammar as any);
+
   const tree = parser.parse(code);
 
   return {
@@ -169,7 +189,7 @@ export function parseCode(code: string, language: LanguageType): SyntaxTree {
 
 /**
  * Parse a file from disk.
- * 
+ *
  * @param filePath - Path to the file to parse
  * @returns Parsed syntax tree
  * @throws Error if file cannot be read, extension not supported, or parsing fails
@@ -184,12 +204,13 @@ export async function parseFile(filePath: string): Promise<SyntaxTree> {
     const language = getLanguageForExtension(ext);
 
     if (!language) {
-      throw new Error(`Unsupported file extension: ${ext}. Supported: ${Object.keys(EXTENSION_MAP).join(', ')}`);
+      const supported = languageRegistry.getSupportedExtensions().join(', ');
+      throw new Error(`Unsupported file extension: ${ext}. Supported: ${supported || 'none — call registerPlugins() first'}`);
     }
 
     const code = await readFile(filePath, 'utf-8');
 
-    const syntaxTree = parseCode(code, language);
+    const syntaxTree = parseCode(code, language, ext);
     syntaxTree.filePath = filePath;
 
     return syntaxTree;
@@ -198,7 +219,7 @@ export async function parseFile(filePath: string): Promise<SyntaxTree> {
 
 /**
  * Parse multiple files.
- * 
+ *
  * @param filePaths - Paths to files to parse
  * @returns Array of parsed syntax trees (or errors)
  */
@@ -220,7 +241,7 @@ export async function parseFiles(
       } catch (error) {
         results.push({
           filePath,
-          error: error instanceof Error ? error.message : String(error),
+          error: toErrorMessage(error),
         });
       }
     }
@@ -231,8 +252,9 @@ export async function parseFiles(
 
 /**
  * Clean up parser resources.
- * For native bindings, this resets the initialized flag.
+ * For native bindings, this resets the initialized flag and grammar cache.
  */
 export function disposeParser(): void {
   initialized = false;
+  grammarCache.clear();
 }

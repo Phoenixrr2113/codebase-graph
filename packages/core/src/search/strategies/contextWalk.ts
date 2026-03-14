@@ -11,8 +11,8 @@
  * - "What components depend on the AuthService?"
  */
 
-import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, type LanguageModel } from 'ai';
-import { createLogger } from '@codegraph/logger';
+import { generateText, Output, type LanguageModel } from 'ai';
+import { createLogger, toErrorMessage } from '@codegraph/logger';
 import { ContextWalkStepSchema, type ContextWalkStep, withRetry } from '@codegraph/plugin-nlp';
 import type {
   SearchStrategy,
@@ -23,11 +23,7 @@ import type {
   SearchRelatedItem,
 } from '../types';
 import { hybridSearch, type HybridSearchOptions, type HybridSearchResult } from '../../hybridSearch';
-
-/** Check if an error is a structured output generation failure */
-function isNoOutputError(error: unknown): boolean {
-  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
-}
+import { isNoOutputError } from './utils';
 
 const logger = createLogger({ namespace: 'core:search:context-walk' });
 
@@ -288,7 +284,7 @@ Related: handleRequest --[CALLS]--> validateInput, handleRequest --[CALLS]--> sa
           300,
         );
       } catch (roundError) {
-        const msg = roundError instanceof Error ? roundError.message : String(roundError);
+        const msg = toErrorMessage(roundError);
         logger.warn(`CONTEXT_WALK round ${round}: LLM failed (${msg}), skipping`);
         state.walkHistory.push(`Round ${round}: LLM error (${msg}), skipped`);
         state.staleRounds++;

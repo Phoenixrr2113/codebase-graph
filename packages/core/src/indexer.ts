@@ -19,10 +19,11 @@ import {
   createFileEntityFromContent,
   extractEntitiesForFile,
   buildParsedFileEntities,
+  registerPlugins,
   countEntities,
   countEdges,
   isMarkdownFile,
-  SUPPORTED_EXTENSIONS,
+  getSupportedExtensions,
   DEFAULT_IGNORE_PATTERNS,
 } from './pipeline';
 import { parseMarkdownContent } from '@codegraph/plugin-markdown';
@@ -122,11 +123,12 @@ export async function indexProject(
       };
     }
 
-    // Initialize parser
+    // Register language plugins + initialize parser
+    registerPlugins();
     await initParser();
 
     // Discover source files
-    const patterns = options.includePatterns ?? SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
+    const patterns = options.includePatterns ?? getSupportedExtensions().map(ext => `**/*${ext}`);
     const ignoreList = [...DEFAULT_IGNORE_PATTERNS, ...(options.ignorePatterns ?? [])];
     const files = await glob(patterns, {
       cwd: rootPath,
@@ -269,7 +271,7 @@ export async function indexProject(
           if (!language) {
             throw new Error(`Unsupported extension: ${ext}`);
           }
-          const syntaxTree = parseCode(file.content, language);
+          const syntaxTree = parseCode(file.content, language, ext);
           syntaxTree.filePath = file.path;
 
           const extracted = extractEntitiesForFile(syntaxTree.rootNode, file.path);
@@ -471,12 +473,17 @@ export async function indexProject(
 
 /**
  * Re-index a single file in the graph.
+ *
+ * When `deferEmbeddings` is true, the graph structure is updated immediately
+ * (fast path, <500ms) and embeddings are generated in the background (slow path).
+ * This enables responsive real-time indexing during file watching.
  */
 export async function indexSingleFile(
   filePath: string,
   projectRoot?: string,
   client?: GraphClient,
   embeddingConfig?: EmbeddingConfig | false,
+  options?: { deferEmbeddings?: boolean },
 ): Promise<{ success: boolean; entities: number; edges: number; embedded?: number; error?: string }> {
   try {
     const graphClient = client ?? await getGraphClient();
@@ -493,6 +500,8 @@ export async function indexSingleFile(
       return { success: true, entities: entityCount, edges: edgeCount };
     }
 
+    // Register language plugins + initialize parser
+    registerPlugins();
     await initParser();
 
     // Read file once, reuse for parsing and entity creation
@@ -514,14 +523,25 @@ export async function indexSingleFile(
 
     await ops.batchUpsert(parsed);
 
-    // Embedding pass
+    // Embedding pass — deferred (background) or blocking
     let embedded = 0;
     if (embeddingConfig !== false) {
-      try {
-        const embedResult = await embedParsedEntities(parsed, ops, embeddingConfig ?? undefined);
-        embedded = embedResult.embedded;
-      } catch {
-        // Non-fatal
+      if (options?.deferEmbeddings) {
+        // Fire-and-forget: graph structure is searchable immediately
+        embedParsedEntities(parsed, ops, embeddingConfig ?? undefined)
+          .then(result => {
+            logger.debug('Deferred embeddings complete', { filePath, embedded: result.embedded });
+          })
+          .catch(err => {
+            logger.warn('Deferred embedding failed', { filePath, error: err instanceof Error ? err.message : String(err) });
+          });
+      } else {
+        try {
+          const embedResult = await embedParsedEntities(parsed, ops, embeddingConfig ?? undefined);
+          embedded = embedResult.embedded;
+        } catch {
+          // Non-fatal
+        }
       }
     }
 

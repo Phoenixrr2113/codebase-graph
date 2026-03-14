@@ -19,6 +19,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@codegraph/plugin-common": "workspace:*",
+    "@codegraph/plugin-generic": "workspace:*",
     "@codegraph/types": "workspace:*",
     "@codegraph/logger": "workspace:*",
     "tree-sitter": "^0.22.4",

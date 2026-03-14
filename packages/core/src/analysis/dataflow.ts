@@ -6,6 +6,7 @@
 
 import Parser from 'tree-sitter';
 import { getSecurityRules } from './rules/rule-loader';
+import { walkNode, getMethodName, getPropertyName } from './ast-utils';
 
 // ============================================================================
 // Types
@@ -181,19 +182,6 @@ export function analyzeDataflow(
     paths,
     vulnerabilities,
   };
-}
-
-/**
- * Walk AST nodes recursively
- */
-function walkNode(
-  node: Parser.SyntaxNode,
-  visitor: (node: Parser.SyntaxNode) => void
-): void {
-  visitor(node);
-  for (const child of node.children) {
-    walkNode(child, visitor);
-  }
 }
 
 /**
@@ -426,26 +414,6 @@ function findSanitizersInPath(_sourceVar: string, sinkArg: string): string[] {
     }
   }
   return found;
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * Extract method name from call expression text
- */
-function getMethodName(text: string): string {
-  const parts = text.split('.');
-  return parts[parts.length - 1] || text;
-}
-
-/**
- * Extract property name from member expression
- */
-function getPropertyName(text: string): string {
-  const parts = text.split('.');
-  return parts[parts.length - 1] || text;
 }
 
 // ============================================================================

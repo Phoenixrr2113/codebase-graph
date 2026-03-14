@@ -38,7 +38,7 @@
  *   const complex = await getLLMComplexModel(); // Same provider or GLM fallback
  */
 
-import { createLogger } from '@codegraph/logger';
+import { createLogger, toErrorMessage } from '@codegraph/logger';
 import type { LanguageModel } from 'ai';
 
 const logger = createLogger({ namespace: 'nlp:llm' });
@@ -454,7 +454,7 @@ export async function warmupLLM(): Promise<void> {
       logger.info(`LLM default model warmed up`);
     }
   } catch (err) {
-    logger.warn(`LLM warmup (default) failed: ${err instanceof Error ? err.message : err}`);
+    logger.warn(`LLM warmup (default) failed: ${toErrorMessage(err)}`);
   }
 
   try {
@@ -465,7 +465,7 @@ export async function warmupLLM(): Promise<void> {
       logger.info(`LLM complex model warmed up (provider=${cp}, model=${cm})`);
     }
   } catch (err) {
-    logger.warn(`LLM warmup (complex) failed: ${err instanceof Error ? err.message : err}`);
+    logger.warn(`LLM warmup (complex) failed: ${toErrorMessage(err)}`);
   }
 
   const ms = (performance.now() - start).toFixed(0);

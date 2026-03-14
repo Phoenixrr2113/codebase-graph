@@ -14,7 +14,7 @@
 
 import { knowledgeService, getKnowledgeOps } from '@codegraph/core';
 import { generateEmbedding, isEmbeddingAvailable } from '@codegraph/plugin-nlp';
-import { createLogger } from '@codegraph/logger';
+import { createLogger, toErrorMessage } from '@codegraph/logger';
 import type { ToolDefinition } from './consolidated';
 
 const logger = createLogger({ namespace: 'MCP:Knowledge' });
@@ -265,7 +265,7 @@ export async function handleStoreEntity(args: Record<string, unknown>) {
     return { stored: true, ...result };
   } catch (error) {
     logger.error('store_entity failed', error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
+    return { error: toErrorMessage(error) };
   }
 }
 
@@ -281,7 +281,7 @@ export async function handleStoreRelationship(args: Record<string, unknown>) {
     );
   } catch (error) {
     logger.error('store_relationship failed', error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
+    return { error: toErrorMessage(error) };
   }
 }
 
@@ -293,7 +293,7 @@ export async function handleStoreFact(args: Record<string, unknown>) {
     if (args.model != null) opts.model = args.model as string;
     return await knowledgeService.storeFact(args.text as string, extractAndStore, opts);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
+    const msg = toErrorMessage(error);
     if (msg.includes('OPENROUTER_API_KEY') || msg.includes('API key')) {
       return { error: 'OPENROUTER_API_KEY environment variable is not set. Set it to use LLM extraction.' };
     }
@@ -381,7 +381,7 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
     };
   } catch (error) {
     logger.error('query_knowledge failed', error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
+    return { error: toErrorMessage(error) };
   }
 }
 
@@ -395,7 +395,7 @@ export async function handleRecall(args: Record<string, unknown>) {
     return await knowledgeService.recall(args.text as string, opts);
   } catch (error) {
     logger.error('recall failed', error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
+    return { error: toErrorMessage(error) };
   }
 }
 
@@ -412,7 +412,7 @@ export async function handleDecayAndPrune(args: Record<string, unknown>) {
     };
   } catch (error) {
     logger.error('decay_and_prune failed', error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
+    return { error: toErrorMessage(error) };
   }
 }
 
@@ -441,7 +441,7 @@ export async function handleIngestConversation(args: Record<string, unknown>): P
 
     return await knowledgeService.ingestConversation(text, ingestFn, opts);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
+    const msg = toErrorMessage(error);
     if (msg.includes('OPENROUTER_API_KEY') || msg.includes('API key')) {
       return { error: 'OPENROUTER_API_KEY environment variable is not set. Set it to use LLM extraction.' };
     }
@@ -455,7 +455,7 @@ export async function handleGetKnowledgeStats() {
     return await knowledgeService.getKnowledgeStats();
   } catch (error) {
     logger.error('get_knowledge_stats failed', error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
+    return { error: toErrorMessage(error) };
   }
 }
 

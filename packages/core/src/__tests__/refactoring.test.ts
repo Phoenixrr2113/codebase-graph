@@ -163,24 +163,28 @@ describe('Refactoring Analysis', () => {
   });
 
   describe('Cypher Query Generators', () => {
-    it('should generate extraction candidates query', () => {
-      const query = getExtractionCandidatesQuery('src/utils.ts');
+    it('should generate extraction candidates query with parameterized filePath', () => {
+      const { cypher, params } = getExtractionCandidatesQuery('src/utils.ts');
 
-      expect(query).toContain('MATCH');
-      expect(query).toContain('File');
-      expect(query).toContain('src/utils.ts');
-      expect(query).toContain('internalCalls');
-      expect(query).toContain('stateReads');
-      expect(query).toContain('ORDER BY couplingScore');
+      expect(cypher).toContain('MATCH');
+      expect(cypher).toContain('File');
+      expect(cypher).toContain('$filePath');
+      expect(cypher).not.toContain('"src/utils.ts"');
+      expect(cypher).toContain('internalCalls');
+      expect(cypher).toContain('stateReads');
+      expect(cypher).toContain('ORDER BY couplingScore');
+      expect(params).toEqual({ filePath: 'src/utils.ts' });
     });
 
-    it('should generate internal calls query', () => {
-      const query = getInternalCallsQuery('src/module.ts');
+    it('should generate internal calls query with parameterized filePath', () => {
+      const { cypher, params } = getInternalCallsQuery('src/module.ts');
 
-      expect(query).toContain(':CALLS');
-      expect(query).toContain('src/module.ts');
-      expect(query).toContain('caller');
-      expect(query).toContain('callee');
+      expect(cypher).toContain(':CALLS');
+      expect(cypher).toContain('$filePath');
+      expect(cypher).not.toContain('"src/module.ts"');
+      expect(cypher).toContain('caller');
+      expect(cypher).toContain('callee');
+      expect(params).toEqual({ filePath: 'src/module.ts' });
     });
   });
 

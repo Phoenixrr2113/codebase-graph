@@ -30,11 +30,17 @@ export interface SyntaxNode {
   endIndex: number;
   parent: SyntaxNode | null;
   children: SyntaxNode[];
+  namedChildren: SyntaxNode[];
   childCount: number;
+  namedChildCount: number;
   firstChild: SyntaxNode | null;
   lastChild: SyntaxNode | null;
+  firstNamedChild: SyntaxNode | null;
+  lastNamedChild: SyntaxNode | null;
   nextSibling: SyntaxNode | null;
   previousSibling: SyntaxNode | null;
+  nextNamedSibling: SyntaxNode | null;
+  previousNamedSibling: SyntaxNode | null;
   childForFieldName(fieldName: string): SyntaxNode | null;
   descendantsOfType(type: string | string[]): SyntaxNode[];
 }
@@ -139,11 +145,19 @@ export interface LanguagePlugin {
   /** File extensions this plugin handles (e.g., ['.ts', '.tsx']) */
   extensions: string[];
 
-  /** 
-   * Get the tree-sitter grammar for this language.
+  /**
+   * Get the default tree-sitter grammar for this language.
    * Returns the language module that can be passed to parser.setLanguage()
    */
   getGrammar(): unknown;
+
+  /**
+   * Optional: Get the grammar for a specific file extension.
+   * Used by languages like TypeScript that need separate grammars for
+   * different extensions (e.g., TS vs TSX).
+   * Falls back to getGrammar() if not implemented.
+   */
+  getGrammarForExtension?(ext: string): unknown;
 
   /** Entity extractors for this language */
   extractors: EntityExtractors;

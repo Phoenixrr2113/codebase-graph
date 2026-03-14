@@ -10,8 +10,8 @@
  * - "What decisions were made about the database?"
  */
 
-import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, type LanguageModel } from 'ai';
-import { createLogger } from '@codegraph/logger';
+import { generateText, Output, type LanguageModel } from 'ai';
+import { createLogger, toErrorMessage } from '@codegraph/logger';
 import { GraphAnswerSchema, type GraphAnswer, withRetry } from '@codegraph/plugin-nlp';
 import type {
   SearchStrategy,
@@ -21,11 +21,7 @@ import type {
   SearchResultItem,
 } from '../types';
 import { hybridSearch, type HybridSearchOptions } from '../../hybridSearch';
-
-/** Check if an error is a structured output generation failure */
-function isNoOutputError(error: unknown): boolean {
-  return NoOutputGeneratedError.isInstance(error) || NoObjectGeneratedError.isInstance(error);
-}
+import { isNoOutputError } from './utils';
 
 const logger = createLogger({ namespace: 'core:search:graph-answer' });
 
@@ -126,7 +122,7 @@ export class GraphAnswerStrategy implements SearchStrategy {
 
         // For other errors (API failures, rate limits, auth), try fallback
         if (!isLastModel) {
-          const msg = error instanceof Error ? error.message : String(error);
+          const msg = toErrorMessage(error);
           logger.warn(`GRAPH_ANSWER: Model failed (${msg}), trying fallback model`);
           continue;
         }

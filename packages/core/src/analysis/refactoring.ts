@@ -279,9 +279,10 @@ function depthFirstSearch(
 /**
  * Generate Cypher query to get extraction candidates for a file
  */
-export function getExtractionCandidatesQuery(filePath: string): string {
-  return `
-    MATCH (file:File {path: "${filePath}"})-[:CONTAINS]->(fn:Function)
+export function getExtractionCandidatesQuery(filePath: string): { cypher: string; params: Record<string, string> } {
+  return {
+    cypher: `
+    MATCH (file:File {path: $filePath})-[:CONTAINS]->(fn:Function)
     OPTIONAL MATCH (fn)-[:CALLS]->(internal:Function)
     WHERE internal.filePath = file.path
     OPTIONAL MATCH (fn)-[:READS]->(v:Variable)
@@ -292,19 +293,24 @@ export function getExtractionCandidatesQuery(filePath: string): string {
            internalCalls, stateReads,
            internalCalls + stateReads as couplingScore
     ORDER BY couplingScore ASC
-  `.trim();
+  `.trim(),
+    params: { filePath },
+  };
 }
 
 /**
  * Generate Cypher query to get call relationships within a file
  */
-export function getInternalCallsQuery(filePath: string): string {
-  return `
-    MATCH (file:File {path: "${filePath}"})-[:CONTAINS]->(caller:Function)
+export function getInternalCallsQuery(filePath: string): { cypher: string; params: Record<string, string> } {
+  return {
+    cypher: `
+    MATCH (file:File {path: $filePath})-[:CONTAINS]->(caller:Function)
     MATCH (caller)-[:CALLS]->(callee:Function)
     WHERE callee.filePath = file.path
     RETURN caller.name as caller, callee.name as callee
-  `.trim();
+  `.trim(),
+    params: { filePath },
+  };
 }
 
 // ============================================================================

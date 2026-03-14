@@ -228,6 +228,8 @@ export type { SyntaxTree, LanguageType } from './pipeline';
 
 // Extraction pipeline
 export {
+  registerPlugins,
+  registerTier2Languages,
   createFileEntity,
   extractEntitiesForFile,
   enrichFunctionsWithComplexity,
@@ -235,6 +237,8 @@ export {
   countEntities,
   countEdges,
   getLanguageCategory,
+  getSupportedExtensions,
+  getExtensionsForLanguage,
   isPythonFile,
   isCSharpFile,
   isMarkdownFile,

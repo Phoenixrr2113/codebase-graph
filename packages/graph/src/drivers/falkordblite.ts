@@ -11,10 +11,10 @@
  */
 
 import type { Graph } from 'falkordb';
-import type { QueryOptions as FalkorQueryOptions } from 'falkordb/dist/src/commands';
 import type { DatabaseDriver, DriverConfig, CypherDialect } from '../driver';
 import type { QueryParams } from '../client';
 import { falkorDialect } from './falkordb';
+import { executeQuery, executeRoQuery, ensureSchemaImpl } from './falkordb-shared';
 
 // ============================================================================
 // FalkorDBLite Driver
@@ -59,105 +59,17 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
 
   async query<T>(cypher: string, params?: QueryParams, timeout?: number): Promise<{ data: T[]; metadata: string[] }> {
     if (!this.graph) throw new Error('FalkorDBLiteDriver: not connected');
-    const queryOptions: Record<string, unknown> = {};
-    if (params) queryOptions.params = params;
-    if (timeout) queryOptions.TIMEOUT = timeout;
-    const opts = Object.keys(queryOptions).length > 0 ? queryOptions : undefined;
-    const result = await this.graph.query<T>(cypher, opts as unknown as FalkorQueryOptions);
-    return {
-      data: result.data ?? [],
-      metadata: result.metadata ?? [],
-    };
+    return executeQuery<T>(this.graph, cypher, params, timeout);
   }
 
   async roQuery<T>(cypher: string, params?: QueryParams, timeout?: number): Promise<{ data: T[]; metadata: string[] }> {
     if (!this.graph) throw new Error('FalkorDBLiteDriver: not connected');
-    const queryOptions: Record<string, unknown> = {};
-    if (params) queryOptions.params = params;
-    if (timeout) queryOptions.TIMEOUT = timeout;
-    const opts = Object.keys(queryOptions).length > 0 ? queryOptions : undefined;
-    const result = await this.graph.roQuery<T>(cypher, opts as unknown as FalkorQueryOptions);
-    return {
-      data: result.data ?? [],
-      metadata: result.metadata ?? [],
-    };
+    return executeRoQuery<T>(this.graph, cypher, params, timeout);
   }
 
   async ensureSchema(): Promise<void> {
     if (!this.graph) throw new Error('FalkorDBLiteDriver: not connected');
-
-    // Identical schema setup to FalkorDBDriver — same engine, same indexes
-    const safeIndex = async (cypher: string): Promise<void> => {
-      try {
-        await this.graph!.query(cypher);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : '';
-        if (msg.includes('Index already exists') || msg.includes('Attribute already indexed')) return;
-        // Log but don't throw for other index errors (label may not exist yet)
-      }
-    };
-
-    // --- Range indexes (lookup by exact value) ---
-    try {
-      await this.graph.createNodeRangeIndex('File', 'path');
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : '';
-      if (!msg.includes('Index already exists') && !msg.includes('Attribute already indexed')) throw error;
-    }
-
-    // --- Commit & Metadata range indexes (git history / state tracking) ---
-    await safeIndex(`CREATE INDEX FOR (c:Commit) ON (c.hash)`);
-    await safeIndex(`CREATE INDEX FOR (m:Metadata) ON (m.key)`);
-
-    // --- Provenance range indexes (query by pipeline/task) ---
-    const provenanceLabels = [
-      'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Entity',
-    ];
-    for (const label of provenanceLabels) {
-      await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.sourcePipeline)`);
-      await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.processedAt)`);
-    }
-
-    // --- Document entity range indexes (markdown support) ---
-    await safeIndex(`CREATE INDEX FOR (d:MarkdownDocument) ON (d.path)`);
-    await safeIndex(`CREATE INDEX FOR (s:Section) ON (s.filePath)`);
-    await safeIndex(`CREATE INDEX FOR (cb:CodeBlock) ON (cb.filePath)`);
-    await safeIndex(`CREATE INDEX FOR (l:Link) ON (l.filePath)`);
-
-    // --- Fulltext indexes (text search) ---
-    const fulltextTargets = ['Function', 'Class', 'Component', 'Interface', 'Type', 'Entity'];
-    for (const label of fulltextTargets) {
-      try {
-        await this.graph.createNodeFulltextIndex(label, 'name');
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : '';
-        if (!msg.includes('Index already exists') && !msg.includes('Attribute already indexed')) {
-          if (label === 'Entity') {
-            try {
-              await this.graph!.createNodeFulltextIndex(label, 'text');
-            } catch { /* ignore */ }
-          }
-        }
-      }
-    }
-
-    // --- Vector indexes (HNSW for embedding similarity search) ---
-    // Dimension defaults to 768 (nomic-embed-text-v1.5 local model).
-    // Set CODEGRAPH_EMBEDDING_DIM for other models (e.g. 1536 for cloud).
-    const embDim = parseInt(process.env['CODEGRAPH_EMBEDDING_DIM'] ?? '768', 10);
-    const vectorTargets = [
-      'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Entity',
-    ];
-    for (const label of vectorTargets) {
-      await safeIndex(
-        `CREATE VECTOR INDEX FOR (n:${label}) ON (n.embedding) OPTIONS {dimension: ${embDim}, similarityFunction: 'cosine'}`
-      );
-    }
-
-    // Vector index on RELATES_TO edge (fact_embedding for knowledge graph)
-    await safeIndex(
-      `CREATE VECTOR INDEX FOR ()-[r:RELATES_TO]-() ON (r.fact_embedding) OPTIONS {dimension: ${embDim}, similarityFunction: 'cosine'}`
-    );
+    return ensureSchemaImpl(this.graph);
   }
 
   async close(): Promise<void> {

@@ -218,11 +218,14 @@ export function calculateRiskScore(
 /**
  * Generate Cypher query for direct callers
  */
-export function getDirectCallersQuery(symbolName: string): string {
-  return `
-    MATCH (target:Function {name: "${symbolName}"})<-[:CALLS]-(caller:Function)
+export function getDirectCallersQuery(symbolName: string): { cypher: string; params: Record<string, string> } {
+  return {
+    cypher: `
+    MATCH (target:Function {name: $symbolName})<-[:CALLS]-(caller:Function)
     RETURN caller.name as name, caller.filePath as file, 1 as depth
-  `.trim();
+  `.trim(),
+    params: { symbolName },
+  };
 }
 
 /**
@@ -231,23 +234,32 @@ export function getDirectCallersQuery(symbolName: string): string {
 export function getTransitiveCallersQuery(
   symbolName: string,
   maxDepth: number = 5
-): string {
-  return `
-    MATCH path = (target:Function {name: "${symbolName}"})<-[:CALLS*1..${maxDepth}]-(caller:Function)
+): { cypher: string; params: Record<string, string> } {
+  // maxDepth must be interpolated — Cypher doesn't support parameterized range bounds.
+  // Validate it's a safe integer to prevent injection.
+  const safeDepth = Math.max(1, Math.min(Math.floor(Number(maxDepth)), 20));
+  return {
+    cypher: `
+    MATCH path = (target:Function {name: $symbolName})<-[:CALLS*1..${safeDepth}]-(caller:Function)
     RETURN DISTINCT caller.name as name, caller.filePath as file, length(path) as depth
     ORDER BY depth
-  `.trim();
+  `.trim(),
+    params: { symbolName },
+  };
 }
 
 /**
  * Generate Cypher query for affected tests
  */
-export function getAffectedTestsQuery(symbolName: string): string {
-  return `
-    MATCH (target:Function {name: "${symbolName}"})<-[:CALLS*]-(test:Function)
+export function getAffectedTestsQuery(symbolName: string): { cypher: string; params: Record<string, string> } {
+  return {
+    cypher: `
+    MATCH (target:Function {name: $symbolName})<-[:CALLS*]-(test:Function)
     WHERE test.filePath CONTAINS '.test.' OR test.filePath CONTAINS '.spec.'
     RETURN DISTINCT test.name as name, test.filePath as file
-  `.trim();
+  `.trim(),
+    params: { symbolName },
+  };
 }
 
 // ============================================================================

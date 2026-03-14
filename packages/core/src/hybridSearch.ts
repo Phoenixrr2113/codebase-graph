@@ -146,8 +146,9 @@ export async function hybridSearch(
 
   const ops = createOperations(client);
 
-  // Accumulate hits in a map for dedup
-  const hitMap = new Map<string, HybridSearchHit>();
+  // Collect hits per-source for RRF fusion (FEAT.6)
+  const vectorHitsList: Array<{ hit: HybridSearchHit; internalScore: number }> = [];
+  const textHitsList: Array<{ hit: HybridSearchHit; internalScore: number }> = [];
   const kgOps = (includeKnowledge || includeAbout) ? createKnowledgeOperations(client) : null;
 
   // ----------------------------------------------------------------
@@ -198,27 +199,27 @@ export async function hybridSearch(
 
   const embeddingAvailable = vectorPipeline !== null;
 
-  // Merge vector results into hitMap
+  // Collect vector results into ranked list (sorted by relevance for RRF)
   let vectorHitCount = 0;
   if (vectorPipeline) {
     for (const results of vectorPipeline.codeResults) {
       for (const r of results) {
-        const key = makeCodeKey(r.nodeType, r.filePath, r.name);
         if (options.scope && r.filePath && !r.filePath.startsWith(options.scope)) continue;
 
-        const score = distanceToScore(r.distance) * vectorWeight;
+        const key = makeCodeKey(r.nodeType, r.filePath, r.name);
+        const internalScore = distanceToScore(r.distance);
         const hit: HybridSearchHit = {
           key,
           nodeType: r.nodeType,
           name: r.name,
           filePath: r.filePath,
-          score,
+          score: 0, // Will be set by RRF
           sources: ['vector'],
           vectorDistance: r.distance,
           properties: r.properties,
         };
         if (r.startLine != null) hit.startLine = r.startLine;
-        mergeHit(hitMap, hit);
+        vectorHitsList.push({ hit, internalScore });
         vectorHitCount++;
       }
     }
@@ -226,12 +227,12 @@ export async function hybridSearch(
     for (const r of vectorPipeline.kgResults) {
       const key = `entity:${r.id}`;
       const dist = (r as unknown as Record<string, unknown>)['distance'] as number | undefined;
-      const score = dist != null ? distanceToScore(dist) * vectorWeight : 0.5 * vectorWeight;
+      const internalScore = dist != null ? distanceToScore(dist) : 0.5;
       const kgHit: HybridSearchHit = {
         key,
         nodeType: 'Entity',
         name: r.text,
-        score,
+        score: 0, // Will be set by RRF
         sources: ['vector'],
         properties: {
           id: r.id,
@@ -241,57 +242,68 @@ export async function hybridSearch(
         },
       };
       if (dist != null) kgHit.vectorDistance = dist;
-      mergeHit(hitMap, kgHit);
+      vectorHitsList.push({ hit: kgHit, internalScore });
       vectorHitCount++;
     }
   }
 
-  // Merge text results into hitMap
-  // Score based on how well the node name matches the extracted search terms.
-  // Higher score for: exact match > camelCase symbol match > partial keyword match
+  // Collect text results into ranked list (sorted by text score for RRF)
   const searchTerms = extractSearchTerms(query);
   let textHitCount = 0;
   for (const r of textResults) {
     const key = makeCodeKey(r.nodeType, r.filePath, r.name);
-    const score = scoreTextHit(r.name, query, searchTerms) * textWeight;
-    mergeHit(hitMap, {
-      key,
-      nodeType: r.nodeType,
-      name: r.name,
-      filePath: r.filePath,
-      startLine: r.startLine,
-      score,
-      sources: ['text'],
-      properties: {},
+    const internalScore = scoreTextHit(r.name, query, searchTerms);
+    textHitsList.push({
+      hit: {
+        key,
+        nodeType: r.nodeType,
+        name: r.name,
+        filePath: r.filePath,
+        startLine: r.startLine,
+        score: 0, // Will be set by RRF
+        sources: ['text'],
+        properties: {},
+      },
+      internalScore,
     });
     textHitCount++;
   }
 
   for (const r of kgTextResults) {
     const key = `entity:${r.id}`;
-    const score = scoreTextHit(r.text, query, searchTerms) * textWeight;
-    mergeHit(hitMap, {
-      key,
-      nodeType: 'Entity',
-      name: r.text,
-      score,
-      sources: ['text'],
-      properties: {
-        id: r.id,
-        type: r.type,
-        confidence: r.confidence,
-        relevanceScore: r.relevanceScore,
+    const internalScore = scoreTextHit(r.text, query, searchTerms);
+    textHitsList.push({
+      hit: {
+        key,
+        nodeType: 'Entity',
+        name: r.text,
+        score: 0, // Will be set by RRF
+        sources: ['text'],
+        properties: {
+          id: r.id,
+          type: r.type,
+          confidence: r.confidence,
+          relevanceScore: r.relevanceScore,
+        },
       },
+      internalScore,
     });
     textHitCount++;
   }
 
   // ----------------------------------------------------------------
-  // Step 4: Rank and take top N
+  // Step 4: RRF Fusion (FEAT.6) — rank-based score combination
   // ----------------------------------------------------------------
-  const allHits = Array.from(hitMap.values())
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+
+  // Sort each source by internal relevance score (best first = rank 1)
+  vectorHitsList.sort((a, b) => b.internalScore - a.internalScore);
+  textHitsList.sort((a, b) => b.internalScore - a.internalScore);
+
+  // Fuse using Reciprocal Rank Fusion
+  const allHits = rrfFuse([
+    { hits: vectorHitsList.map((v) => v.hit), weight: vectorWeight, name: 'vector' },
+    { hits: textHitsList.map((t) => t.hit), weight: textWeight, name: 'text' },
+  ]).slice(0, limit);
 
   // ----------------------------------------------------------------
   // Steps 5-6: Graph + ABOUT traversal in parallel
@@ -466,28 +478,86 @@ function distanceToScore(distance: number): number {
   return 1 / (1 + distance);
 }
 
-/** Merge a hit into the map, combining scores and sources */
-function mergeHit(
-  map: Map<string, HybridSearchHit>,
-  hit: HybridSearchHit,
-): void {
-  const existing = map.get(hit.key);
-  if (existing) {
-    existing.score += hit.score;
-    for (const src of hit.sources) {
-      if (!existing.sources.includes(src)) {
-        existing.sources.push(src);
+// ============================================================================
+// Reciprocal Rank Fusion (FEAT.6)
+// ============================================================================
+
+/**
+ * A ranked source of search hits for RRF fusion.
+ * Hits MUST be pre-sorted by relevance (best first).
+ */
+export interface RRFSource {
+  /** Pre-sorted hits (best first) */
+  hits: HybridSearchHit[];
+  /** Weight for this source's rank contributions */
+  weight: number;
+  /** Source name for debugging */
+  name: string;
+}
+
+/**
+ * Reciprocal Rank Fusion — combines ranked lists from multiple sources.
+ *
+ * For each document d found in any source:
+ *   RRF_score(d) = Σ weight_i / (k + rank_i(d))
+ *
+ * where rank_i is the 1-based rank in source i, k is a smoothing constant.
+ * Documents found in multiple sources accumulate contributions from each.
+ *
+ * Reference: Cormack, Clarke, Büttcher (2009) "Reciprocal Rank Fusion
+ * outperforms Condorcet and individual Rank Learning Methods"
+ *
+ * @param sources - Array of ranked hit lists with their weights
+ * @param k - Smoothing constant (default: 60, standard RRF value)
+ * @returns Fused hits sorted by RRF score descending, normalized to 0-1
+ */
+export function rrfFuse(
+  sources: RRFSource[],
+  k: number = 60,
+): HybridSearchHit[] {
+  const fusedMap = new Map<string, { hit: HybridSearchHit; rrfScore: number }>();
+
+  for (const source of sources) {
+    for (let i = 0; i < source.hits.length; i++) {
+      const hit = source.hits[i]!;
+      const rank = i + 1; // RRF uses 1-based rank
+      const rrfContribution = source.weight / (k + rank);
+
+      const existing = fusedMap.get(hit.key);
+      if (existing) {
+        existing.rrfScore += rrfContribution;
+        // Merge sources
+        for (const src of hit.sources) {
+          if (!existing.hit.sources.includes(src)) {
+            existing.hit.sources.push(src);
+          }
+        }
+        // Keep vector distance from vector source
+        if (hit.vectorDistance != null && existing.hit.vectorDistance == null) {
+          existing.hit.vectorDistance = hit.vectorDistance;
+        }
+        // Merge properties (vector source may have richer props)
+        Object.assign(existing.hit.properties, hit.properties);
+      } else {
+        fusedMap.set(hit.key, {
+          hit: { ...hit },
+          rrfScore: rrfContribution,
+        });
       }
     }
-    // Keep the vector distance from vector source
-    if (hit.vectorDistance != null && existing.vectorDistance == null) {
-      existing.vectorDistance = hit.vectorDistance;
-    }
-    // Merge properties
-    Object.assign(existing.properties, hit.properties);
-  } else {
-    map.set(hit.key, { ...hit });
   }
+
+  // Sort by RRF score descending
+  const results = Array.from(fusedMap.values())
+    .sort((a, b) => b.rrfScore - a.rrfScore);
+
+  // Normalize to 0-1 range for compatibility with existing consumers
+  const maxScore = results.length > 0 ? results[0]!.rrfScore : 1;
+  for (const entry of results) {
+    entry.hit.score = maxScore > 0 ? entry.rrfScore / maxScore : 0;
+  }
+
+  return results.map((r) => r.hit);
 }
 
 // ============================================================================

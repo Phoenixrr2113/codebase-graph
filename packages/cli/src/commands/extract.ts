@@ -10,7 +10,8 @@ import {
   buildParsedFileEntities,
   countEntities,
   countEdges,
-  SUPPORTED_EXTENSIONS,
+  registerPlugins,
+  getSupportedExtensions,
   DEFAULT_IGNORE_PATTERNS,
 } from '@codegraph/core';
 import { glob } from 'glob';
@@ -38,10 +39,13 @@ export const extractCommand = new Command('extract')
     logger.info(`Graph: ${options.graph} @ ${options.host}:${options.port}`);
 
     try {
+      // Ensure plugins are registered before querying extensions
+      registerPlugins();
+
       // Build include/exclude patterns from CLI options
       const includePatterns = options.include
         ? (options.include as string).split(',')
-        : SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
+        : getSupportedExtensions().map(ext => `**/*${ext}`);
       const excludePatterns = options.exclude
         ? (options.exclude as string).split(',')
         : [...DEFAULT_IGNORE_PATTERNS];

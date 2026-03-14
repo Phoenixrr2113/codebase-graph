@@ -311,6 +311,41 @@ const CYPHER = {
     DETACH DELETE f
   `,
 
+  // Smart file removal (PERF.4) — preserves incoming cross-file edges
+  // Step 1: Remove CONTAINS edges and the File node (non-cascading)
+  REMOVE_FILE_NODE: `
+    MATCH (f:File {path: $path})
+    OPTIONAL MATCH (f)-[c:CONTAINS]->()
+    DELETE c, f
+  `,
+
+  // Step 2: Remove orphaned entities from this file that have no incoming edges
+  // Uses OPTIONAL MATCH to check for ANY incoming relationship from other nodes
+  CLEANUP_FILE_ORPHANS: `
+    MATCH (e)
+    WHERE e.filePath = $path
+    OPTIONAL MATCH (other)-[r]->(e)
+    WHERE other.filePath <> $path OR other.filePath IS NULL
+    WITH e, r
+    WHERE r IS NULL
+    DETACH DELETE e
+  `,
+
+  // Periodic cleanup: remove entities that have no CONTAINS edge from any File
+  // and no incoming edges from other files (orphans from line number changes)
+  CLEANUP_STALE_ENTITIES: `
+    MATCH (e)
+    WHERE e.filePath IS NOT NULL
+    OPTIONAL MATCH (f:File)-[:CONTAINS]->(e)
+    WITH e, f
+    WHERE f IS NULL
+    OPTIONAL MATCH (other)-[r]->(e)
+    WITH e, r
+    WHERE r IS NULL
+    DETACH DELETE e
+    RETURN count(e) as cleaned
+  `,
+
   // Count nodes for a file
   COUNT_FILE_ENTITIES: `
     MATCH (f:File {path: $path})-[:CONTAINS]->(e)
@@ -721,6 +756,19 @@ export interface GraphOperations {
 
   deleteFileEntities(filePath: string): Promise<void>;
 
+  /**
+   * Smart file removal (PERF.4) — removes file and its entities while
+   * preserving incoming cross-file edges (CALLS, EXTENDS, IMPLEMENTS).
+   * Entities with incoming edges from other files are kept as external references.
+   */
+  removeFileAndCleanup(filePath: string): Promise<void>;
+
+  /**
+   * Remove stale entities that are no longer contained by any File node
+   * and have no incoming edges. Useful for periodic cleanup after line shifts.
+   */
+  cleanupStaleEntities(): Promise<{ cleaned: number }>;
+
   clearAll(): Promise<void>;
 
   batchUpsert(entities: ParsedFileEntities): Promise<void>;
@@ -925,6 +973,25 @@ class GraphOperationsImpl implements GraphOperations {
   @trace()
   async deleteFileEntities(filePath: string): Promise<void> {
     await this.client.query(CYPHER.DELETE_FILE_ENTITIES, { params: { path: filePath } });
+  }
+
+  @trace()
+  async removeFileAndCleanup(filePath: string): Promise<void> {
+    // Step 1: Remove CONTAINS edges and the File node (without cascading to entities)
+    await this.client.query(CYPHER.REMOVE_FILE_NODE, { params: { path: filePath } });
+
+    // Step 2: Remove entities from this file that have NO incoming edges from other files
+    // Entities with incoming cross-file edges (CALLS, EXTENDS, etc.) are preserved
+    await this.client.query(CYPHER.CLEANUP_FILE_ORPHANS, { params: { path: filePath } });
+  }
+
+  @trace()
+  async cleanupStaleEntities(): Promise<{ cleaned: number }> {
+    const result = await this.client.query<{ cleaned: number }>(
+      CYPHER.CLEANUP_STALE_ENTITIES,
+      { params: {} },
+    );
+    return { cleaned: result.data[0]?.cleaned ?? 0 };
   }
 
   @trace()
@@ -1432,6 +1499,12 @@ class GraphOperationsImpl implements GraphOperations {
     embedding: number[],
     limit: number = 10,
   ): Promise<VectorSearchResult[]> {
+    // Validate nodeType against allowlist — Cypher doesn't support parameterized labels
+    const VALID_NODE_TYPES = new Set(['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component']);
+    if (!VALID_NODE_TYPES.has(nodeType)) {
+      throw new Error(`Invalid node type for vector search: ${nodeType}`);
+    }
+
     // FalkorDB native HNSW vector search via db.idx.vector.queryNodes
     const filePathExpr = nodeType === 'File' ? 'node.path' : 'node.filePath';
     const startLineExpr = nodeType === 'Variable' ? 'node.line' : 'node.startLine';

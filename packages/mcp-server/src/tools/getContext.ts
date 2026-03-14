@@ -4,6 +4,7 @@
  */
 
 import { codeGraphService } from '@codegraph/core';
+import { toErrorMessage } from '@codegraph/logger';
 import type { ToolDefinition } from './consolidated';
 
 // ============================================================================
@@ -206,7 +207,7 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
   } catch (error) {
     return {
       relationships: [],
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: toErrorMessage(error),
     };
   }
 }

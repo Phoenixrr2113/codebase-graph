@@ -10,7 +10,7 @@
 
 import type { ParseResult, FileError } from '@codegraph/types';
 import { indexProject, indexSingleFile, getGraphClient, codeGraphService } from '@codegraph/core';
-import { createLogger, traced } from '@codegraph/logger';
+import { createLogger, traced, toErrorMessage } from '@codegraph/logger';
 import { getAnalyticsService } from './analyticsService';
 
 const logger = createLogger({ namespace: 'API:Parse' });
@@ -71,7 +71,7 @@ export const parseProject = traced('parseProject', async function parseProject(
   } catch (error) {
     return {
       status: 'error',
-      error: error instanceof Error ? error.message : 'Unknown parsing error',
+      error: toErrorMessage(error),
     };
   } finally {
     // Trigger post-ingestion analytics (non-blocking)
@@ -89,7 +89,10 @@ export const parseProject = traced('parseProject', async function parseProject(
 /**
  * Parse a single file
  */
-export const parseSingleFile = traced('parseSingleFile', async function parseSingleFile(filePath: string): Promise<{
+export const parseSingleFile = traced('parseSingleFile', async function parseSingleFile(
+  filePath: string,
+  options?: { deferEmbeddings?: boolean },
+): Promise<{
   success: boolean;
   error?: string;
   entities?: number;
@@ -97,11 +100,11 @@ export const parseSingleFile = traced('parseSingleFile', async function parseSin
 }> {
   try {
     const client = await getGraphClient();
-    return await indexSingleFile(filePath, undefined, client);
+    return await indexSingleFile(filePath, undefined, client, undefined, options);
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: toErrorMessage(error),
     };
   }
 });
@@ -114,7 +117,7 @@ export const removeFileFromGraph = traced('removeFileFromGraph', async function 
   error?: string;
 }> {
   try {
-    await codeGraphService.deleteFileEntities(filePath);
+    await codeGraphService.removeFileAndCleanup(filePath);
 
     logger.debug(`Removed file from graph: ${filePath}`);
 
@@ -122,7 +125,7 @@ export const removeFileFromGraph = traced('removeFileFromGraph', async function 
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: toErrorMessage(error),
     };
   }
 });

@@ -11,7 +11,7 @@
  * - Uses codebase-graph's GraphClient interface (driver-agnostic)
  * - Single RELATES_TO table with type property (Graphiti pattern)
  * - UUIDs generated in TypeScript
- * - Check-then-insert pattern for upserts
+ * - Atomic upserts via MERGE (entities) and NOT EXISTS guard (relationships)
  * - Embedding vectors passed in from caller (inference layer handles generation)
  * - Bi-temporal fields on edges (valid_at, invalid_at, created_at, expired_at)
  */
@@ -200,6 +200,7 @@ const KG_CYPHER = {
   // --- Entity operations ---
 
   /** Check if entity exists by text + type */
+  /** Find entity by text+type (used for lookups) */
   FIND_ENTITY: `
     MATCH (n:Entity)
     WHERE n.text = $text AND n.type = $type
@@ -210,35 +211,39 @@ const KG_CYPHER = {
     LIMIT 1
   `,
 
-  /** Insert new entity — uses vecf32() for embedding to ensure proper vector type */
-  INSERT_ENTITY: `
-    CREATE (n:Entity {
-      id: $id,
-      text: $text,
-      type: $type,
-      confidence: $confidence,
-      embedding: CASE WHEN $embedding IS NOT NULL THEN vecf32($embedding) ELSE NULL END,
-      createdAt: $now,
-      lastAccessedAt: $now,
-      accessCount: 1,
-      relevanceScore: 1.0,
-      sampleIds: $sampleIds,
-      properties: $properties
-    })
+  /**
+   * Upsert entity — atomic MERGE replaces check-then-insert (QUAL.2).
+   * ON CREATE: initializes all fields for a new entity.
+   * ON MATCH: bumps access count and relevance for existing entity.
+   * Embedding is set separately (see UPSERT_ENTITY_EMBEDDING) since vecf32()
+   * can't be used inside MERGE ON CREATE SET.
+   */
+  UPSERT_ENTITY: `
+    MERGE (n:Entity {text: $text, type: $type})
+    ON CREATE SET
+      n.id = $id,
+      n.confidence = $confidence,
+      n.createdAt = $now,
+      n.lastAccessedAt = $now,
+      n.accessCount = 1,
+      n.relevanceScore = 1.0,
+      n.sampleIds = $sampleIds,
+      n.properties = $properties
+    ON MATCH SET
+      n.lastAccessedAt = $now,
+      n.accessCount = n.accessCount + 1,
+      n.relevanceScore = CASE
+        WHEN n.relevanceScore < 1.0 THEN n.relevanceScore + 0.1
+        ELSE 1.0
+      END,
+      n.sampleIds = coalesce(n.sampleIds, []) + [$sampleIds]
     RETURN n.id as id
   `,
 
-  /** Update existing entity on re-encounter (bump access, update confidence) */
-  UPDATE_ENTITY_ON_MATCH: `
-    MATCH (n:Entity)
-    WHERE n.text = $text AND n.type = $type
-    SET n.lastAccessedAt = $now,
-        n.accessCount = n.accessCount + 1,
-        n.relevanceScore = CASE
-          WHEN n.relevanceScore < 1.0 THEN n.relevanceScore + 0.1
-          ELSE 1.0
-        END,
-        n.sampleIds = coalesce(n.sampleIds, []) + [$sampleId]
+  /** Set embedding vector on entity (must use vecf32 outside MERGE) */
+  UPSERT_ENTITY_EMBEDDING: `
+    MATCH (n:Entity {text: $text, type: $type})
+    SET n.embedding = vecf32($embedding)
     RETURN n.id as id
   `,
 
@@ -296,21 +301,21 @@ const KG_CYPHER = {
 
   // --- Relationship operations ---
 
-  /** Check if relationship exists */
-  FIND_RELATIONSHIP: `
-    MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
-    WHERE h.text = $headText AND h.type = $headType
-      AND t.text = $tailText AND t.type = $tailType
-      AND r.type = $relType
-    RETURN r.type as type
-    LIMIT 1
-  `,
-
-  /** Insert new relationship — uses vecf32() for fact_embedding */
-  INSERT_RELATIONSHIP: `
+  /**
+   * Upsert relationship — atomic two-step replaces check-then-insert (QUAL.2).
+   * Step 1: CREATE the edge if it doesn't exist yet (conditional via WHERE NOT EXISTS).
+   * Step 2: UPDATE sample tracking on the (now-guaranteed) edge.
+   * Both steps run as separate queries but are idempotent, so concurrent calls
+   * produce at most one edge (the CREATE has a WHERE NOT EXISTS guard).
+   */
+  UPSERT_RELATIONSHIP_CREATE: `
     MATCH (h:Entity), (t:Entity)
     WHERE h.text = $headText AND h.type = $headType
       AND t.text = $tailText AND t.type = $tailType
+    OPTIONAL MATCH (h)-[existing:RELATES_TO]->(t)
+    WHERE existing.type = $relType
+    WITH h, t, existing
+    WHERE existing IS NULL
     CREATE (h)-[r:RELATES_TO {
       type: $relType,
       confidence: $confidence,
@@ -325,8 +330,7 @@ const KG_CYPHER = {
     }]->(t)
   `,
 
-  /** Update existing relationship on re-encounter */
-  UPDATE_RELATIONSHIP_ON_MATCH: `
+  UPSERT_RELATIONSHIP_UPDATE: `
     MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
     WHERE h.text = $headText AND h.type = $headType
       AND t.text = $tailText AND t.type = $tailType
@@ -448,6 +452,81 @@ const KG_CYPHER = {
       max(n.lastAccessedAt) as newest
   `,
 
+  // --- Batch operations (QUAL.3 — UNWIND batching) ---
+
+  /**
+   * Batch upsert entities in a single roundtrip.
+   * Each item in $entities must have: text, type, id, confidence, sampleId, properties.
+   * Embeddings are set in a separate batch query (vecf32 constraint).
+   */
+  BATCH_UPSERT_ENTITIES: `
+    UNWIND $entities AS e
+    MERGE (n:Entity {text: e.text, type: e.type})
+    ON CREATE SET
+      n.id = e.id,
+      n.confidence = e.confidence,
+      n.createdAt = $now,
+      n.lastAccessedAt = $now,
+      n.accessCount = 1,
+      n.relevanceScore = 1.0,
+      n.sampleIds = [e.sampleId],
+      n.properties = e.properties
+    ON MATCH SET
+      n.lastAccessedAt = $now,
+      n.accessCount = n.accessCount + 1,
+      n.relevanceScore = CASE
+        WHEN n.relevanceScore < 1.0 THEN n.relevanceScore + 0.1
+        ELSE 1.0
+      END,
+      n.sampleIds = coalesce(n.sampleIds, []) + [e.sampleId]
+    RETURN n.id as id
+  `,
+
+  /** Batch set embeddings on entities (must use vecf32 outside MERGE) */
+  BATCH_SET_ENTITY_EMBEDDINGS: `
+    UNWIND $items AS item
+    MATCH (n:Entity {text: item.text, type: item.type})
+    SET n.embedding = vecf32(item.embedding)
+    RETURN n.id as id
+  `,
+
+  /**
+   * Batch upsert relationships in a single roundtrip.
+   * Two-step: conditional CREATE (NOT EXISTS guard) then sample tracking.
+   * Note: UNWIND + subquery pattern for the NOT EXISTS guard.
+   */
+  BATCH_UPSERT_RELATIONSHIPS: `
+    UNWIND $rels AS rel
+    MATCH (h:Entity), (t:Entity)
+    WHERE h.text = rel.headText AND h.type = rel.headType
+      AND t.text = rel.tailText AND t.type = rel.tailType
+    OPTIONAL MATCH (h)-[existing:RELATES_TO]->(t)
+    WHERE existing.type = rel.relType
+    WITH h, t, rel, existing
+    WHERE existing IS NULL
+    CREATE (h)-[r:RELATES_TO {
+      type: rel.relType,
+      confidence: rel.confidence,
+      fact: rel.fact,
+      valid_at: rel.validAt,
+      invalid_at: rel.invalidAt,
+      created_at: $now,
+      expired_at: NULL,
+      sampleIds: [rel.sampleId],
+      properties: rel.properties
+    }]->(t)
+  `,
+
+  /** Batch update sample tracking on existing relationships */
+  BATCH_UPDATE_RELATIONSHIP_SAMPLES: `
+    UNWIND $rels AS rel
+    MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
+    WHERE h.text = rel.headText AND h.type = rel.headType
+      AND t.text = rel.tailText AND t.type = rel.tailType
+      AND r.type = rel.relType
+    SET r.sampleIds = coalesce(r.sampleIds, []) + [rel.sampleId]
+  `,
+
   // --- Cleanup ---
 
   /** Delete all entities from a sample */
@@ -476,74 +555,8 @@ const KG_CYPHER = {
   `,
 
   // --- ABOUT Edge Operations (Entity → Code Node bridge) ---
-
-  /**
-   * Create an ABOUT edge from a knowledge entity to a code graph node.
-   * Uses dynamic label matching with CASE WHEN to support multiple target types.
-   * The $targetLabel param is checked against common code node labels.
-   */
-  CREATE_ABOUT_FUNCTION: `
-    MATCH (e:Entity), (t:Function)
-    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
-    MERGE (e)-[r:ABOUT]->(t)
-    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
-    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
-    RETURN type(r) AS relType
-  `,
-
-  CREATE_ABOUT_CLASS: `
-    MATCH (e:Entity), (t:Class)
-    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
-    MERGE (e)-[r:ABOUT]->(t)
-    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
-    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
-    RETURN type(r) AS relType
-  `,
-
-  CREATE_ABOUT_INTERFACE: `
-    MATCH (e:Entity), (t:Interface)
-    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
-    MERGE (e)-[r:ABOUT]->(t)
-    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
-    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
-    RETURN type(r) AS relType
-  `,
-
-  CREATE_ABOUT_COMPONENT: `
-    MATCH (e:Entity), (t:Component)
-    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
-    MERGE (e)-[r:ABOUT]->(t)
-    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
-    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
-    RETURN type(r) AS relType
-  `,
-
-  CREATE_ABOUT_TYPE: `
-    MATCH (e:Entity), (t:Type)
-    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
-    MERGE (e)-[r:ABOUT]->(t)
-    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
-    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
-    RETURN type(r) AS relType
-  `,
-
-  CREATE_ABOUT_FILE: `
-    MATCH (e:Entity), (t:File)
-    WHERE e.text = $entityText AND e.type = $entityType AND t.path = $targetValue
-    MERGE (e)-[r:ABOUT]->(t)
-    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
-    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
-    RETURN type(r) AS relType
-  `,
-
-  CREATE_ABOUT_VARIABLE: `
-    MATCH (e:Entity), (t:Variable)
-    WHERE e.text = $entityText AND e.type = $entityType AND t.name = $targetValue
-    MERGE (e)-[r:ABOUT]->(t)
-    ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
-    ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
-    RETURN type(r) AS relType
-  `,
+  // Individual CREATE_ABOUT_* templates replaced by
+  // KnowledgeOperationsImpl.buildCreateAboutQuery() (QUAL.11)
 
   /** Get all ABOUT edges for a knowledge entity (entity → code nodes) */
   GET_ABOUT_FOR_ENTITY: `
@@ -619,47 +632,41 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
   async createEntity(entity: KnowledgeEntity): Promise<string> {
     const now = Date.now();
     const id = entity.id ?? crypto.randomUUID();
+    const sampleIds = [entity.sampleId ?? 'unknown'];
 
-    // Check-then-insert pattern for entity upsert
-    const existing = await this.client.roQuery<{ id: string }>(
-      KG_CYPHER.FIND_ENTITY,
-      { params: { text: entity.text, type: entity.type } }
-    );
-
-    if (existing.data.length > 0) {
-      // Entity exists — bump access count and relevance
-      const result = await this.client.query<{ id: string }>(
-        KG_CYPHER.UPDATE_ENTITY_ON_MATCH,
-        {
-          params: {
-            text: entity.text,
-            type: entity.type,
-            now,
-            sampleId: entity.sampleId ?? 'unknown',
-          },
-        }
-      );
-      return result.data[0]?.id ?? existing.data[0]!.id;
-    }
-
-    // New entity — insert
+    // Atomic upsert via MERGE (QUAL.2 — eliminates check-then-insert race)
     const result = await this.client.query<{ id: string }>(
-      KG_CYPHER.INSERT_ENTITY,
+      KG_CYPHER.UPSERT_ENTITY,
       {
         params: {
           id,
           text: entity.text,
           type: entity.type,
           confidence: entity.confidence ?? 1.0,
-          embedding: entity.embedding ?? null,
           now,
-          sampleIds: [entity.sampleId ?? 'unknown'],
+          sampleIds,
           properties: entity.properties ? JSON.stringify(entity.properties) : '{}',
         } as QueryParams,
       }
     );
 
-    return result.data[0]?.id ?? id;
+    const entityId = result.data[0]?.id ?? id;
+
+    // Set embedding separately (vecf32() can't be used inside MERGE ON CREATE SET)
+    if (entity.embedding) {
+      await this.client.query(
+        KG_CYPHER.UPSERT_ENTITY_EMBEDDING,
+        {
+          params: {
+            text: entity.text,
+            type: entity.type,
+            embedding: entity.embedding,
+          } as QueryParams,
+        }
+      );
+    }
+
+    return entityId;
   }
 
   @trace()
@@ -736,38 +743,10 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
   @trace()
   async createRelationship(rel: KnowledgeRelationship): Promise<void> {
     const now = Date.now();
+    const sampleId = rel.sampleId ?? 'unknown';
 
-    // Check if relationship already exists
-    const existing = await this.client.roQuery<{ type: string }>(
-      KG_CYPHER.FIND_RELATIONSHIP,
-      {
-        params: {
-          headText: rel.headText,
-          headType: rel.headType,
-          tailText: rel.tailText,
-          tailType: rel.tailType,
-          relType: rel.type,
-        },
-      }
-    );
-
-    if (existing.data.length > 0) {
-      // Relationship exists — update sample tracking
-      await this.client.query(KG_CYPHER.UPDATE_RELATIONSHIP_ON_MATCH, {
-        params: {
-          headText: rel.headText,
-          headType: rel.headType,
-          tailText: rel.tailText,
-          tailType: rel.tailType,
-          relType: rel.type,
-          sampleId: rel.sampleId ?? 'unknown',
-        },
-      });
-      return;
-    }
-
-    // New relationship — insert
-    await this.client.query(KG_CYPHER.INSERT_RELATIONSHIP, {
+    // Atomic upsert — idempotent CREATE (guarded by NOT EXISTS) + unconditional UPDATE (QUAL.2)
+    await this.client.query(KG_CYPHER.UPSERT_RELATIONSHIP_CREATE, {
       params: {
         headText: rel.headText,
         headType: rel.headType,
@@ -781,9 +760,21 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
         invalidAt: rel.invalidAt ?? null,
         now,
         expiredAt: null,
-        sampleIds: [rel.sampleId ?? 'unknown'],
+        sampleIds: [sampleId],
         properties: rel.properties ? JSON.stringify(rel.properties) : '{}',
       } as QueryParams,
+    });
+
+    // Always update sample tracking (idempotent — adds sampleId to list)
+    await this.client.query(KG_CYPHER.UPSERT_RELATIONSHIP_UPDATE, {
+      params: {
+        headText: rel.headText,
+        headType: rel.headType,
+        tailText: rel.tailText,
+        tailType: rel.tailType,
+        relType: rel.type,
+        sampleId,
+      },
     });
   }
 
@@ -845,14 +836,63 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
     relationships: KnowledgeRelationship[],
     sampleId: string
   ): Promise<{ entities: number; relationships: number }> {
-    // Create all entities first
-    for (const entity of entities) {
-      await this.createEntity({ ...entity, sampleId });
+    const now = Date.now();
+    const BATCH_SIZE = 50; // UNWIND batch size — tuned for FalkorDB query limits
+
+    // Step 1: Batch upsert entities via UNWIND (QUAL.3)
+    for (let i = 0; i < entities.length; i += BATCH_SIZE) {
+      const batch = entities.slice(i, i + BATCH_SIZE);
+      const entityParams = batch.map(e => ({
+        text: e.text,
+        type: e.type,
+        id: e.id ?? crypto.randomUUID(),
+        confidence: e.confidence ?? 1.0,
+        sampleId: e.sampleId ?? sampleId,
+        properties: e.properties ? JSON.stringify(e.properties) : '{}',
+      }));
+
+      await this.client.query(KG_CYPHER.BATCH_UPSERT_ENTITIES, {
+        params: { entities: entityParams, now } as QueryParams,
+      });
+
+      // Set embeddings separately (vecf32 constraint)
+      const withEmbeddings = batch
+        .filter(e => e.embedding != null)
+        .map(e => ({ text: e.text, type: e.type, embedding: e.embedding! }));
+
+      if (withEmbeddings.length > 0) {
+        await this.client.query(KG_CYPHER.BATCH_SET_ENTITY_EMBEDDINGS, {
+          params: { items: withEmbeddings } as QueryParams,
+        });
+      }
     }
 
-    // Then create relationships (entities must exist)
-    for (const rel of relationships) {
-      await this.createRelationship({ ...rel, sampleId });
+    // Step 2: Batch upsert relationships via UNWIND (QUAL.3)
+    for (let i = 0; i < relationships.length; i += BATCH_SIZE) {
+      const batch = relationships.slice(i, i + BATCH_SIZE);
+      const relParams = batch.map(r => ({
+        headText: r.headText,
+        headType: r.headType,
+        tailText: r.tailText,
+        tailType: r.tailType,
+        relType: r.type,
+        confidence: r.confidence ?? 1.0,
+        fact: r.fact ?? null,
+        validAt: r.validAt ?? now,
+        invalidAt: r.invalidAt ?? null,
+        sampleId: r.sampleId ?? sampleId,
+        properties: r.properties ? JSON.stringify(r.properties) : '{}',
+      }));
+
+      // Conditional CREATE (idempotent — NOT EXISTS guard)
+      await this.client.query(KG_CYPHER.BATCH_UPSERT_RELATIONSHIPS, {
+        params: { rels: relParams, now } as QueryParams,
+      });
+
+      // Update sample tracking on all matched edges
+      await this.client.query(KG_CYPHER.BATCH_UPDATE_RELATIONSHIP_SAMPLES, {
+        params: { rels: relParams } as QueryParams,
+      });
     }
 
     return { entities: entities.length, relationships: relationships.length };
@@ -943,25 +983,32 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
 
   // --- ABOUT Edges (Entity → Code Node bridge) ---
 
-  /** Map of target label → Cypher template for ABOUT edge creation */
-  private static readonly ABOUT_QUERIES: Record<string, string> = {
-    Function: KG_CYPHER.CREATE_ABOUT_FUNCTION,
-    Class: KG_CYPHER.CREATE_ABOUT_CLASS,
-    Interface: KG_CYPHER.CREATE_ABOUT_INTERFACE,
-    Component: KG_CYPHER.CREATE_ABOUT_COMPONENT,
-    Type: KG_CYPHER.CREATE_ABOUT_TYPE,
-    File: KG_CYPHER.CREATE_ABOUT_FILE,
-    Variable: KG_CYPHER.CREATE_ABOUT_VARIABLE,
-  };
+  /** Valid target labels for ABOUT edges (labels can't be parameterized in Cypher) */
+  private static readonly VALID_ABOUT_LABELS = new Set([
+    'Function', 'Class', 'Interface', 'Component', 'Type', 'File', 'Variable',
+  ]);
+
+  /** Build ABOUT edge Cypher for a given target label */
+  private static buildCreateAboutQuery(label: string): string {
+    const matchProp = label === 'File' ? 't.path' : 't.name';
+    return `
+      MATCH (e:Entity), (t:${label})
+      WHERE e.text = $entityText AND e.type = $entityType AND ${matchProp} = $targetValue
+      MERGE (e)-[r:ABOUT]->(t)
+      ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
+      ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
+      RETURN type(r) AS relType
+    `;
+  }
 
   @trace()
   async createAboutEdge(input: AboutEdgeInput): Promise<boolean> {
-    const cypher = KnowledgeOperationsImpl.ABOUT_QUERIES[input.targetLabel];
-    if (!cypher) {
+    if (!KnowledgeOperationsImpl.VALID_ABOUT_LABELS.has(input.targetLabel)) {
       throw new Error(`createAboutEdge: unsupported target label '${input.targetLabel}'. ` +
-        `Supported: ${Object.keys(KnowledgeOperationsImpl.ABOUT_QUERIES).join(', ')}`);
+        `Supported: ${[...KnowledgeOperationsImpl.VALID_ABOUT_LABELS].join(', ')}`);
     }
 
+    const cypher = KnowledgeOperationsImpl.buildCreateAboutQuery(input.targetLabel);
     const result = await this.client.query<{ relType: string }>(cypher, {
       params: {
         entityText: input.entityText,

@@ -9,47 +9,22 @@
  */
 
 import Parser from 'tree-sitter';
-import type { FileEntity, FunctionEntity, ParsedFileEntities } from '@codegraph/types';
+import type { FileEntity, FunctionEntity, ParsedFileEntities, InheritanceReference, CallReference } from '@codegraph/types';
 import {
   extractAllEntities,
   type ExtractedEntities,
-  extractCalls,
+  extractCalls as extractTsCalls,
   extractRenders,
-  extractInheritance,
+  extractInheritance as extractTsInheritance,
   calculateComplexity,
   typescriptPlugin,
 } from '@codegraph/plugin-typescript';
-import {
-  extractInheritance as extractPythonInheritance,
-  extractCalls as extractPythonCalls,
-  resolvePythonImport,
-  pythonPlugin,
-} from '@codegraph/plugin-python';
-import {
-  extractInheritance as extractCSharpInheritance,
-  extractCalls as extractCSharpCalls,
-  csharpPlugin,
-} from '@codegraph/plugin-csharp';
-import {
-  extractInheritance as extractJavaInheritance,
-  extractCalls as extractJavaCalls,
-  javaPlugin,
-} from '@codegraph/plugin-java';
-import {
-  extractInheritance as extractGoInheritance,
-  extractCalls as extractGoCalls,
-  goPlugin,
-} from '@codegraph/plugin-go';
-import {
-  extractInheritance as extractRustInheritance,
-  extractCalls as extractRustCalls,
-  rustPlugin,
-} from '@codegraph/plugin-rust';
-import {
-  extractInheritance as extractPhpInheritance,
-  extractCalls as extractPhpCalls,
-  phpPlugin,
-} from '@codegraph/plugin-php';
+import { resolvePythonImport, pythonPlugin } from '@codegraph/plugin-python';
+import { csharpPlugin } from '@codegraph/plugin-csharp';
+import { javaPlugin } from '@codegraph/plugin-java';
+import { goPlugin } from '@codegraph/plugin-go';
+import { rustPlugin } from '@codegraph/plugin-rust';
+import { phpPlugin } from '@codegraph/plugin-php';
 import { languageRegistry } from './registry';
 import { stat, readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
@@ -63,7 +38,7 @@ import { createHash } from 'node:crypto';
 let pluginsRegistered = false;
 
 /**
- * Register all language plugins with the registry.
+ * Register all tier-1 language plugins with the registry.
  * Safe to call multiple times — idempotent.
  */
 export function registerPlugins(): void {
@@ -80,49 +55,49 @@ export function registerPlugins(): void {
   pluginsRegistered = true;
 }
 
+/** Whether tier-2 registration has been attempted */
+let tier2Attempted = false;
+
+/**
+ * Register tier-2 languages (Ruby, Kotlin, Swift, C, C++, etc.)
+ * by dynamically importing @codegraph/plugin-languages.
+ *
+ * Only grammars that are installed will be registered. Missing grammars
+ * are silently skipped (optionalDependencies pattern).
+ *
+ * Safe to call multiple times — idempotent.
+ * Automatically calls registerPlugins() first if needed.
+ *
+ * @returns Object with registered and skipped language lists
+ */
+export async function registerTier2Languages(): Promise<{
+  registered: string[];
+  skipped: string[];
+}> {
+  // Ensure tier-1 plugins are registered first
+  registerPlugins();
+
+  if (tier2Attempted) return { registered: [], skipped: [] };
+  tier2Attempted = true;
+
+  try {
+    // @ts-ignore — optional package, may not be installed
+    const mod = await import('@codegraph/plugin-languages');
+    const registerAllLanguages = mod.registerAllLanguages as (
+      registry: { register(plugin: any): void }
+    ) => Promise<{ registered: string[]; skipped: string[] }>;
+    return await registerAllLanguages(languageRegistry);
+  } catch {
+    // @codegraph/plugin-languages not installed — tier-2 unavailable
+    return { registered: [], skipped: [] };
+  }
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
 
-/** Supported file extensions for parsing */
-export const SUPPORTED_EXTENSIONS: readonly string[] = [
-  // TypeScript/JavaScript
-  '.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs',
-  // Python
-  '.py', '.pyw', '.pyi',
-  // C#
-  '.cs',
-  // Java
-  '.java',
-  // Go
-  '.go',
-  // Rust
-  '.rs',
-  // PHP
-  '.php',
-  // Markdown (processed via plugin-markdown, not tree-sitter)
-  '.md', '.mdx', '.mdc',
-];
-
-/** Python file extensions */
-export const PYTHON_EXTENSIONS: readonly string[] = ['.py', '.pyw', '.pyi'];
-
-/** C# file extensions */
-export const CSHARP_EXTENSIONS: readonly string[] = ['.cs'];
-
-/** Java file extensions */
-export const JAVA_EXTENSIONS: readonly string[] = ['.java'];
-
-/** Go file extensions */
-export const GO_EXTENSIONS: readonly string[] = ['.go'];
-
-/** Rust file extensions */
-export const RUST_EXTENSIONS: readonly string[] = ['.rs'];
-
-/** PHP file extensions */
-export const PHP_EXTENSIONS: readonly string[] = ['.php'];
-
-/** Markdown file extensions */
+/** Markdown file extensions (non-tree-sitter, separate parser) */
 export const MARKDOWN_EXTENSIONS: readonly string[] = ['.md', '.mdx', '.mdc'];
 
 /** Default glob patterns to ignore during parsing and watching */
@@ -146,64 +121,69 @@ export const DEFAULT_IGNORE_PATTERNS: readonly string[] = [
   '**/*.pyc',
 ];
 
+/**
+ * Get all supported file extensions (code + markdown).
+ * Derived dynamically from the language registry.
+ * Must be called after registerPlugins().
+ */
+export function getSupportedExtensions(): string[] {
+  return [...languageRegistry.getSupportedExtensions(), ...MARKDOWN_EXTENSIONS];
+}
+
+/**
+ * Get extensions registered for a specific language plugin.
+ * @param languageId - Plugin ID (e.g., 'python', 'typescript')
+ * @returns Extensions or empty array if language not found
+ */
+export function getExtensionsForLanguage(languageId: string): string[] {
+  const plugin = languageRegistry.getById(languageId);
+  return plugin ? [...plugin.extensions] : [];
+}
+
+// Backward-compatible aliases (derived from registry at call time)
+/** @deprecated Use getSupportedExtensions() or languageRegistry.getForExtension() instead */
+export const SUPPORTED_EXTENSIONS: readonly string[] = [
+  // Will be populated after registerPlugins() — for backward compat only
+  '.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs',
+  '.py', '.pyw', '.pyi', '.cs', '.java', '.go', '.rs', '.php',
+  '.md', '.mdx', '.mdc',
+];
+
+/** @deprecated Use getExtensionsForLanguage('python') instead */
+export const PYTHON_EXTENSIONS: readonly string[] = ['.py', '.pyw', '.pyi'];
+/** @deprecated Use getExtensionsForLanguage('csharp') instead */
+export const CSHARP_EXTENSIONS: readonly string[] = ['.cs'];
+
 // ============================================================================
-// Language Detection
+// Language Detection (Registry-Based)
 // ============================================================================
-
-/** Check if file is a Python file */
-export function isPythonFile(filePath: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  return PYTHON_EXTENSIONS.includes(ext);
-}
-
-/** Check if file is a C# file */
-export function isCSharpFile(filePath: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  return CSHARP_EXTENSIONS.includes(ext);
-}
-
-/** Check if file is a Java file */
-export function isJavaFile(filePath: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  return JAVA_EXTENSIONS.includes(ext);
-}
-
-/** Check if file is a Go file */
-export function isGoFile(filePath: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  return GO_EXTENSIONS.includes(ext);
-}
-
-/** Check if file is a Rust file */
-export function isRustFile(filePath: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  return RUST_EXTENSIONS.includes(ext);
-}
-
-/** Check if file is a PHP file */
-export function isPhpFile(filePath: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  return PHP_EXTENSIONS.includes(ext);
-}
 
 /** Check if file is a Markdown file */
 export function isMarkdownFile(filePath: string): boolean {
   const ext = extname(filePath).toLowerCase();
-  return MARKDOWN_EXTENSIONS.includes(ext);
+  return MARKDOWN_EXTENSIONS.includes(ext as typeof MARKDOWN_EXTENSIONS[number]);
 }
 
-/** Get the language category for a file */
-export function getLanguageCategory(filePath: string): 'typescript' | 'python' | 'csharp' | 'java' | 'go' | 'rust' | 'php' | 'markdown' | 'unknown' {
-  if (isPythonFile(filePath)) return 'python';
-  if (isCSharpFile(filePath)) return 'csharp';
-  if (isJavaFile(filePath)) return 'java';
-  if (isGoFile(filePath)) return 'go';
-  if (isRustFile(filePath)) return 'rust';
-  if (isPhpFile(filePath)) return 'php';
+/** @deprecated Use languageRegistry.getForExtension() instead */
+export function isPythonFile(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  return languageRegistry.getForExtension(ext)?.id === 'python';
+}
+
+/** @deprecated Use languageRegistry.getForExtension() instead */
+export function isCSharpFile(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  return languageRegistry.getForExtension(ext)?.id === 'csharp';
+}
+
+/**
+ * Get the language category for a file.
+ * Queries the language registry dynamically — works for any registered language.
+ */
+export function getLanguageCategory(filePath: string): string {
   if (isMarkdownFile(filePath)) return 'markdown';
   const ext = extname(filePath).toLowerCase();
-  if (['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'].includes(ext)) return 'typescript';
-  return 'unknown';
+  return languageRegistry.getForExtension(ext)?.id ?? 'unknown';
 }
 
 // ============================================================================
@@ -323,9 +303,62 @@ export interface PipelineOptions {
 }
 
 /**
+ * Build extends/implements edges from InheritanceReference[] (non-TS languages).
+ * Common logic previously duplicated per-language in buildParsedFileEntities.
+ */
+function buildInheritanceEdgesFromRefs(
+  refs: InheritanceReference[],
+  filePath: string,
+  extracted: ExtractedEntities,
+): { extendsEdges: ParsedFileEntities['extendsEdges']; implementsEdges: ParsedFileEntities['implementsEdges'] } {
+  const extendsEdges: ParsedFileEntities['extendsEdges'] = [];
+  const implementsEdges: ParsedFileEntities['implementsEdges'] = [];
+
+  for (const ref of refs) {
+    const cls = extracted.classes.find((c) => c.name === ref.childName);
+    const iface = extracted.interfaces.find((i) => i.name === ref.childName);
+
+    if (ref.type === 'extends') {
+      if (cls) {
+        extendsEdges.push({
+          childId: `Class:${filePath}:${cls.name}:${cls.startLine}`,
+          parentId: `Class:external:${ref.parentName}`,
+        });
+      } else if (iface) {
+        extendsEdges.push({
+          childId: `Interface:${filePath}:${iface.name}:${iface.startLine}`,
+          parentId: `Interface:external:${ref.parentName}`,
+        });
+      }
+    } else if (ref.type === 'implements' && cls) {
+      implementsEdges.push({
+        classId: `Class:${filePath}:${cls.name}:${cls.startLine}`,
+        interfaceId: `Interface:external:${ref.parentName}`,
+      });
+    }
+  }
+
+  return { extendsEdges, implementsEdges };
+}
+
+/**
+ * Build call edges from CallReference[] (non-TS languages).
+ */
+function buildCallEdgesFromRefs(refs: CallReference[]): ParsedFileEntities['callEdges'] {
+  return refs.map((call) => ({
+    callerId: `Function:${call.filePath}:${call.callerName}`,
+    calleeId: `Function:${call.filePath}:${call.calleeName}`,
+    line: call.line,
+  }));
+}
+
+/**
  * Build the complete ParsedFileEntities structure from extracted entities.
  * Resolves imports, inheritance, calls, and renders into edge arrays
  * ready for graph persistence via batchUpsert().
+ *
+ * Uses the language registry (QUAL.12) to dispatch extraction to the
+ * correct plugin, eliminating per-language if/else chains.
  */
 export function buildParsedFileEntities(
   file: FileEntity,
@@ -336,16 +369,35 @@ export function buildParsedFileEntities(
 ): ParsedFileEntities {
   const { deepAnalysis = false, includeExternals = false } = options;
 
+  // Ensure plugins are registered so registry lookups work
+  registerPlugins();
+
+  const lang = getLanguageCategory(file.path);
+  const ext = extname(file.path).toLowerCase();
+  const plugin = languageRegistry.getForExtension(ext);
+
   // Enrich functions with complexity metrics if AST is available
   if (rootNode) {
     enrichFunctionsWithComplexity(rootNode, extracted.functions);
   }
 
   // --- Import edges ---
-  let importsEdges: ParsedFileEntities['importsEdges'] = [];
+  // Import resolution varies by language capability:
+  // - TypeScript: TS extractor pre-resolves paths via resolvedPath field
+  // - Python: resolvePythonImport() resolves module names to file paths
+  // - All other languages: no file resolution, treated as external references
+  const importsEdges: ParsedFileEntities['importsEdges'] = [];
 
-  if (isPythonFile(file.path) && projectRoot) {
-    for (const imp of extracted.imports) {
+  for (const imp of extracted.imports) {
+    if (imp.resolvedPath) {
+      // Pre-resolved path (TypeScript extractor populates this)
+      importsEdges.push({
+        fromFilePath: file.path,
+        toFilePath: imp.resolvedPath,
+        specifiers: imp.specifiers.map((s) => s.name),
+      });
+    } else if (lang === 'python' && projectRoot) {
+      // Python: resolve module paths to file paths
       const resolvedPath = resolvePythonImport(imp.source, file.path, projectRoot);
       if (resolvedPath) {
         importsEdges.push({
@@ -354,190 +406,26 @@ export function buildParsedFileEntities(
           specifiers: imp.specifiers.map((s) => s.name),
         });
       }
-    }
-  } else if (isCSharpFile(file.path)) {
-    for (const imp of extracted.imports) {
+    } else {
+      // External import (no file resolution available)
       importsEdges.push({
         fromFilePath: file.path,
         toFilePath: `external:${imp.source}`,
         specifiers: imp.specifiers.map((s) => s.name),
       });
     }
-  } else if (isJavaFile(file.path)) {
-    for (const imp of extracted.imports) {
-      importsEdges.push({
-        fromFilePath: file.path,
-        toFilePath: `external:${imp.source}`,
-        specifiers: imp.specifiers.map((s) => s.name),
-      });
-    }
-  } else if (isGoFile(file.path)) {
-    for (const imp of extracted.imports) {
-      importsEdges.push({
-        fromFilePath: file.path,
-        toFilePath: `external:${imp.source}`,
-        specifiers: imp.specifiers.map((s) => s.name),
-      });
-    }
-  } else if (isRustFile(file.path)) {
-    for (const imp of extracted.imports) {
-      importsEdges.push({
-        fromFilePath: file.path,
-        toFilePath: `external:${imp.source}`,
-        specifiers: imp.specifiers.map((s) => s.name),
-      });
-    }
-  } else if (isPhpFile(file.path)) {
-    for (const imp of extracted.imports) {
-      importsEdges.push({
-        fromFilePath: file.path,
-        toFilePath: `external:${imp.source}`,
-        specifiers: imp.specifiers.map((s) => s.name),
-      });
-    }
-  } else {
-    importsEdges = extracted.imports
-      .filter((imp) => imp.resolvedPath)
-      .map((imp) => ({
-        fromFilePath: file.path,
-        toFilePath: imp.resolvedPath!,
-        specifiers: imp.specifiers.map((s) => s.name),
-      }));
   }
 
   // --- Extends / Implements edges ---
+  // TypeScript uses a richer inheritance extractor that resolves parent types
+  // across files via import analysis. Other languages use the generic
+  // extractInheritance from their plugin, which returns simple name references.
   let extendsEdges: ParsedFileEntities['extendsEdges'] = [];
   let implementsEdges: ParsedFileEntities['implementsEdges'] = [];
 
-  if (isPythonFile(file.path)) {
-    const inheritanceRefs = extractPythonInheritance(rootNode as any, file.path);
-    for (const ref of inheritanceRefs) {
-      const cls = extracted.classes.find((c) => c.name === ref.childName);
-      if (cls) {
-        extendsEdges.push({
-          childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-          parentId: `Class:external:${ref.parentName}`,
-        });
-      }
-    }
-  } else if (isCSharpFile(file.path)) {
-    const inheritanceRefs = extractCSharpInheritance(rootNode as any, file.path);
-    for (const ref of inheritanceRefs) {
-      const cls = extracted.classes.find((c) => c.name === ref.childName);
-      const iface = extracted.interfaces.find((i) => i.name === ref.childName);
-
-      if (ref.type === 'extends') {
-        if (cls) {
-          extendsEdges.push({
-            childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-            parentId: `Class:external:${ref.parentName}`,
-          });
-        } else if (iface) {
-          extendsEdges.push({
-            childId: `Interface:${file.path}:${iface.name}:${iface.startLine}`,
-            parentId: `Interface:external:${ref.parentName}`,
-          });
-        }
-      } else if (ref.type === 'implements' && cls) {
-        implementsEdges.push({
-          classId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-          interfaceId: `Interface:external:${ref.parentName}`,
-        });
-      }
-    }
-  } else if (isJavaFile(file.path)) {
-    const inheritanceRefs = extractJavaInheritance(rootNode as any, file.path);
-    for (const ref of inheritanceRefs) {
-      const cls = extracted.classes.find((c) => c.name === ref.childName);
-      const iface = extracted.interfaces.find((i) => i.name === ref.childName);
-
-      if (ref.type === 'extends') {
-        if (cls) {
-          extendsEdges.push({
-            childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-            parentId: `Class:external:${ref.parentName}`,
-          });
-        } else if (iface) {
-          extendsEdges.push({
-            childId: `Interface:${file.path}:${iface.name}:${iface.startLine}`,
-            parentId: `Interface:external:${ref.parentName}`,
-          });
-        }
-      } else if (ref.type === 'implements' && cls) {
-        implementsEdges.push({
-          classId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-          interfaceId: `Interface:external:${ref.parentName}`,
-        });
-      }
-    }
-  } else if (isGoFile(file.path)) {
-    const inheritanceRefs = extractGoInheritance(rootNode as any, file.path);
-    for (const ref of inheritanceRefs) {
-      const cls = extracted.classes.find((c) => c.name === ref.childName);
-      const iface = extracted.interfaces.find((i) => i.name === ref.childName);
-
-      if (ref.type === 'extends') {
-        if (iface) {
-          extendsEdges.push({
-            childId: `Interface:${file.path}:${iface.name}:${iface.startLine}`,
-            parentId: `Interface:external:${ref.parentName}`,
-          });
-        }
-      } else if (ref.type === 'implements' && cls) {
-        implementsEdges.push({
-          classId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-          interfaceId: `Interface:external:${ref.parentName}`,
-        });
-      }
-    }
-  } else if (isRustFile(file.path)) {
-    const inheritanceRefs = extractRustInheritance(rootNode as any, file.path);
-    for (const ref of inheritanceRefs) {
-      const cls = extracted.classes.find((c) => c.name === ref.childName);
-      const iface = extracted.interfaces.find((i) => i.name === ref.childName);
-
-      if (ref.type === 'extends') {
-        if (iface) {
-          extendsEdges.push({
-            childId: `Interface:${file.path}:${iface.name}:${iface.startLine}`,
-            parentId: `Interface:external:${ref.parentName}`,
-          });
-        }
-      } else if (ref.type === 'implements' && cls) {
-        implementsEdges.push({
-          classId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-          interfaceId: `Interface:external:${ref.parentName}`,
-        });
-      }
-    }
-  } else if (isPhpFile(file.path)) {
-    const inheritanceRefs = extractPhpInheritance(rootNode as any, file.path);
-    for (const ref of inheritanceRefs) {
-      const cls = extracted.classes.find((c) => c.name === ref.childName);
-      const iface = extracted.interfaces.find((i) => i.name === ref.childName);
-
-      if (ref.type === 'extends') {
-        if (cls) {
-          extendsEdges.push({
-            childId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-            parentId: `Class:external:${ref.parentName}`,
-          });
-        } else if (iface) {
-          extendsEdges.push({
-            childId: `Interface:${file.path}:${iface.name}:${iface.startLine}`,
-            parentId: `Interface:external:${ref.parentName}`,
-          });
-        }
-      } else if (ref.type === 'implements' && cls) {
-        implementsEdges.push({
-          classId: `Class:${file.path}:${cls.name}:${cls.startLine}`,
-          interfaceId: `Interface:external:${ref.parentName}`,
-        });
-      }
-    }
-  } else {
-    // TypeScript/JavaScript
-    const inheritance = extractInheritance(
+  if (lang === 'typescript') {
+    // TS-specific: cross-file inheritance resolution via import analysis
+    const inheritance = extractTsInheritance(
       file.path,
       extracted.classes,
       extracted.interfaces,
@@ -558,73 +446,21 @@ export function buildParsedFileEntities(
         ? `Interface:${impl.interfaceFilePath}:${impl.interfaceName}`
         : `Interface:external:${impl.interfaceName}`,
     }));
+  } else if (plugin?.extractors.extractInheritance && rootNode) {
+    // All other languages: use registry-dispatched extractInheritance
+    const refs = plugin.extractors.extractInheritance(rootNode as any, file.path);
+    ({ extendsEdges, implementsEdges } = buildInheritanceEdgesFromRefs(refs, file.path, extracted));
   }
 
   // --- Call edges (deep analysis only) ---
+  // TypeScript uses a richer call extractor that resolves callee identities
+  // across files via import analysis. Other languages use the generic
+  // extractCalls from their plugin, which returns simple name references.
   let callEdges: ParsedFileEntities['callEdges'] = [];
   if (deepAnalysis && rootNode) {
-    if (isPythonFile(file.path)) {
-      const pythonCalls = extractPythonCalls(
-        rootNode as unknown as import('@codegraph/types').SyntaxNode,
-        file.path,
-      );
-      callEdges = pythonCalls.map((call) => ({
-        callerId: `Function:${call.filePath}:${call.callerName}`,
-        calleeId: `Function:${call.filePath}:${call.calleeName}`,
-        line: call.line,
-      }));
-    } else if (isCSharpFile(file.path)) {
-      const csharpCalls = extractCSharpCalls(
-        rootNode as unknown as import('@codegraph/types').SyntaxNode,
-        file.path,
-      );
-      callEdges = csharpCalls.map((call) => ({
-        callerId: `Function:${call.filePath}:${call.callerName}`,
-        calleeId: `Function:${call.filePath}:${call.calleeName}`,
-        line: call.line,
-      }));
-    } else if (isJavaFile(file.path)) {
-      const javaCalls = extractJavaCalls(
-        rootNode as unknown as import('@codegraph/types').SyntaxNode,
-        file.path,
-      );
-      callEdges = javaCalls.map((call) => ({
-        callerId: `Function:${call.filePath}:${call.callerName}`,
-        calleeId: `Function:${call.filePath}:${call.calleeName}`,
-        line: call.line,
-      }));
-    } else if (isGoFile(file.path)) {
-      const goCalls = extractGoCalls(
-        rootNode as unknown as import('@codegraph/types').SyntaxNode,
-        file.path,
-      );
-      callEdges = goCalls.map((call) => ({
-        callerId: `Function:${call.filePath}:${call.callerName}`,
-        calleeId: `Function:${call.filePath}:${call.calleeName}`,
-        line: call.line,
-      }));
-    } else if (isRustFile(file.path)) {
-      const rustCalls = extractRustCalls(
-        rootNode as unknown as import('@codegraph/types').SyntaxNode,
-        file.path,
-      );
-      callEdges = rustCalls.map((call) => ({
-        callerId: `Function:${call.filePath}:${call.callerName}`,
-        calleeId: `Function:${call.filePath}:${call.calleeName}`,
-        line: call.line,
-      }));
-    } else if (isPhpFile(file.path)) {
-      const phpCalls = extractPhpCalls(
-        rootNode as unknown as import('@codegraph/types').SyntaxNode,
-        file.path,
-      );
-      callEdges = phpCalls.map((call) => ({
-        callerId: `Function:${call.filePath}:${call.callerName}`,
-        calleeId: `Function:${call.filePath}:${call.calleeName}`,
-        line: call.line,
-      }));
-    } else {
-      const calls = extractCalls(
+    if (lang === 'typescript') {
+      // TS-specific: cross-file call resolution via import analysis
+      const calls = extractTsCalls(
         rootNode,
         file.path,
         extracted.functions,
@@ -638,12 +474,16 @@ export function buildParsedFileEntities(
           : `Function:external:${call.calleeName}`,
         line: call.line,
       }));
+    } else if (plugin?.extractors.extractCalls) {
+      // All other languages: use registry-dispatched extractCalls
+      const refs = plugin.extractors.extractCalls(rootNode as any, file.path);
+      callEdges = buildCallEdgesFromRefs(refs);
     }
   }
 
-  // --- Render edges (deep analysis only, TS/JS components) ---
+  // --- Render edges (deep analysis only, TypeScript/JavaScript React components) ---
   let rendersEdges: ParsedFileEntities['rendersEdges'] = [];
-  if (deepAnalysis && rootNode) {
+  if (deepAnalysis && rootNode && lang === 'typescript' && extracted.components.length > 0) {
     const renders = extractRenders(
       rootNode,
       file.path,

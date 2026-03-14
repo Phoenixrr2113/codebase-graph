@@ -63,6 +63,9 @@ import { repoMapToolDefinition, getRepoMap, type RepoMapInput } from './repoMap'
 // Knowledge graph tools
 import { knowledgeToolDefinitions, knowledgeHandlers } from './knowledge';
 
+// Persona tools
+import { personaToolDefinitions, personaHandlers, useRawTools } from '../personas';
+
 // Infrastructure
 import {
   getShortSchema, needsSetup,
@@ -187,8 +190,25 @@ ${fileTree}
     }
   }
 
+  // Build persona tools with context preamble
+  const personaTools = personaToolDefinitions.map(tool => {
+    if (tool.name === 'search') {
+      return { ...tool, description: contextPreamble + tool.description };
+    }
+    return tool;
+  });
+
+  // If raw tools are not requested, return only persona tools
+  if (!useRawTools()) {
+    return personaTools;
+  }
+
+  // Raw mode: return both persona tools and raw tools
   return [
-    // ---- Core tools ----
+    // ---- Persona tools (consolidated) ----
+    ...personaTools,
+
+    // ---- Raw tools (for power users) ----
     {
       name: 'ping',
       description: 'Test connectivity to the CodeGraph MCP server',
@@ -238,46 +258,39 @@ ${fileTree}
 /**
  * Static tool list (without dynamic context) for initial registration
  */
-export const staticTools: ToolDefinition[] = [
-  // Core
-  {
-    name: 'ping',
-    description: 'Test connectivity to the CodeGraph MCP server',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-    },
-  },
-  configureProjectsToolDefinition,
-  searchToolDefinition,
-  getContextToolDefinition,
-  queryGraphToolDefinition,
-  reindexToolDefinition,
-
-  // Index & status
-  indexStatusToolDefinition,
-  getStatsToolDefinition,
-  getSourceToolDefinition,
-
-  // Symbol & code
-  findSymbolToolDefinition,
-  searchCodeToolDefinition,
-  askCodeToolDefinition,
-  queryCypherToolDefinition,
-  explainCodeToolDefinition,
-  repoMapToolDefinition,
-
-  // Analysis
-  complexityReportToolDefinition,
-  analyzeImpactToolDefinition,
-  analyzeRefactoringToolDefinition,
-  findVulnerabilitiesToolDefinition,
-  traceDataFlowToolDefinition,
-  symbolHistoryToolDefinition,
-
-  // Knowledge graph
-  ...knowledgeToolDefinitions,
-];
+export const staticTools: ToolDefinition[] = useRawTools()
+  ? [
+      // Persona tools
+      ...personaToolDefinitions,
+      // Raw tools
+      {
+        name: 'ping',
+        description: 'Test connectivity to the CodeGraph MCP server',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      configureProjectsToolDefinition,
+      searchToolDefinition,
+      getContextToolDefinition,
+      queryGraphToolDefinition,
+      reindexToolDefinition,
+      indexStatusToolDefinition,
+      getStatsToolDefinition,
+      getSourceToolDefinition,
+      findSymbolToolDefinition,
+      searchCodeToolDefinition,
+      askCodeToolDefinition,
+      queryCypherToolDefinition,
+      explainCodeToolDefinition,
+      repoMapToolDefinition,
+      complexityReportToolDefinition,
+      analyzeImpactToolDefinition,
+      analyzeRefactoringToolDefinition,
+      findVulnerabilitiesToolDefinition,
+      traceDataFlowToolDefinition,
+      symbolHistoryToolDefinition,
+      ...knowledgeToolDefinitions,
+    ]
+  : personaToolDefinitions;
 
 // ============================================================================
 // Tool Handlers
@@ -300,7 +313,10 @@ async function checkAndTriggerStalenessReindex(): Promise<void> {
     logger.info('Context is stale, triggering background re-index');
 
     const activePaths = await getActiveProjectPaths();
-    if (activePaths.length === 0) return;
+    if (activePaths.length === 0) {
+      stalenessCheckInProgress = false;
+      return;
+    }
 
     // Run re-index in background (non-blocking)
     Promise.all(
@@ -321,9 +337,7 @@ async function checkAndTriggerStalenessReindex(): Promise<void> {
   }
 }
 
-const handlers: Record<string, ToolHandler> = {
-  // ==== Core tools ====
-
+const rawHandlers: Record<string, ToolHandler> = {
   ping: async () => ({
     status: 'ok',
     message: 'CodeGraph MCP Server is running',
@@ -549,6 +563,12 @@ const handlers: Record<string, ToolHandler> = {
 
   // ==== Knowledge graph tools ====
   ...knowledgeHandlers,
+};
+
+// Combined handlers: raw tools + persona tools (persona takes precedence for shared names)
+const handlers: Record<string, ToolHandler> = {
+  ...rawHandlers,
+  ...personaHandlers,
 };
 
 // ============================================================================

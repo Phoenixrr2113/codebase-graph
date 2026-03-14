@@ -317,12 +317,24 @@ export async function extractAndStoreBatch(
 
   const results: ExtractAndStoreResult[] = [];
 
-  for (const text of texts) {
-    try {
-      const result = await extractAndStore(text, ops, config);
-      results.push(result);
-    } catch (error) {
-      logger.error(`Failed to extract and store text: ${(text).slice(0, 100)}...`, error);
+  // Bounded concurrency — conservative for LLM rate limits
+  const BATCH_SIZE = 5;
+
+  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+    const batch = texts.slice(i, i + BATCH_SIZE);
+
+    const settled = await Promise.allSettled(
+      batch.map((text) => extractAndStore(text, ops, config)),
+    );
+
+    for (let j = 0; j < settled.length; j++) {
+      const outcome = settled[j]!;
+      if (outcome.status === 'fulfilled') {
+        results.push(outcome.value);
+      } else {
+        const text = batch[j]!;
+        logger.error(`Failed to extract and store text: ${text.slice(0, 100)}...`, outcome.reason);
+      }
     }
   }
 

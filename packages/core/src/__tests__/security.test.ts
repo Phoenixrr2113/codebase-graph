@@ -11,10 +11,11 @@ import {
   severityToNumber,
   SecurityFinding,
 } from '../analysis/security';
-import { initParser, parseCode } from '../pipeline';
+import { initParser, parseCode, registerPlugins } from '../pipeline';
 
 // Initialize parser before tests
 beforeAll(async () => {
+  registerPlugins();
   await initParser();
 });
 

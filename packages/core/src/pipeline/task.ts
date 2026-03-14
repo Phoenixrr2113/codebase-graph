@@ -19,7 +19,7 @@
  *   }
  */
 
-import { createLogger } from '@codegraph/logger';
+import { createLogger, toErrorMessage } from '@codegraph/logger';
 import type {
   TaskConfig,
   PipelineEvent,
@@ -108,7 +108,7 @@ export class Task<TIn = unknown, TOut = unknown> {
               const result = await itemFn(item);
               batchOutput.push(result);
             } catch (error) {
-              const msg = error instanceof Error ? error.message : String(error);
+              const msg = toErrorMessage(error);
               if (this.continueOnError) {
                 logger.warn(`Task ${this.name}: item error (continuing): ${msg}`);
                 errorDetails.push({ item, error: msg });
@@ -150,7 +150,7 @@ export class Task<TIn = unknown, TOut = unknown> {
           outputCount: batchOutput.length,
         };
       } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
+        const msg = toErrorMessage(error);
         logger.error(`Task ${this.name}: batch error: ${msg}`);
 
         if (this.continueOnError) {

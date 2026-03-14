@@ -49,6 +49,7 @@ export type { SyntaxTree, LanguageType } from './parser';
 // Extraction pipeline
 export {
   registerPlugins,
+  registerTier2Languages,
   createFileEntity,
   createFileEntityFromContent,
   extractEntitiesForFile,
@@ -57,6 +58,8 @@ export {
   countEntities,
   countEdges,
   getLanguageCategory,
+  getSupportedExtensions,
+  getExtensionsForLanguage,
   isPythonFile,
   isCSharpFile,
   isMarkdownFile,

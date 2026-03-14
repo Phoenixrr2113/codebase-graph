@@ -7,6 +7,7 @@ import {
   initParser,
   parseCode,
   disposeParser,
+  registerPlugins,
 } from '../pipeline';
 import {
   calculateComplexity,
@@ -19,6 +20,7 @@ import type Parser from 'tree-sitter';
 
 // Initialize parser before tests
 beforeAll(async () => {
+  registerPlugins();
   await initParser();
 });
 

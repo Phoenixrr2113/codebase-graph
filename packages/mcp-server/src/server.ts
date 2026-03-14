@@ -10,9 +10,13 @@ import {
   ListToolsRequestSchema,
   type Tool,
 } from '@modelcontextprotocol/sdk/types';
-import { createLogger } from '@codegraph/logger';
+import { createLogger, toErrorMessage } from '@codegraph/logger';
 import { getTools, handleToolCall, staticTools } from './tools/consolidated';
 import { initialSync } from '@codegraph/core';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { version: SERVER_VERSION } = require('../../package.json') as { version: string };
 
 const logger = createLogger({ namespace: 'MCP:Server' });
 
@@ -32,7 +36,7 @@ export class CodeGraphMCPServer {
     this.server = new Server(
       {
         name: 'codegraph-mcp-server',
-        version: '0.1.0',
+        version: SERVER_VERSION,
       },
       {
         capabilities: {
@@ -76,7 +80,7 @@ export class CodeGraphMCPServer {
           ],
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorMessage = toErrorMessage(error);
         logger.error('Tool call failed', { tool: name, error: errorMessage });
         return {
           content: [
@@ -106,7 +110,7 @@ export class CodeGraphMCPServer {
 
     logger.info('CodeGraph MCP Server started', {
       name: 'codegraph-mcp-server',
-      version: '0.1.0',
+      version: SERVER_VERSION,
       transport: 'stdio',
     });
 

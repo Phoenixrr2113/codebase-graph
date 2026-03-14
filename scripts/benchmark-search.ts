@@ -8,20 +8,23 @@
  * Requires FalkorDB running locally and an LLM API key in .env.
  *
  * Usage:
- *   pnpm build && npx tsx scripts/benchmark-search.ts [label] [--reindex] [--no-llm] [--fast-only]
+ *   pnpm build && npx tsx scripts/benchmark-search.ts [label] [--reindex] [--no-llm] [--fast-only] [--embeddings]
  *
  * Flags:
- *   --reindex    Re-index the codebase before running
- *   --no-llm     Skip LLM-dependent strategies (HYBRID only)
- *   --fast-only  Use the fast model for ALL strategies, including
- *                GRAPH_ANSWER and CONTEXT_WALK that normally use the complex model.
- *                Useful for measuring latency reduction vs quality tradeoff.
+ *   --reindex      Re-index the codebase before running
+ *   --no-llm       Skip LLM-dependent strategies (HYBRID only)
+ *   --fast-only    Use the fast model for ALL strategies, including
+ *                  GRAPH_ANSWER and CONTEXT_WALK that normally use the complex model.
+ *                  Useful for measuring latency reduction vs quality tradeoff.
+ *   --embeddings   Enable vector search via local embeddings (nomic-embed-text-v1.5).
+ *                  When combined with --reindex, indexes with embeddings.
+ *                  Exercises RRF fusion in HYBRID search.
  */
 
 const { getGraphClient, closeGraphClient, indexProject, createDefaultSearchRegistry } =
   await import('../packages/core/dist/index.js');
 const { createOperations } = await import('../packages/graph/dist/index.js');
-const { getLLMModel, getLLMComplexModel, isLLMAvailable, warmupLLM, getLLMConfigResolved } =
+const { getLLMModel, getLLMComplexModel, isLLMAvailable, warmupLLM, getLLMConfigResolved, warmupEmbedding } =
   await import('../packages/plugin-nlp/dist/index.js');
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,7 +57,11 @@ const args = process.argv.slice(2);
 const reindex = args.includes('--reindex');
 const noLlm = args.includes('--no-llm');
 const fastOnly = args.includes('--fast-only');
+const useEmbeddings = args.includes('--embeddings');
 const label = args.filter(a => !a.startsWith('--'))[0] ?? 'unlabeled';
+
+// Embedding config for vector search (local nomic-embed-text-v1.5, 768d)
+const embeddingConfig = useEmbeddings ? { provider: 'local' as const } : undefined;
 
 // ============================================================================
 // Golden test suite — queries with expected results
@@ -199,6 +206,7 @@ async function main() {
   console.log(`\n=== Search Relevance Benchmark: ${label} ===`);
   console.log(`Time: ${new Date().toISOString()}`);
   console.log(`LLM: ${noLlm ? 'disabled' : fastOnly ? 'fast-only (Cerebras for all)' : 'enabled (two-tier)'}`);
+  console.log(`Embeddings: ${useEmbeddings ? 'enabled (local)' : 'disabled'}`);
   console.log(`Reindex: ${reindex}\n`);
 
   // Step 1: Connect and optionally reindex
@@ -211,7 +219,7 @@ async function main() {
     const result = await indexProject(ROOT, {
       client,
       deepAnalysis: true,
-      embeddings: false,
+      embeddings: embeddingConfig ?? false,
       force: false,
     });
     console.log(`Indexed ${result.stats.files} files, ${result.stats.entities} entities in ${Date.now() - indexStart}ms\n`);
@@ -255,9 +263,13 @@ async function main() {
     console.log('WARNING: No LLM available — LLM-dependent strategies will be skipped\n');
   }
 
-  // Note: Embeddings omitted from benchmark — text + graph search suffices
-  // for relevance testing. Add embeddings config here if vector search
-  // benchmarking is needed.
+  // Vector search via local embeddings (opt-in with --embeddings flag)
+  if (useEmbeddings) {
+    console.log('Warming up embedding model...');
+    await warmupEmbedding(embeddingConfig);
+    context.embeddings = embeddingConfig;
+    console.log('Embeddings ready (local nomic-embed-text-v1.5, 768d)\n');
+  }
 
   // Step 3: Run test cases
   const results: QueryResult[] = [];

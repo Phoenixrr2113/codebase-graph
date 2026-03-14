@@ -4,7 +4,10 @@
  */
 
 import { codeGraphService } from '@codegraph/core';
+import { createLogger, toErrorMessage } from '@codegraph/logger';
 import type { ToolDefinition } from './consolidated';
+
+const logger = createLogger({ namespace: 'MCP:Search' });
 
 // ============================================================================
 // Schema
@@ -29,6 +32,7 @@ export interface SearchOutput {
   total: number;
   query: string;
   project?: string | undefined;
+  error?: string;
 }
 
 // ============================================================================
@@ -89,10 +93,13 @@ export async function search(input: SearchInput): Promise<SearchOutput> {
       project: result.project,
     };
   } catch (error) {
+    const errorMsg = toErrorMessage(error);
+    logger.error('Search failed', { query: input.query, error: errorMsg });
     return {
       results: [],
       total: 0,
       query: input.query,
+      error: errorMsg,
     };
   }
 }

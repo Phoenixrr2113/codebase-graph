@@ -88,6 +88,10 @@ export const typescriptPlugin = {
     // Default to TypeScript grammar; use getGrammarForExtension for specific extensions
     return tsLanguage;
   },
+  getGrammarForExtension(ext: string) {
+    const normalizedExt = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
+    return extensionToGrammar[normalizedExt] ?? tsLanguage;
+  },
   extractors: {
     extractFunctions: _extractFunctions,
     extractClasses: _extractClasses,

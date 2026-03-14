@@ -29,55 +29,13 @@ import type {
   TypeEntity,
   InheritanceReference,
   CallReference,
-  ExtractedEntities,
   SyntaxNode,
 } from '@codegraph/types';
-
-// ============================================================================
-// Grammar Export
-// ============================================================================
+import { findNodesOfType, generateEntityId } from '@codegraph/plugin-common';
+import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 export function getGrammar(): unknown {
   return Rust;
-}
-
-const extensionToGrammar: Record<string, unknown> = {
-  '.rs': Rust,
-};
-
-export function getGrammarForExtension(ext: string): unknown | undefined {
-  const normalizedExt = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
-  return extensionToGrammar[normalizedExt];
-}
-
-export function getSupportedExtensions(): string[] {
-  return Object.keys(extensionToGrammar);
-}
-
-export function isSupported(ext: string): boolean {
-  return getGrammarForExtension(ext) !== undefined;
-}
-
-// ============================================================================
-// AST Utilities
-// ============================================================================
-
-function findNodesOfType(root: SyntaxNode, types: string[]): SyntaxNode[] {
-  const results: SyntaxNode[] = [];
-  function visit(node: SyntaxNode) {
-    if (types.includes(node.type)) {
-      results.push(node);
-    }
-    for (const child of node.children) {
-      visit(child);
-    }
-  }
-  visit(root);
-  return results;
-}
-
-function generateEntityId(filePath: string, type: string, name: string, line: number): string {
-  return `${filePath}:${type}:${name}:${line}`;
 }
 
 /**
@@ -802,25 +760,6 @@ export function extractCalls(root: SyntaxNode, filePath: string): CallReference[
 }
 
 // ============================================================================
-// Extract All Entities (Single Pass)
-// ============================================================================
-
-/**
- * Extract all entities from a Rust file.
- */
-export function extractAllEntities(root: SyntaxNode, filePath: string): ExtractedEntities {
-  return {
-    functions: extractFunctions(root, filePath),
-    classes: extractClasses(root, filePath),
-    interfaces: extractInterfaces(root, filePath),
-    variables: extractVariables(root, filePath),
-    imports: extractImports(root, filePath),
-    types: extractTypes(root, filePath),
-    components: [], // Not applicable for Rust
-  };
-}
-
-// ============================================================================
 // Import Resolution (Placeholder)
 // ============================================================================
 
@@ -834,15 +773,23 @@ export function resolveRustImport(
 }
 
 // ============================================================================
-// Plugin Export
+// Plugin Export (via generic factory)
 // ============================================================================
 
-export const rustPlugin = {
+export const rustPlugin = createLanguagePlugin({
   id: 'rust',
   displayName: 'Rust',
   extensions: ['.rs'],
-  getGrammar,
-  extractors: {
+  grammar: Rust,
+  nodeTypes: {
+    functions: ['function_item'],
+    classes: ['struct_item'],
+    interfaces: ['trait_item'],
+    variables: ['const_item', 'static_item'],
+    imports: ['use_declaration'],
+    calls: ['call_expression'],
+  },
+  overrides: {
     extractFunctions,
     extractClasses,
     extractInterfaces,
@@ -852,5 +799,7 @@ export const rustPlugin = {
     extractInheritance,
     extractCalls,
   },
-  extractAllEntities,
-};
+});
+
+// Re-export extractAllEntities for backward compatibility
+export const extractAllEntities = rustPlugin.extractAllEntities;

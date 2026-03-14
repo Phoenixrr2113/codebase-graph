@@ -591,6 +591,131 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
   });
 
   // ==========================================================================
+  // Smart File Removal (PERF.4)
+  // ==========================================================================
+
+  describe('removeFileAndCleanup (PERF.4)', () => {
+    it('removes file node and orphaned entities', async () => {
+      // Setup: File A with a function
+      await ops.upsertFile(makeFile({ path: '/src/perf4-a.ts', name: 'perf4-a.ts' }));
+      await ops.upsertFunction(makeFunction({ name: 'fnA', filePath: '/src/perf4-a.ts', startLine: 1 }));
+
+      // Verify setup
+      const before = await client.roQuery<{ count: number }>(
+        `MATCH (f:File {path: '/src/perf4-a.ts'}) RETURN count(f) as count`
+      );
+      expect(before.data[0]?.count).toBe(1);
+
+      // Remove file
+      await ops.removeFileAndCleanup('/src/perf4-a.ts');
+
+      // File node should be gone
+      const afterFile = await client.roQuery<{ count: number }>(
+        `MATCH (f:File {path: '/src/perf4-a.ts'}) RETURN count(f) as count`
+      );
+      expect(afterFile.data[0]?.count).toBe(0);
+
+      // Orphaned function should also be gone
+      const afterFn = await client.roQuery<{ count: number }>(
+        `MATCH (fn:Function {name: 'fnA', filePath: '/src/perf4-a.ts'}) RETURN count(fn) as count`
+      );
+      expect(afterFn.data[0]?.count).toBe(0);
+    });
+
+    it('preserves entities with incoming cross-file CALLS edges', async () => {
+      // Setup: File A has fnA, File B has fnB, fnA CALLS fnB
+      await ops.upsertFile(makeFile({ path: '/src/perf4-caller.ts', name: 'perf4-caller.ts' }));
+      await ops.upsertFunction(makeFunction({ name: 'fnCaller', filePath: '/src/perf4-caller.ts', startLine: 1 }));
+
+      await ops.upsertFile(makeFile({ path: '/src/perf4-callee.ts', name: 'perf4-callee.ts' }));
+      await ops.upsertFunction(makeFunction({ name: 'fnCallee', filePath: '/src/perf4-callee.ts', startLine: 1 }));
+
+      // Create cross-file CALLS edge: fnCaller → fnCallee
+      await ops.createCallEdge('fnCaller', '/src/perf4-caller.ts', 'fnCallee', '/src/perf4-callee.ts', 5);
+
+      // Verify the CALLS edge exists
+      const edgeBefore = await client.roQuery<{ count: number }>(
+        `MATCH (a:Function {name: 'fnCaller'})-[:CALLS]->(b:Function {name: 'fnCallee'}) RETURN count(*) as count`
+      );
+      expect(edgeBefore.data[0]?.count).toBe(1);
+
+      // Remove the CALLEE file — the function should be preserved because fnCaller still points to it
+      await ops.removeFileAndCleanup('/src/perf4-callee.ts');
+
+      // File node should be gone
+      const afterFile = await client.roQuery<{ count: number }>(
+        `MATCH (f:File {path: '/src/perf4-callee.ts'}) RETURN count(f) as count`
+      );
+      expect(afterFile.data[0]?.count).toBe(0);
+
+      // fnCallee should STILL exist (preserved by incoming CALLS edge)
+      const afterFn = await client.roQuery<{ count: number }>(
+        `MATCH (fn:Function {name: 'fnCallee', filePath: '/src/perf4-callee.ts'}) RETURN count(fn) as count`
+      );
+      expect(afterFn.data[0]?.count).toBe(1);
+
+      // CALLS edge should still be intact
+      const edgeAfter = await client.roQuery<{ count: number }>(
+        `MATCH (a:Function {name: 'fnCaller'})-[:CALLS]->(b:Function {name: 'fnCallee'}) RETURN count(*) as count`
+      );
+      expect(edgeAfter.data[0]?.count).toBe(1);
+    });
+
+    it('preserves entities with incoming cross-file EXTENDS edges', async () => {
+      // Setup: File A has ClassChild, File B has ClassBase, ClassChild EXTENDS ClassBase
+      await ops.upsertFile(makeFile({ path: '/src/perf4-child.ts', name: 'perf4-child.ts' }));
+      await ops.upsertClass(makeClass({ name: 'ClassChild', filePath: '/src/perf4-child.ts', startLine: 1 }));
+
+      await ops.upsertFile(makeFile({ path: '/src/perf4-base.ts', name: 'perf4-base.ts' }));
+      await ops.upsertClass(makeClass({ name: 'ClassBase', filePath: '/src/perf4-base.ts', startLine: 1 }));
+
+      // Create cross-file EXTENDS edge: ClassChild → ClassBase
+      await ops.createExtendsEdge('ClassChild', '/src/perf4-child.ts', 'ClassBase', '/src/perf4-base.ts');
+
+      // Remove the BASE file — ClassBase should be preserved due to incoming EXTENDS
+      await ops.removeFileAndCleanup('/src/perf4-base.ts');
+
+      // ClassBase should still exist
+      const afterCls = await client.roQuery<{ count: number }>(
+        `MATCH (c:Class {name: 'ClassBase', filePath: '/src/perf4-base.ts'}) RETURN count(c) as count`
+      );
+      expect(afterCls.data[0]?.count).toBe(1);
+
+      // EXTENDS edge should still be intact
+      const edgeAfter = await client.roQuery<{ count: number }>(
+        `MATCH (a:Class {name: 'ClassChild'})-[:EXTENDS]->(b:Class {name: 'ClassBase'}) RETURN count(*) as count`
+      );
+      expect(edgeAfter.data[0]?.count).toBe(1);
+    });
+
+    it('removes entities from caller file without affecting callee file', async () => {
+      // Setup: fnX CALLS fnY (cross-file), then remove the CALLER file
+      await ops.upsertFile(makeFile({ path: '/src/perf4-src.ts', name: 'perf4-src.ts' }));
+      await ops.upsertFunction(makeFunction({ name: 'fnSrc', filePath: '/src/perf4-src.ts', startLine: 1 }));
+
+      await ops.upsertFile(makeFile({ path: '/src/perf4-dst.ts', name: 'perf4-dst.ts' }));
+      await ops.upsertFunction(makeFunction({ name: 'fnDst', filePath: '/src/perf4-dst.ts', startLine: 1 }));
+
+      await ops.createCallEdge('fnSrc', '/src/perf4-src.ts', 'fnDst', '/src/perf4-dst.ts', 10);
+
+      // Remove the CALLER file — fnSrc has no incoming edges, so it should be removed
+      await ops.removeFileAndCleanup('/src/perf4-src.ts');
+
+      // fnSrc should be gone (no incoming edges)
+      const afterSrc = await client.roQuery<{ count: number }>(
+        `MATCH (fn:Function {name: 'fnSrc', filePath: '/src/perf4-src.ts'}) RETURN count(fn) as count`
+      );
+      expect(afterSrc.data[0]?.count).toBe(0);
+
+      // fnDst should still exist (still contained by its own file)
+      const afterDst = await client.roQuery<{ count: number }>(
+        `MATCH (fn:Function {name: 'fnDst', filePath: '/src/perf4-dst.ts'}) RETURN count(fn) as count`
+      );
+      expect(afterDst.data[0]?.count).toBe(1);
+    });
+  });
+
+  // ==========================================================================
   // clearAll
   // ==========================================================================
 

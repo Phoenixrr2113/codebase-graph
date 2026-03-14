@@ -6,6 +6,7 @@
 
 import Parser from 'tree-sitter';
 import { getSecurityRules } from './rules/rule-loader';
+import { walkNode, getMethodName, getPropertyName } from './ast-utils';
 
 // ============================================================================
 // Types
@@ -113,19 +114,6 @@ export function scanForVulnerabilities(
   }
 
   return findings;
-}
-
-/**
- * Walk AST nodes recursively and call visitor for each
- */
-function walkNode(
-  node: Parser.SyntaxNode,
-  visitor: (node: Parser.SyntaxNode) => void
-): void {
-  visitor(node);
-  for (const child of node.children) {
-    walkNode(child, visitor);
-  }
 }
 
 // ============================================================================
@@ -525,24 +513,6 @@ function checkEval(
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-/**
- * Extract method name from call expression text
- * e.g., "db.query" -> "query", "knex.raw" -> "raw"
- */
-function getMethodName(text: string): string {
-  const parts = text.split('.');
-  return parts[parts.length - 1] || text;
-}
-
-/**
- * Extract property name from member expression
- * e.g., "element.innerHTML" -> "innerHTML"
- */
-function getPropertyName(text: string): string {
-  const parts = text.split('.');
-  return parts[parts.length - 1] || text;
-}
 
 /**
  * Check if a template literal has interpolation expressions

@@ -9,6 +9,9 @@ export { createLogger, logger } from './logger';
 // Tracing utilities
 export { trace, traced, withTrace } from './trace';
 
+// Error utilities
+export { toErrorMessage } from './errors';
+
 // Types
 export type {
   Logger,

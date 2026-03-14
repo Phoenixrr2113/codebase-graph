@@ -7,6 +7,7 @@
 import Parser from 'tree-sitter';
 import { SecurityFinding, SecuritySeverity } from '../security';
 import { getPaymentRules } from './rule-loader';
+import { walkNode } from '../ast-utils';
 
 // ============================================================================
 // Payment-Specific Security Patterns (loaded from externalized JSON — WS4)
@@ -78,19 +79,6 @@ export function scanForPaymentVulnerabilities(
   });
 
   return findings;
-}
-
-/**
- * Walk AST nodes recursively
- */
-function walkNode(
-  node: Parser.SyntaxNode,
-  visitor: (node: Parser.SyntaxNode) => void
-): void {
-  visitor(node);
-  for (const child of node.children) {
-    walkNode(child, visitor);
-  }
 }
 
 // ============================================================================

@@ -10,10 +10,11 @@ import {
   getPaymentVulnerabilityTypes,
 } from '../analysis/rules/payment';
 import { SecurityFinding } from '../analysis/security';
-import { initParser, parseCode } from '../pipeline';
+import { initParser, parseCode, registerPlugins } from '../pipeline';
 
 // Initialize parser before tests
 beforeAll(async () => {
+  registerPlugins();
   await initParser();
 });
 

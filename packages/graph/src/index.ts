@@ -27,17 +27,11 @@ export { FalkorDBDriver, falkorDialect } from './drivers/falkordb';
 // FalkorDBLite driver (embedded — no Docker needed)
 export { FalkorDBLiteDriver, type FalkorDBLiteConfig } from './drivers/falkordblite';
 
-// Legacy: Kuzu driver + schema (kuzu native module is NOT eagerly loaded — safe to import)
-export { KuzuDriver, kuzuDialect } from './drivers/kuzu';
-export {
-  EMBEDDING_DIM,
-  NODE_TABLES,
-  KNOWLEDGE_NODE_TABLES,
-  REL_TABLES,
-  KNOWLEDGE_REL_TABLES,
-  VECTOR_INDEX_STMTS,
-  ALL_DDL,
-} from './drivers/kuzu-schema';
+// Driver registry (pluggable driver system)
+export { registerDriver, createDriver, getRegisteredDrivers, type DriverFactory } from './driver-registry';
+
+// Auto-register built-in drivers on import
+import './drivers/index';
 
 // Operations exports
 export { createOperations, type GraphOperations, type VectorSearchResult } from './operations';

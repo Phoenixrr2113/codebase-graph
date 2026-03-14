@@ -191,36 +191,42 @@ describe('Impact Analysis', () => {
   });
 
   describe('Cypher Query Generators', () => {
-    it('should generate direct callers query', () => {
-      const query = getDirectCallersQuery('myFunction');
+    it('should generate direct callers query with parameterized symbolName', () => {
+      const { cypher, params } = getDirectCallersQuery('myFunction');
 
-      expect(query).toContain('MATCH');
-      expect(query).toContain(':Function');
-      expect(query).toContain('myFunction');
-      expect(query).toContain(':CALLS');
-      expect(query).toContain('1 as depth');
+      expect(cypher).toContain('MATCH');
+      expect(cypher).toContain(':Function');
+      expect(cypher).toContain('$symbolName');
+      expect(cypher).not.toContain('"myFunction"');
+      expect(cypher).toContain(':CALLS');
+      expect(cypher).toContain('1 as depth');
+      expect(params).toEqual({ symbolName: 'myFunction' });
     });
 
     it('should generate transitive callers query with default depth', () => {
-      const query = getTransitiveCallersQuery('myFunction');
+      const { cypher, params } = getTransitiveCallersQuery('myFunction');
 
-      expect(query).toContain(':CALLS*1..5');
-      expect(query).toContain('myFunction');
-      expect(query).toContain('length(path) as depth');
+      expect(cypher).toContain(':CALLS*1..5');
+      expect(cypher).toContain('$symbolName');
+      expect(cypher).not.toContain('"myFunction"');
+      expect(cypher).toContain('length(path) as depth');
+      expect(params).toEqual({ symbolName: 'myFunction' });
     });
 
     it('should generate transitive callers query with custom depth', () => {
-      const query = getTransitiveCallersQuery('myFunction', 3);
+      const { cypher } = getTransitiveCallersQuery('myFunction', 3);
 
-      expect(query).toContain(':CALLS*1..3');
+      expect(cypher).toContain(':CALLS*1..3');
     });
 
-    it('should generate affected tests query', () => {
-      const query = getAffectedTestsQuery('myFunction');
+    it('should generate affected tests query with parameterized symbolName', () => {
+      const { cypher, params } = getAffectedTestsQuery('myFunction');
 
-      expect(query).toContain('myFunction');
-      expect(query).toContain('.test.');
-      expect(query).toContain('.spec.');
+      expect(cypher).toContain('$symbolName');
+      expect(cypher).not.toContain('"myFunction"');
+      expect(cypher).toContain('.test.');
+      expect(cypher).toContain('.spec.');
+      expect(params).toEqual({ symbolName: 'myFunction' });
     });
   });
 

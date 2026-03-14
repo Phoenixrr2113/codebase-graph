@@ -197,154 +197,111 @@ interface NodeWithText {
   identifier: Record<string, unknown>;
 }
 
-function buildFileNodes(rows: Record<string, unknown>[]): NodeWithText[] {
+/** Generic node builder — maps DB rows to NodeWithText using a config */
+function buildNodes<T>(
+  nodeType: EmbeddableNodeType,
+  rows: Record<string, unknown>[],
+  mapRow: (r: Record<string, unknown>) => T,
+  buildText: (entity: T) => string,
+  getIdentifier: (entity: T) => Record<string, unknown>,
+): NodeWithText[] {
   return rows.map((r) => {
-    const entity = {
-      path: r.path as string,
-      name: r.name as string,
-      extension: r.extension as string,
-      loc: r.loc as number,
-    };
-    const text = buildFileEmbeddingText(entity as any);
-    return {
-      nodeType: 'File' as const,
-      text,
-      textHash: hashText(text),
-      identifier: { path: entity.path },
-    };
+    const entity = mapRow(r);
+    const text = buildText(entity);
+    return { nodeType, text, textHash: hashText(text), identifier: getIdentifier(entity) };
   });
 }
 
-function buildFunctionNodes(rows: Record<string, unknown>[]): NodeWithText[] {
-  return rows.map((r) => {
-    const entity = {
-      name: r.name as string,
-      filePath: r.filePath as string,
-      startLine: r.startLine as number,
-      endLine: r.endLine as number,
-      isExported: r.isExported as boolean,
-      isAsync: r.isAsync as boolean,
-      isArrow: r.isArrow as boolean,
-      isGenerator: false,
-      params: parseJsonArray<FunctionParam>(r.params as string),
-      returnType: (r.returnType as string) ?? null,
-      docstring: (r.docstring as string) ?? null,
-    };
-    const text = buildFunctionEmbeddingText(entity as any);
-    return {
-      nodeType: 'Function' as const,
-      text,
-      textHash: hashText(text),
-      identifier: { name: entity.name, filePath: entity.filePath, startLine: entity.startLine },
-    };
-  });
-}
+/** Row mappers for each node type */
+const rowMappers = {
+  File: (r: Record<string, unknown>) => ({
+    path: r.path as string,
+    name: r.name as string,
+    extension: r.extension as string,
+    loc: r.loc as number,
+  }),
+  Function: (r: Record<string, unknown>) => ({
+    name: r.name as string,
+    filePath: r.filePath as string,
+    startLine: r.startLine as number,
+    endLine: r.endLine as number,
+    isExported: r.isExported as boolean,
+    isAsync: r.isAsync as boolean,
+    isArrow: r.isArrow as boolean,
+    isGenerator: false,
+    params: parseJsonArray<FunctionParam>(r.params as string),
+    returnType: (r.returnType as string) ?? null,
+    docstring: (r.docstring as string) ?? null,
+  }),
+  Class: (r: Record<string, unknown>) => ({
+    name: r.name as string,
+    filePath: r.filePath as string,
+    startLine: r.startLine as number,
+    endLine: r.endLine as number,
+    isExported: r.isExported as boolean,
+    isAbstract: r.isAbstract as boolean,
+    extends: (r.extends_ as string) ?? null,
+    implements: parseJsonArray<string>(r.implements_ as string),
+    docstring: (r.docstring as string) ?? null,
+  }),
+  Interface: (r: Record<string, unknown>) => ({
+    name: r.name as string,
+    filePath: r.filePath as string,
+    startLine: r.startLine as number,
+    endLine: r.endLine as number,
+    isExported: r.isExported as boolean,
+    extends: parseJsonArray<string>(r.extends_ as string),
+    docstring: (r.docstring as string) ?? null,
+  }),
+  Variable: (r: Record<string, unknown>) => ({
+    name: r.name as string,
+    filePath: r.filePath as string,
+    line: r.line as number,
+    kind: (r.kind as string) ?? 'const',
+    type: (r.type_ as string) ?? null,
+    isExported: r.isExported as boolean,
+  }),
+  Type: (r: Record<string, unknown>) => ({
+    name: r.name as string,
+    filePath: r.filePath as string,
+    startLine: r.startLine as number,
+    endLine: r.endLine as number,
+    kind: (r.kind as string) ?? 'type',
+    isExported: r.isExported as boolean,
+    docstring: (r.docstring as string) ?? null,
+  }),
+  Component: (r: Record<string, unknown>) => ({
+    name: r.name as string,
+    filePath: r.filePath as string,
+    startLine: r.startLine as number,
+    endLine: r.endLine as number,
+    isExported: r.isExported as boolean,
+    propsType: (r.propsType as string) ?? null,
+    props: parseJsonArray(r.props as string),
+  }),
+};
 
-function buildClassNodes(rows: Record<string, unknown>[]): NodeWithText[] {
-  return rows.map((r) => {
-    const entity = {
-      name: r.name as string,
-      filePath: r.filePath as string,
-      startLine: r.startLine as number,
-      endLine: r.endLine as number,
-      isExported: r.isExported as boolean,
-      isAbstract: r.isAbstract as boolean,
-      extends: (r.extends_ as string) ?? null,
-      implements: parseJsonArray<string>(r.implements_ as string),
-      docstring: (r.docstring as string) ?? null,
-    };
-    const text = buildClassEmbeddingText(entity as any);
-    return {
-      nodeType: 'Class' as const,
-      text,
-      textHash: hashText(text),
-      identifier: { name: entity.name, filePath: entity.filePath, startLine: entity.startLine },
-    };
-  });
-}
+/** Identifier extractors for each node type */
+const identifierExtractors: Record<EmbeddableNodeType, (e: Record<string, unknown>) => Record<string, unknown>> = {
+  File: (e) => ({ path: e.path }),
+  Function: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
+  Class: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
+  Interface: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
+  Variable: (e) => ({ name: e.name, filePath: e.filePath, line: e.line }),
+  Type: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
+  Component: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
+};
 
-function buildInterfaceNodes(rows: Record<string, unknown>[]): NodeWithText[] {
-  return rows.map((r) => {
-    const entity = {
-      name: r.name as string,
-      filePath: r.filePath as string,
-      startLine: r.startLine as number,
-      endLine: r.endLine as number,
-      isExported: r.isExported as boolean,
-      extends: parseJsonArray<string>(r.extends_ as string),
-      docstring: (r.docstring as string) ?? null,
-    };
-    const text = buildInterfaceEmbeddingText(entity as any);
-    return {
-      nodeType: 'Interface' as const,
-      text,
-      textHash: hashText(text),
-      identifier: { name: entity.name, filePath: entity.filePath, startLine: entity.startLine },
-    };
-  });
-}
-
-function buildVariableNodes(rows: Record<string, unknown>[]): NodeWithText[] {
-  return rows.map((r) => {
-    const entity = {
-      name: r.name as string,
-      filePath: r.filePath as string,
-      line: r.line as number,
-      kind: (r.kind as string) ?? 'const',
-      type: (r.type_ as string) ?? null,
-      isExported: r.isExported as boolean,
-    };
-    const text = buildVariableEmbeddingText(entity as any);
-    return {
-      nodeType: 'Variable' as const,
-      text,
-      textHash: hashText(text),
-      identifier: { name: entity.name, filePath: entity.filePath, line: entity.line },
-    };
-  });
-}
-
-function buildTypeNodes(rows: Record<string, unknown>[]): NodeWithText[] {
-  return rows.map((r) => {
-    const entity = {
-      name: r.name as string,
-      filePath: r.filePath as string,
-      startLine: r.startLine as number,
-      endLine: r.endLine as number,
-      kind: (r.kind as string) ?? 'type',
-      isExported: r.isExported as boolean,
-      docstring: (r.docstring as string) ?? null,
-    };
-    const text = buildTypeEmbeddingText(entity as any);
-    return {
-      nodeType: 'Type' as const,
-      text,
-      textHash: hashText(text),
-      identifier: { name: entity.name, filePath: entity.filePath, startLine: entity.startLine },
-    };
-  });
-}
-
-function buildComponentNodes(rows: Record<string, unknown>[]): NodeWithText[] {
-  return rows.map((r) => {
-    const entity = {
-      name: r.name as string,
-      filePath: r.filePath as string,
-      startLine: r.startLine as number,
-      endLine: r.endLine as number,
-      isExported: r.isExported as boolean,
-      propsType: (r.propsType as string) ?? null,
-      props: parseJsonArray(r.props as string),
-    };
-    const text = buildComponentEmbeddingText(entity as any);
-    return {
-      nodeType: 'Component' as const,
-      text,
-      textHash: hashText(text),
-      identifier: { name: entity.name, filePath: entity.filePath, startLine: entity.startLine },
-    };
-  });
-}
+/** Embedding text builders for each node type — row mappers produce matching shapes */
+const textBuilders: Record<EmbeddableNodeType, (entity: Record<string, unknown>) => string> = {
+  File: (e) => buildFileEmbeddingText(e as unknown as Parameters<typeof buildFileEmbeddingText>[0]),
+  Function: (e) => buildFunctionEmbeddingText(e as unknown as Parameters<typeof buildFunctionEmbeddingText>[0]),
+  Class: (e) => buildClassEmbeddingText(e as unknown as Parameters<typeof buildClassEmbeddingText>[0]),
+  Interface: (e) => buildInterfaceEmbeddingText(e as unknown as Parameters<typeof buildInterfaceEmbeddingText>[0]),
+  Variable: (e) => buildVariableEmbeddingText(e as unknown as Parameters<typeof buildVariableEmbeddingText>[0]),
+  Type: (e) => buildTypeEmbeddingText(e as unknown as Parameters<typeof buildTypeEmbeddingText>[0]),
+  Component: (e) => buildComponentEmbeddingText(e as unknown as Parameters<typeof buildComponentEmbeddingText>[0]),
+};
 
 // ============================================================================
 // Public API
@@ -470,13 +427,12 @@ async function queryNodesForType(
 }
 
 function buildNodesForType(nodeType: EmbeddableNodeType, rows: Record<string, unknown>[]): NodeWithText[] {
-  switch (nodeType) {
-    case 'File': return buildFileNodes(rows);
-    case 'Function': return buildFunctionNodes(rows);
-    case 'Class': return buildClassNodes(rows);
-    case 'Interface': return buildInterfaceNodes(rows);
-    case 'Variable': return buildVariableNodes(rows);
-    case 'Type': return buildTypeNodes(rows);
-    case 'Component': return buildComponentNodes(rows);
-  }
+  const mapper = rowMappers[nodeType] as (r: Record<string, unknown>) => Record<string, unknown>;
+  return buildNodes(
+    nodeType,
+    rows,
+    mapper,
+    textBuilders[nodeType],
+    identifierExtractors[nodeType],
+  );
 }

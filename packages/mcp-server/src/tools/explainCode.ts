@@ -5,8 +5,7 @@
  * Queries graph for relationships and reads source file.
  */
 
-import { readFile } from 'node:fs/promises';
-import { codeGraphService } from '@codegraph/core';
+import { codeGraphService, readSourceFile } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
@@ -68,23 +67,19 @@ export async function explainCode(input: ExplainCodeInput): Promise<ExplainCodeO
       return { code: '', dependencies: [], dependents: [], relatedTests: [], error: 'File path is required' };
     }
 
-    // Read the file content (still local — not a graph concern)
+    // Read the file content using readSourceFile (validates against path traversal)
     let code: string;
     try {
-      code = await readFile(input.file, 'utf-8');
+      const result = await readSourceFile(input.file, {
+        startLine: input.start_line,
+        endLine: input.end_line,
+      });
+      code = result.content;
     } catch (err) {
       return {
         code: '', dependencies: [], dependents: [], relatedTests: [],
         error: `Failed to read file: ${err instanceof Error ? err.message : 'Unknown error'}`,
       };
-    }
-
-    // Apply line range if specified
-    if (input.start_line !== undefined || input.end_line !== undefined) {
-      const lines = code.split('\n');
-      const start = (input.start_line ?? 1) - 1;
-      const end = input.end_line ?? lines.length;
-      code = lines.slice(start, end).join('\n');
     }
 
     // Delegate graph queries to service

@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { getAnalyticsService } from '../services/analyticsService';
 import { getAnalyticsCache } from '../services/analyticsCache';
 import { getAnalyticsScheduler, type SchedulerConfig } from '../services/analyticsScheduler';
-import { createLogger } from '@codegraph/logger';
+import { createLogger, toErrorMessage } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'API:Analytics' });
 
@@ -93,7 +93,7 @@ analytics.get('/summary', zValidator('query', pathQuerySchema), async (c) => {
     logger.error('[Analytics API] Summary error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });
@@ -130,7 +130,7 @@ analytics.get('/security', zValidator('query', securityQuerySchema), async (c) =
     logger.error('[Analytics API] Security error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });
@@ -155,7 +155,7 @@ analytics.post('/security/scan', zValidator('json', scanBodySchema), async (c) =
     logger.error('[Analytics API] Scan error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });
@@ -180,7 +180,7 @@ analytics.get('/complexity', zValidator('query', complexityQuerySchema), async (
     logger.error('[Analytics API] Complexity error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });
@@ -204,7 +204,7 @@ analytics.get('/refactoring', zValidator('query', refactoringQuerySchema), async
     logger.error('[Analytics API] Refactoring error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });
@@ -227,7 +227,7 @@ analytics.get('/dataflow', zValidator('query', dataflowQuerySchema), async (c) =
     logger.error('[Analytics API] Dataflow error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });
@@ -255,7 +255,7 @@ analytics.get('/impact/:symbol', zValidator('query', z.object({
     logger.error('[Analytics API] Impact error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });
@@ -274,7 +274,7 @@ analytics.get('/cache', async (c) => {
     logger.error('[Analytics API] Cache stats error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });
@@ -295,7 +295,7 @@ analytics.delete('/cache', zValidator('query', pathQuerySchema), async (c) => {
     logger.error('[Analytics API] Cache clear error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });
@@ -327,7 +327,7 @@ analytics.get('/schedule', async (c) => {
     logger.error('[Analytics API] Schedule error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });
@@ -352,7 +352,7 @@ analytics.put('/schedule', zValidator('json', scheduleConfigSchema), async (c) =
     logger.error('[Analytics API] Schedule update error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });
@@ -388,7 +388,7 @@ analytics.post('/run', zValidator('json', scanBodySchema), async (c) => {
     logger.error('[Analytics API] Run error:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: toErrorMessage(error) 
     }, 500);
   }
 });

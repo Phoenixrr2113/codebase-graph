@@ -17,7 +17,7 @@ const graph = new Hono();
  * GET /api/graph/full
  * Retrieve the complete graph or a project-filtered subset
  *
- * @query limit - Maximum nodes to return (default: 100000)
+ * @query limit - Maximum nodes to return (default: 1000, max: 10000)
  * @query projectId - Optional project UUID to filter by
  * @returns Graph data with nodes and edges arrays
  *
@@ -27,7 +27,7 @@ const graph = new Hono();
 graph.get('/full', async (c) => {
   const limitParam = c.req.query('limit');
   const projectId = c.req.query('projectId');
-  const limit = limitParam ? parseInt(limitParam, 10) : 100000;
+  const limit = Math.min(limitParam ? parseInt(limitParam, 10) : 1000, 10000);
 
   try {
     let rootPath: string | undefined;

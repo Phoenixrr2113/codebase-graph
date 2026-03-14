@@ -4,7 +4,7 @@
  */
 
 import type { Graph } from 'falkordb';
-import { trace } from '@codegraph/logger';
+import { trace, toErrorMessage } from '@codegraph/logger';
 import type { DatabaseDriver, DriverConfig, CypherDialect } from './driver';
 import { FalkorDBDriver } from './drivers/falkordb';
 import { FalkorDBLiteDriver } from './drivers/falkordblite';
@@ -146,7 +146,7 @@ class GraphClientImpl implements GraphClient {
       return await this.driver.query<T>(cypher, options?.params, options?.timeout);
     } catch (error) {
       throw new GraphClientError(
-        `Query failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Query failed: ${toErrorMessage(error)}`,
         'QUERY_FAILED'
       );
     }
@@ -158,7 +158,7 @@ class GraphClientImpl implements GraphClient {
       return await this.driver.roQuery<T>(cypher, options?.params, options?.timeout);
     } catch (error) {
       throw new GraphClientError(
-        `Read-only query failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Read-only query failed: ${toErrorMessage(error)}`,
         'QUERY_FAILED'
       );
     }
@@ -171,7 +171,7 @@ class GraphClientImpl implements GraphClient {
       await this.driver.ensureSchema();
       this.schemaCreated = true;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = toErrorMessage(error);
       // FalkorDB says "already indexed", Kuzu says "Index already exists"
       if (!errorMessage.includes('Index already exists') && !errorMessage.includes('already indexed')) {
         throw new GraphClientError(`Index creation failed: ${errorMessage}`, 'INDEX_FAILED');
@@ -292,7 +292,7 @@ export async function createClient(config?: FalkorConfig | GraphConfig): Promise
     await driver.connect(driverConfig);
     return new GraphClientImpl(driver, graphName);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
+    const msg = toErrorMessage(error);
     let hint = '';
     if (driverType === 'falkordb') {
       hint = '\nHint: Is FalkorDB running? Try: docker compose up -d falkordb';

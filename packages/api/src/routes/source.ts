@@ -4,8 +4,9 @@
  */
 
 import { Hono } from 'hono';
-import { readFile, stat } from 'node:fs/promises';
 import { HttpError } from '../middleware/errorHandler';
+import { readSourceFile } from '@codegraph/core';
+import { toErrorMessage } from '@codegraph/logger';
 
 const source = new Hono();
 
@@ -44,41 +45,35 @@ source.get('/', async (c) => {
     });
   }
 
-  // Security: validate path is absolute and exists
+  // Security: validate path is absolute
   if (!filePath.startsWith('/')) {
     throw new HttpError(400, 'VALIDATION_ERROR', 'File path must be absolute');
   }
 
   try {
-    // Check file exists and is a file
-    const stats = await stat(filePath);
-    if (!stats.isFile()) {
-      throw new HttpError(400, 'VALIDATION_ERROR', 'Path is not a file');
-    }
+    // readSourceFile validates against path traversal (rejects ".." components)
+    const startLine = startLineParam ? Math.max(1, parseInt(startLineParam, 10)) : undefined;
+    const endLine = endLineParam ? parseInt(endLineParam, 10) : undefined;
 
-    // Read file content
-    const content = await readFile(filePath, 'utf-8');
-    const lines = content.split('\n');
-
-    // Parse line range
-    const startLine = startLineParam ? Math.max(1, parseInt(startLineParam, 10)) : 1;
-    const endLine = endLineParam ? Math.min(lines.length, parseInt(endLineParam, 10)) : lines.length;
-
-    // Extract requested lines (convert to 0-indexed)
-    const selectedLines = lines.slice(startLine - 1, endLine);
+    const result = await readSourceFile(filePath, { startLine, endLine });
+    const lines = result.content.split('\n');
 
     return c.json({
       path: filePath,
-      startLine,
-      endLine,
-      totalLines: lines.length,
-      content: selectedLines.join('\n'),
-      lines: selectedLines.map((line, i) => ({
-        number: startLine + i,
+      startLine: startLine ?? 1,
+      endLine: endLine ?? result.totalLines,
+      totalLines: result.totalLines,
+      content: result.content,
+      lines: lines.map((line, i) => ({
+        number: (startLine ?? 1) + i,
         content: line,
       })),
     });
   } catch (error) {
+    const msg = toErrorMessage(error);
+    if (msg.includes('Path traversal detected')) {
+      throw new HttpError(403, 'FORBIDDEN', msg);
+    }
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new HttpError(404, 'NOT_FOUND', `File not found: ${filePath}`);
     }

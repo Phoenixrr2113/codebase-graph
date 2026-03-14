@@ -6,21 +6,25 @@
 import type { QueryParams } from './client';
 
 /**
- * Driver configuration — union of FalkorDB and Kuzu options
+ * Driver configuration — extensible for any graph database driver.
+ * Known drivers: 'falkordb', 'falkordblite', 'kuzu' (legacy)
+ * Future: 'neo4j', 'memgraph', 'lancedb'
  */
 export interface DriverConfig {
-  driver: 'falkordb' | 'falkordblite' | 'kuzu';
-  // FalkorDB-specific (remote)
+  driver: 'falkordb' | 'falkordblite' | 'kuzu' | 'neo4j' | 'memgraph' | (string & {});
+  // Connection (remote drivers)
   url?: string | undefined;
   host?: string | undefined;
   port?: number | undefined;
   username?: string | undefined;
   password?: string | undefined;
-  // FalkorDBLite / Kuzu — local data path
+  // Local data path (embedded drivers)
   databasePath?: string | undefined;
   readOnly?: boolean | undefined;
   // Shared
   graphName?: string | undefined;
+  /** Additional driver-specific options */
+  options?: Record<string, unknown> | undefined;
 }
 
 /**
@@ -53,7 +57,7 @@ export interface DatabaseDriver {
  */
 export interface CypherDialect {
   /** Which driver this dialect belongs to */
-  readonly driverType: 'falkordb' | 'falkordblite' | 'kuzu';
+  readonly driverType: string;
 
   /** Expression to get node labels: `labels(n)` (FalkorDB) vs `[label(n)]` (Kuzu) */
   labelsExpr(alias: string): string;

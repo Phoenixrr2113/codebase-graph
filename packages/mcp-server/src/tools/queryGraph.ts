@@ -60,22 +60,9 @@ export async function queryGraph(input: QueryGraphInput): Promise<QueryGraphOutp
       };
     }
 
-    // Safety check - reject mutation queries
-    const lowerQuery = input.cypher.toLowerCase();
-    if (lowerQuery.includes('create') || 
-        lowerQuery.includes('merge') || 
-        lowerQuery.includes('delete') ||
-        lowerQuery.includes('set ') ||
-        lowerQuery.includes('remove')) {
-      return {
-        success: false,
-        data: [],
-        count: 0,
-        error: 'Mutation queries are not allowed. Use read-only MATCH queries.',
-      };
-    }
-
-    // Execute query via graph client
+    // Read-only enforcement is handled by roQuery() at the driver level,
+    // which runs the query in a read-only transaction. This is more reliable
+    // than string-based mutation detection which can be bypassed.
     const client = await getGraphClient();
     const result = await client.roQuery<Record<string, unknown>>(
       input.cypher,

@@ -427,41 +427,69 @@ export async function linkByEmbedding(
 
   const ops = createOperations(client);
 
+  // Bounded concurrency for embedding generation + vector search
+  const EMBED_BATCH_SIZE = 5;
+
   // Process in batches
   for (let i = 0; i < toProcess.length; i += batchSize) {
     const batch = toProcess.slice(i, i + batchSize);
 
-    for (const entity of batch) {
-      try {
-        // Generate embedding for the entity text
-        const embText = buildEntityEmbeddingText({ text: entity.text, type: entity.type });
-        const embResult = await generateEmbedding(embText);
+    // Within each batch, process entities in parallel with bounded concurrency
+    for (let j = 0; j < batch.length; j += EMBED_BATCH_SIZE) {
+      const concurrentSlice = batch.slice(j, j + EMBED_BATCH_SIZE);
 
-        if (!embResult) {
+      const settled = await Promise.allSettled(
+        concurrentSlice.map(async (entity) => {
+          // Generate embedding for the entity text
+          const embText = buildEntityEmbeddingText({ text: entity.text, type: entity.type });
+          const embResult = await generateEmbedding(embText);
+
+          if (!embResult) {
+            return { entity, status: 'no-embedding' as const };
+          }
+
+          // Vector search across all code node types, find the best match
+          let bestMatch: { nodeType: string; name: string; similarity: number } | null = null;
+
+          for (const nodeType of VECTOR_NODE_TYPES) {
+            const hits = await ops.searchByVector(nodeType, embResult.embedding, 1);
+            if (hits.length > 0) {
+              const hit = hits[0]!;
+              // FalkorDB vector search returns cosine distance (lower = closer)
+              // Convert to similarity: similarity = 1 - distance
+              const similarity = 1 - hit.distance;
+
+              if (similarity >= threshold && (!bestMatch || similarity > bestMatch.similarity)) {
+                bestMatch = {
+                  nodeType,
+                  name: hit.name,
+                  similarity,
+                };
+              }
+            }
+          }
+
+          return { entity, bestMatch, status: 'ok' as const };
+        }),
+      );
+
+      // Process results from the concurrent slice
+      for (const outcome of settled) {
+        if (outcome.status === 'rejected') {
+          // Promise itself rejected — extract entity text from the error if possible
+          logger.warn(`Embedding link failed: ${outcome.reason}`);
           result.skipped++;
           continue;
         }
 
-        // Vector search across all code node types, find the best match
-        let bestMatch: { nodeType: string; name: string; similarity: number } | null = null;
+        const { entity, status } = outcome.value;
 
-        for (const nodeType of VECTOR_NODE_TYPES) {
-          const hits = await ops.searchByVector(nodeType, embResult.embedding, 1);
-          if (hits.length > 0) {
-            const hit = hits[0]!;
-            // FalkorDB vector search returns cosine distance (lower = closer)
-            // Convert to similarity: similarity = 1 - distance
-            const similarity = 1 - hit.distance;
-
-            if (similarity >= threshold && (!bestMatch || similarity > bestMatch.similarity)) {
-              bestMatch = {
-                nodeType,
-                name: hit.name,
-                similarity,
-              };
-            }
-          }
+        if (status === 'no-embedding') {
+          result.skipped++;
+          continue;
         }
+
+        const bestMatch = outcome.value.bestMatch;
 
         if (!bestMatch) {
           result.skipped++;
@@ -481,27 +509,30 @@ export async function linkByEmbedding(
           method: 'embedding_similarity',
         };
 
-        const created = await kgOps.createAboutEdge(aboutInput);
-        if (created) {
-          result.linked++;
-          result.links.push({
-            entityText: entity.text,
-            entityType: entity.type,
-            targetLabel: bestMatch.nodeType,
-            targetValue: bestMatch.name,
-            confidence: bestMatch.similarity,
-          });
-          logger.debug(
-            `Embedding linked: "${entity.text}" (${entity.type}) → ${bestMatch.nodeType}:${bestMatch.name} [${bestMatch.similarity.toFixed(3)}]`,
-          );
+        try {
+          const created = await kgOps.createAboutEdge(aboutInput);
+          if (created) {
+            result.linked++;
+            result.links.push({
+              entityText: entity.text,
+              entityType: entity.type,
+              targetLabel: bestMatch.nodeType,
+              targetValue: bestMatch.name,
+              confidence: bestMatch.similarity,
+            });
+            logger.debug(
+              `Embedding linked: "${entity.text}" (${entity.type}) → ${bestMatch.nodeType}:${bestMatch.name} [${bestMatch.similarity.toFixed(3)}]`,
+            );
+          }
+        } catch (err) {
+          logger.warn(`Failed to create ABOUT edge for "${entity.text}": ${err}`);
+          result.skipped++;
         }
-      } catch (err) {
-        logger.warn(`Embedding link failed for "${entity.text}": ${err}`);
-        result.skipped++;
       }
 
-      // Progress callback
-      config.onProgress?.(i + batch.indexOf(entity) + 1, toProcess.length);
+      // Progress callback — report after each concurrent slice completes
+      const processed = Math.min(i + j + concurrentSlice.length, toProcess.length);
+      config.onProgress?.(processed, toProcess.length);
     }
   }
 

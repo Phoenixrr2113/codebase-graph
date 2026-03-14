@@ -65,10 +65,20 @@ search.get('/', async (c) => {
     serviceType = types[0]!.toLowerCase() as typeof serviceType;
   }
 
-  const result = await codeGraphService.search(q, { type: serviceType, limit: limit * page });
+  // Server-side pagination via SKIP/LIMIT (QUAL.15)
+  const offset = (page - 1) * limit;
+  const searchOptions: Parameters<typeof codeGraphService.search>[1] = {
+    type: serviceType,
+    limit,
+    offset,
+  };
+  if (types && types.length > 1) {
+    searchOptions.types = types.map(t => t.toLowerCase());
+  }
+  const result = await codeGraphService.search(q, searchOptions);
 
   // Map service results to SearchResult format (with generated id)
-  let allResults: SearchResult[] = result.results.map(r => {
+  const results: SearchResult[] = result.results.map(r => {
     const sr: SearchResult = {
       id: r.type === 'File' ? `File:${r.filePath}` : `${r.type}:${r.filePath}:${r.name}:${r.line ?? 0}`,
       name: r.name,
@@ -79,32 +89,21 @@ search.get('/', async (c) => {
     return sr;
   });
 
-  // Filter by types client-side if multiple types specified
-  if (types && types.length > 1) {
-    allResults = allResults.filter(r => types.includes(r.type));
-  }
-
-  // Filter by rootPath if specified
+  // Filter by rootPath if specified (still client-side — path scope not in Cypher yet)
   const filteredResults = rootPath
-    ? allResults.filter(r => r.filePath?.startsWith(rootPath!))
-    : allResults;
-
-  // Apply client-side pagination
-  const startIdx = (page - 1) * limit;
-  const results = filteredResults.slice(startIdx, startIdx + limit);
-  const totalCount = filteredResults.length;
-  const totalPages = Math.ceil(totalCount / limit);
+    ? results.filter(r => r.filePath?.startsWith(rootPath!))
+    : results;
 
   return c.json({
     query: q,
-    results,
-    count: results.length,
+    results: filteredResults,
+    count: filteredResults.length,
     pagination: {
       page,
       limit,
-      totalCount,
-      totalPages,
-      hasMore: page < totalPages,
+      totalCount: result.total,
+      totalPages: Math.ceil(result.total / limit),
+      hasMore: filteredResults.length === limit,
     },
   });
 });

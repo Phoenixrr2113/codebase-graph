@@ -9,66 +9,14 @@ import type {
   ClassEntity,
   VariableEntity,
   ImportEntity,
-  InheritanceReference,
-  CallReference,
-  ExtractedEntities,
   SyntaxNode,
 } from '@codegraph/types';
-
-// ============================================================================
-// Grammar Export
-// ============================================================================
+import { findNodesOfType, generateEntityId } from '@codegraph/plugin-common';
+import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 /** Get the tree-sitter grammar for Python */
 export function getGrammar(): unknown {
   return Python;
-}
-
-/** Extension to grammar mapping */
-const extensionToGrammar: Record<string, unknown> = {
-  '.py': Python,
-  '.pyw': Python,
-  '.pyi': Python,
-};
-
-/** Get the tree-sitter grammar for a file extension */
-export function getGrammarForExtension(ext: string): unknown | undefined {
-  const normalizedExt = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
-  return extensionToGrammar[normalizedExt];
-}
-
-/** Get all supported extensions */
-export function getSupportedExtensions(): string[] {
-  return Object.keys(extensionToGrammar);
-}
-
-/** Check if an extension is supported */
-export function isSupported(ext: string): boolean {
-  return getGrammarForExtension(ext) !== undefined;
-}
-
-// ============================================================================
-// AST Utilities
-// ============================================================================
-
-function findNodesOfType(root: SyntaxNode, types: string[]): SyntaxNode[] {
-  const results: SyntaxNode[] = [];
-
-  function visit(node: SyntaxNode) {
-    if (types.includes(node.type)) {
-      results.push(node);
-    }
-    for (const child of node.children) {
-      visit(child);
-    }
-  }
-
-  visit(root);
-  return results;
-}
-
-function generateEntityId(filePath: string, type: string, name: string, line: number): string {
-  return `${filePath}:${type}:${name}:${line}`;
 }
 
 // ============================================================================
@@ -91,19 +39,8 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
     const startLine = node.startPosition.row + 1;
     const endLine = node.endPosition.row + 1;
 
-    // Check if async (look for 'async' keyword in parent decorated_definition or preceding siblings)
-    let isAsync = false;
-    const parent = node.parent;
-    if (parent?.type === 'decorated_definition') {
-      // Check for async in the parent's text
-      isAsync = parent.text.startsWith('async ');
-    } else {
-      // Check for async keyword before function_definition
-      const prevSibling = node.previousSibling;
-      if (prevSibling?.type === 'async') {
-        isAsync = true;
-      }
-    }
+    // Check if async — the 'async' keyword appears as a child of function_definition
+    const isAsync = node.children.some((c: SyntaxNode) => c.type === 'async');
 
     // Extract parameters
     const params = extractParameters(node);
@@ -475,36 +412,6 @@ export function extractVariables(root: SyntaxNode, filePath: string): VariableEn
   return variables;
 }
 
-// ============================================================================
-// Inheritance Extraction
-// ============================================================================
-
-/**
- * Extract inheritance relationships from Python classes
- * Returns InheritanceReference[] for EXTENDS edges
- */
-export function extractInheritance(root: SyntaxNode, filePath: string): InheritanceReference[] {
-  const refs: InheritanceReference[] = [];
-  const classes = extractClasses(root, filePath);
-
-  for (const cls of classes) {
-    if (cls.extends) {
-      refs.push({
-        childName: cls.name,
-        parentName: cls.extends,
-        type: 'extends',
-        filePath,
-      });
-    }
-  }
-
-  return refs;
-}
-
-// ============================================================================
-// Call Extraction
-// ============================================================================
-
 /** Python builtins to skip when extracting calls */
 const PYTHON_BUILTINS = new Set([
   // Built-in functions
@@ -523,102 +430,33 @@ const PYTHON_BUILTINS = new Set([
   'info', 'debug', 'warning', 'error', 'critical', 'exception',
 ]);
 
-/**
- * Extract function calls from Python AST
- * Returns CallReference[] for CALLS edges
- */
-export function extractCalls(root: SyntaxNode, filePath: string): CallReference[] {
-  const calls: CallReference[] = [];
-
-  // Get all functions in the file for local function lookup
-  const functions = extractFunctions(root, filePath);
-  const localFunctionNames = new Set(functions.map(f => f.name));
-
-  // Find all function definitions and extract calls from their bodies
-  const funcNodes = findNodesOfType(root, ['function_definition']);
-
-  for (const funcNode of funcNodes) {
-    const callerNameNode = funcNode.childForFieldName('name');
-    if (!callerNameNode) continue;
-    const callerName = callerNameNode.text;
-
-    // Find all call expressions in this function's body
-    const bodyNode = funcNode.childForFieldName('body');
-    if (!bodyNode) continue;
-
-    const callNodes = findNodesOfType(bodyNode, ['call']);
-
-    for (const callNode of callNodes) {
-      const funcExpr = callNode.childForFieldName('function');
-      if (!funcExpr) continue;
-
-      let calleeName: string | undefined;
-
-      // Simple identifier: foo()
-      if (funcExpr.type === 'identifier') {
-        calleeName = funcExpr.text;
-      }
-      // Attribute: obj.method() - extract method name
-      else if (funcExpr.type === 'attribute') {
-        const attr = funcExpr.childForFieldName('attribute');
-        if (attr) {
-          calleeName = attr.text;
-        }
-      }
-
-      if (!calleeName || PYTHON_BUILTINS.has(calleeName)) continue;
-
-      // For now, only create edges for local function calls
-      // (Cross-file resolution would require import resolution)
-      if (localFunctionNames.has(calleeName)) {
-        calls.push({
-          callerName,
-          calleeName,
-          line: callNode.startPosition.row + 1,
-          filePath,
-        });
-      }
-    }
-  }
-
-  return calls;
-}
-
 // ============================================================================
-// Extract All Entities (Single Pass)
+// Plugin Export (via generic factory)
 // ============================================================================
 
-/**
- * Extract all entities from a Python file in a single pass
- */
-export function extractAllEntities(root: SyntaxNode, filePath: string): ExtractedEntities {
-  return {
-    functions: extractFunctions(root, filePath),
-    classes: extractClasses(root, filePath),
-    variables: extractVariables(root, filePath),
-    imports: extractImports(root, filePath),
-    interfaces: [], // Not applicable for Python
-    types: [], // Not applicable for Python  
-    components: [], // Not applicable for Python
-  };
-}
-
-// ============================================================================
-// Plugin Export
-// ============================================================================
-
-export const pythonPlugin = {
+export const pythonPlugin = createLanguagePlugin({
   id: 'python',
   displayName: 'Python',
   extensions: ['.py', '.pyw', '.pyi'],
-  getGrammar,
-  extractors: {
+  grammar: Python,
+  nodeTypes: {
+    functions: ['function_definition'],
+    classes: ['class_definition'],
+    imports: ['import_statement', 'import_from_statement'],
+    calls: ['call'],
+  },
+  overrides: {
     extractFunctions,
     extractClasses,
     extractVariables,
     extractImports,
-    extractInheritance,
-    extractCalls,
+    builtinFunctions: PYTHON_BUILTINS,
+    // extractCalls — uses generic (call → function field, identifier + attribute types)
+    // extractInheritance — uses generic (derives from ClassEntity.extends)
   },
-  extractAllEntities,
-};
+});
+
+// Re-export all extractors for backward compatibility
+export const extractAllEntities = pythonPlugin.extractAllEntities;
+export const extractInheritance = pythonPlugin.extractors.extractInheritance;
+export const extractCalls = pythonPlugin.extractors.extractCalls!;

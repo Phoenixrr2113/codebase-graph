@@ -14,10 +14,11 @@ import {
   getSanitizerPatterns,
   getDataflowSummary,
 } from '../analysis/dataflow';
-import { initParser, parseCode } from '../pipeline';
+import { initParser, parseCode, registerPlugins } from '../pipeline';
 
 // Initialize parser before tests
 beforeAll(async () => {
+  registerPlugins();
   await initParser();
 });
 

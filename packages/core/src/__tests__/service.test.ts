@@ -719,15 +719,17 @@ describe('CodeGraphService', () => {
       expect(cypher).toContain('(center)-[r]-(neighbor)');
     });
 
-    it('applies edge type filter', async () => {
+    it('applies edge type filter via parameterized $edgeTypes', async () => {
       mockClient.roQuery.mockResolvedValueOnce({ data: [], metadata: null });
 
       await codeGraphService.getNeighbors('File:/src/a.ts', 'both', ['CALLS', 'IMPORTS'] as any);
 
       const cypher: string = mockClient.roQuery.mock.calls[0][0];
       expect(cypher).toContain("type(r)");
-      expect(cypher).toContain("'CALLS'");
-      expect(cypher).toContain("'IMPORTS'");
+      expect(cypher).toContain("$edgeTypes");
+      // Edge types should be in params, not interpolated into the query string
+      const params = mockClient.roQuery.mock.calls[0][1]?.params;
+      expect(params?.edgeTypes).toEqual(['CALLS', 'IMPORTS']);
     });
 
     it('returns mapped nodes and edges', async () => {

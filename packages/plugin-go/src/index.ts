@@ -24,64 +24,15 @@ import type {
   VariableEntity,
   ImportEntity,
   TypeEntity,
-  InheritanceReference,
   CallReference,
-  ExtractedEntities,
   SyntaxNode,
 } from '@codegraph/types';
-
-// ============================================================================
-// Grammar Export
-// ============================================================================
+import { findNodesOfType, generateEntityId } from '@codegraph/plugin-common';
+import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 /** Get the tree-sitter grammar for Go */
 export function getGrammar(): unknown {
   return Go;
-}
-
-/** Extension to grammar mapping */
-const extensionToGrammar: Record<string, unknown> = {
-  '.go': Go,
-};
-
-/** Get the tree-sitter grammar for a file extension */
-export function getGrammarForExtension(ext: string): unknown | undefined {
-  const normalizedExt = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
-  return extensionToGrammar[normalizedExt];
-}
-
-/** Get all supported extensions */
-export function getSupportedExtensions(): string[] {
-  return Object.keys(extensionToGrammar);
-}
-
-/** Check if an extension is supported */
-export function isSupported(ext: string): boolean {
-  return getGrammarForExtension(ext) !== undefined;
-}
-
-// ============================================================================
-// AST Utilities
-// ============================================================================
-
-function findNodesOfType(root: SyntaxNode, types: string[]): SyntaxNode[] {
-  const results: SyntaxNode[] = [];
-
-  function visit(node: SyntaxNode) {
-    if (types.includes(node.type)) {
-      results.push(node);
-    }
-    for (const child of node.children) {
-      visit(child);
-    }
-  }
-
-  visit(root);
-  return results;
-}
-
-function generateEntityId(filePath: string, type: string, name: string, line: number): string {
-  return `${filePath}:${type}:${name}:${line}`;
 }
 
 /**
@@ -709,52 +660,6 @@ export function extractTypes(root: SyntaxNode, filePath: string): TypeEntity[] {
 // Inheritance Extraction
 // ============================================================================
 
-/**
- * Extract inheritance-like relationships from Go.
- *
- * In Go, struct embedding is the closest thing to inheritance:
- *   type Server struct { BaseHandler }  → Server "extends" BaseHandler
- *
- * Interface embedding is explicit extends:
- *   type ReadWriter interface { Reader; Writer } → ReadWriter extends Reader, Writer
- */
-export function extractInheritance(root: SyntaxNode, filePath: string): InheritanceReference[] {
-  const refs: InheritanceReference[] = [];
-
-  const classes = extractClasses(root, filePath);
-  const interfaces = extractInterfaces(root, filePath);
-
-  // Struct embedding → implements (closest semantic match)
-  for (const cls of classes) {
-    if (cls.implements) {
-      for (const embedded of cls.implements) {
-        refs.push({
-          childName: cls.name,
-          parentName: embedded,
-          type: 'implements',
-          filePath,
-        });
-      }
-    }
-  }
-
-  // Interface embedding → extends
-  for (const iface of interfaces) {
-    if (iface.extends) {
-      for (const parent of iface.extends) {
-        refs.push({
-          childName: iface.name,
-          parentName: parent,
-          type: 'extends',
-          filePath,
-        });
-      }
-    }
-  }
-
-  return refs;
-}
-
 // ============================================================================
 // Call Extraction
 // ============================================================================
@@ -840,25 +745,6 @@ export function extractCalls(root: SyntaxNode, filePath: string): CallReference[
 }
 
 // ============================================================================
-// Extract All Entities (Single Pass)
-// ============================================================================
-
-/**
- * Extract all entities from a Go file in a single pass.
- */
-export function extractAllEntities(root: SyntaxNode, filePath: string): ExtractedEntities {
-  return {
-    functions: extractFunctions(root, filePath),
-    classes: extractClasses(root, filePath),         // structs
-    interfaces: extractInterfaces(root, filePath),
-    variables: extractVariables(root, filePath),
-    imports: extractImports(root, filePath),
-    types: extractTypes(root, filePath),
-    components: [], // Not applicable for Go
-  };
-}
-
-// ============================================================================
 // Import Resolution (Placeholder)
 // ============================================================================
 
@@ -878,23 +764,34 @@ export function resolveGoImport(
 }
 
 // ============================================================================
-// Plugin Export
+// Plugin Export (via generic factory)
 // ============================================================================
 
-export const goPlugin = {
+export const goPlugin = createLanguagePlugin({
   id: 'go',
   displayName: 'Go',
   extensions: ['.go'],
-  getGrammar,
-  extractors: {
+  grammar: Go,
+  nodeTypes: {
+    functions: ['function_declaration', 'method_declaration'],
+    classes: ['type_declaration'],
+    interfaces: ['type_declaration'],
+    variables: ['var_declaration', 'const_declaration'],
+    imports: ['import_declaration'],
+    calls: ['call_expression'],
+  },
+  overrides: {
     extractFunctions,
     extractClasses,
     extractInterfaces,
     extractVariables,
     extractImports,
     extractTypes,
-    extractInheritance,
+    // extractInheritance — uses generic (derives from ClassEntity.implements + InterfaceEntity.extends)
     extractCalls,
   },
-  extractAllEntities,
-};
+});
+
+// Re-export all extractors for backward compatibility
+export const extractAllEntities = goPlugin.extractAllEntities;
+export const extractInheritance = goPlugin.extractors.extractInheritance;

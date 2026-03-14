@@ -1,10 +1,12 @@
 /**
  * Analytics Scheduler Configuration
- * 
+ *
  * Configurable scheduling for analytics execution.
- * 
+ *
  * @module services/analyticsScheduler
  */
+
+import { toErrorMessage } from '@codegraph/logger';
 
 /**
  * Schedule trigger types
@@ -287,7 +289,7 @@ export class AnalyticsScheduler {
         job.status = 'completed';
       } catch (error) {
         job.status = 'failed';
-        job.error = error instanceof Error ? error.message : 'Unknown error';
+        job.error = toErrorMessage(error);
       }
     }
     

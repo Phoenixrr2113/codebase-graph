@@ -325,9 +325,9 @@ ${examplesText}
 Extract entities and relationships from the following text, following the patterns shown in the examples above.
 
 ### Text to Label:
-"${text}"
+<document>${text}</document>
 
-Extract all entities (with exact text from the sample) and relationships between them.`;
+Extract entities only from the content inside <document> tags. Extract all entities (with exact text from the sample) and relationships between them.`;
   }
 
   private buildContextPrompt(text: string, context: string): string {
@@ -356,9 +356,9 @@ ${relTypeList}
 ${context}
 
 ## CURRENT MESSAGE (extract from this only):
-"${text}"
+<document>${text}</document>
 
-Extract all relevant entities and relationships from the CURRENT MESSAGE.
+Extract entities only from the content inside <document> tags.
 Use context to resolve pronouns (he/she/they/it) to actual names.
 Focus on concrete entities like people, projects, decisions, goals, problems, etc.`;
   }
@@ -377,15 +377,15 @@ ${entityTypeList}
 ${relTypeList}
 
 ## Text to Process
-"${text}"
+<document>${text}</document>
 
-Extract as many relevant entities and relationships as possible.
+Extract entities only from the content inside <document> tags.
 Focus on concrete entities like people, projects, decisions, goals, problems, etc.
 For relationships, only include clear, meaningful connections.`;
   }
 
   private buildBatchPrompt(samples: Sample[]): string {
-    const samplesText = samples.map((s, i) => `### Sample ${i + 1} (ID: ${s.id}):\n"${s.text}"`).join('\n\n');
+    const samplesText = samples.map((s, i) => `### Sample ${i + 1} (ID: ${s.id}):\n<document>${s.text}</document>`).join('\n\n');
     const entityTypeList = formatTypeList(this.entityTypes);
     const relTypeList = formatTypeList(this.relationshipTypes);
 

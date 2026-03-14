@@ -100,9 +100,30 @@ function heuristicRoute(query: string): HeuristicResult {
     return { strategy: 'CONTEXT_WALK', confidence: 'high', reason: 'multi-hop exploration pattern' };
   }
 
+  // Boolean operators → HYBRID with structured query (AND, OR, NOT)
+  if (/\b(AND|OR|NOT)\b/.test(query)) {
+    return { strategy: 'HYBRID', confidence: 'high', reason: 'boolean operator query' };
+  }
+
+  // Wildcard patterns → HYBRID with pattern matching
+  // Exclude trailing ? (question mark) and only match wildcards in symbol-like queries
+  if (/[*]/.test(query) || (/[?]/.test(query) && /^[a-zA-Z_$*?][a-zA-Z0-9_$*?.]*$/.test(query.trim()))) {
+    return { strategy: 'HYBRID', confidence: 'high', reason: 'wildcard pattern query' };
+  }
+
+  // Exact quoted phrase → HYBRID with phrase search
+  if (/^["'].+["']$/.test(query.trim())) {
+    return { strategy: 'HYBRID', confidence: 'high', reason: 'exact phrase search' };
+  }
+
   // Short single-word or camelCase/PascalCase lookups → HYBRID (symbol lookup)
   if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(query.trim()) && query.trim().length < 60) {
     return { strategy: 'HYBRID', confidence: 'high', reason: 'single symbol lookup' };
+  }
+
+  // Dot-separated paths (e.g. "auth.middleware.validate") → HYBRID (qualified symbol)
+  if (/^[a-zA-Z_$][a-zA-Z0-9_$.]*$/.test(query.trim())) {
+    return { strategy: 'HYBRID', confidence: 'high', reason: 'qualified symbol lookup' };
   }
 
   // --- Low-confidence patterns (may benefit from LLM refinement) ---

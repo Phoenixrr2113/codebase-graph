@@ -182,38 +182,48 @@ function findEmbeddingSimilarPairs(
   // Only consider entities with embeddings
   const withEmbeddings = entities.filter((e) => e.embedding && e.embedding.length > 0);
 
+  // Group by type for O(n²/k) instead of O(n²) comparisons
+  // Only entities of the same type can be duplicates, so skip cross-type pairs entirely
+  const byType = new Map<string, typeof withEmbeddings>();
+  for (const entity of withEmbeddings) {
+    const bucket = byType.get(entity.type);
+    if (bucket) {
+      bucket.push(entity);
+    } else {
+      byType.set(entity.type, [entity]);
+    }
+  }
+
   // Track which entities have already been merged
   const merged = new Set<string>();
 
-  for (let i = 0; i < withEmbeddings.length; i++) {
-    const a = withEmbeddings[i]!;
-    const keyA = `${a.text}::${a.type}`;
-    if (merged.has(keyA)) continue;
+  for (const [, bucket] of byType) {
+    for (let i = 0; i < bucket.length; i++) {
+      const a = bucket[i]!;
+      const keyA = `${a.text}::${a.type}`;
+      if (merged.has(keyA)) continue;
 
-    for (let j = i + 1; j < withEmbeddings.length; j++) {
-      const b = withEmbeddings[j]!;
-      const keyB = `${b.text}::${b.type}`;
-      if (merged.has(keyB)) continue;
+      for (let j = i + 1; j < bucket.length; j++) {
+        const b = bucket[j]!;
+        const keyB = `${b.text}::${b.type}`;
+        if (merged.has(keyB)) continue;
 
-      // Skip if same type (entities of different types are less likely duplicates)
-      // Actually, we want to allow same-type dedup — "Sarah" (Person) vs "Sarah Chen" (Person)
-      if (a.type !== b.type) continue;
+        const sim = cosineSimilarity(a.embedding!, b.embedding!);
 
-      const sim = cosineSimilarity(a.embedding!, b.embedding!);
-
-      if (sim >= autoMergeThreshold) {
-        // Auto-merge: very high similarity
-        autoMerge.push({
-          canonical: a.text.length >= b.text.length ? a : b,
-          duplicates: [a.text.length >= b.text.length ? b : a],
-          tier: 2,
-          similarity: sim,
-        });
-        merged.add(keyA);
-        merged.add(keyB);
-      } else if (sim >= candidateThreshold) {
-        // Candidate for LLM verification
-        candidates.push({ a, b, similarity: sim });
+        if (sim >= autoMergeThreshold) {
+          // Auto-merge: very high similarity
+          autoMerge.push({
+            canonical: a.text.length >= b.text.length ? a : b,
+            duplicates: [a.text.length >= b.text.length ? b : a],
+            tier: 2,
+            similarity: sim,
+          });
+          merged.add(keyA);
+          merged.add(keyB);
+        } else if (sim >= candidateThreshold) {
+          // Candidate for LLM verification
+          candidates.push({ a, b, similarity: sim });
+        }
       }
     }
   }

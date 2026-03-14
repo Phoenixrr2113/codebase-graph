@@ -14,7 +14,7 @@ import {
 } from '@codegraph/core';
 import type { SearchResponse } from '@codegraph/core';
 import { getLLMModel, getLLMComplexModel, isLLMAvailable } from '@codegraph/plugin-nlp';
-import { createLogger } from '@codegraph/logger';
+import { createLogger, toErrorMessage } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'API:Query' });
 
@@ -47,7 +47,8 @@ const naturalQuerySchema = z.object({
 
 /**
  * POST /api/query/cypher
- * Execute a raw Cypher query
+ * Execute a read-only Cypher query.
+ * Safety: uses roQuery() at the driver level (read-only transaction).
  */
 query.post(
   '/cypher',
@@ -58,6 +59,7 @@ query.post(
   }),
   async (c) => {
     const { query: cypherQuery, params } = c.req.valid('json');
+    logger.info('Raw Cypher query executed', { query: cypherQuery, paramKeys: Object.keys(params) });
     const result = await codeGraphService.executeReadQuery(cypherQuery, params);
     return c.json(result);
   }
@@ -145,7 +147,7 @@ query.post(
         durationMs: response.meta.durationMs,
       });
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = toErrorMessage(error);
       logger.error('Natural language query failed', error);
       return c.json({
         question,

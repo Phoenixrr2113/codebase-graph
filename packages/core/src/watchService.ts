@@ -12,7 +12,7 @@ import { watch, type FSWatcher } from 'chokidar';
 import fastGlob from 'fast-glob';
 import { EventEmitter } from 'node:events';
 import { createLogger, traced } from '@codegraph/logger';
-import { SUPPORTED_EXTENSIONS, DEFAULT_IGNORE_PATTERNS } from './pipeline';
+import { getSupportedExtensions, registerPlugins, DEFAULT_IGNORE_PATTERNS } from './pipeline';
 
 const logger = createLogger({ namespace: 'core:Watch' });
 
@@ -83,8 +83,12 @@ export class WatchService extends EventEmitter {
 
     logger.info(`Starting file watcher for: ${this.projectPath}`);
 
+    // Ensure plugins are registered before querying supported extensions
+    registerPlugins();
+
     // Discover initial files using fast-glob
-    const patterns = SUPPORTED_EXTENSIONS.map(ext => `**/*${ext}`);
+    const supportedExts = getSupportedExtensions();
+    const patterns = supportedExts.map(ext => `**/*${ext}`);
     const files = await fastGlob(patterns, {
       cwd: this.projectPath,
       absolute: true,
@@ -161,7 +165,7 @@ export class WatchService extends EventEmitter {
    */
   private handleFileEvent(type: FileEventType, filePath: string): void {
     // Skip if not a supported extension
-    const isSupported = SUPPORTED_EXTENSIONS.some(ext => filePath.endsWith(ext));
+    const isSupported = getSupportedExtensions().some(ext => filePath.endsWith(ext));
     if (!isSupported && type !== 'unlink') {
       return;
     }

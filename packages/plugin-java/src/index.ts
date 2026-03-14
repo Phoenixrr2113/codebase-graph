@@ -16,64 +16,14 @@ import type {
   VariableEntity,
   ImportEntity,
   TypeEntity,
-  InheritanceReference,
-  CallReference,
-  ExtractedEntities,
   SyntaxNode,
 } from '@codegraph/types';
-
-// ============================================================================
-// Grammar Export
-// ============================================================================
+import { findNodesOfType, generateEntityId } from '@codegraph/plugin-common';
+import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 /** Get the tree-sitter grammar for Java */
 export function getGrammar(): unknown {
   return Java;
-}
-
-/** Extension to grammar mapping */
-const extensionToGrammar: Record<string, unknown> = {
-  '.java': Java,
-};
-
-/** Get the tree-sitter grammar for a file extension */
-export function getGrammarForExtension(ext: string): unknown | undefined {
-  const normalizedExt = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
-  return extensionToGrammar[normalizedExt];
-}
-
-/** Get all supported extensions */
-export function getSupportedExtensions(): string[] {
-  return Object.keys(extensionToGrammar);
-}
-
-/** Check if an extension is supported */
-export function isSupported(ext: string): boolean {
-  return getGrammarForExtension(ext) !== undefined;
-}
-
-// ============================================================================
-// AST Utilities
-// ============================================================================
-
-function findNodesOfType(root: SyntaxNode, types: string[]): SyntaxNode[] {
-  const results: SyntaxNode[] = [];
-
-  function visit(node: SyntaxNode) {
-    if (types.includes(node.type)) {
-      results.push(node);
-    }
-    for (const child of node.children) {
-      visit(child);
-    }
-  }
-
-  visit(root);
-  return results;
-}
-
-function generateEntityId(filePath: string, type: string, name: string, line: number): string {
-  return `${filePath}:${type}:${name}:${line}`;
 }
 
 // ============================================================================
@@ -575,60 +525,7 @@ export function extractTypes(root: SyntaxNode, filePath: string): TypeEntity[] {
 }
 
 // ============================================================================
-// Inheritance Extraction
-// ============================================================================
-
-/**
- * Extract inheritance relationships from Java classes and interfaces.
- * Returns InheritanceReference[] for EXTENDS/IMPLEMENTS edges.
- */
-export function extractInheritance(root: SyntaxNode, filePath: string): InheritanceReference[] {
-  const refs: InheritanceReference[] = [];
-
-  const classes = extractClasses(root, filePath);
-  const interfaces = extractInterfaces(root, filePath);
-
-  // Class inheritance
-  for (const cls of classes) {
-    if (cls.extends) {
-      refs.push({
-        childName: cls.name,
-        parentName: cls.extends,
-        type: 'extends',
-        filePath,
-      });
-    }
-    if (cls.implements) {
-      for (const iface of cls.implements) {
-        refs.push({
-          childName: cls.name,
-          parentName: iface,
-          type: 'implements',
-          filePath,
-        });
-      }
-    }
-  }
-
-  // Interface extension
-  for (const iface of interfaces) {
-    if (iface.extends) {
-      for (const parent of iface.extends) {
-        refs.push({
-          childName: iface.name,
-          parentName: parent,
-          type: 'extends',
-          filePath,
-        });
-      }
-    }
-  }
-
-  return refs;
-}
-
-// ============================================================================
-// Call Extraction
+// Built-ins (used by generic extractCalls)
 // ============================================================================
 
 /** Java built-in / common framework methods to skip */
@@ -654,74 +551,6 @@ const JAVA_BUILTINS = new Set([
   'assertThrows', 'fail', 'assertThat',
 ]);
 
-/**
- * Extract method calls from Java AST.
- * Returns CallReference[] for CALLS edges.
- */
-export function extractCalls(root: SyntaxNode, filePath: string): CallReference[] {
-  const calls: CallReference[] = [];
-
-  // Get all methods in the file for local method lookup
-  const functions = extractFunctions(root, filePath);
-  const localFunctionNames = new Set(functions.map((f) => f.name));
-
-  // Find all method definitions and extract calls from their bodies
-  const methodNodes = findNodesOfType(root, ['method_declaration', 'constructor_declaration']);
-
-  for (const methodNode of methodNodes) {
-    const callerNameNode = methodNode.childForFieldName('name');
-    if (!callerNameNode) continue;
-    const callerName = callerNameNode.text;
-
-    // Find the method body
-    const bodyNode = methodNode.childForFieldName('body');
-    if (!bodyNode) continue;
-
-    // Find all method_invocation nodes in the body
-    const invocationNodes = findNodesOfType(bodyNode, ['method_invocation']);
-
-    for (const invocation of invocationNodes) {
-      const nameNode = invocation.childForFieldName('name');
-      if (!nameNode) continue;
-
-      const calleeName = nameNode.text;
-
-      if (JAVA_BUILTINS.has(calleeName)) continue;
-
-      // Only create edges for local method calls
-      if (localFunctionNames.has(calleeName)) {
-        calls.push({
-          callerName,
-          calleeName,
-          line: invocation.startPosition.row + 1,
-          filePath,
-        });
-      }
-    }
-  }
-
-  return calls;
-}
-
-// ============================================================================
-// Extract All Entities (Single Pass)
-// ============================================================================
-
-/**
- * Extract all entities from a Java file in a single pass.
- */
-export function extractAllEntities(root: SyntaxNode, filePath: string): ExtractedEntities {
-  return {
-    functions: extractFunctions(root, filePath),
-    classes: extractClasses(root, filePath),
-    interfaces: extractInterfaces(root, filePath),
-    variables: extractVariables(root, filePath),
-    imports: extractImports(root, filePath),
-    types: extractTypes(root, filePath),
-    components: [], // Not applicable for Java
-  };
-}
-
 // ============================================================================
 // Import Resolution (Placeholder)
 // ============================================================================
@@ -742,23 +571,39 @@ export function resolveJavaImport(
 }
 
 // ============================================================================
-// Plugin Export
+// Plugin Export (via generic factory)
 // ============================================================================
 
-export const javaPlugin = {
+export const javaPlugin = createLanguagePlugin({
   id: 'java',
   displayName: 'Java',
   extensions: ['.java'],
-  getGrammar,
-  extractors: {
+  grammar: Java,
+  nodeTypes: {
+    functions: ['method_declaration', 'constructor_declaration'],
+    classes: ['class_declaration', 'record_declaration'],
+    interfaces: ['interface_declaration'],
+    variables: ['field_declaration'],
+    imports: ['import_declaration'],
+    calls: ['method_invocation'],
+  },
+  fields: {
+    callee: 'name',  // Java's method_invocation uses 'name' field for the callee
+  },
+  overrides: {
     extractFunctions,
     extractClasses,
     extractInterfaces,
     extractVariables,
     extractImports,
     extractTypes,
-    extractInheritance,
-    extractCalls,
+    builtinFunctions: JAVA_BUILTINS,
+    // extractInheritance — uses generic (derives from ClassEntity.extends/implements + InterfaceEntity.extends)
+    // extractCalls — uses generic (method_invocation → callee via 'name' field, JAVA_BUILTINS filtered)
   },
-  extractAllEntities,
-};
+});
+
+// Re-export all extractors for backward compatibility
+export const extractAllEntities = javaPlugin.extractAllEntities;
+export const extractInheritance = javaPlugin.extractors.extractInheritance;
+export const extractCalls = javaPlugin.extractors.extractCalls!;

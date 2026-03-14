@@ -9,7 +9,10 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { parseProject, parseSingleFile, removeFileFromGraph } from '../services/parseService';
 import { HttpError } from '../middleware/errorHandler';
-import { codeGraphService } from '@codegraph/core';
+import { codeGraphService, startWatching, getActiveWatcher } from '@codegraph/core';
+import { createLogger } from '@codegraph/logger';
+
+const logger = createLogger({ namespace: 'API:Parse' });
 
 const parse = new Hono();
 
@@ -55,11 +58,27 @@ parse.post(
   async (c) => {
     const { path, ignore, deepAnalysis, includeExternals } = c.req.valid('json');
     const result = await parseProject(path, ignore, { deepAnalysis, includeExternals });
-    
+
     if (result.status === 'error') {
       throw new HttpError(400, 'PARSE_ERROR', result.error ?? 'Unknown parse error');
     }
-    
+
+    // Auto-start file watcher for real-time incremental updates
+    const existingWatcher = getActiveWatcher();
+    if (!existingWatcher) {
+      try {
+        await startWatching({
+          projectPath: path,
+          ignorePatterns: ignore,
+          onFileChanged: (filePath) => parseSingleFile(filePath, { deferEmbeddings: true }),
+          onFileRemoved: (filePath) => removeFileFromGraph(filePath),
+        });
+        logger.info(`Auto-watch started for project: ${path}`);
+      } catch (watchError) {
+        logger.warn('Auto-watch failed (non-blocking):', watchError);
+      }
+    }
+
     return c.json(result);
   }
 );

@@ -1,0 +1,64 @@
+{
+  "name": "@codegraph/plugin-languages",
+  "version": "0.1.0",
+  "description": "Tier-2 language plugins for CodeGraph — config-only definitions with lazy-loaded grammars",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@codegraph/plugin-generic": "workspace:*",
+    "@codegraph/types": "workspace:*"
+  },
+  "optionalDependencies": {
+    "tree-sitter-ruby": "^0.22.0",
+    "tree-sitter-kotlin": "^0.3.0",
+    "tree-sitter-swift": "^0.6.0",
+    "tree-sitter-scala": "^0.22.0",
+    "tree-sitter-c": "^0.23.0",
+    "tree-sitter-cpp": "^0.23.0",
+    "tree-sitter-objc": "^3.0.0",
+    "tree-sitter-lua": "^0.2.0",
+    "tree-sitter-r": "^0.2.0",
+    "tree-sitter-haskell": "^0.21.0",
+    "tree-sitter-elixir": "^0.3.0",
+    "tree-sitter-erlang": "^0.9.0",
+    "tree-sitter-perl": "^0.1.0",
+    "tree-sitter-julia": "^0.1.0",
+    "tree-sitter-clojure": "^0.1.0",
+    "tree-sitter-bash": "^0.23.0",
+    "tree-sitter-powershell": "^0.2.0",
+    "tree-sitter-sql": "^0.3.0",
+    "tree-sitter-hcl": "^0.5.0",
+    "tree-sitter-yaml": "^0.7.0",
+    "tree-sitter-toml-v1": "^0.1.0",
+    "tree-sitter-html": "^0.23.0",
+    "tree-sitter-css": "^0.23.0",
+    "tree-sitter-json": "^0.24.0",
+    "tree-sitter-dockerfile": "^0.2.0",
+    "tree-sitter-ocaml": "^0.23.0",
+    "tree-sitter-fsharp": "^0.1.0",
+    "tree-sitter-zig": "^0.1.0",
+    "tree-sitter-nim": "^0.1.0",
+    "tree-sitter-crystal": "^0.1.0",
+    "tree-sitter-groovy": "^0.1.0",
+    "tree-sitter-verilog": "^0.2.0",
+    "tree-sitter-protobuf": "^0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

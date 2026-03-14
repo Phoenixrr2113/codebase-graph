@@ -9,8 +9,11 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY turbo.json tsconfig.base.json ./
 COPY packages/types ./packages/types
+COPY packages/logger ./packages/logger
 COPY packages/parser ./packages/parser
 COPY packages/graph ./packages/graph
+COPY packages/core ./packages/core
+COPY packages/plugin-nlp ./packages/plugin-nlp
 COPY packages/api ./packages/api
 
 # Install dependencies
@@ -30,10 +33,16 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/types/dist ./packages/types/dist
 COPY --from=builder /app/packages/types/package.json ./packages/types/package.json
+COPY --from=builder /app/packages/logger/dist ./packages/logger/dist
+COPY --from=builder /app/packages/logger/package.json ./packages/logger/package.json
 COPY --from=builder /app/packages/parser/dist ./packages/parser/dist
 COPY --from=builder /app/packages/parser/package.json ./packages/parser/package.json
 COPY --from=builder /app/packages/graph/dist ./packages/graph/dist
 COPY --from=builder /app/packages/graph/package.json ./packages/graph/package.json
+COPY --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --from=builder /app/packages/core/package.json ./packages/core/package.json
+COPY --from=builder /app/packages/plugin-nlp/dist ./packages/plugin-nlp/dist
+COPY --from=builder /app/packages/plugin-nlp/package.json ./packages/plugin-nlp/package.json
 COPY --from=builder /app/packages/api/dist ./packages/api/dist
 COPY --from=builder /app/packages/api/package.json ./packages/api/package.json
 COPY --from=builder /app/package.json ./

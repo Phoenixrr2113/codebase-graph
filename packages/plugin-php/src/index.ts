@@ -32,63 +32,17 @@ import type {
   TypeEntity,
   InheritanceReference,
   CallReference,
-  ExtractedEntities,
   SyntaxNode,
 } from '@codegraph/types';
+import { findNodesOfType, generateEntityId } from '@codegraph/plugin-common';
+import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 // tree-sitter-php exports { php, php_only } — we need the full grammar
 const PHP = (PHPLanguage as { php: unknown }).php;
 
-// ============================================================================
-// Grammar Export
-// ============================================================================
-
 /** Get the tree-sitter grammar for PHP */
 export function getGrammar(): unknown {
   return PHP;
-}
-
-/** Extension to grammar mapping */
-const extensionToGrammar: Record<string, unknown> = {
-  '.php': PHP,
-};
-
-/** Get the tree-sitter grammar for a file extension */
-export function getGrammarForExtension(ext: string): unknown | undefined {
-  const normalizedExt = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
-  return extensionToGrammar[normalizedExt];
-}
-
-/** Get all supported extensions */
-export function getSupportedExtensions(): string[] {
-  return Object.keys(extensionToGrammar);
-}
-
-/** Check if an extension is supported */
-export function isSupported(ext: string): boolean {
-  return getGrammarForExtension(ext) !== undefined;
-}
-
-// ============================================================================
-// AST Utilities
-// ============================================================================
-
-function findNodesOfType(root: SyntaxNode, types: string[]): SyntaxNode[] {
-  const results: SyntaxNode[] = [];
-  function visit(node: SyntaxNode) {
-    if (types.includes(node.type)) {
-      results.push(node);
-    }
-    for (const child of node.children) {
-      visit(child);
-    }
-  }
-  visit(root);
-  return results;
-}
-
-function generateEntityId(filePath: string, type: string, name: string, line: number): string {
-  return `${filePath}:${type}:${name}:${line}`;
 }
 
 // ============================================================================
@@ -1000,25 +954,6 @@ export function extractCalls(root: SyntaxNode, filePath: string): CallReference[
 }
 
 // ============================================================================
-// Extract All Entities (Single Pass)
-// ============================================================================
-
-/**
- * Extract all entities from a PHP file.
- */
-export function extractAllEntities(root: SyntaxNode, filePath: string): ExtractedEntities {
-  return {
-    functions: extractFunctions(root, filePath),
-    classes: extractClasses(root, filePath),
-    interfaces: extractInterfaces(root, filePath),
-    variables: extractVariables(root, filePath),
-    imports: extractImports(root, filePath),
-    types: extractTypes(root, filePath),
-    components: [], // Not applicable for PHP
-  };
-}
-
-// ============================================================================
 // Import Resolution (Placeholder)
 // ============================================================================
 
@@ -1032,15 +967,23 @@ export function resolvePhpImport(
 }
 
 // ============================================================================
-// Plugin Export
+// Plugin Export (via generic factory)
 // ============================================================================
 
-export const phpPlugin = {
+export const phpPlugin = createLanguagePlugin({
   id: 'php',
   displayName: 'PHP',
   extensions: ['.php'],
-  getGrammar,
-  extractors: {
+  grammar: PHP,
+  nodeTypes: {
+    functions: ['function_definition', 'method_declaration'],
+    classes: ['class_declaration'],
+    interfaces: ['interface_declaration', 'trait_declaration'],
+    variables: ['property_declaration', 'const_declaration'],
+    imports: ['namespace_use_declaration'],
+    calls: ['function_call_expression', 'member_call_expression', 'scoped_call_expression'],
+  },
+  overrides: {
     extractFunctions,
     extractClasses,
     extractInterfaces,
@@ -1050,5 +993,7 @@ export const phpPlugin = {
     extractInheritance,
     extractCalls,
   },
-  extractAllEntities,
-};
+});
+
+// Re-export extractAllEntities for backward compatibility
+export const extractAllEntities = phpPlugin.extractAllEntities;

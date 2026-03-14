@@ -56,7 +56,7 @@ const server = serve(
       try {
         await startWatching({
           projectPath: watchPath,
-          onFileChanged: (filePath) => parseSingleFile(filePath),
+          onFileChanged: (filePath) => parseSingleFile(filePath, { deferEmbeddings: true }),
           onFileRemoved: (filePath) => removeFileFromGraph(filePath),
         });
         subscribeToWatchEvents();
