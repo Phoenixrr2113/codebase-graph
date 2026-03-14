@@ -103,7 +103,7 @@ query.post(
         question,
         cypher: null,
         results: [],
-        explanation: 'LLM is not configured. Set OPENROUTER_API_KEY in your environment (or LLM_PROVIDER=ollama for local inference).',
+        explanation: 'LLM is not configured. Set CEREBRAS_API_KEY (recommended) or OPENROUTER_API_KEY in your environment.',
         error: 'LLM_NOT_CONFIGURED',
       }, 503);
     }

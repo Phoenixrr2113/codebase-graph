@@ -16,7 +16,7 @@
  *   "What files import the authentication module?"
  *   "List all entities of type Decision"
  *
- * Requires an LLM provider (OPENROUTER_API_KEY or Ollama).
+ * Requires an LLM provider (CEREBRAS_API_KEY or OPENROUTER_API_KEY).
  */
 
 import {
@@ -75,7 +75,7 @@ export const queryCypherToolDefinition: ToolDefinition = {
     'Translate a natural language question about code structure into a Cypher graph query, ' +
     'execute it against the knowledge graph, and return results. Best for structural queries: ' +
     '"Show me all functions that call X", "Find classes implementing Y", "List files that import Z". ' +
-    'Only generates read-only queries. Requires an LLM provider (OpenRouter or Ollama).',
+    'Only generates read-only queries. Requires an LLM provider (Cerebras or OpenRouter).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -109,8 +109,7 @@ export async function queryCypher(input: QueryCypherInput): Promise<QueryCypherO
         results: [],
         total: 0,
         error:
-          'LLM provider is required for query_cypher. Set OPENROUTER_API_KEY in your environment, ' +
-          'or configure Ollama (LLM_PROVIDER=ollama).',
+          'LLM provider is required for query_cypher. Set CEREBRAS_API_KEY (recommended) or OPENROUTER_API_KEY in your environment.',
       };
     }
 

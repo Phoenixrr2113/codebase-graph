@@ -91,7 +91,7 @@ export const storeRelationshipToolDefinition: ToolDefinition = {
 
 export const storeFactToolDefinition: ToolDefinition = {
   name: 'store_fact',
-  description: 'Extract entities and relationships from natural language text using an LLM, then store them in the knowledge graph. Requires OPENROUTER_API_KEY env var. Use this to remember information from conversations, documents, or any unstructured text.',
+  description: 'Extract entities and relationships from natural language text using an LLM, then store them in the knowledge graph. Requires an LLM provider (CEREBRAS_API_KEY or OPENROUTER_API_KEY). Use this to remember information from conversations, documents, or any unstructured text.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -101,7 +101,7 @@ export const storeFactToolDefinition: ToolDefinition = {
       },
       model: {
         type: 'string',
-        description: 'OpenRouter model to use (default: google/gemini-2.5-flash-preview)',
+        description: 'LLM model to use for extraction (default: auto-selected based on provider)',
       },
     },
     required: ['text'],
@@ -221,7 +221,7 @@ export const ingestConversationToolDefinition: ToolDefinition = {
       },
       model: {
         type: 'string',
-        description: 'Optional OpenRouter model override for extraction (default: google/gemini-2.5-flash-preview)',
+        description: 'Optional LLM model override for extraction (default: auto-selected based on provider)',
       },
     },
     required: ['text'],
@@ -294,8 +294,8 @@ export async function handleStoreFact(args: Record<string, unknown>) {
     return await knowledgeService.storeFact(args.text as string, extractAndStore, opts);
   } catch (error) {
     const msg = toErrorMessage(error);
-    if (msg.includes('OPENROUTER_API_KEY') || msg.includes('API key')) {
-      return { error: 'OPENROUTER_API_KEY environment variable is not set. Set it to use LLM extraction.' };
+    if (msg.includes('API key') || msg.includes('API_KEY') || msg.includes('not configured')) {
+      return { error: 'LLM provider is not configured. Set CEREBRAS_API_KEY (recommended) or OPENROUTER_API_KEY to use LLM extraction.' };
     }
     logger.error('store_fact failed', error);
     return { error: msg };
@@ -442,8 +442,8 @@ export async function handleIngestConversation(args: Record<string, unknown>): P
     return await knowledgeService.ingestConversation(text, ingestFn, opts);
   } catch (error) {
     const msg = toErrorMessage(error);
-    if (msg.includes('OPENROUTER_API_KEY') || msg.includes('API key')) {
-      return { error: 'OPENROUTER_API_KEY environment variable is not set. Set it to use LLM extraction.' };
+    if (msg.includes('API key') || msg.includes('API_KEY') || msg.includes('not configured')) {
+      return { error: 'LLM provider is not configured. Set CEREBRAS_API_KEY (recommended) or OPENROUTER_API_KEY to use LLM extraction.' };
     }
     logger.error('ingest_conversation failed', error);
     return { error: msg };

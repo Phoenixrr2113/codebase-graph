@@ -87,7 +87,6 @@ export {
   generateNodeId,
   generateFileNodeId,
   generateEdgeId,
-  generatePrimaryKey,
   // Parsed file type
   type ParsedFileEntities,
 } from './schema';

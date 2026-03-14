@@ -2,7 +2,7 @@
  * Search Strategies — FalkorDB Integration Tests
  *
  * Tests the search strategy system against a real FalkorDB Docker instance
- * with real LLM calls (OpenRouter) where needed.
+ * with real LLM calls (Cerebras or OpenRouter) where needed.
  *
  * Coverage:
  *   1. HYBRID strategy — text + vector search via registry dispatch
@@ -13,7 +13,7 @@
  *
  * Prerequisites:
  *   - docker compose up -d falkordb
- *   - OPENROUTER_API_KEY set in .env
+ *   - CEREBRAS_API_KEY or OPENROUTER_API_KEY set in .env
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';

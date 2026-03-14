@@ -28,17 +28,17 @@ export interface FalkorConfig {
 }
 
 /**
- * Unified graph config — FalkorDB primary, FalkorDBLite embedded, Kuzu legacy
+ * Unified graph config — FalkorDB primary, FalkorDBLite embedded
  */
 export interface GraphConfig {
-  driver?: 'falkordb' | 'falkordblite' | 'kuzu';
+  driver?: 'falkordb' | 'falkordblite';
   // FalkorDB-specific (remote)
   url?: string;
   host?: string;
   port?: number;
   username?: string;
   password?: string;
-  // FalkorDBLite / Kuzu — local data path
+  // FalkorDBLite — local data path
   databasePath?: string;
   readOnly?: boolean;
   // Shared
@@ -172,7 +172,7 @@ class GraphClientImpl implements GraphClient {
       this.schemaCreated = true;
     } catch (error) {
       const errorMessage = toErrorMessage(error);
-      // FalkorDB says "already indexed", Kuzu says "Index already exists"
+      // FalkorDB says "already indexed"
       if (!errorMessage.includes('Index already exists') && !errorMessage.includes('already indexed')) {
         throw new GraphClientError(`Index creation failed: ${errorMessage}`, 'INDEX_FAILED');
       }
@@ -204,8 +204,6 @@ class GraphClientImpl implements GraphClient {
  * const client = await createClient({ driver: 'falkordblite' });
  * const client = await createClient({ driver: 'falkordblite', databasePath: '.codegraph/falkordb' });
  *
- * // Kuzu embedded (legacy)
- * const client = await createClient({ driver: 'kuzu', databasePath: '.codegraph/kuzu' });
  * ```
  */
 /**
@@ -248,8 +246,8 @@ export async function createClient(config?: FalkorConfig | GraphConfig): Promise
   // Layer config: explicit arg > config file > env vars > default (FalkorDB)
   const fileConfig = await loadConfigFile();
 
-  const driverType: 'falkordb' | 'falkordblite' | 'kuzu' = (config as GraphConfig)?.driver
-    ?? process.env['CODEGRAPH_DRIVER'] as 'falkordb' | 'falkordblite' | 'kuzu' | undefined
+  const driverType: 'falkordb' | 'falkordblite' = (config as GraphConfig)?.driver
+    ?? process.env['CODEGRAPH_DRIVER'] as 'falkordb' | 'falkordblite' | undefined
     ?? fileConfig.driver
     ?? 'falkordb';
 
@@ -267,7 +265,7 @@ export async function createClient(config?: FalkorConfig | GraphConfig): Promise
     port: (config as FalkorConfig)?.port ?? fileConfig.port,
     username: (config as FalkorConfig)?.username ?? fileConfig.username,
     password: (config as FalkorConfig)?.password ?? fileConfig.password,
-    // Kuzu fields (legacy)
+    // Embedded driver data path
     databasePath: (config as GraphConfig)?.databasePath
       ?? process.env['CODEGRAPH_DB_PATH']
       ?? fileConfig.databasePath,
@@ -276,11 +274,7 @@ export async function createClient(config?: FalkorConfig | GraphConfig): Promise
 
   let driver: DatabaseDriver;
 
-  if (driverType === 'kuzu') {
-    // Legacy: lazy import to avoid requiring kuzu when using FalkorDB
-    const { KuzuDriver } = await import('./drivers/kuzu');
-    driver = new KuzuDriver();
-  } else if (driverType === 'falkordblite') {
+  if (driverType === 'falkordblite') {
     // Embedded FalkorDB — no Docker needed
     driver = new FalkorDBLiteDriver();
   } else {

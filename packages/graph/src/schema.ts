@@ -414,29 +414,6 @@ export function linkToNodeProps(entity: LinkEntity): LinkNodeProps {
 }
 
 // ============================================================================
-// Kuzu Primary Key Generation
-// ============================================================================
-
-/**
- * Generate a synthetic primary key for Kuzu node tables.
- * Kuzu requires a single-column PK. Multi-key entities (Function, Class, etc.)
- * use a composite string: `"${filePath}:${name}:${startLine}"`.
- */
-export function generatePrimaryKey(entity: Record<string, unknown>): string {
-  // File — PK is the path
-  if (entity['path']) return entity['path'] as string;
-  // Commit — PK is the hash
-  if (entity['hash']) return entity['hash'] as string;
-  // Project — PK is the id
-  if (entity['id']) return entity['id'] as string;
-  // Everything else — composite key
-  const filePath = (entity['filePath'] as string) ?? '';
-  const name = (entity['name'] as string) ?? '';
-  const line = (entity['startLine'] ?? entity['line'] ?? 0) as number;
-  return `${filePath}:${name}:${line}`;
-}
-
-// ============================================================================
 // ID Generation
 // ============================================================================
 

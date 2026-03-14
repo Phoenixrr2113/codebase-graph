@@ -1,17 +1,17 @@
 /**
  * @codegraph/graph - Database Driver Abstraction
- * Supports FalkorDB (remote), FalkorDBLite (embedded), and Kuzu (legacy)
+ * Supports FalkorDB (remote) and FalkorDBLite (embedded)
  */
 
 import type { QueryParams } from './client';
 
 /**
  * Driver configuration — extensible for any graph database driver.
- * Known drivers: 'falkordb', 'falkordblite', 'kuzu' (legacy)
+ * Known drivers: 'falkordb', 'falkordblite'
  * Future: 'neo4j', 'memgraph', 'lancedb'
  */
 export interface DriverConfig {
-  driver: 'falkordb' | 'falkordblite' | 'kuzu' | 'neo4j' | 'memgraph' | (string & {});
+  driver: 'falkordb' | 'falkordblite' | 'neo4j' | 'memgraph' | (string & {});
   // Connection (remote drivers)
   url?: string | undefined;
   host?: string | undefined;
@@ -41,7 +41,7 @@ export interface DatabaseDriver {
   /** Execute a read-only Cypher query (uses replica if available) */
   roQuery<T>(cypher: string, params?: QueryParams, timeout?: number): Promise<{ data: T[]; metadata: string[] }>;
 
-  /** Ensure the database schema exists (indexes for FalkorDB, tables for Kuzu) */
+  /** Ensure the database schema exists (indexes, constraints) */
   ensureSchema(): Promise<void>;
 
   /** Close the database connection */
@@ -52,48 +52,34 @@ export interface DatabaseDriver {
 }
 
 /**
- * Cypher dialect differences between FalkorDB and Kuzu.
+ * Cypher dialect adapter for graph database drivers.
  * Operations and queries use this to emit compatible Cypher.
  */
 export interface CypherDialect {
   /** Which driver this dialect belongs to */
   readonly driverType: string;
 
-  /** Expression to get node labels: `labels(n)` (FalkorDB) vs `[label(n)]` (Kuzu) */
+  /** Expression to get node labels: `labels(n)` */
   labelsExpr(alias: string): string;
 
-  /** Expression to get first label: `labels(n)[0]` (FalkorDB) vs `label(n)` (Kuzu) */
+  /** Expression to get first label: `labels(n)[0]` */
   firstLabelExpr(alias: string): string;
 
-  /** Expression to get edge type: `type(r)` (FalkorDB) vs `label(r)` (Kuzu) */
+  /** Expression to get edge type: `type(r)` */
   typeExpr(alias: string): string;
 
-  /**
-   * Expression to check a node's label in a WHERE clause.
-   * FalkorDB: `n:File` — Kuzu: `label(n) = 'File'`
-   */
+  /** Expression to check a node's label in a WHERE clause: `n:File` */
   labelCheckExpr(alias: string, label: string): string;
 
-  /**
-   * Expression for CASE WHEN label check.
-   * FalkorDB: `CASE WHEN n:File THEN ...` — Kuzu: `CASE WHEN label(n) = 'File' THEN ...`
-   */
+  /** Expression for CASE WHEN label check: `CASE WHEN n:File THEN ...` */
   labelCaseExpr(alias: string, label: string): string;
 
   /** Whether MERGE ... ON CREATE SET / ON MATCH SET is supported */
   supportsOnCreateOnMatch: boolean;
 
-  /**
-   * Normalize a raw node from query results into { labels, properties }.
-   * FalkorDB returns `{ id, labels, properties: {...} }` (nested).
-   * Kuzu returns `{ _label, _id, prop1, prop2, ... }` (flat).
-   */
+  /** Normalize a raw node from query results into { labels, properties } */
   normalizeNode(raw: unknown): { labels: string[]; properties: Record<string, unknown> };
 
-  /**
-   * Normalize a raw edge from query results into { type, properties }.
-   * FalkorDB returns `{ type, properties: {...} }`.
-   * Kuzu returns `{ _label, _src, _dst, prop1, prop2, ... }` (flat).
-   */
+  /** Normalize a raw edge from query results into { type, properties } */
   normalizeEdge(raw: unknown): { type: string; properties: Record<string, unknown> };
 }

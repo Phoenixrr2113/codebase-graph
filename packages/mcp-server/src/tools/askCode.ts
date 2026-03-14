@@ -9,7 +9,7 @@
  *   "Who created the payment service?"
  *   "What decisions were made about the database?"
  *
- * Requires an LLM provider (OPENROUTER_API_KEY or Ollama).
+ * Requires an LLM provider (CEREBRAS_API_KEY or OPENROUTER_API_KEY).
  */
 
 import { codeGraphService } from '@codegraph/core';
@@ -67,7 +67,7 @@ export const askCodeToolDefinition: ToolDefinition = {
     'Ask a natural language question about the codebase and get an AI-synthesized answer. ' +
     'Uses hybrid search to find relevant code nodes and knowledge entities, then an LLM ' +
     'synthesizes an answer from the context. Best for: "What does X do?", "How does Y work?", ' +
-    '"Who created Z?". Requires an LLM provider (OpenRouter or Ollama).',
+    '"Who created Z?". Requires an LLM provider (Cerebras or OpenRouter).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -125,8 +125,7 @@ export async function askCode(input: AskCodeInput): Promise<AskCodeOutput> {
         contextNodes: [],
         total: 0,
         error:
-          'LLM provider is required for ask_code. Set OPENROUTER_API_KEY in your environment, ' +
-          'or configure Ollama (LLM_PROVIDER=ollama).',
+          'LLM provider is required for ask_code. Set CEREBRAS_API_KEY (recommended) or OPENROUTER_API_KEY in your environment.',
       };
     }
 

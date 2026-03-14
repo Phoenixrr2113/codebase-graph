@@ -908,7 +908,7 @@ class GraphOperationsImpl implements GraphOperations {
   @trace()
   async upsertFile(file: FileEntity): Promise<void> {
     const props = fileToNodeProps(file);
-    // File PK is `path` in both FalkorDB and Kuzu — same template works
+    // File PK is `path` — unique identifier for File nodes
     await this.client.query(CYPHER.UPSERT_FILE, { params: toParams(props) });
   }
 
