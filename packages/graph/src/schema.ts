@@ -43,7 +43,7 @@ export interface ProvenanceNodeProps {
  * File node properties for Cypher operations
  */
 export interface FileNodeProps extends ProvenanceNodeProps {
-  path: string;
+  filePath: string;
   name: string;
   extension: string;
   loc: number;
@@ -216,7 +216,7 @@ export interface LinkNodeProps {
  */
 export function fileToNodeProps(entity: FileEntity): FileNodeProps {
   return {
-    path: entity.path,
+    filePath: entity.path,
     name: entity.name,
     extension: entity.extension,
     loc: entity.loc,

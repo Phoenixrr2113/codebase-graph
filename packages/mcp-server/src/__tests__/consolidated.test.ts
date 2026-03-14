@@ -161,7 +161,7 @@ describe('get_context', () => {
 describe('query', () => {
   it('executes a MATCH query and returns rows', async () => {
     const result = (await handleToolCall('query', {
-      cypher: 'MATCH (f:File) RETURN f.path as path LIMIT 3',
+      cypher: 'MATCH (f:File) RETURN f.filePath as path LIMIT 3',
     })) as Record<string, unknown>;
 
     assertNoError(result, 'query files');

@@ -112,8 +112,8 @@ describeIfAvailable('FalkorDBLite Driver', () => {
     await ops.upsertFile(makeFile({ path: '/src/index.ts' }));
 
     const result = await client.roQuery<{ path: string }>(
-      `MATCH (f:File {path: $path}) RETURN f.path AS path`,
-      { params: { path: '/src/index.ts' } }
+      `MATCH (f:File {filePath: $filePath}) RETURN f.filePath AS path`,
+      { params: { filePath: '/src/index.ts' } }
     );
     expect(result.data).toHaveLength(1);
     expect(result.data[0]!.path).toBe('/src/index.ts');
@@ -143,8 +143,8 @@ describeIfAvailable('FalkorDBLite Driver', () => {
 
   it('should create a CONTAINS edge between file and function', async () => {
     const result = await client.roQuery<{ file: string; fn: string }>(
-      `MATCH (f:File {path: '/src/util.ts'})-[:CONTAINS]->(fn:Function {name: 'add'})
-       RETURN f.path AS file, fn.name AS fn`,
+      `MATCH (f:File {filePath: '/src/util.ts'})-[:CONTAINS]->(fn:Function {name: 'add'})
+       RETURN f.filePath AS file, fn.name AS fn`,
       { params: {} }
     );
     expect(result.data).toHaveLength(1);
@@ -158,7 +158,7 @@ describeIfAvailable('FalkorDBLite Driver', () => {
     const embedding = new Array(768).fill(0).map((_, i) => (i === 0 ? 1.0 : 0.0));
 
     await client.query(
-      `MERGE (f:File {path: '/src/vec-test.ts'})
+      `MERGE (f:File {filePath: '/src/vec-test.ts'})
        SET f.project = 'lite-test', f.language = 'typescript',
            f.name = 'vec-test.ts', f.extension = 'ts',
            f.loc = 10, f.lastModified = '2025-01-01', f.hash = 'vec123',
@@ -170,7 +170,7 @@ describeIfAvailable('FalkorDBLite Driver', () => {
     const result = await client.roQuery<{ path: string; score: number }>(
       `CALL db.idx.vector.queryNodes('File', 'embedding', 1, vecf32($qvec))
        YIELD node, score
-       RETURN node.path AS path, score`,
+       RETURN node.filePath AS path, score`,
       { params: { qvec: embedding } }
     );
 

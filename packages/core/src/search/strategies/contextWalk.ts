@@ -396,11 +396,17 @@ Related: handleRequest --[CALLS]--> validateInput, handleRequest --[CALLS]--> sa
       }
     }
 
+    // Sort by score and cap at request limit — exploration discovers many
+    // loosely-related nodes but consumers want the most relevant ones.
+    const sortedNodes = state.discoveredNodes
+      .sort((a, b) => b.score - a.score)
+      .slice(0, request.limit ?? 20);
+
     const response: SearchResponse = {
-      results: state.discoveredNodes,
+      results: sortedNodes,
       related: state.discoveredRelated,
       answerConfidence: finalConfidence,
-      total: state.discoveredNodes.length,
+      total: sortedNodes.length,
       meta: {
         searchType: 'CONTEXT_WALK',
         durationMs: 0, // filled by registry

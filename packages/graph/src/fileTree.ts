@@ -136,8 +136,8 @@ export async function buildFileTree(
 
   // Query all file paths
   const query = opts.rootPath
-    ? `MATCH (f:File) WHERE f.path STARTS WITH $rootPath RETURN f.path as path ORDER BY f.path`
-    : `MATCH (f:File) RETURN f.path as path ORDER BY f.path`;
+    ? `MATCH (f:File) WHERE f.filePath STARTS WITH $rootPath RETURN f.filePath as path ORDER BY f.filePath`
+    : `MATCH (f:File) RETURN f.filePath as path ORDER BY f.filePath`;
 
   const result = await client.roQuery<{ path: string }>(
     query,

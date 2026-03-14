@@ -78,7 +78,7 @@ export async function ensureSchemaImpl(graph: Graph): Promise<void> {
 
   // --- Range indexes (lookup by exact value) ---
   try {
-    await graph.createNodeRangeIndex('File', 'path');
+    await graph.createNodeRangeIndex('File', 'filePath');
   } catch (error) {
     const msg = error instanceof Error ? error.message : '';
     if (!msg.includes('Index already exists') && !msg.includes('Attribute already indexed')) throw error;

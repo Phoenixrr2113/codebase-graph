@@ -78,7 +78,7 @@ function resolvedName(parsed: ParsedEntityId): string {
 const CYPHER = {
   // File operations
   UPSERT_FILE: `
-    MERGE (f:File {path: $path})
+    MERGE (f:File {filePath: $filePath})
     SET f.name = $name,
         f.extension = $extension,
         f.loc = $loc,
@@ -107,7 +107,7 @@ const CYPHER = {
         fn.sourceTask = $sourceTask,
         fn.processedAt = $processedAt
     WITH fn
-    MATCH (f:File {path: $filePath})
+    MATCH (f:File {filePath: $filePath})
     MERGE (f)-[:CONTAINS]->(fn)
     RETURN fn
   `,
@@ -125,7 +125,7 @@ const CYPHER = {
         c.sourceTask = $sourceTask,
         c.processedAt = $processedAt
     WITH c
-    MATCH (f:File {path: $filePath})
+    MATCH (f:File {filePath: $filePath})
     MERGE (f)-[:CONTAINS]->(c)
     RETURN c
   `,
@@ -141,7 +141,7 @@ const CYPHER = {
         i.sourceTask = $sourceTask,
         i.processedAt = $processedAt
     WITH i
-    MATCH (f:File {path: $filePath})
+    MATCH (f:File {filePath: $filePath})
     MERGE (f)-[:CONTAINS]->(i)
     RETURN i
   `,
@@ -156,7 +156,7 @@ const CYPHER = {
         v.sourceTask = $sourceTask,
         v.processedAt = $processedAt
     WITH v
-    MATCH (f:File {path: $filePath})
+    MATCH (f:File {filePath: $filePath})
     MERGE (f)-[:CONTAINS]->(v)
     RETURN v
   `,
@@ -172,7 +172,7 @@ const CYPHER = {
         t.sourceTask = $sourceTask,
         t.processedAt = $processedAt
     WITH t
-    MATCH (f:File {path: $filePath})
+    MATCH (f:File {filePath: $filePath})
     MERGE (f)-[:CONTAINS]->(t)
     RETURN t
   `,
@@ -188,7 +188,7 @@ const CYPHER = {
         comp.sourceTask = $sourceTask,
         comp.processedAt = $processedAt
     WITH comp
-    MATCH (f:File {path: $filePath})
+    MATCH (f:File {filePath: $filePath})
     MERGE (f)-[:CONTAINS]->(comp)
     RETURN comp
   `,
@@ -204,8 +204,8 @@ const CYPHER = {
   `,
 
   CREATE_IMPORTS_EDGE: `
-    MATCH (from:File {path: $fromPath})
-    MERGE (to:File {path: $toPath})
+    MATCH (from:File {filePath: $fromPath})
+    MERGE (to:File {filePath: $toPath})
     ON CREATE SET to:External
     MERGE (from)-[i:IMPORTS]->(to)
     SET i.specifiers = $specifiers
@@ -258,7 +258,7 @@ const CYPHER = {
   `,
 
   CREATE_MODIFIED_IN_EDGE: `
-    MATCH (f:File {path: $filePath})
+    MATCH (f:File {filePath: $filePath})
     MATCH (c:Commit {hash: $commitHash})
     MERGE (f)-[r:MODIFIED_IN]->(c)
     SET r.linesAdded = $linesAdded,
@@ -313,7 +313,7 @@ const CYPHER = {
 
   // Export edge operations
   CREATE_EXPORTS_EDGE: `
-    MATCH (f:File {path: $filePath})
+    MATCH (f:File {filePath: $filePath})
     MATCH (symbol {name: $symbolName, filePath: $filePath})
     MERGE (f)-[r:EXPORTS]->(symbol)
     SET r.asName = $asName,
@@ -322,7 +322,7 @@ const CYPHER = {
   `,
 
   GET_FILE_EXPORTS: `
-    MATCH (f:File {path: $filePath})-[r:EXPORTS]->(symbol)
+    MATCH (f:File {filePath: $filePath})-[r:EXPORTS]->(symbol)
     RETURN symbol.name as name, labels(symbol)[0] as type, r.asName as asName, r.isDefault as isDefault
   `,
 
@@ -343,7 +343,7 @@ const CYPHER = {
 
   // Delete operations - cascade delete file and all contained entities
   DELETE_FILE_ENTITIES: `
-    MATCH (f:File {path: $path})-[:CONTAINS]->(e)
+    MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(e)
     DETACH DELETE e
     WITH f
     DETACH DELETE f
@@ -352,7 +352,7 @@ const CYPHER = {
   // Smart file removal (PERF.4) — preserves incoming cross-file edges
   // Step 1: Remove CONTAINS edges and the File node (non-cascading)
   REMOVE_FILE_NODE: `
-    MATCH (f:File {path: $path})
+    MATCH (f:File {filePath: $filePath})
     OPTIONAL MATCH (f)-[c:CONTAINS]->()
     DELETE c, f
   `,
@@ -361,9 +361,9 @@ const CYPHER = {
   // Uses OPTIONAL MATCH to check for ANY incoming relationship from other nodes
   CLEANUP_FILE_ORPHANS: `
     MATCH (e)
-    WHERE e.filePath = $path
+    WHERE e.filePath = $filePath
     OPTIONAL MATCH (other)-[r]->(e)
-    WHERE other.filePath <> $path OR other.filePath IS NULL
+    WHERE other.filePath <> $filePath OR other.filePath IS NULL
     WITH e, r
     WHERE r IS NULL
     DETACH DELETE e
@@ -386,7 +386,7 @@ const CYPHER = {
 
   // Count nodes for a file
   COUNT_FILE_ENTITIES: `
-    MATCH (f:File {path: $path})-[:CONTAINS]->(e)
+    MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(e)
     RETURN count(e) as count
   `,
 
@@ -433,13 +433,13 @@ const CYPHER = {
 
   LINK_PROJECT_FILE: `
     MATCH (p:Project {id: $projectId})
-    MATCH (f:File {path: $filePath})
+    MATCH (f:File {filePath: $filePath})
     MERGE (p)-[:HAS_FILE]->(f)
   `,
 
   GET_PROJECT_FILE_HASHES: `
     MATCH (p:Project {id: $projectId})-[:HAS_FILE]->(f:File)
-    RETURN f.path AS path, f.hash AS hash
+    RETURN f.filePath AS path, f.hash AS hash
   `,
 
   // ---- UNWIND Batch Operations (PERF.2) ----
@@ -447,7 +447,7 @@ const CYPHER = {
 
   BATCH_UPSERT_FILES: `
     UNWIND $items AS item
-    MERGE (f:File {path: item.path})
+    MERGE (f:File {filePath: item.filePath})
     SET f.name = item.name,
         f.extension = item.extension,
         f.loc = item.loc,
@@ -475,7 +475,7 @@ const CYPHER = {
         fn.sourceTask = item.sourceTask,
         fn.processedAt = item.processedAt
     WITH fn, item
-    MATCH (f:File {path: item.filePath})
+    MATCH (f:File {filePath: item.filePath})
     MERGE (f)-[:CONTAINS]->(fn)
   `,
 
@@ -492,7 +492,7 @@ const CYPHER = {
         c.sourceTask = item.sourceTask,
         c.processedAt = item.processedAt
     WITH c, item
-    MATCH (f:File {path: item.filePath})
+    MATCH (f:File {filePath: item.filePath})
     MERGE (f)-[:CONTAINS]->(c)
   `,
 
@@ -507,7 +507,7 @@ const CYPHER = {
         i.sourceTask = item.sourceTask,
         i.processedAt = item.processedAt
     WITH i, item
-    MATCH (f:File {path: item.filePath})
+    MATCH (f:File {filePath: item.filePath})
     MERGE (f)-[:CONTAINS]->(i)
   `,
 
@@ -521,7 +521,7 @@ const CYPHER = {
         v.sourceTask = item.sourceTask,
         v.processedAt = item.processedAt
     WITH v, item
-    MATCH (f:File {path: item.filePath})
+    MATCH (f:File {filePath: item.filePath})
     MERGE (f)-[:CONTAINS]->(v)
   `,
 
@@ -536,7 +536,7 @@ const CYPHER = {
         t.sourceTask = item.sourceTask,
         t.processedAt = item.processedAt
     WITH t, item
-    MATCH (f:File {path: item.filePath})
+    MATCH (f:File {filePath: item.filePath})
     MERGE (f)-[:CONTAINS]->(t)
   `,
 
@@ -551,7 +551,7 @@ const CYPHER = {
         comp.sourceTask = item.sourceTask,
         comp.processedAt = item.processedAt
     WITH comp, item
-    MATCH (f:File {path: item.filePath})
+    MATCH (f:File {filePath: item.filePath})
     MERGE (f)-[:CONTAINS]->(comp)
   `,
 
@@ -617,8 +617,8 @@ const CYPHER = {
 
   BATCH_CREATE_IMPORT_EDGES: `
     UNWIND $items AS item
-    MATCH (from:File {path: item.fromPath})
-    MERGE (to:File {path: item.toPath})
+    MATCH (from:File {filePath: item.fromPath})
+    MERGE (to:File {filePath: item.toPath})
     ON CREATE SET to:External
     MERGE (from)-[i:IMPORTS]->(to)
     SET i.specifiers = item.specifiers
@@ -651,13 +651,13 @@ const CYPHER = {
   BATCH_LINK_PROJECT_FILES: `
     UNWIND $items AS item
     MATCH (p:Project {id: item.projectId})
-    MATCH (f:File {path: item.filePath})
+    MATCH (f:File {filePath: item.filePath})
     MERGE (p)-[:HAS_FILE]->(f)
   `,
 
   // Embedding update operations (per-node-type) — uses vecf32() for proper vector storage
   UPDATE_FILE_EMBEDDING: `
-    MATCH (f:File {path: $path})
+    MATCH (f:File {filePath: $filePath})
     SET f.embedding = vecf32($embedding), f.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_FUNCTION_EMBEDDING: `
@@ -688,7 +688,7 @@ const CYPHER = {
   // --- Get existing embedding hashes for incremental embedding ---
   GET_EMBEDDING_HASHES_FOR_FILES: `
     UNWIND $filePaths AS fp
-    MATCH (f:File {path: fp})
+    MATCH (f:File {filePath: fp})
     OPTIONAL MATCH (f)-[:CONTAINS]->(e)
     WHERE e.embeddingTextHash IS NOT NULL
     WITH fp, collect({
@@ -705,7 +705,7 @@ const CYPHER = {
   // --- Batch embedding UNWIND queries ---
   BATCH_UPDATE_FILE_EMBEDDINGS: `
     UNWIND $items AS item
-    MATCH (f:File {path: item.path})
+    MATCH (f:File {filePath: item.filePath})
     SET f.embedding = vecf32(item.embedding), f.embeddingTextHash = item.embeddingTextHash
   `,
   BATCH_UPDATE_FUNCTION_EMBEDDINGS: `
@@ -908,7 +908,7 @@ class GraphOperationsImpl implements GraphOperations {
   @trace()
   async upsertFile(file: FileEntity): Promise<void> {
     const props = fileToNodeProps(file);
-    // File PK is `path` — unique identifier for File nodes
+    // File PK is `filePath` — unique identifier for File nodes
     await this.client.query(CYPHER.UPSERT_FILE, { params: toParams(props) });
   }
 
@@ -1010,17 +1010,17 @@ class GraphOperationsImpl implements GraphOperations {
 
   @trace()
   async deleteFileEntities(filePath: string): Promise<void> {
-    await this.client.query(CYPHER.DELETE_FILE_ENTITIES, { params: { path: filePath } });
+    await this.client.query(CYPHER.DELETE_FILE_ENTITIES, { params: { filePath } });
   }
 
   @trace()
   async removeFileAndCleanup(filePath: string): Promise<void> {
     // Step 1: Remove CONTAINS edges and the File node (without cascading to entities)
-    await this.client.query(CYPHER.REMOVE_FILE_NODE, { params: { path: filePath } });
+    await this.client.query(CYPHER.REMOVE_FILE_NODE, { params: { filePath } });
 
     // Step 2: Remove entities from this file that have NO incoming edges from other files
     // Entities with incoming cross-file edges (CALLS, EXTENDS, etc.) are preserved
-    await this.client.query(CYPHER.CLEANUP_FILE_ORPHANS, { params: { path: filePath } });
+    await this.client.query(CYPHER.CLEANUP_FILE_ORPHANS, { params: { filePath } });
   }
 
   @trace()
@@ -1257,7 +1257,7 @@ class GraphOperationsImpl implements GraphOperations {
 
   @trace()
   async deleteDocumentEntities(filePath: string): Promise<void> {
-    await this.client.query(CYPHER.DELETE_DOCUMENT_ENTITIES, { params: { path: filePath } });
+    await this.client.query(CYPHER.DELETE_DOCUMENT_ENTITIES, { params: { filePath } });
   }
 
   @trace()
@@ -1444,7 +1444,7 @@ class GraphOperationsImpl implements GraphOperations {
     const params = { filePath, commitHash };
     try {
       await this.client.query(
-        `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e)
+        `MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(e)
          MATCH (c:Commit {hash: $commitHash})
          MERGE (e)-[:INTRODUCED_IN]->(c)`,
         { params }
@@ -1461,7 +1461,7 @@ class GraphOperationsImpl implements GraphOperations {
     const params = { filePath, commitHash };
     try {
       await this.client.query(
-        `MATCH (f:File {path: $filePath})-[:CONTAINS]->(e)
+        `MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(e)
          MATCH (c:Commit {hash: $commitHash})
          MERGE (e)-[:DELETED_IN]->(c)`,
         { params }
@@ -1484,7 +1484,7 @@ class GraphOperationsImpl implements GraphOperations {
 
     if (nodeType === 'File') {
       await this.client.query(CYPHER.UPDATE_FILE_EMBEDDING, {
-        params: { ...baseParams, path: identifier['path'] as string },
+        params: { ...baseParams, filePath: (identifier['filePath'] ?? identifier['path']) as string },
       });
       return;
     }
@@ -1516,7 +1516,7 @@ class GraphOperationsImpl implements GraphOperations {
     }
 
     // FalkorDB native HNSW vector search via db.idx.vector.queryNodes
-    const filePathExpr = nodeType === 'File' ? 'node.path' : 'node.filePath';
+    const filePathExpr = 'node.filePath';
     const startLineExpr = nodeType === 'Variable' ? 'node.line' : 'node.startLine';
     const startLineReturn = nodeType === 'File' ? '' : `, ${startLineExpr} AS startLine`;
 

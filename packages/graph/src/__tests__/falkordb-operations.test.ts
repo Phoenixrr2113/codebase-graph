@@ -145,7 +145,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       await ops.upsertFile(file);
 
       const result = await client.roQuery<{ count: number }>(
-        `MATCH (n:File {path: '/src/file-crud-1.ts'}) RETURN count(n) as count`
+        `MATCH (n:File {filePath: '/src/file-crud-1.ts'}) RETURN count(n) as count`
       );
       expect(result.data[0]?.count).toBe(1);
     });
@@ -158,7 +158,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       await ops.upsertFile({ ...file, loc: 200, hash: 'hash-v2' });
 
       const result = await client.roQuery<{ loc: number; hash: string }>(
-        `MATCH (f:File {path: '/src/file-crud-2.ts'}) RETURN f.loc as loc, f.hash as hash`
+        `MATCH (f:File {filePath: '/src/file-crud-2.ts'}) RETURN f.loc as loc, f.hash as hash`
       );
       expect(result.data[0]?.loc).toBe(200);
       expect(result.data[0]?.hash).toBe('hash-v2');
@@ -171,14 +171,14 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
 
       // Verify file exists
       const before = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/file-crud-3.ts'}) RETURN count(f) as count`
+        `MATCH (f:File {filePath: '/src/file-crud-3.ts'}) RETURN count(f) as count`
       );
       expect(before.data[0]?.count).toBe(1);
 
       await ops.deleteFileEntities('/src/file-crud-3.ts');
 
       const afterFile = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/file-crud-3.ts'}) RETURN count(f) as count`
+        `MATCH (f:File {filePath: '/src/file-crud-3.ts'}) RETURN count(f) as count`
       );
       expect(afterFile.data[0]?.count).toBe(0);
 
@@ -215,7 +215,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       expect(fnResult.data[0]?.count).toBe(1);
 
       const edgeResult = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/entity-fn.ts'})-[r:CONTAINS]->(fn:Function) WHERE fn.name = 'greet' RETURN count(r) as count`
+        `MATCH (f:File {filePath: '/src/entity-fn.ts'})-[r:CONTAINS]->(fn:Function) WHERE fn.name = 'greet' RETURN count(r) as count`
       );
       expect(edgeResult.data[0]?.count).toBe(1);
     });
@@ -239,7 +239,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       expect(clsResult.data[0]?.count).toBe(1);
 
       const edgeResult = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/entity-cls.ts'})-[r:CONTAINS]->(c:Class) WHERE c.name = 'Animal' RETURN count(r) as count`
+        `MATCH (f:File {filePath: '/src/entity-cls.ts'})-[r:CONTAINS]->(c:Class) WHERE c.name = 'Animal' RETURN count(r) as count`
       );
       expect(edgeResult.data[0]?.count).toBe(1);
     });
@@ -262,7 +262,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       expect(ifaceResult.data[0]?.count).toBe(1);
 
       const edgeResult = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/entity-iface.ts'})-[r:CONTAINS]->(i:Interface) WHERE i.name = 'Serializable' RETURN count(r) as count`
+        `MATCH (f:File {filePath: '/src/entity-iface.ts'})-[r:CONTAINS]->(i:Interface) WHERE i.name = 'Serializable' RETURN count(r) as count`
       );
       expect(edgeResult.data[0]?.count).toBe(1);
     });
@@ -287,7 +287,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       expect(varResult.data[0]?.count).toBe(1);
 
       const edgeResult = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/entity-var.ts'})-[r:CONTAINS]->(v:Variable) WHERE v.name = 'MAX_SIZE' RETURN count(r) as count`
+        `MATCH (f:File {filePath: '/src/entity-var.ts'})-[r:CONTAINS]->(v:Variable) WHERE v.name = 'MAX_SIZE' RETURN count(r) as count`
       );
       expect(edgeResult.data[0]?.count).toBe(1);
     });
@@ -312,7 +312,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       expect(compResult.data[0]?.count).toBe(1);
 
       const edgeResult = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/entity-comp.tsx'})-[r:CONTAINS]->(comp:Component) WHERE comp.name = 'Button' RETURN count(r) as count`
+        `MATCH (f:File {filePath: '/src/entity-comp.tsx'})-[r:CONTAINS]->(comp:Component) WHERE comp.name = 'Button' RETURN count(r) as count`
       );
       expect(edgeResult.data[0]?.count).toBe(1);
     });
@@ -346,7 +346,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       await ops.createImportsEdge('/src/edge-imports-from.ts', '/src/edge-imports-to.ts', ['foo', 'bar']);
 
       const result = await client.roQuery<{ count: number }>(
-        `MATCH (a:File {path: '/src/edge-imports-from.ts'})-[r:IMPORTS]->(b:File {path: '/src/edge-imports-to.ts'}) RETURN count(r) as count`
+        `MATCH (a:File {filePath: '/src/edge-imports-from.ts'})-[r:IMPORTS]->(b:File {filePath: '/src/edge-imports-to.ts'}) RETURN count(r) as count`
       );
       expect(result.data[0]?.count).toBe(1);
     });
@@ -425,7 +425,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       await ops.batchUpsert(entities);
 
       const fileCount = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/batch-roundtrip.ts'}) RETURN count(f) as count`
+        `MATCH (f:File {filePath: '/src/batch-roundtrip.ts'}) RETURN count(f) as count`
       );
       expect(fileCount.data[0]?.count).toBe(1);
 
@@ -466,7 +466,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       expect(fnCount.data[0]?.count).toBe(2);
 
       const fileCount = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/batch-idempotent.ts'}) RETURN count(f) as count`
+        `MATCH (f:File {filePath: '/src/batch-idempotent.ts'}) RETURN count(f) as count`
       );
       expect(fileCount.data[0]?.count).toBe(1);
     });
@@ -513,7 +513,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       expect(callCount.data[0]?.count).toBe(1);
 
       const importCount = await client.roQuery<{ count: number }>(
-        `MATCH (a:File {path: '${filePath}'})-[r:IMPORTS]->(b:File {path: '${importedPath}'}) RETURN count(r) as count`
+        `MATCH (a:File {filePath: '${filePath}'})-[r:IMPORTS]->(b:File {filePath: '${importedPath}'}) RETURN count(r) as count`
       );
       expect(importCount.data[0]?.count).toBe(1);
     });
@@ -567,7 +567,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       await ops.linkProjectFile('proj-1', '/src/project-linked.ts');
 
       const result = await client.roQuery<{ count: number }>(
-        `MATCH (p:Project {id: 'proj-1'})-[r:HAS_FILE]->(f:File {path: '/src/project-linked.ts'}) RETURN count(r) as count`
+        `MATCH (p:Project {id: 'proj-1'})-[r:HAS_FILE]->(f:File {filePath: '/src/project-linked.ts'}) RETURN count(r) as count`
       );
       expect(result.data[0]?.count).toBe(1);
     });
@@ -602,7 +602,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
 
       // Verify setup
       const before = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/perf4-a.ts'}) RETURN count(f) as count`
+        `MATCH (f:File {filePath: '/src/perf4-a.ts'}) RETURN count(f) as count`
       );
       expect(before.data[0]?.count).toBe(1);
 
@@ -611,7 +611,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
 
       // File node should be gone
       const afterFile = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/perf4-a.ts'}) RETURN count(f) as count`
+        `MATCH (f:File {filePath: '/src/perf4-a.ts'}) RETURN count(f) as count`
       );
       expect(afterFile.data[0]?.count).toBe(0);
 
@@ -644,7 +644,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
 
       // File node should be gone
       const afterFile = await client.roQuery<{ count: number }>(
-        `MATCH (f:File {path: '/src/perf4-callee.ts'}) RETURN count(f) as count`
+        `MATCH (f:File {filePath: '/src/perf4-callee.ts'}) RETURN count(f) as count`
       );
       expect(afterFile.data[0]?.count).toBe(0);
 
@@ -957,7 +957,7 @@ describe('Provenance Stamping (FalkorDB)', () => {
     const result = await client.roQuery<{
       sp: string; st: string; pa: string;
     }>(
-      `MATCH (f:File {path: '/src/prov-file.ts'})
+      `MATCH (f:File {filePath: '/src/prov-file.ts'})
        RETURN f.sourcePipeline as sp, f.sourceTask as st, f.processedAt as pa`
     );
     expect(result.data[0]?.sp).toBe('extract');
@@ -1093,7 +1093,7 @@ describe('Provenance Stamping (FalkorDB)', () => {
     const result = await client.roQuery<{
       sp: string; st: string; pa: string;
     }>(
-      `MATCH (f:File {path: '/src/prov-update.ts'})
+      `MATCH (f:File {filePath: '/src/prov-update.ts'})
        RETURN f.sourcePipeline as sp, f.sourceTask as st, f.processedAt as pa`
     );
     expect(result.data[0]?.sp).toBe('pipeline-v2');

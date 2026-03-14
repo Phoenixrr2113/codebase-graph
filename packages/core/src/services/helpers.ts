@@ -33,7 +33,7 @@ export function getLabelFromLabels(labels: string[]): NodeLabel {
 
 export function generateNodeId(label: NodeLabel, props: Record<string, unknown>): string {
   if (label === 'File') {
-    return `File:${props['path'] ?? ''}`;
+    return `File:${props['filePath'] ?? ''}`;
   }
   const name = props['name'] ?? '';
   const filePath = props['filePath'] ?? '';

@@ -69,7 +69,7 @@ export async function searchEntities(
   if (activePaths.length > 0) {
     const pathConditions = activePaths.map((p, i) => {
       pathParams[`path${i}`] = p;
-      return `n.filePath STARTS WITH $path${i} OR n.path STARTS WITH $path${i}`;
+      return `n.filePath STARTS WITH $path${i}`;
     });
     pathFilter = `AND (${pathConditions.join(' OR ')})`;
   }
@@ -80,7 +80,7 @@ export async function searchEntities(
     WHERE ${typeFilter}
       AND (
         toLower(n.name) CONTAINS toLower($term)
-        OR toLower(n.path) CONTAINS toLower($term)
+        OR toLower(n.filePath) CONTAINS toLower($term)
       )
       ${pathFilter}
     RETURN n, ${labelsExpr} as labels
@@ -103,9 +103,9 @@ export async function searchEntities(
         : normalized.labels;
 
     return {
-      name: (props['name'] as string) ?? (props['path'] as string) ?? 'unknown',
+      name: (props['name'] as string) ?? (props['filePath'] as string) ?? 'unknown',
       type: labelsArr[0] ?? 'Unknown',
-      filePath: (props['filePath'] as string) ?? (props['path'] as string) ?? '',
+      filePath: (props['filePath'] as string) ?? '',
       line: props['startLine'] as number | undefined,
     };
   });

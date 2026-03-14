@@ -79,26 +79,26 @@ export async function getCodeExplanationImpl(
   const client = await getGraphClient();
 
   const importsQuery = `
-    MATCH (f:File {path: $filePath})-[:CONTAINS]->(s)-[:IMPORTS]->(target)
+    MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(s)-[:IMPORTS]->(target)
     RETURN DISTINCT target.name as name, target.filePath as file, 1 as line, 'import' as type
     LIMIT 20
   `;
 
   const callersQuery = `
-    MATCH (f:File {path: $filePath})-[:CONTAINS]->(fn:Function)<-[:CALLS]-(caller:Function)
+    MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(fn:Function)<-[:CALLS]-(caller:Function)
     RETURN DISTINCT caller.name as name, caller.filePath as file, caller.startLine as line, 'call' as type
     LIMIT 20
   `;
 
   const testsQuery = `
-    MATCH (f:File {path: $filePath})-[:CONTAINS]->(fn:Function)<-[:CALLS*]-(test:Function)
+    MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(fn:Function)<-[:CALLS*]-(test:Function)
     WHERE test.filePath CONTAINS '.test.' OR test.filePath CONTAINS '.spec.'
     RETURN DISTINCT test.filePath as file
     LIMIT 10
   `;
 
   const complexityQuery = `
-    MATCH (f:File {path: $filePath})-[:CONTAINS]->(fn:Function)
+    MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(fn:Function)
     RETURN avg(fn.complexity) as avgComplexity
   `;
 
@@ -189,7 +189,7 @@ export async function getSymbolDetailImpl(
 
   const cypher = `
     MATCH (n {name: $name})
-    WHERE n.filePath CONTAINS $filePath OR n.path CONTAINS $filePath
+    WHERE n.filePath CONTAINS $filePath
     RETURN n, ${labelsExpr} as labels
     LIMIT 1
   `;
@@ -531,7 +531,7 @@ export async function getSymbolHistoryImpl(
   }
 
   const historyQuery = `
-    MATCH (f:File {path: $filePath})-[r:MODIFIED_IN]->(c:Commit)
+    MATCH (f:File {filePath: $filePath})-[r:MODIFIED_IN]->(c:Commit)
     RETURN c.hash as commitHash,
            c.message as message,
            c.author as author,

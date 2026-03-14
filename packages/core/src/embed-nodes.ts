@@ -73,11 +73,11 @@ const QUERIES = {
   FILES_NEEDING_EMBEDDING: `
     MATCH (f:File)
     WHERE f.embedding IS NULL
-    RETURN f.path as path, f.name as name, f.extension as extension, f.loc as loc
+    RETURN f.filePath as path, f.name as name, f.extension as extension, f.loc as loc
   `,
   ALL_FILES: `
     MATCH (f:File)
-    RETURN f.path as path, f.name as name, f.extension as extension, f.loc as loc
+    RETURN f.filePath as path, f.name as name, f.extension as extension, f.loc as loc
   `,
 
   // Function

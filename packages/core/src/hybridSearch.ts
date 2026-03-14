@@ -109,9 +109,9 @@ export interface HybridSearchOptions {
   embeddings?: EmbeddingConfig;
   /** File path scope filter (only return results under this path) */
   scope?: string;
-  /** Weight for vector score (default: 0.7) */
+  /** Weight for vector score (default: 0.4) */
   vectorWeight?: number;
-  /** Weight for text match bonus (default: 0.3) */
+  /** Weight for text match bonus (default: 0.6) */
   textWeight?: number;
   /** Traverse ABOUT edges to include cross-layer results (default: true) */
   includeAboutEdges?: boolean;
@@ -140,8 +140,8 @@ export async function hybridSearch(
   const includeKnowledge = options.includeKnowledge ?? true;
   const expandGraph = options.expandGraph ?? true;
   const maxHops = options.maxHops ?? 1;
-  const vectorWeight = options.vectorWeight ?? 0.7;
-  const textWeight = options.textWeight ?? 0.3;
+  const vectorWeight = options.vectorWeight ?? 0.4;
+  const textWeight = options.textWeight ?? 0.6;
   const includeAbout = options.includeAboutEdges ?? true;
 
   const ops = createOperations(client);
@@ -181,10 +181,13 @@ export async function hybridSearch(
       return null;
     }
 
+    // Cap vector results per node type to avoid overwhelming text results.
+    // Total vector budget ≈ limit; spread across node types.
+    const perTypeLimit = Math.max(3, Math.ceil(limit / nodeTypes.length));
     const [codeResults, kgResults] = await Promise.all([
-      Promise.all(nodeTypes.map((nt) => ops.searchByVector(nt, queryEmbedding, limit))),
+      Promise.all(nodeTypes.map((nt) => ops.searchByVector(nt, queryEmbedding, perTypeLimit))),
       kgOps
-        ? kgOps.searchEntitiesByVector(queryEmbedding, limit)
+        ? kgOps.searchEntitiesByVector(queryEmbedding, perTypeLimit)
         : Promise.resolve([] as EntitySearchResult[]),
     ]);
 
@@ -199,15 +202,24 @@ export async function hybridSearch(
 
   const embeddingAvailable = vectorPipeline !== null;
 
-  // Collect vector results into ranked list (sorted by relevance for RRF)
+  // Collect vector results into ranked list (sorted by relevance for RRF).
+  // Filter out weak matches (score < 0.55 ≈ distance > 0.82) to avoid diluting
+  // text results with semantically distant nodes.
+  const MIN_VECTOR_SCORE = 0.55;
   let vectorHitCount = 0;
   if (vectorPipeline) {
     for (const results of vectorPipeline.codeResults) {
       for (const r of results) {
         if (options.scope && r.filePath && !r.filePath.startsWith(options.scope)) continue;
+        // Skip File nodes from vector search — their embeddings are too broad
+        // (contain all symbols in the file) so they match almost any query.
+        // Files should only appear via text search (name/docstring match).
+        if (r.nodeType === 'File') continue;
+
+        const internalScore = distanceToScore(r.distance);
+        if (internalScore < MIN_VECTOR_SCORE) continue; // Skip weak matches
 
         const key = makeCodeKey(r.nodeType, r.filePath, r.name);
-        const internalScore = distanceToScore(r.distance);
         const hit: HybridSearchHit = {
           key,
           nodeType: r.nodeType,
@@ -228,6 +240,8 @@ export async function hybridSearch(
       const key = `entity:${r.id}`;
       const dist = (r as unknown as Record<string, unknown>)['distance'] as number | undefined;
       const internalScore = dist != null ? distanceToScore(dist) : 0.5;
+      if (internalScore < MIN_VECTOR_SCORE) continue; // Skip weak matches
+
       const kgHit: HybridSearchHit = {
         key,
         nodeType: 'Entity',
@@ -247,12 +261,16 @@ export async function hybridSearch(
     }
   }
 
-  // Collect text results into ranked list (sorted by text score for RRF)
+  // Collect text results into ranked list (sorted by text score for RRF).
+  // Skip docstring-only matches (score <= 0.3) — these are nodes whose name
+  // doesn't contain any search term, adding noise to symbol/keyword lookups.
+  const MIN_TEXT_SCORE = 0.4;
   const searchTerms = extractSearchTerms(query);
   let textHitCount = 0;
   for (const r of textResults) {
     const key = makeCodeKey(r.nodeType, r.filePath, r.name);
     const internalScore = scoreTextHit(r.name, query, searchTerms);
+    if (internalScore < MIN_TEXT_SCORE) continue; // Skip docstring-only matches
     textHitsList.push({
       hit: {
         key,
@@ -694,13 +712,14 @@ async function textSearchNodes(
   const scopeFilter = scope ? 'AND n.filePath STARTS WITH $scope' : '';
 
   // Build OR conditions for each search term:
-  // Match against name (primary), filePath (secondary), and docstring (tertiary)
+  // Match against name (primary) and docstring (secondary).
+  // filePath is intentionally excluded — it causes false positives (e.g.,
+  // searching "hybridSearch" would return RowType just because it lives in
+  // hybridSearch.ts). File-scoped queries should use NL_TO_CYPHER instead.
   const termConditions = terms.map((_, i) => {
     const nameMatch = `toLower(n.name) CONTAINS toLower($term${i})`;
-    const pathMatch = `(n.filePath IS NOT NULL AND toLower(n.filePath) CONTAINS toLower($term${i}))`;
-    const filePathMatch = `(n.path IS NOT NULL AND toLower(n.path) CONTAINS toLower($term${i}))`;
     const docMatch = `(n.docstring IS NOT NULL AND toLower(n.docstring) CONTAINS toLower($term${i}))`;
-    return `(${nameMatch} OR ${pathMatch} OR ${filePathMatch} OR ${docMatch})`;
+    return `(${nameMatch} OR ${docMatch})`;
   });
 
   // Any term matching is sufficient (OR semantics)
@@ -710,7 +729,7 @@ async function textSearchNodes(
 
   // Case-insensitive name search with relevance-based ordering.
   // Nodes matching more terms in name rank higher than docstring-only matches.
-  // File nodes store their path as `path`; all other code nodes use `filePath`.
+  // All nodes use `filePath` for their file path property.
   const nameMatchScores = terms.map((_, i) =>
     `CASE WHEN toLower(n.name) CONTAINS toLower($term${i}) THEN 1 ELSE 0 END`,
   );
@@ -724,7 +743,7 @@ async function textSearchNodes(
       AND ${matchFilter}
       ${scopeFilter}
     RETURN n.name AS name, ${firstLabel} AS nodeType,
-           CASE WHEN ${dialect.labelCheckExpr('n', 'File')} THEN n.path ELSE n.filePath END AS filePath,
+           n.filePath AS filePath,
            n.startLine AS startLine
     ORDER BY ${relevanceExpr} DESC, n.name
     LIMIT $limit

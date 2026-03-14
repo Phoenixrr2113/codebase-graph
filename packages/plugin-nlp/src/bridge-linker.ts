@@ -123,7 +123,7 @@ async function loadCodeSymbols(
     { label: 'Component', cypher: `MATCH (n:Component) RETURN n.name AS name LIMIT ${limit}` },
     { label: 'Type', cypher: `MATCH (n:Type) RETURN n.name AS name LIMIT ${limit}` },
     { label: 'Variable', cypher: `MATCH (n:Variable) RETURN n.name AS name LIMIT ${limit}` },
-    { label: 'File', cypher: `MATCH (n:File) RETURN n.path AS name LIMIT ${limit}` },
+    { label: 'File', cypher: `MATCH (n:File) RETURN n.filePath AS name LIMIT ${limit}` },
   ];
 
   for (const { label, cypher } of labelQueries) {

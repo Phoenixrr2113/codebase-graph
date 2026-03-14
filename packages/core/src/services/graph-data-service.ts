@@ -190,7 +190,7 @@ export async function getEntityWithConnectionsImpl(
     outLabels: string[] | null;
   }>(`
     MATCH (n)
-    WHERE n.path = $id OR (n.name + ':' + n.filePath) = $id
+    WHERE n.filePath = $id OR (n.name + ':' + n.filePath) = $id
     OPTIONAL MATCH (inNode)-[inEdge]->(n)
     OPTIONAL MATCH (n)-[outEdge]->(outNode)
     RETURN n, ${dialect.labelsExpr('n')} as labels,
@@ -288,13 +288,13 @@ export async function getNodesPaginatedImpl(options: NodesQueryOptions = {}): Pr
 
   // Search query filter
   if (query) {
-    conditions.push('(toLower(n.name) CONTAINS toLower($query) OR toLower(n.path) CONTAINS toLower($query))');
+    conditions.push('(toLower(n.name) CONTAINS toLower($query) OR toLower(n.filePath) CONTAINS toLower($query))');
     params.query = query;
   }
 
   // Project path filter
   if (rootPath) {
-    conditions.push('(n.filePath STARTS WITH $rootPath OR n.path STARTS WITH $rootPath)');
+    conditions.push('n.filePath STARTS WITH $rootPath');
     params.rootPath = rootPath;
   }
 
@@ -332,8 +332,8 @@ export async function getNodesPaginatedImpl(options: NodesQueryOptions = {}): Pr
     return {
       id: nodeId,
       label: nodeLabel,
-      displayName: (props['name'] as string) ?? (props['path'] as string) ?? 'unknown',
-      filePath: (props['filePath'] as string) ?? (props['path'] as string),
+      displayName: (props['name'] as string) ?? (props['filePath'] as string) ?? 'unknown',
+      filePath: (props['filePath'] as string),
       data: props as unknown as GraphNode['data'],
     } as GraphNode;
   });
@@ -401,7 +401,7 @@ export async function getNeighborsImpl(
   }
 
   if (isFileId && actualPath) {
-    centerMatch = 'center.path = $actualPath';
+    centerMatch = 'center.filePath = $actualPath';
     queryParams.actualPath = actualPath;
   } else if (parts.length >= 4) {
     centerMatch = '(center.filePath = $filePath AND center.name = $name AND (center.startLine = $line OR center.line = $line))';
@@ -409,7 +409,7 @@ export async function getNeighborsImpl(
     queryParams.name = parts[2] ?? '';
     queryParams.line = parseInt(parts[3] ?? '0', 10) || 0;
   } else {
-    centerMatch = '(center.name = $simpleId OR center.path = $simpleId)';
+    centerMatch = '(center.name = $simpleId OR center.filePath = $simpleId)';
     queryParams.simpleId = id;
   }
 
@@ -422,7 +422,7 @@ export async function getNeighborsImpl(
     MATCH (center)
     WHERE ${centerMatch}
     MATCH ${cypherMatch}
-    WHERE neighbor.path IS NOT NULL OR neighbor.name IS NOT NULL ${edgeTypeFilter}
+    WHERE neighbor.filePath IS NOT NULL OR neighbor.name IS NOT NULL ${edgeTypeFilter}
     RETURN DISTINCT neighbor, ${dialect.labelsExpr('neighbor')} as neighborLabels, r, ${dialect.typeExpr('r')} as rType
     LIMIT $limit
   `, { params: queryParams });

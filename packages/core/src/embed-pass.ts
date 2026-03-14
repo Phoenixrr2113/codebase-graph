@@ -71,7 +71,7 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
     nodeType: 'File',
     text: fileText,
     textHash: hashText(fileText),
-    identifier: { path: parsed.file.path },
+    identifier: { filePath: parsed.file.path },
   });
 
   // Functions

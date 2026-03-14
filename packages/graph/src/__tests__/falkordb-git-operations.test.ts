@@ -273,13 +273,13 @@ describe('Git History Operations (FalkorDB)', () => {
 
       // Create CONTAINS edges (File → Function, File → Class)
       await client.query(
-        `MATCH (f:File {path: $filePath})
+        `MATCH (f:File {filePath: $filePath})
          MATCH (fn:Function {name: $fnName, filePath: $filePath})
          MERGE (f)-[:CONTAINS]->(fn)`,
         { params: { filePath, fnName: 'temporalFunc' } },
       );
       await client.query(
-        `MATCH (f:File {path: $filePath})
+        `MATCH (f:File {filePath: $filePath})
          MATCH (cls:Class {name: $clsName, filePath: $filePath})
          MERGE (f)-[:CONTAINS]->(cls)`,
         { params: { filePath, clsName: 'TemporalClass' } },
@@ -297,8 +297,8 @@ describe('Git History Operations (FalkorDB)', () => {
         linesAdded: number;
         linesRemoved: number;
       }>(
-        `MATCH (f:File {path: $filePath})-[r:MODIFIED_IN]->(c:Commit {hash: $commitHash})
-         RETURN f.path as filePath, c.hash as commitHash,
+        `MATCH (f:File {filePath: $filePath})-[r:MODIFIED_IN]->(c:Commit {hash: $commitHash})
+         RETURN f.filePath as filePath, c.hash as commitHash,
                 r.linesAdded as linesAdded, r.linesRemoved as linesRemoved`,
         { params: { filePath, commitHash } },
       );
@@ -320,7 +320,7 @@ describe('Git History Operations (FalkorDB)', () => {
         linesRemoved: number;
         complexityDelta: number;
       }>(
-        `MATCH (f:File {path: $filePath})-[r:MODIFIED_IN]->(c:Commit {hash: $commitHash})
+        `MATCH (f:File {filePath: $filePath})-[r:MODIFIED_IN]->(c:Commit {hash: $commitHash})
          RETURN r.linesAdded as linesAdded, r.linesRemoved as linesRemoved,
                 r.complexityDelta as complexityDelta`,
         { params: { filePath, commitHash } },
@@ -372,7 +372,7 @@ describe('Git History Operations (FalkorDB)', () => {
       await ops.createModifiedInEdge('/nonexistent/file.ts', commitHash, 1, 0);
 
       const result = await client.roQuery<{ count: number }>(
-        `MATCH (:File {path: '/nonexistent/file.ts'})-[:MODIFIED_IN]->(:Commit)
+        `MATCH (:File {filePath: '/nonexistent/file.ts'})-[:MODIFIED_IN]->(:Commit)
          RETURN count(*) as count`,
         { params: {} },
       );
@@ -491,7 +491,7 @@ describe('Git History Operations (FalkorDB)', () => {
         message: string;
         date: string;
       }>(
-        `MATCH (f:File {path: $filePath})-[:MODIFIED_IN]->(c:Commit)
+        `MATCH (f:File {filePath: $filePath})-[:MODIFIED_IN]->(c:Commit)
          RETURN c.hash as hash, c.message as message, c.date as date
          ORDER BY c.date`,
         { params: { filePath: histFilePath } },
@@ -508,8 +508,8 @@ describe('Git History Operations (FalkorDB)', () => {
         filePath: string;
         commitCount: number;
       }>(
-        `MATCH (f:File {path: $filePath})-[:MODIFIED_IN]->(c:Commit)
-         RETURN f.path as filePath, count(c) as commitCount`,
+        `MATCH (f:File {filePath: $filePath})-[:MODIFIED_IN]->(c:Commit)
+         RETURN f.filePath as filePath, count(c) as commitCount`,
         { params: { filePath: histFilePath } },
       );
 
@@ -523,7 +523,7 @@ describe('Git History Operations (FalkorDB)', () => {
         linesAdded: number;
         linesRemoved: number;
       }>(
-        `MATCH (f:File {path: $filePath})-[r:MODIFIED_IN]->(c:Commit)
+        `MATCH (f:File {filePath: $filePath})-[r:MODIFIED_IN]->(c:Commit)
          RETURN c.hash as hash, r.linesAdded as linesAdded, r.linesRemoved as linesRemoved
          ORDER BY c.date`,
         { params: { filePath: histFilePath } },
@@ -543,7 +543,7 @@ describe('Git History Operations (FalkorDB)', () => {
       }>(
         `MATCH (f:File)-[:MODIFIED_IN]->(c:Commit)
          WHERE c.author = $author
-         RETURN DISTINCT f.path as filePath, c.author as author`,
+         RETURN DISTINCT f.filePath as filePath, c.author as author`,
         { params: { author: 'Test Author' } },
       );
 

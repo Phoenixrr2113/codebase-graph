@@ -28,7 +28,7 @@ Node labels: File, Function, Class, Interface, Variable, Type, Component, Entity
 Edge types: CONTAINS, CALLS, IMPORTS, EXTENDS, IMPLEMENTS, ABOUT, RELATES_TO
 
 **Examples:**
-- All functions in a file: { cypher: "MATCH (f:File {filePath: $path})-[:CONTAINS]->(fn:Function) RETURN fn.name", params: { path: "/src/service.ts" } }
+- All functions in a file: { cypher: "MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(fn:Function) RETURN fn.name", params: { filePath: "/src/service.ts" } }
 - Call chain: { cypher: "MATCH (a:Function)-[:CALLS*1..3]->(b:Function) WHERE a.name = $name RETURN DISTINCT b.name", params: { name: "parseProject" } }`,
   inputSchema: {
     type: 'object',

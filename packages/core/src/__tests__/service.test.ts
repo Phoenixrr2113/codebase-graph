@@ -362,7 +362,7 @@ describe('CodeGraphService', () => {
 
       expect(mockClient.query).toHaveBeenCalledTimes(1);
       const cypher: string = mockClient.query.mock.calls[0][0];
-      expect(cypher).toContain('$path');
+      expect(cypher).toContain('$filePath');
     });
   });
 
@@ -420,13 +420,13 @@ describe('CodeGraphService', () => {
       mockClient.roQuery.mockResolvedValueOnce({ data: [], metadata: null });
 
       await codeGraphService.executeReadQuery(
-        'MATCH (n:File) WHERE n.path = $path RETURN n',
-        { path: '/src/index.ts' }
+        'MATCH (n:File) WHERE n.filePath = $filePath RETURN n',
+        { filePath: '/src/index.ts' }
       );
 
       expect(mockClient.roQuery).toHaveBeenCalledWith(
-        'MATCH (n:File) WHERE n.path = $path RETURN n',
-        { params: { path: '/src/index.ts' } }
+        'MATCH (n:File) WHERE n.filePath = $filePath RETURN n',
+        { params: { filePath: '/src/index.ts' } }
       );
     });
 
@@ -540,7 +540,7 @@ describe('CodeGraphService', () => {
       // Should NOT contain elementId (removed)
       expect(cypher).not.toContain('elementId');
       // Should use property-based matching
-      expect(cypher).toContain('n.path = $id');
+      expect(cypher).toContain('n.filePath = $id');
     });
   });
 
@@ -575,7 +575,7 @@ describe('CodeGraphService', () => {
         .mockResolvedValueOnce({ data: [{ total: 2 }], metadata: null })
         .mockResolvedValueOnce({
           data: [
-            { n: { path: '/src/app.ts' }, labels: ['File'] },
+            { n: { filePath: '/src/app.ts' }, labels: ['File'] },
             { n: { name: 'render', filePath: '/src/app.ts', startLine: 5 }, labels: ['Function'] },
           ],
           metadata: null,
@@ -666,7 +666,7 @@ describe('CodeGraphService', () => {
       await codeGraphService.getNeighbors('File:/src/index.ts');
 
       const cypher: string = mockClient.roQuery.mock.calls[0][0];
-      expect(cypher).toContain('center.path = $actualPath');
+      expect(cypher).toContain('center.filePath = $actualPath');
       const params = mockClient.roQuery.mock.calls[0][1];
       expect(params.params.actualPath).toBe('/src/index.ts');
     });
@@ -689,7 +689,7 @@ describe('CodeGraphService', () => {
 
       const cypher: string = mockClient.roQuery.mock.calls[0][0];
       expect(cypher).toContain('center.name = $simpleId');
-      expect(cypher).toContain('center.path = $simpleId');
+      expect(cypher).toContain('center.filePath = $simpleId');
     });
 
     it('uses correct match pattern for direction=in', async () => {

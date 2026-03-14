@@ -93,15 +93,15 @@ function nodeToGraphNode(node: Record<string, unknown>, labels: string[], dialec
   return {
     id,
     label,
-    displayName: (props['name'] as string) ?? (props['path'] as string) ?? 'unknown',
-    filePath: (props['filePath'] as string) ?? (props['path'] as string),
+    displayName: (props['name'] as string) ?? (props['filePath'] as string) ?? 'unknown',
+    filePath: (props['filePath'] as string),
     data: props,
   } as unknown as GraphNode;
 }
 
 function generateNodeIdFromProps(label: NodeLabel, node: Record<string, unknown>): string {
   if (label === 'File') {
-    return `File:${node['path'] ?? ''}`;
+    return `File:${node['filePath'] ?? ''}`;
   }
   const name = node['name'] ?? '';
   const filePath = node['filePath'] ?? '';
@@ -144,7 +144,6 @@ function buildCypherTemplates(dialect: CypherDialect) {
   const firstLabel = dialect.firstLabelExpr;
   const typeExpr = dialect.typeExpr;
   const lc = dialect.labelCheckExpr.bind(dialect);
-  const lcase = dialect.labelCaseExpr.bind(dialect);
 
   /** Build OR-separated label checks for WHERE clauses */
   function labelOr(alias: string, labels: string[]): string {
@@ -154,7 +153,7 @@ function buildCypherTemplates(dialect: CypherDialect) {
   return {
     GET_FULL_GRAPH_NODES: (rootPath?: string) => {
       const pathFilter = rootPath
-        ? `AND (CASE WHEN ${lcase('n', 'File')} THEN n.path ELSE n.filePath END) STARTS WITH $rootPath`
+        ? `AND n.filePath STARTS WITH $rootPath`
         : '';
 
       return `
@@ -168,10 +167,9 @@ function buildCypherTemplates(dialect: CypherDialect) {
 
     GET_FULL_GRAPH_EDGES: (rootPath?: string) => {
       const edgesPathFilter = rootPath
-        ? `AND (CASE WHEN ${lcase('a', 'File')} THEN a.path ELSE a.filePath END) STARTS WITH $rootPath
-           AND ((CASE WHEN ${lcase('b', 'File')} THEN b.path ELSE b.filePath END) STARTS WITH $rootPath
-                OR b.filePath = 'external'
-                OR (${lc('b', 'File')} AND b.path STARTS WITH 'external:'))`
+        ? `AND a.filePath STARTS WITH $rootPath
+           AND (b.filePath STARTS WITH $rootPath
+                OR b.filePath STARTS WITH 'external:')`
         : '';
 
       return `
@@ -185,13 +183,13 @@ function buildCypherTemplates(dialect: CypherDialect) {
     },
 
     GET_FILE_SUBGRAPH: `
-      MATCH (f:File {path: $path})-[:CONTAINS]->(e)
+      MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(e)
       OPTIONAL MATCH (e)-[r]-(related)
       RETURN f, e, r, related, ${labelsExpr('e')} as labels, ${labelsExpr('related')} as relatedLabels, ${typeExpr('r')} as edgeType
     `,
 
     GET_DEPENDENCY_TREE: `
-      MATCH path = (root:File {path: $path})-[:IMPORTS*1..$depth]->(dep:File)
+      MATCH path = (root:File {filePath: $filePath})-[:IMPORTS*1..$depth]->(dep:File)
       RETURN path
     `,
 
@@ -208,7 +206,7 @@ function buildCypherTemplates(dialect: CypherDialect) {
 
     GET_LARGEST_FILES: `
       MATCH (f:File)-[:CONTAINS]->(e)
-      RETURN f.path as path, count(e) as entityCount
+      RETURN f.filePath as path, count(e) as entityCount
       ORDER BY entityCount DESC
       LIMIT 10
     `,
@@ -305,7 +303,7 @@ class GraphQueriesImpl implements GraphQueries {
       // Get source node from our nodes array
       const fromNode = nodes.find((n) => {
         return (
-          n.filePath === fromProps['path'] ||
+          n.filePath === fromProps['filePath'] ||
           (n.displayName === fromProps['name'] && n.filePath === fromProps['filePath'])
         );
       });
@@ -313,14 +311,14 @@ class GraphQueriesImpl implements GraphQueries {
       // Get target node - or create External node if needed
       let toNode = nodes.find((n) => {
         return (
-          n.filePath === toProps['path'] ||
+          n.filePath === toProps['filePath'] ||
           (n.displayName === toProps['name'] && n.filePath === toProps['filePath'])
         );
       });
 
       // If target is External and not in nodes, add it
       const isExternalTarget = toLabels.includes('External') ||
-        (typeof toProps['path'] === 'string' && toProps['path'].startsWith('external:'));
+        (typeof toProps['filePath'] === 'string' && (toProps['filePath'] as string).startsWith('external:'));
 
       if (!toNode && isExternalTarget) {
         const externalNode = nodeToGraphNode(row.b, toLabels, this.dialect);
@@ -361,7 +359,7 @@ class GraphQueriesImpl implements GraphQueries {
       labels: string[];
       relatedLabels: string[] | null;
       edgeType: string | null;
-    }>(this.templates.GET_FILE_SUBGRAPH, { params: { path: filePath } });
+    }>(this.templates.GET_FILE_SUBGRAPH, { params: { filePath } });
 
     let centerId: string | undefined;
 
@@ -436,7 +434,7 @@ class GraphQueriesImpl implements GraphQueries {
     const result = await this.client.roQuery<{
       path: Array<Record<string, unknown>>;
     }>(this.templates.GET_DEPENDENCY_TREE.replace('$depth', String(depthParam)), {
-      params: { path: filePath },
+      params: { filePath },
     });
 
     for (const row of result.data ?? []) {

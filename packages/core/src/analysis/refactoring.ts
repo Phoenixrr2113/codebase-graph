@@ -282,11 +282,11 @@ function depthFirstSearch(
 export function getExtractionCandidatesQuery(filePath: string): { cypher: string; params: Record<string, string> } {
   return {
     cypher: `
-    MATCH (file:File {path: $filePath})-[:CONTAINS]->(fn:Function)
+    MATCH (file:File {filePath: $filePath})-[:CONTAINS]->(fn:Function)
     OPTIONAL MATCH (fn)-[:CALLS]->(internal:Function)
-    WHERE internal.filePath = file.path
+    WHERE internal.filePath = file.filePath
     OPTIONAL MATCH (fn)-[:READS]->(v:Variable)
-    WHERE v.filePath = file.path
+    WHERE v.filePath = file.filePath
     WITH fn, count(DISTINCT internal) as internalCalls,
          count(DISTINCT v) as stateReads
     RETURN fn.name as name, fn.startLine as startLine, fn.endLine as endLine,
@@ -304,9 +304,9 @@ export function getExtractionCandidatesQuery(filePath: string): { cypher: string
 export function getInternalCallsQuery(filePath: string): { cypher: string; params: Record<string, string> } {
   return {
     cypher: `
-    MATCH (file:File {path: $filePath})-[:CONTAINS]->(caller:Function)
+    MATCH (file:File {filePath: $filePath})-[:CONTAINS]->(caller:Function)
     MATCH (caller)-[:CALLS]->(callee:Function)
-    WHERE callee.filePath = file.path
+    WHERE callee.filePath = file.filePath
     RETURN caller.name as caller, callee.name as callee
   `.trim(),
     params: { filePath },

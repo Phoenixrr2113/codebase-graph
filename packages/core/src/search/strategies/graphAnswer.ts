@@ -36,9 +36,11 @@ export class GraphAnswerStrategy implements SearchStrategy {
       throw new Error('GRAPH_ANSWER requires an LLM');
     }
 
-    // Step 1: Hybrid search to find relevant nodes
+    // Step 1: Hybrid search to find relevant nodes.
+    // Cap at 10 — we only use top 10 for LLM context (buildContextFromHits),
+    // and returning more dilutes result precision with loosely-related neighbors.
     const hybridOpts: HybridSearchOptions = {
-      limit: request.limit ?? 15,
+      limit: Math.min(request.limit ?? 15, 10),
       includeKnowledge: true,
       expandGraph: true,
       maxHops: 1,

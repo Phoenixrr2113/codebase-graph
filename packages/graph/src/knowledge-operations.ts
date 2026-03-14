@@ -565,7 +565,7 @@ const KG_CYPHER = {
     RETURN e.text AS entityText, e.type AS entityType,
            labels(t)[0] AS targetLabel,
            CASE
-             WHEN t:File THEN t.path
+             WHEN t:File THEN t.filePath
              ELSE t.name
            END AS targetValue,
            r.confidence AS confidence, r.method AS method,
@@ -579,13 +579,13 @@ const KG_CYPHER = {
     MATCH (e:Entity)-[r:ABOUT]->(t)
     WHERE labels(t)[0] = $targetLabel
       AND CASE
-            WHEN $targetLabel = 'File' THEN t.path = $targetValue
+            WHEN $targetLabel = 'File' THEN t.filePath = $targetValue
             ELSE t.name = $targetValue
           END
     RETURN e.text AS entityText, e.type AS entityType,
            labels(t)[0] AS targetLabel,
            CASE
-             WHEN t:File THEN t.path
+             WHEN t:File THEN t.filePath
              ELSE t.name
            END AS targetValue,
            r.confidence AS confidence, r.method AS method,
@@ -599,7 +599,7 @@ const KG_CYPHER = {
     MATCH (e:Entity)-[r:ABOUT]->(t)
     WHERE e.text = $entityText AND e.type = $entityType
       AND CASE
-            WHEN $targetLabel = 'File' THEN t.path = $targetValue AND t:File
+            WHEN $targetLabel = 'File' THEN t.filePath = $targetValue AND t:File
             WHEN $targetLabel = 'Function' THEN t.name = $targetValue AND t:Function
             WHEN $targetLabel = 'Class' THEN t.name = $targetValue AND t:Class
             WHEN $targetLabel = 'Interface' THEN t.name = $targetValue AND t:Interface
@@ -990,7 +990,7 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
 
   /** Build ABOUT edge Cypher for a given target label */
   private static buildCreateAboutQuery(label: string): string {
-    const matchProp = label === 'File' ? 't.path' : 't.name';
+    const matchProp = label === 'File' ? 't.filePath' : 't.name';
     return `
       MATCH (e:Entity), (t:${label})
       WHERE e.text = $entityText AND e.type = $entityType AND ${matchProp} = $targetValue
