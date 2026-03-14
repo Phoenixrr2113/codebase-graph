@@ -174,8 +174,8 @@ export function parseCode(code: string, language: LanguageType, ext?: string): S
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  parser.setLanguage(grammar as any);
+  // Grammar returned as `unknown` from plugin interface; tree-sitter expects Language
+  parser.setLanguage(grammar as TreeSitter.Language);
 
   const tree = parser.parse(code);
 

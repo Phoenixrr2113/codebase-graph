@@ -1,14 +1,13 @@
 # CodeGraph
 
-**Understand your codebase at a glance.** CodeGraph parses your source code, builds a knowledge graph of every function, class, and relationship, then lets you explore, analyze, and query it—visually or through AI assistants.
+**Understand your codebase at a glance.** CodeGraph parses your source code, builds a knowledge graph of every function, class, and relationship, then lets you explore, analyze, and query it — visually or through AI assistants.
 
 ![FalkorDB](https://img.shields.io/badge/FalkorDB-Graph%20Database-blue)
 ![FalkorDBLite](https://img.shields.io/badge/FalkorDBLite-Embedded-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)
-![Next.js](https://img.shields.io/badge/Next.js-16-black)
-![React](https://img.shields.io/badge/React-19-61dafb)
-![MCP](https://img.shields.io/badge/MCP-28%20Tools-green)
-![Tree-sitter](https://img.shields.io/badge/Tree--sitter-WASM-orange)
+![Languages](https://img.shields.io/badge/Languages-42-green)
+![MCP](https://img.shields.io/badge/MCP-5%20Persona%20Tools-green)
+![Tests](https://img.shields.io/badge/Tests-1320%20Passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ## The Problem
@@ -26,16 +25,14 @@ Modern codebases are complex. When you need to:
 CodeGraph builds a **queryable knowledge graph** of your entire codebase:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Your Codebase → Parser → Graph DB → Insights              │
-│                                                             │
-│  • Functions, Classes, Components, Interfaces, Types        │
-│  • CALLS, IMPORTS, EXTENDS, IMPLEMENTS, RENDERS edges       │
-│  • Complexity metrics, security vulnerabilities             │
-│  • Knowledge graph with temporal memory                     │
-│  • Hybrid search (vector + text + graph traversal)          │
-│  • Git history integration                                  │
-└─────────────────────────────────────────────────────────────┘
+Your Codebase  →  Tree-sitter Parser  →  FalkorDB Graph  →  Insights
+
+  42 languages        Functions, Classes, Components, Interfaces, Types
+  74 file extensions  CALLS, IMPORTS, EXTENDS, IMPLEMENTS, RENDERS edges
+                      Complexity metrics, security vulnerabilities
+                      Knowledge graph with temporal memory
+                      Hybrid search (vector + text + graph traversal)
+                      Git history integration
 ```
 
 ## Quick Start
@@ -81,28 +78,15 @@ cd codegraph && pnpm install
 # Start FalkorDB via Docker
 pnpm docker:db
 
-# Configure connection
-cp .env.template .env
-# Edit .env with your FalkorDB credentials
-
-# Start everything (Docker + API + Web)
+# Start everything (API + Web)
 pnpm start
 ```
 
 Open [http://localhost:3000](http://localhost:3000), add a project, and start exploring.
 
-## Usage Examples
+## Usage with AI Assistants (MCP)
 
-### 1. Visual Graph Exploration
-
-Parse any project and explore the interactive graph:
-- **Double-click** nodes to expand neighbors
-- **Search** by name to find any symbol
-- **Click** any node to see its source code, relationships, and metrics
-
-### 2. Impact Analysis via MCP
-
-Connect to Claude or Cursor with the MCP server:
+CodeGraph provides 5 persona-based MCP tools that consolidate 28 underlying capabilities into a simple interface for AI assistants:
 
 ```json
 {
@@ -113,78 +97,48 @@ Connect to Claude or Cursor with the MCP server:
 }
 ```
 
+### Persona Tools
+
+| Tool | What it does |
+|------|-------------|
+| **search** | Find code, symbols, ask questions — routes to the best search strategy automatically |
+| **analyze** | Impact analysis, security scanning, complexity metrics, refactoring suggestions, dataflow tracing |
+| **knowledge** | Store and recall domain knowledge — entities, relationships, facts, conversations |
+| **codebase** | Index status, project structure, source code, file trees |
+| **query** | Execute Cypher queries against the graph (read-only, validated) |
+
 Then ask your AI assistant:
 > "What functions are affected if I change `processPayment`?"
 
-The `analyze_impact` tool returns direct callers, transitive dependencies, affected tests, and a risk score.
+The `analyze` tool returns direct callers, transitive dependencies, affected tests, and a risk score.
 
-### 3. Hybrid Search
+> "How does the auth flow work?"
 
-CodeGraph supports multiple search strategies that combine vector embeddings, text matching, and graph traversal:
+The `search` tool combines vector similarity, text matching, and graph traversal to find relevant code and synthesize an answer.
 
-```typescript
-// MCP tool: search_code
-// Strategies: VECTOR, HYBRID, GRAPH_ANSWER, NL_TO_CYPHER, SMART_SEARCH, CONTEXT_WALK
-{
-  "query": "authentication middleware",
-  "strategy": "HYBRID"
-}
-```
+Raw tools (28 individual tools) are available via `CODEGRAPH_RAW_TOOLS=1` for power users.
 
-### 4. Knowledge Graph
+## Search Strategies
 
-Store and query domain knowledge with temporal memory:
+CodeGraph supports 6 search strategies — 86.4% recall, 73.3% precision:
 
-```typescript
-// MCP tool: store_fact
-{ "text": "The auth service was migrated from JWT to OAuth2 in March 2026" }
-// Automatically extracts entities and relationships via LLM
-
-// MCP tool: recall
-{ "query": "auth service" }
-// Returns all known facts, relationships, and temporal context
-```
-
-### 5. Security Scanning
-
-Find vulnerabilities across your codebase:
-
-```typescript
-// MCP tool: find_vulnerabilities
-{
-  "vulnerabilities": [
-    {
-      "type": "SQL_INJECTION",
-      "severity": "CRITICAL",
-      "file": "src/db/users.ts",
-      "line": 45,
-      "description": "User input concatenated into SQL query",
-      "fix": "Use parameterized queries"
-    }
-  ]
-}
-```
-
-### 6. Complexity Hotspots
-
-Identify functions that need refactoring:
-
-```typescript
-// MCP tool: get_complexity_report
-{
-  "hotspots": [
-    { "name": "processOrder", "complexity": 28, "cognitive": 34, "file": "src/orders.ts" },
-    { "name": "validateInput", "complexity": 22, "cognitive": 19, "file": "src/validation.ts" }
-  ]
-}
-```
+| Strategy | Description |
+|----------|-------------|
+| `HYBRID` | Combined vector + text + graph traversal with RRF fusion |
+| `GRAPH_ANSWER` | LLM synthesizes answer by traversing the graph |
+| `NL_TO_CYPHER` | LLM translates natural language to Cypher query |
+| `SMART_SEARCH` | Auto-routes to best strategy based on query type |
+| `CONTEXT_WALK` | LLM-guided iterative graph exploration |
+| `VECTOR` | Pure vector similarity search using embeddings |
 
 ## What Gets Extracted
 
+### Tier 1 — Full extraction (8 languages)
+
 | Language | Entities | Relationships |
 |----------|----------|---------------|
-| TypeScript/JavaScript | Functions, Classes, Interfaces, Types, Components | CALLS, IMPORTS, RENDERS, EXPORTS, EXTENDS |
-| Python | Functions, Classes | CALLS, IMPORTS |
+| TypeScript/JavaScript | Functions, Classes, Interfaces, Types, Components | CALLS, IMPORTS, RENDERS, EXTENDS, IMPLEMENTS |
+| Python | Functions, Classes, Variables | CALLS, IMPORTS, EXTENDS |
 | C# | Classes, Interfaces, Methods | CALLS, EXTENDS, IMPLEMENTS |
 | Go | Functions, Structs, Interfaces | CALLS, IMPORTS, IMPLEMENTS |
 | Java | Classes, Interfaces, Methods | CALLS, EXTENDS, IMPLEMENTS |
@@ -192,62 +146,57 @@ Identify functions that need refactoring:
 | PHP | Functions, Classes, Interfaces | CALLS, EXTENDS, IMPLEMENTS |
 | Markdown | Documents, Sections, Links | LINKS_TO, REFERENCES |
 
-**Analysis Capabilities:**
+### Tier 2 — Config-driven extraction (34 languages)
+
+Ruby, Kotlin, Swift, Scala, Dart, C, C++, Objective-C, Lua, Elixir, Erlang, R, Haskell, Perl, Julia, Clojure, Bash, PowerShell, SQL, HCL/Terraform, YAML, TOML, HTML, CSS, JSON, Dockerfile, OCaml, F#, Zig, Nim, Crystal, Groovy, Verilog, Protobuf
+
+Tier 2 languages use the generic plugin system with declarative configs. They extract functions, classes, imports, and variables using tree-sitter grammars (installed as optional dependencies).
+
+### Analysis Capabilities
+
 - **Complexity** — Cyclomatic, cognitive, nesting depth
 - **Security** — OWASP Top 10 + payment-specific rules (Stripe, Adyen)
 - **Dataflow** — Taint tracking from sources to sinks
+- **Impact** — Change impact analysis with risk scoring
+- **Refactoring** — Extraction candidates, responsibility analysis
 - **Git History** — Commits linked to code changes
-- **Knowledge Graph** — Entity/relationship extraction with temporal memory (decay, prune)
+- **Knowledge Graph** — Entity/relationship extraction with temporal memory
 - **Embeddings** — Local (nomic-embed-text-v1.5, 768-dim) + cloud (OpenRouter)
-
-## MCP Server (28 Tools)
-
-The MCP server enables AI assistants to query your codebase:
-
-| Category | Tools |
-|----------|-------|
-| Core | `ping`, `configure_projects` |
-| Index | `get_index_status`, `trigger_reindex`, `get_stats` |
-| Search | `find_symbol`, `search_code`, `search`, `get_context`, `query_graph` |
-| AI Search | `ask_code`, `query_cypher` |
-| Analysis | `analyze_impact`, `find_vulnerabilities`, `get_complexity_report`, `trace_data_flow` |
-| Context | `explain_code`, `get_symbol_history`, `get_repo_map`, `get_source`, `analyze_file_for_refactoring` |
-| Knowledge | `store_entity`, `store_relationship`, `store_fact`, `ingest_conversation`, `query_knowledge`, `recall`, `decay_and_prune`, `get_knowledge_stats` |
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      Frontend (Next.js 16)                  │
-│     Interactive Graph • Entity Detail • Source Preview      │
+│     Interactive Graph  •  Entity Detail  •  Source Preview  │
 └───────────────────────────────────────────────────────────┬─┘
                                                             │ REST + WebSocket
 ┌───────────────────────────────────────────────────────────┴─┐
 │                      API (Hono)                             │
-│   Parse Service • Analysis Engine • Git Integration         │
+│   Parse Service  •  Analysis Engine  •  File Watcher       │
 └───────────────────────────────────────────────────────────┬─┘
                                                             │
 ┌───────────────────────────────────────────────────────────┴─┐
-│              Graph Database (Driver Abstraction)             │
-│   ┌──────────────────┐  ┌──────────────────┐                │
-│   │ FalkorDB (Docker) │  │ FalkorDBLite     │                │
-│   │ Team / Enterprise │  │ Local / Embedded │                │
-│   └──────────────────┘  └──────────────────┘                │
-│   Nodes: File, Function, Class, Component, Entity, Commit   │
-│   Edges: CALLS, IMPORTS, EXTENDS, RENDERS, RELATES_TO       │
-│   Vector: HNSW indexes on all node types + RELATES_TO edges │
+│              Graph Database (Driver Abstraction)            │
+│   ┌──────────────────┐  ┌──────────────────┐               │
+│   │ FalkorDB (Docker) │  │ FalkorDBLite     │               │
+│   │ Team / Enterprise │  │ Local / Embedded │               │
+│   └──────────────────┘  └──────────────────┘               │
+│   Nodes: File, Function, Class, Component, Entity, Commit  │
+│   Edges: CALLS, IMPORTS, EXTENDS, RENDERS, RELATES_TO      │
+│   Vector: HNSW indexes on all node types + RELATES_TO       │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
 │                    MCP Server (stdio)                        │
-│              28 tools for Claude, Cursor, etc.              │
+│         5 persona tools  •  28 raw tools available          │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
 │                    NLP Pipeline                              │
-│   Entity Extraction • Embeddings • Bridge Linking           │
-│   Conversation Ingestion • Entity Resolution                │
-│   Local: nomic-embed-text-v1.5 • Cloud: OpenRouter          │
+│   Entity Extraction  •  Embeddings  •  Bridge Linking       │
+│   Conversation Ingestion  •  Entity Resolution              │
+│   Local: nomic-embed-text-v1.5  •  Cloud: OpenRouter        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -258,12 +207,15 @@ The MCP server enables AI assistants to query your codebase:
 | [`@codegraph/core`](packages/core/) | Main orchestrator — parsing, analysis, search, embedding, service layer |
 | [`@codegraph/graph`](packages/graph/) | Driver-agnostic graph database client (FalkorDB, FalkorDBLite) |
 | [`@codegraph/plugin-nlp`](packages/plugin-nlp/) | NLP extraction, embeddings, knowledge graph operations |
-| [`@codegraph/mcp-server`](packages/mcp-server/) | MCP server with 28 tools for AI assistants |
+| [`@codegraph/mcp-server`](packages/mcp-server/) | MCP server — 5 persona tools for AI assistants |
 | [`@codegraph/api`](packages/api/) | REST API + WebSocket server (Hono) |
 | [`@codegraph/cli`](packages/cli/) | CLI for extracting and querying code graphs |
 | [`@codegraph/web`](packages/web/) | Next.js 16 frontend with interactive graph visualization |
-| [`@codegraph/logger`](packages/logger/) | Centralized structured logging |
+| [`@codegraph/logger`](packages/logger/) | Centralized structured logging with OpenTelemetry tracing |
 | [`@codegraph/types`](packages/types/) | Shared TypeScript types |
+| [`@codegraph/plugin-generic`](packages/plugin-generic/) | Generic language plugin factory (`createLanguagePlugin()`) |
+| [`@codegraph/plugin-common`](packages/plugin-common/) | Shared plugin utilities (language registry, extension maps) |
+| [`@codegraph/plugin-languages`](packages/plugin-languages/) | 34 tier-2 language configs with lazy grammar loading |
 | `@codegraph/plugin-typescript` | TypeScript/JavaScript language extractor |
 | `@codegraph/plugin-python` | Python language extractor |
 | `@codegraph/plugin-csharp` | C# language extractor |
@@ -292,7 +244,7 @@ The config file is automatically discovered by searching the current directory a
 ### Environment Variables
 
 ```env
-# Driver selection (falkordb | falkordblite | kuzu)
+# Driver selection (falkordb | falkordblite)
 CODEGRAPH_DRIVER=falkordb
 
 # FalkorDB connection (when using falkordb driver)
@@ -305,6 +257,13 @@ FALKORDB_GRAPH=codegraph
 
 # FalkorDBLite (when using falkordblite driver)
 CODEGRAPH_DB_PATH=.codegraph/falkordb
+
+# LLM (for AI-powered search and knowledge extraction)
+OPENROUTER_API_KEY=your-key    # OpenRouter (recommended)
+CEREBRAS_API_KEY=your-key      # Cerebras (fastest, used for search routing)
+
+# MCP persona mode (default) vs raw tools
+CODEGRAPH_RAW_TOOLS=1          # Set to expose 28 individual tools instead of 5 personas
 ```
 
 ### Auto-Detection Priority
@@ -325,9 +284,9 @@ Explicit arguments > .codegraph/config.json > Environment variables > Default (f
 
 ```bash
 pnpm install        # Install dependencies
-pnpm build          # Build all packages
+pnpm build          # Build all 21 packages
 pnpm dev            # Start dev servers (API:3001, Web:3000)
-pnpm test           # Run all tests
+pnpm test           # Run all 1,320 tests
 pnpm docker:db      # Start FalkorDB via Docker
 pnpm docker:reset   # Reset FalkorDB (wipe data)
 ```
@@ -336,33 +295,18 @@ pnpm docker:reset   # Reset FalkorDB (wipe data)
 
 - **Frontend**: Next.js 16, React 19, Cytoscape.js, Tailwind CSS 4
 - **API**: Hono, WebSocket, Node.js
-- **Parsing**: Tree-sitter (WASM) — 8 languages
+- **Parsing**: Tree-sitter — 42 languages (8 tier-1 + 34 tier-2)
 - **Graph DB**: FalkorDB (Docker) or FalkorDBLite (embedded)
 - **Embeddings**: Local (nomic-embed-text-v1.5) + Cloud (OpenRouter)
-- **LLM**: Vercel AI SDK v6, multi-provider (OpenRouter, Ollama)
+- **LLM**: Vercel AI SDK v6, multi-provider (OpenRouter, Cerebras, Ollama)
 - **Build**: Turborepo, pnpm workspaces, ESM
-- **Testing**: Vitest (56 test files, 51+ FalkorDB integration tests)
+- **Testing**: Vitest (62 test files, 1,320 tests passing)
 
 ## Roadmap
 
-### Completed
-- [x] Config file support — `.codegraph/config.json` with auto-detection
-- [x] Swappable database backends — FalkorDB (Docker) + FalkorDBLite (embedded)
-- [x] 8 language extractors — TypeScript, Python, C#, Go, Java, Rust, PHP, Markdown
-- [x] Knowledge graph — entity/relationship/fact storage with temporal memory
-- [x] Hybrid search — vector + text + graph traversal + 6 search strategies
-- [x] Embedding pipeline — local (nomic-embed-text-v1.5) + cloud (OpenRouter)
-- [x] Conversation ingestion — episodic memory from multi-turn conversations
-- [x] Git history integration — commits linked to code entities
-- [x] Pipeline orchestration — Task wrapper, provenance, incremental processing
+See [ROADMAP.md](ROADMAP.md) for detailed status.
 
-### Planned
-- [ ] Production hardening — authentication, rate limiting, input validation
-- [ ] CI/CD GitHub Actions — run analysis on every PR
-- [ ] Cross-codebase analysis — analyze microservices as a unified graph
-- [ ] Enhanced graph UI — filtering, grouping, time-travel views
-- [ ] IDE extensions — VS Code, Cursor integration
-- [ ] More languages — Ruby
+**Current focus:** Commercial distribution — binary compilation, licensing, landing page, documentation site.
 
 ---
 

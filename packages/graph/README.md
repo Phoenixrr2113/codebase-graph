@@ -1,6 +1,6 @@
 # @codegraph/graph
 
-Driver-agnostic graph database client for CodeGraph. Supports **FalkorDB** (client-server, Docker), **FalkorDBLite** (embedded, no Docker), and **Kuzu** (legacy).
+Driver-agnostic graph database client for CodeGraph. Supports **FalkorDB** (client-server, Docker) and **FalkorDBLite** (embedded, no Docker). Includes a pluggable driver registry for adding new backends.
 
 ## Driver Abstraction
 
@@ -16,7 +16,7 @@ createClient()
 
 ### Key Interfaces
 
-- **`DatabaseDriver`** — Connect, query, close. Implemented by `FalkorDBDriver`, `FalkorDBLiteDriver`, and `KuzuDriver` (legacy).
+- **`DatabaseDriver`** — Connect, query, close. Implemented by `FalkorDBDriver` and `FalkorDBLiteDriver`. New drivers register via `registerDriver()`.
 - **`GraphClient`** — High-level client returned by `createClient()`. Exposes `query()`, `roQuery()`, `ensureIndexes()`, `close()`, and `dialect`.
 - **`GraphOperations`** — CRUD operations (upsert files, functions, classes, edges) + vector search.
 - **`GraphQueries`** — Read queries (search, subgraph, stats, dependency tree).

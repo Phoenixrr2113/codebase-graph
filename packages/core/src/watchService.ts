@@ -161,6 +161,13 @@ export class WatchService extends EventEmitter {
   }
 
   /**
+   * Get the project path being watched
+   */
+  get watchedPath(): string {
+    return this.projectPath;
+  }
+
+  /**
    * Handle file events with debouncing
    */
   private handleFileEvent(type: FileEventType, filePath: string): void {

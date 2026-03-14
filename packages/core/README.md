@@ -82,7 +82,7 @@ const recall = await knowledgeService.recall('auth service');
 
 ## Tests
 
-20 test files covering:
+21 test files covering:
 - Service layer (indexing, search, analysis)
 - Pipeline orchestration and runner
 - All 6 analysis domains (complexity, security, payment, impact, refactoring, dataflow)

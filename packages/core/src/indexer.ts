@@ -44,6 +44,37 @@ const logger = createLogger({ namespace: 'Core:Indexer' });
 const DEFAULT_CONCURRENCY = 20;
 
 // ============================================================================
+// Embedding backpressure — bounded concurrency for deferred embeddings
+// ============================================================================
+
+/** Max concurrent deferred embedding operations */
+const MAX_DEFERRED_EMBEDDINGS = 4;
+let activeEmbeddings = 0;
+const embeddingQueue: Array<() => void> = [];
+
+/** Acquire a slot; resolves when one is available */
+function acquireEmbeddingSlot(): Promise<void> {
+  if (activeEmbeddings < MAX_DEFERRED_EMBEDDINGS) {
+    activeEmbeddings++;
+    return Promise.resolve();
+  }
+  return new Promise<void>(resolve => {
+    embeddingQueue.push(resolve);
+  });
+}
+
+/** Release a slot, unblocking the next queued job */
+function releaseEmbeddingSlot(): void {
+  const next = embeddingQueue.shift();
+  if (next) {
+    // Transfer the slot to the next waiter (activeEmbeddings stays the same)
+    next();
+  } else {
+    activeEmbeddings--;
+  }
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -527,12 +558,16 @@ export async function indexSingleFile(
     let embedded = 0;
     if (embeddingConfig !== false) {
       if (options?.deferEmbeddings) {
-        // Fire-and-forget: graph structure is searchable immediately
-        embedParsedEntities(parsed, ops, embeddingConfig ?? undefined)
+        // Bounded fire-and-forget: graph structure is searchable immediately,
+        // embeddings run in background with backpressure (max MAX_DEFERRED_EMBEDDINGS concurrent)
+        acquireEmbeddingSlot()
+          .then(() => embedParsedEntities(parsed, ops, embeddingConfig ?? undefined))
           .then(result => {
+            releaseEmbeddingSlot();
             logger.debug('Deferred embeddings complete', { filePath, embedded: result.embedded });
           })
           .catch(err => {
+            releaseEmbeddingSlot();
             logger.warn('Deferred embedding failed', { filePath, error: err instanceof Error ? err.message : String(err) });
           });
       } else {

@@ -15,6 +15,9 @@ import {
   normalizeRelationshipType,
 } from '@codegraph/types';
 import { getLLMModelSync, getLLMModelName } from './llm';
+
+/** Default confidence for LLM-extracted entities (LLM doesn't return scores) */
+const DEFAULT_LLM_CONFIDENCE = 0.9;
 import {
   ExtractionResponseSchema,
   BatchExtractionResponseSchema,
@@ -68,7 +71,7 @@ function groundEntities(
         end: start + e.text.length,
         text: e.text,
         type: normalizedType,
-        confidence: 0.9,
+        confidence: DEFAULT_LLM_CONFIDENCE,
       };
     })
     .filter((e): e is EntityAnnotation => e !== null);
@@ -93,7 +96,7 @@ function resolveRelationships(
         headEntityId: head.id,
         tailEntityId: tail.id,
         type: normalizedType,
-        confidence: 0.9,
+        confidence: DEFAULT_LLM_CONFIDENCE,
       };
     })
     .filter((r): r is RelationshipAnnotation => r !== null);

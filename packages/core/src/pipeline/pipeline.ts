@@ -9,7 +9,7 @@
  */
 
 import Parser from 'tree-sitter';
-import type { FileEntity, FunctionEntity, ParsedFileEntities, InheritanceReference, CallReference } from '@codegraph/types';
+import type { FileEntity, FunctionEntity, ParsedFileEntities, InheritanceReference, CallReference, LanguagePlugin, SyntaxNode as GenericSyntaxNode } from '@codegraph/types';
 import {
   extractAllEntities,
   type ExtractedEntities,
@@ -44,13 +44,15 @@ let pluginsRegistered = false;
 export function registerPlugins(): void {
   if (pluginsRegistered) return;
 
-  languageRegistry.register(typescriptPlugin as any);
-  languageRegistry.register(pythonPlugin as any);
-  languageRegistry.register(csharpPlugin as any);
-  languageRegistry.register(javaPlugin as any);
-  languageRegistry.register(goPlugin as any);
-  languageRegistry.register(rustPlugin as any);
-  languageRegistry.register(phpPlugin as any);
+  // Plugins use tree-sitter's SyntaxNode; registry uses generic SyntaxNode from @codegraph/types.
+  // Structurally compatible but nominally different — cast through unknown.
+  languageRegistry.register(typescriptPlugin as unknown as LanguagePlugin);
+  languageRegistry.register(pythonPlugin as unknown as LanguagePlugin);
+  languageRegistry.register(csharpPlugin as unknown as LanguagePlugin);
+  languageRegistry.register(javaPlugin as unknown as LanguagePlugin);
+  languageRegistry.register(goPlugin as unknown as LanguagePlugin);
+  languageRegistry.register(rustPlugin as unknown as LanguagePlugin);
+  languageRegistry.register(phpPlugin as unknown as LanguagePlugin);
 
   pluginsRegistered = true;
 }
@@ -237,7 +239,7 @@ export function extractEntitiesForFile(
   const plugin = languageRegistry.getForExtension(ext);
 
   if (plugin?.extractAllEntities) {
-    return plugin.extractAllEntities(rootNode as any, filePath);
+    return plugin.extractAllEntities(rootNode as unknown as GenericSyntaxNode, filePath);
   }
 
   // Fallback: use TypeScript extractors (default)
@@ -448,7 +450,7 @@ export function buildParsedFileEntities(
     }));
   } else if (plugin?.extractors.extractInheritance && rootNode) {
     // All other languages: use registry-dispatched extractInheritance
-    const refs = plugin.extractors.extractInheritance(rootNode as any, file.path);
+    const refs = plugin.extractors.extractInheritance(rootNode as unknown as GenericSyntaxNode, file.path);
     ({ extendsEdges, implementsEdges } = buildInheritanceEdgesFromRefs(refs, file.path, extracted));
   }
 
@@ -476,7 +478,7 @@ export function buildParsedFileEntities(
       }));
     } else if (plugin?.extractors.extractCalls) {
       // All other languages: use registry-dispatched extractCalls
-      const refs = plugin.extractors.extractCalls(rootNode as any, file.path);
+      const refs = plugin.extractors.extractCalls(rootNode as unknown as GenericSyntaxNode, file.path);
       callEdges = buildCallEdgesFromRefs(refs);
     }
   }

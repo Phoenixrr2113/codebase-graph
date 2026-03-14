@@ -34,6 +34,44 @@ import {
 import type { ProjectEntity, ExtractedDocumentEntities } from '@codegraph/types';
 
 // ============================================================================
+// Entity ID parsing — format: "Type:filePath:name" or "Type:external:name"
+// ============================================================================
+
+interface ParsedEntityId {
+  type: string;
+  filePath: string;
+  name: string;
+  isExternal: boolean;
+}
+
+/**
+ * Parse a colon-delimited entity ID into structured parts.
+ * Handles both `Type:filePath:name` and `Type:external:name` formats.
+ */
+function parseEntityId(id: string): ParsedEntityId {
+  const parts = id.split(':');
+  const type = parts[0] ?? '';
+  const fileOrExternal = parts[1] ?? '';
+  const name = parts[2] ?? fileOrExternal; // fallback for 2-part IDs
+  return {
+    type,
+    filePath: fileOrExternal,
+    name,
+    isExternal: fileOrExternal === 'external',
+  };
+}
+
+/** Get the resolved file path (undefined if external) */
+function resolvedFilePath(parsed: ParsedEntityId): string | undefined {
+  return parsed.isExternal ? undefined : parsed.filePath;
+}
+
+/** Get the resolved name (handles external IDs where name might be at index 1) */
+function resolvedName(parsed: ParsedEntityId): string {
+  return parsed.name;
+}
+
+// ============================================================================
 // Cypher Query Templates — FalkorDB (default)
 // ============================================================================
 
@@ -1023,50 +1061,33 @@ class GraphOperationsImpl implements GraphOperations {
     // Create edges in parallel (after entities exist)
     await Promise.all([
       // Call edges
-      ...entities.callEdges.map((edge) =>
-        this.createCallEdge(
-          edge.callerId.split(':')[2] ?? '',
-          edge.callerId.split(':')[1] ?? '',
-          edge.calleeId.split(':')[2] ?? '',
-          edge.calleeId.split(':')[1] ?? '',
-          edge.line
-        )
-      ),
+      ...entities.callEdges.map((edge) => {
+        const caller = parseEntityId(edge.callerId);
+        const callee = parseEntityId(edge.calleeId);
+        return this.createCallEdge(caller.name, caller.filePath, callee.name, callee.filePath, edge.line);
+      }),
       // Import edges
       ...entities.importsEdges.map((edge) =>
         this.createImportsEdge(edge.fromFilePath, edge.toFilePath, edge.specifiers)
       ),
       // Extends edges (classes) - extract parent file from ID if present
       ...entities.extendsEdges.map((edge) => {
-        const parentParts = edge.parentId.split(':');
-        const parentFile = parentParts[1] !== 'external' ? parentParts[1] : undefined;
-        return this.createExtendsEdge(
-          edge.childId.split(':')[2] ?? '',
-          edge.childId.split(':')[1] ?? '',
-          parentParts[2] ?? parentParts[1] ?? '', // name at index 2 or 1 for external
-          parentFile
-        );
+        const parent = parseEntityId(edge.parentId);
+        const child = parseEntityId(edge.childId);
+        return this.createExtendsEdge(child.name, child.filePath, resolvedName(parent), resolvedFilePath(parent));
       }),
       // Implements edges (class -> interface) - extract interface file from ID if present
       ...entities.implementsEdges.map((edge) => {
-        const ifaceParts = edge.interfaceId.split(':');
-        const ifaceFile = ifaceParts[1] !== 'external' ? ifaceParts[1] : undefined;
-        return this.createImplementsEdge(
-          edge.classId.split(':')[2] ?? '',
-          edge.classId.split(':')[1] ?? '',
-          ifaceParts[2] ?? ifaceParts[1] ?? '', // name at index 2 or 1 for external
-          ifaceFile
-        );
+        const iface = parseEntityId(edge.interfaceId);
+        const cls = parseEntityId(edge.classId);
+        return this.createImplementsEdge(cls.name, cls.filePath, resolvedName(iface), resolvedFilePath(iface));
       }),
       // Renders edges (components)
-      ...entities.rendersEdges.map((edge) =>
-        this.createRendersEdge(
-          edge.parentId.split(':')[2] ?? '',
-          edge.parentId.split(':')[1] ?? '',
-          edge.childId.split(':')[2] ?? '',
-          edge.line
-        )
-      ),
+      ...entities.rendersEdges.map((edge) => {
+        const parent = parseEntityId(edge.parentId);
+        const child = parseEntityId(edge.childId);
+        return this.createRendersEdge(parent.name, parent.filePath, child.name, edge.line);
+      }),
     ]);
   }
 
@@ -1127,13 +1148,11 @@ class GraphOperationsImpl implements GraphOperations {
 
     // Collect and batch all edges
     const callEdgeItems = entitiesList.flatMap(e =>
-      e.callEdges.map(edge => ({
-        callerName: edge.callerId.split(':')[2] ?? '',
-        callerFile: edge.callerId.split(':')[1] ?? '',
-        calleeName: edge.calleeId.split(':')[2] ?? '',
-        calleeFile: edge.calleeId.split(':')[1] ?? '',
-        line: edge.line,
-      })),
+      e.callEdges.map(edge => {
+        const caller = parseEntityId(edge.callerId);
+        const callee = parseEntityId(edge.calleeId);
+        return { callerName: caller.name, callerFile: caller.filePath, calleeName: callee.name, calleeFile: callee.filePath, line: edge.line };
+      }),
     );
     const importEdgeItems = entitiesList.flatMap(e =>
       e.importsEdges.map(edge => ({
@@ -1144,33 +1163,24 @@ class GraphOperationsImpl implements GraphOperations {
     );
     const extendsEdgeItems = entitiesList.flatMap(e =>
       e.extendsEdges.map(edge => {
-        const parentParts = edge.parentId.split(':');
-        return {
-          childName: edge.childId.split(':')[2] ?? '',
-          childFile: edge.childId.split(':')[1] ?? '',
-          parentName: parentParts[2] ?? parentParts[1] ?? '',
-          parentFile: parentParts[1] !== 'external' ? parentParts[1] : null,
-        };
+        const parent = parseEntityId(edge.parentId);
+        const child = parseEntityId(edge.childId);
+        return { childName: child.name, childFile: child.filePath, parentName: resolvedName(parent), parentFile: resolvedFilePath(parent) ?? null };
       }),
     );
     const implementsEdgeItems = entitiesList.flatMap(e =>
       e.implementsEdges.map(edge => {
-        const ifaceParts = edge.interfaceId.split(':');
-        return {
-          className: edge.classId.split(':')[2] ?? '',
-          classFile: edge.classId.split(':')[1] ?? '',
-          interfaceName: ifaceParts[2] ?? ifaceParts[1] ?? '',
-          interfaceFile: ifaceParts[1] !== 'external' ? ifaceParts[1] : null,
-        };
+        const iface = parseEntityId(edge.interfaceId);
+        const cls = parseEntityId(edge.classId);
+        return { className: cls.name, classFile: cls.filePath, interfaceName: resolvedName(iface), interfaceFile: resolvedFilePath(iface) ?? null };
       }),
     );
     const rendersEdgeItems = entitiesList.flatMap(e =>
-      e.rendersEdges.map(edge => ({
-        parentName: edge.parentId.split(':')[2] ?? '',
-        parentFile: edge.parentId.split(':')[1] ?? '',
-        childName: edge.childId.split(':')[2] ?? '',
-        line: edge.line,
-      })),
+      e.rendersEdges.map(edge => {
+        const parent = parseEntityId(edge.parentId);
+        const child = parseEntityId(edge.childId);
+        return { parentName: parent.name, parentFile: parent.filePath, childName: child.name, line: edge.line };
+      }),
     );
 
     // Batch create all edges

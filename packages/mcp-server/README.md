@@ -1,66 +1,86 @@
 # @codegraph/mcp-server
 
-MCP (Model Context Protocol) server for CodeGraph. Provides **28 tools** for AI assistants (Claude, Cursor, etc.) to query, search, analyze, and build knowledge from a codebase knowledge graph.
+MCP (Model Context Protocol) server for CodeGraph. Provides **5 persona tools** that consolidate 28 underlying capabilities into a simple interface for AI assistants (Claude, Cursor, etc.).
 
-## Tools (28)
+## Persona Tools (Default)
 
-### Core Tools
+By default, the server exposes 5 high-level persona tools. Each tool accepts an `action` parameter and routes internally to the appropriate underlying operations, with built-in input validation, result limits, and error handling.
 
-| Tool | Description |
-|------|-------------|
-| `ping` | Test server connectivity |
-| `configure_projects` | View and manage which codebases are in context |
+### search
 
-### Index & Status
+Find code, symbols, and answers across the codebase.
 
-| Tool | Description |
-|------|-------------|
-| `get_index_status` | Get current index status including file counts and last update |
-| `trigger_reindex` | Trigger a reindex of the codebase (incremental or full) |
-| `get_stats` | Graph-wide statistics: node/edge counts, largest files, most connected entities |
-| `get_source` | Read source code from a file with optional line range |
+| Action | Description |
+|--------|-------------|
+| `find` | Find files, functions, classes by name or keyword |
+| `context` | Get detailed context for a file or symbol with relationships |
+| `ask` | Ask a natural language question — auto-routes to best search strategy |
+| `cypher` | Translate natural language to Cypher and execute |
+| `explain` | Get code with context: dependencies, tests, complexity metrics |
 
-### Search & Discovery
+### analyze
 
-| Tool | Description |
-|------|-------------|
-| `search` | Find files, functions, classes by name or keyword |
-| `find_symbol` | Find a symbol by name and return its definition with source code |
-| `search_code` | Hybrid search (vector + text + graph + knowledge) |
-| `get_context` | Get detailed context for a file or symbol with relationships |
-| `query_graph` | Execute read-only Cypher queries for advanced analysis |
-| `get_repo_map` | Get a ranked map of important symbols for LLM context |
+Analyze code for impact, security, complexity, and refactoring opportunities.
 
-### AI-Powered Search
+| Action | Description |
+|--------|-------------|
+| `impact` | Find all code affected by changing a symbol (callers, tests, risk) |
+| `security` | Scan for security vulnerabilities using dataflow analysis |
+| `complexity` | Generate complexity report with hotspots |
+| `dataflow` | Track data flow from source to sink |
+| `refactoring` | Identify extraction candidates and refactoring opportunities |
+| `history` | Get git commit history for a specific symbol |
 
-| Tool | Description |
-|------|-------------|
-| `ask_code` | Ask a natural language question and get an AI-synthesized answer |
-| `query_cypher` | Translate natural language to Cypher, execute, and return results |
+### knowledge
 
-### Analysis
+Store and recall domain knowledge with temporal memory.
 
-| Tool | Description |
-|------|-------------|
-| `analyze_impact` | Find all code affected by changing a symbol (callers, tests, risk) |
-| `find_vulnerabilities` | Scan for security vulnerabilities using dataflow analysis |
-| `get_complexity_report` | Generate complexity report with hotspots |
-| `trace_data_flow` | Track data flow from source to sink |
-| `explain_code` | Get code with context: dependencies, tests, complexity metrics |
-| `get_symbol_history` | Get git commit history for a specific symbol |
-| `analyze_file_for_refactoring` | Identify extraction candidates and refactoring opportunities |
-
-### Knowledge Graph
-
-| Tool | Description |
-|------|-------------|
-| `store_entity` | Store an entity in the knowledge graph (deduplicates by text+type) |
-| `store_relationship` | Store a relationship between two entities |
+| Action | Description |
+|--------|-------------|
+| `store_entity` | Store an entity (deduplicates by text+type) |
+| `store_relationship` | Store a relationship between entities |
 | `store_fact` | Extract entities/relationships from natural language via LLM |
-| `ingest_conversation` | Ingest a multi-turn conversation into the knowledge graph |
-| `query_knowledge` | Search knowledge graph by type, text, or semantic similarity |
-| `recall` | Recall everything known about an entity (all relationships) |
-| `decay_and_prune` | Run temporal memory maintenance: decay relevance, prune stale entities |
+| `ingest` | Ingest a multi-turn conversation into the knowledge graph |
+| `query` | Search knowledge graph by type, text, or semantic similarity |
+| `recall` | Recall everything known about an entity |
+| `maintain` | Run temporal decay and pruning |
+| `stats` | Knowledge graph health metrics |
+
+### codebase
+
+Manage and inspect the indexed codebase.
+
+| Action | Description |
+|--------|-------------|
+| `status` | Get current index status (file counts, last update) |
+| `structure` | Get codebase file tree and structure |
+| `source` | Read source code from a file with optional line range |
+| `reindex` | Trigger incremental or full reindex |
+| `stats` | Graph-wide statistics (node/edge counts, most connected entities) |
+| `map` | Get a ranked map of important symbols for LLM context |
+| `configure` | View and manage which codebases are in context |
+
+### query
+
+Execute read-only Cypher queries against the graph.
+
+| Action | Description |
+|--------|-------------|
+| `cypher` | Execute a validated, read-only Cypher query |
+
+## Raw Tools (28)
+
+For power users, set `CODEGRAPH_RAW_TOOLS=1` to expose all 28 individual tools instead of persona tools:
+
+| Category | Tools |
+|----------|-------|
+| Core | `ping`, `configure_projects` |
+| Index | `get_index_status`, `trigger_reindex`, `get_stats` |
+| Search | `find_symbol`, `search_code`, `search`, `get_context`, `query_graph` |
+| AI Search | `ask_code`, `query_cypher` |
+| Analysis | `analyze_impact`, `find_vulnerabilities`, `get_complexity_report`, `trace_data_flow` |
+| Context | `explain_code`, `get_symbol_history`, `get_repo_map`, `get_source`, `analyze_file_for_refactoring` |
+| Knowledge | `store_entity`, `store_relationship`, `store_fact`, `ingest_conversation`, `query_knowledge`, `recall`, `decay_and_prune`, `get_knowledge_stats` |
 
 ## MCP Configuration
 
@@ -79,25 +99,33 @@ The server auto-detects the database backend from `.codegraph/config.json` or en
 
 ## Search Strategies
 
-The `search_code` and `ask_code` tools support multiple search strategies:
+The search persona's `ask` action supports multiple search strategies:
 
 | Strategy | Description |
 |----------|-------------|
 | `VECTOR` | Pure vector similarity search using embeddings |
-| `HYBRID` | Combined vector + text + graph traversal |
+| `HYBRID` | Combined vector + text + graph traversal with RRF fusion |
 | `GRAPH_ANSWER` | LLM synthesizes answer by traversing the graph |
 | `NL_TO_CYPHER` | LLM translates natural language to Cypher query |
 | `SMART_SEARCH` | Auto-routes to the best strategy based on query type |
 | `CONTEXT_WALK` | LLM-guided iterative graph exploration |
 
+## Input Validation
+
+All persona tools enforce consistent guardrails:
+
+- **Path validation** — file paths restricted to active project directories (prevents path traversal)
+- **Query length** — max 10KB query strings
+- **Result limits** — clamped to 1,000 max, default 20
+- **Cypher safety** — read-only enforcement, label allowlists, parameterized queries
+
 ## Testing
 
 ```bash
-# Run from the mcp-server package directory
 cd packages/mcp-server
 pnpm exec vitest run
 
-# Or from the monorepo root
+# Or from monorepo root
 pnpm test --filter=@codegraph/mcp-server
 ```
 
@@ -111,24 +139,17 @@ pnpm test --filter=@codegraph/mcp-server
 - `search-strategies.test.ts` — Search strategy routing and execution
 - All tests run against real FalkorDB database with extracted data (no mocks)
 
-### Test Data Requirements
-
-Tests require an extracted codebase in FalkorDB. Start Docker FalkorDB first:
-
-```bash
-pnpm docker:db  # Start FalkorDB on localhost:6379
-```
-
 ## Architecture
-
-The server uses the `@modelcontextprotocol/sdk` with `StdioServerTransport`:
 
 ```
 MCP Client (Claude, Cursor, etc.)
   │ stdio
   ▼
 CodeGraphMCPServer
-  ├── Tool Registry (28 tools, dynamic descriptions)
+  ├── Persona Handlers (search, analyze, knowledge, codebase, query)
+  │     ├── Input Validation (validation.ts)
+  │     └── Action Routing → underlying tool implementations
+  ├── Raw Tool Registry (28 tools, opt-in via CODEGRAPH_RAW_TOOLS=1)
   ├── Config Sync (initialSync on startup)
   └── Graceful Shutdown (SIGINT/SIGTERM)
         │
@@ -138,5 +159,3 @@ CodeGraphMCPServer
         ▼
   @codegraph/graph (database driver)
 ```
-
-On startup, the server runs `initialSync()` to sync configuration to the graph database. Tool descriptions are dynamically enriched with schema and file-tree context from the active project.

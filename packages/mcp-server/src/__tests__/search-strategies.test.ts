@@ -82,9 +82,13 @@ describe('search_code — strategy parameter', () => {
   });
 
   it('should return error for GRAPH_ANSWER without LLM', async () => {
-    // Temporarily remove LLM keys to test error handling
+    // Temporarily remove all LLM keys to test error handling
     const savedKey = process.env['OPENROUTER_API_KEY'];
+    const savedCerebras = process.env['CEREBRAS_API_KEY'];
+    const savedProvider = process.env['LLM_PROVIDER'];
     delete process.env['OPENROUTER_API_KEY'];
+    delete process.env['CEREBRAS_API_KEY'];
+    delete process.env['LLM_PROVIDER'];
 
     try {
       const result = await searchCode({
@@ -97,6 +101,8 @@ describe('search_code — strategy parameter', () => {
       expect(result.error).toMatch(/LLM|requires/i);
     } finally {
       if (savedKey) process.env['OPENROUTER_API_KEY'] = savedKey;
+      if (savedCerebras) process.env['CEREBRAS_API_KEY'] = savedCerebras;
+      if (savedProvider) process.env['LLM_PROVIDER'] = savedProvider;
     }
   });
 
@@ -169,7 +175,11 @@ describe('ask_code', () => {
 
   it('should return LLM error when no LLM configured', async () => {
     const savedKey = process.env['OPENROUTER_API_KEY'];
+    const savedCerebras = process.env['CEREBRAS_API_KEY'];
+    const savedProvider = process.env['LLM_PROVIDER'];
     delete process.env['OPENROUTER_API_KEY'];
+    delete process.env['CEREBRAS_API_KEY'];
+    delete process.env['LLM_PROVIDER'];
 
     try {
       const result = await askCode({ question: 'What does createClient do?' });
@@ -177,12 +187,18 @@ describe('ask_code', () => {
       expect(result.error).toMatch(/LLM|required/i);
     } finally {
       if (savedKey) process.env['OPENROUTER_API_KEY'] = savedKey;
+      if (savedCerebras) process.env['CEREBRAS_API_KEY'] = savedCerebras;
+      if (savedProvider) process.env['LLM_PROVIDER'] = savedProvider;
     }
   });
 
   it('should be accessible via handleToolCall', async () => {
     const savedKey = process.env['OPENROUTER_API_KEY'];
+    const savedCerebras = process.env['CEREBRAS_API_KEY'];
+    const savedProvider = process.env['LLM_PROVIDER'];
     delete process.env['OPENROUTER_API_KEY'];
+    delete process.env['CEREBRAS_API_KEY'];
+    delete process.env['LLM_PROVIDER'];
 
     try {
       const result = (await handleToolCall('ask_code', {
@@ -193,6 +209,8 @@ describe('ask_code', () => {
       expect(result.error).toBeDefined();
     } finally {
       if (savedKey) process.env['OPENROUTER_API_KEY'] = savedKey;
+      if (savedCerebras) process.env['CEREBRAS_API_KEY'] = savedCerebras;
+      if (savedProvider) process.env['LLM_PROVIDER'] = savedProvider;
     }
   });
 
@@ -241,7 +259,11 @@ describe('query_cypher', () => {
 
   it('should return LLM error when no LLM configured', async () => {
     const savedKey = process.env['OPENROUTER_API_KEY'];
+    const savedCerebras = process.env['CEREBRAS_API_KEY'];
+    const savedProvider = process.env['LLM_PROVIDER'];
     delete process.env['OPENROUTER_API_KEY'];
+    delete process.env['CEREBRAS_API_KEY'];
+    delete process.env['LLM_PROVIDER'];
 
     try {
       const result = await queryCypher({
@@ -251,12 +273,18 @@ describe('query_cypher', () => {
       expect(result.error).toMatch(/LLM|required/i);
     } finally {
       if (savedKey) process.env['OPENROUTER_API_KEY'] = savedKey;
+      if (savedCerebras) process.env['CEREBRAS_API_KEY'] = savedCerebras;
+      if (savedProvider) process.env['LLM_PROVIDER'] = savedProvider;
     }
   });
 
   it('should be accessible via handleToolCall', async () => {
     const savedKey = process.env['OPENROUTER_API_KEY'];
+    const savedCerebras = process.env['CEREBRAS_API_KEY'];
+    const savedProvider = process.env['LLM_PROVIDER'];
     delete process.env['OPENROUTER_API_KEY'];
+    delete process.env['CEREBRAS_API_KEY'];
+    delete process.env['LLM_PROVIDER'];
 
     try {
       const result = (await handleToolCall('query_cypher', {
@@ -266,6 +294,8 @@ describe('query_cypher', () => {
       expect(result.error).toBeDefined();
     } finally {
       if (savedKey) process.env['OPENROUTER_API_KEY'] = savedKey;
+      if (savedCerebras) process.env['CEREBRAS_API_KEY'] = savedCerebras;
+      if (savedProvider) process.env['LLM_PROVIDER'] = savedProvider;
     }
   });
 

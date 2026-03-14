@@ -5,8 +5,9 @@
  * Runs against whichever backend is configured (.codegraph/config.json or env vars).
  */
 
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { handleToolCall } from '../tools/consolidated';
+import { registerPlugins } from '@codegraph/core';
 import {
   SRC_DIR,
   KNOWN_SYMBOL,
@@ -14,6 +15,10 @@ import {
   teardownGraphClient,
   assertNoError,
 } from './helpers';
+
+beforeAll(() => {
+  registerPlugins();
+});
 
 afterAll(async () => {
   await teardownGraphClient();

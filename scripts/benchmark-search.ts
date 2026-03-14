@@ -174,7 +174,7 @@ interface QueryResult {
 
 function calculateRecall(expected: string[], actual: string[]): number {
   if (expected.length === 0) return 1.0;
-  const actualLower = actual.map(n => n.toLowerCase());
+  const actualLower = actual.filter(n => n != null).map(n => n.toLowerCase());
   let found = 0;
   for (const exp of expected) {
     const expLower = exp.toLowerCase();
@@ -186,16 +186,17 @@ function calculateRecall(expected: string[], actual: string[]): number {
 }
 
 function calculatePrecision(expected: string[], actual: string[]): number {
-  if (actual.length === 0) return 0;
+  const filtered = actual.filter(n => n != null);
+  if (filtered.length === 0) return 0;
   const expectedLower = expected.map(n => n.toLowerCase());
   let relevant = 0;
-  for (const act of actual) {
+  for (const act of filtered) {
     const actLower = act.toLowerCase();
     if (expectedLower.some(e => actLower.includes(e) || e.includes(actLower))) {
       relevant++;
     }
   }
-  return relevant / actual.length;
+  return relevant / filtered.length;
 }
 
 // ============================================================================

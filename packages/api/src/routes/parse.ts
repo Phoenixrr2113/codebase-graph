@@ -64,8 +64,10 @@ parse.post(
     }
 
     // Auto-start file watcher for real-time incremental updates
+    // Restart if no watcher exists or if the existing watcher is for a different project
     const existingWatcher = getActiveWatcher();
-    if (!existingWatcher) {
+    const needsWatcher = !existingWatcher || existingWatcher.watchedPath !== path;
+    if (needsWatcher) {
       try {
         await startWatching({
           projectPath: path,
