@@ -222,6 +222,18 @@ export async function hybridSearch(
         if (internalScore < MIN_VECTOR_SCORE) continue; // Skip weak matches
 
         const key = makeCodeKey(r.nodeType, r.filePath, r.name);
+
+        // Deduplicate: same node can appear across multiple per-type vector searches.
+        // Keep the one with the best (highest) internal score.
+        const existingIdx = vectorHitsList.findIndex((v) => v.hit.key === key);
+        if (existingIdx >= 0) {
+          if (internalScore > vectorHitsList[existingIdx]!.internalScore) {
+            vectorHitsList[existingIdx]!.internalScore = internalScore;
+            vectorHitsList[existingIdx]!.hit.vectorDistance = r.distance;
+          }
+          continue;
+        }
+
         const hit: HybridSearchHit = {
           key,
           nodeType: r.nodeType,
@@ -324,6 +336,7 @@ export async function hybridSearch(
     { hits: vectorHitsList.map((v) => v.hit), weight: vectorWeight, name: 'vector' },
     { hits: textHitsList.map((t) => t.hit), weight: textWeight, name: 'text' },
   ]);
+
 
   // Drop results whose normalized RRF score is too far below the top hit.
   // This prunes tangential vector matches that dilute precision for focused queries.
@@ -465,7 +478,8 @@ function makeCodeKey(nodeType: string, filePath: string | undefined, name: strin
  *
  * Scoring tiers (0-1):
  * - 1.0: Exact match (node name equals query string)
- * - 0.9: Node name contains a camelCase/PascalCase identifier from the query
+ * - 0.9+: Name contains the full query as a camelCase/PascalCase identifier
+ *         with coverage bonus (shorter names = higher score)
  * - 0.5-0.8: Partial match — scored by fraction of search terms found in name
  * - 0.3: Docstring-only match (name doesn't match but node was found via docstring)
  */
@@ -480,8 +494,14 @@ function scoreTextHit(name: string, originalQuery: string, searchTerms: string[]
   // (these are likely the exact symbol the user is asking about)
   if (searchTerms.length > 0) {
     const firstTerm = searchTerms[0]!;
-    if (nameLower === firstTerm.toLowerCase()) return 0.95;
-    if (nameLower.includes(firstTerm.toLowerCase())) return 0.9;
+    const termLower = firstTerm.toLowerCase();
+    if (nameLower === termLower) return 0.95;
+    if (nameLower.includes(termLower)) {
+      // Coverage bonus: prefer shorter names where the query covers more of the name.
+      // "inheritance" in "resolveInheritance" (11/18=61%) > in "genericExtractInheritance" (11/25=44%)
+      const coverage = termLower.length / nameLower.length;
+      return 0.85 + 0.1 * coverage; // Range: 0.85-0.95
+    }
   }
 
   // Count how many search terms appear in the name

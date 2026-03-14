@@ -78,7 +78,12 @@ type TestCategory =
   | 'operational'
   // Fixture-based categories
   | 'search_exact' | 'search_partial' | 'context_file' | 'context_symbol'
-  | 'impact' | 'cross_file_calls' | 'cross_file_contains' | 'multi_hop';
+  | 'impact' | 'cross_file_calls' | 'cross_file_contains' | 'multi_hop'
+  // New v2 fixture categories
+  | 'config' | 'reindex' | 'refactoring' | 'dataflow' | 'history'
+  | 'explain' | 'ask_code' | 'nl_to_cypher' | 'knowledge_crud'
+  | 'vulnerabilities' | 'source' | 'repo_map'
+  | 'search_filters' | 'search_strategies' | 'raw_query' | 'persona';
 
 interface TestCase {
   id: string;
@@ -1089,18 +1094,44 @@ function fixtureValidationToFn(v: FixtureValidation, tc: FixtureTestCase): (resu
 
     case 'found':
       return (result) => {
+        const expectedSyms = tc.expectedSymbols ?? [];
+        const expectedFs = tc.expectedFiles ?? [];
+        if (expectedSyms.length > 0) {
+          const names = extractNames(result, tc.tool);
+          if (hasAny(names, expectedSyms)) return null;
+        }
+        if (expectedFs.length > 0) {
+          const files = extractFiles(result, tc.tool);
+          if (hasAny(files, expectedFs)) return null;
+        }
+        if (expectedSyms.length === 0 && expectedFs.length === 0) {
+          // No expectations — just check non-empty
+          const str = JSON.stringify(result);
+          return str.length > 10 ? null : 'Empty result';
+        }
         const names = extractNames(result, tc.tool);
-        const expected = tc.expectedSymbols ?? [];
-        return hasAny(names, expected) ? null : `Not found: [${expected.join(', ')}] in [${names.slice(0, 5).join(', ')}]`;
+        return `Not found: syms=[${expectedSyms.join(', ')}] files=[${expectedFs.join(', ')}] in [${names.slice(0, 5).join(', ')}]`;
       };
 
     case 'top_k':
       return (result) => {
-        const names = extractNames(result, tc.tool);
-        const expected = tc.expectedSymbols ?? [];
         const maxRank = v.maxRank ?? 5;
+        const expectedSyms = tc.expectedSymbols ?? [];
+        const expectedFs = tc.expectedFiles ?? [];
+        if (expectedSyms.length > 0) {
+          const names = extractNames(result, tc.tool);
+          const top = names.slice(0, maxRank);
+          if (hasAny(top, expectedSyms)) return null;
+        }
+        if (expectedFs.length > 0) {
+          const files = extractFiles(result, tc.tool);
+          const topFiles = files.slice(0, maxRank);
+          if (hasAny(topFiles, expectedFs)) return null;
+        }
+        const names = extractNames(result, tc.tool);
         const top = names.slice(0, maxRank);
-        return hasAny(top, expected) ? null : `Not in top-${maxRank}: want [${expected.join(', ')}] got [${top.join(', ')}]`;
+        const want = expectedSyms.length > 0 ? expectedSyms : expectedFs;
+        return `Not in top-${maxRank}: want [${want.join(', ')}] got [${top.join(', ')}]`;
       };
 
     case 'contains_entity':
@@ -1296,24 +1327,39 @@ async function main() {
 
   // ─── Report ───────────────────────────────────────────────────────────
   const categoryOrder: TestCategory[] = [
-    'operational', 'find_symbol', 'search_name', 'search_exact', 'search_partial',
-    'search_fulltext', 'search_semantic', 'search_cross_mode',
+    'operational', 'config', 'reindex', 'source', 'repo_map',
+    'find_symbol', 'search_name', 'search_exact', 'search_partial',
+    'search_filters', 'search_fulltext', 'search_strategies',
+    'search_semantic', 'search_cross_mode',
     'fuzzy_typo', 'adversarial',
     'get_context', 'context_file', 'context_symbol',
-    'impact_analysis', 'impact', 'complexity',
-    'cross_file', 'cross_file_calls', 'cross_file_contains', 'multi_hop',
-    'multi_repo',
+    'impact_analysis', 'impact', 'complexity', 'vulnerabilities',
+    'refactoring', 'dataflow', 'history',
+    'explain', 'ask_code', 'nl_to_cypher',
+    'knowledge_crud',
+    'cross_file', 'cross_file_calls', 'cross_file_contains',
+    'raw_query', 'multi_hop',
+    'multi_repo', 'persona',
   ];
 
   const categoryLabels: Record<TestCategory, string> = {
-    operational: 'Operational', find_symbol: 'Symbol Lookup', search_name: 'Name Search',
+    operational: 'Operational', config: 'Config', reindex: 'Reindex',
+    source: 'Source', repo_map: 'Repo Map',
+    find_symbol: 'Symbol Lookup', search_name: 'Name Search',
     search_exact: 'Search (Exact)', search_partial: 'Search (Partial)',
-    search_fulltext: 'Fulltext Search', search_semantic: 'Semantic Search',
+    search_filters: 'Search (Filters)', search_fulltext: 'Fulltext Search',
+    search_strategies: 'Search Strategies',
+    search_semantic: 'Semantic Search',
     search_cross_mode: 'Cross-Mode', fuzzy_typo: 'Fuzzy/Typo', adversarial: 'Adversarial',
     get_context: 'Context', context_file: 'Context (File)', context_symbol: 'Context (Symbol)',
-    impact_analysis: 'Impact (Dynamic)', impact: 'Impact (Fixture)', complexity: 'Complexity',
+    impact_analysis: 'Impact (Dynamic)', impact: 'Impact (Fixture)',
+    complexity: 'Complexity', vulnerabilities: 'Vulnerabilities',
+    refactoring: 'Refactoring', dataflow: 'Data Flow', history: 'Symbol History',
+    explain: 'Explain Code', ask_code: 'Ask Code', nl_to_cypher: 'NL→Cypher',
+    knowledge_crud: 'Knowledge CRUD',
     cross_file: 'Cross-File', cross_file_calls: 'Cross-File CALLS', cross_file_contains: 'Cross-File CONTAINS',
-    multi_hop: 'Multi-Hop', multi_repo: 'Multi-Repo',
+    raw_query: 'Raw Query', multi_hop: 'Multi-Hop', multi_repo: 'Multi-Repo',
+    persona: 'Persona Tools',
   };
 
   for (const cat of categoryOrder) {

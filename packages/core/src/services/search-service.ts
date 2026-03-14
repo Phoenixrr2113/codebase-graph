@@ -75,6 +75,15 @@ export async function searchEntities(
   }
 
   const labelsExpr = dialect.labelsExpr('n');
+
+  // Score results by relevance:
+  //   match type: exact name (30) > name contains (20) > path contains (10)
+  //   node type boost: Function/Class/Component (+5) > Interface (+3) > File (+2) > Variable/Type (+0)
+  const fnCheck = dialect.labelCaseExpr('n', 'Function');
+  const clsCheck = dialect.labelCaseExpr('n', 'Class');
+  const cmpCheck = dialect.labelCaseExpr('n', 'Component');
+  const ifCheck = dialect.labelCaseExpr('n', 'Interface');
+  const fileCheck = dialect.labelCaseExpr('n', 'File');
   const cypher = `
     MATCH (n)
     WHERE ${typeFilter}
@@ -83,9 +92,24 @@ export async function searchEntities(
         OR toLower(n.filePath) CONTAINS toLower($term)
       )
       ${pathFilter}
-    RETURN n, ${labelsExpr} as labels
+    WITH n, ${labelsExpr} as labels,
+      CASE
+        WHEN toLower(n.name) = toLower($term) THEN 30
+        WHEN toLower(n.name) CONTAINS toLower($term) THEN 20
+        ELSE 10
+      END +
+      CASE
+        WHEN ${fnCheck} THEN 5
+        WHEN ${clsCheck} THEN 5
+        WHEN ${cmpCheck} THEN 5
+        WHEN ${ifCheck} THEN 3
+        WHEN ${fileCheck} THEN 2
+        ELSE 0
+      END AS relevance
+    ORDER BY relevance DESC, n.name ASC
     SKIP $offset
     LIMIT $limit
+    RETURN n, labels
   `;
 
   const result = await client.roQuery<{
@@ -93,7 +117,94 @@ export async function searchEntities(
     labels: string | string[];
   }>(cypher, { params: { term: query, limit, offset, ...pathParams } });
 
-  const results: ServiceSearchResult[] = (result.data ?? []).map((row) => {
+  let rows = result.data ?? [];
+
+  // Fuzzy fallback: if no results, try token-based matching then prefix+Levenshtein
+  if (rows.length === 0 && query.length >= 4) {
+    const tokens = splitIdentifierTokens(query);
+
+    // Stage 1: token-based matching (works for typos within one word of a multi-word identifier)
+    if (tokens.length >= 2) {
+      const tokenParams: Record<string, string | number | boolean | null | Array<unknown>> = { ...pathParams, limit: limit * 3, offset: 0 };
+      const tokenConditions = tokens.map((t, i) => {
+        tokenParams[`tok${i}`] = t.toLowerCase();
+        return `toLower(n.name) CONTAINS $tok${i}`;
+      });
+      const minHits = Math.max(2, Math.ceil(tokens.length * 0.5));
+      const tokenHitsExpr = tokens.map((_, i) => `CASE WHEN toLower(n.name) CONTAINS $tok${i} THEN 1 ELSE 0 END`).join(' + ');
+      const fuzzyCypher = `
+        MATCH (n)
+        WHERE ${typeFilter}
+          AND (${tokenConditions.join(' OR ')})
+          ${pathFilter}
+        WITH n, ${labelsExpr} as labels,
+          ${tokenHitsExpr} AS tokenHits
+        WHERE tokenHits >= ${minHits}
+        RETURN n, labels, tokenHits
+        ORDER BY tokenHits DESC, n.name ASC
+        LIMIT $limit
+      `;
+      const fuzzyResult = await client.roQuery<{
+        n: Record<string, unknown>;
+        labels: string | string[];
+        tokenHits: number;
+      }>(fuzzyCypher, { params: tokenParams });
+      // Re-rank by Levenshtein distance within same tokenHits tier
+      const fuzzyRows = fuzzyResult.data ?? [];
+      if (fuzzyRows.length > 1) {
+        const scored = fuzzyRows.map(row => {
+          const normalized = dialect.normalizeNode(row.n);
+          const name = (normalized.properties['name'] as string) ?? '';
+          return { row, dist: levenshtein(query.toLowerCase(), name.toLowerCase()) };
+        });
+        scored.sort((a, b) => a.dist - b.dist);
+        rows = scored.slice(0, limit).map(s => s.row);
+      } else {
+        rows = fuzzyRows;
+      }
+    }
+
+    // Stage 2: prefix/suffix + Levenshtein (handles typos anywhere)
+    if (rows.length === 0) {
+      const lenMin = Math.max(1, query.length - 3);
+      const lenMax = query.length + 3;
+      // Try both prefix (first 3 chars) and suffix (last 5 chars) to handle typos at any position
+      const prefix = query.slice(0, 3).toLowerCase();
+      const suffix = query.slice(-5).toLowerCase();
+      const prefixCypher = `
+        MATCH (n)
+        WHERE ${typeFilter}
+          AND (
+            toLower(n.name) STARTS WITH $prefix
+            OR toLower(n.name) ENDS WITH $suffix
+          )
+          AND size(n.name) >= $lenMin AND size(n.name) <= $lenMax
+          ${pathFilter}
+        RETURN n, ${labelsExpr} as labels
+        LIMIT 200
+      `;
+      const prefixResult = await client.roQuery<{
+        n: Record<string, unknown>;
+        labels: string | string[];
+      }>(prefixCypher, { params: { prefix, suffix, lenMin, lenMax, ...pathParams } });
+
+      if (prefixResult.data.length > 0) {
+        // Rank by Levenshtein distance
+        const scored = prefixResult.data.map(row => {
+          const normalized = dialect.normalizeNode(row.n);
+          const name = (normalized.properties['name'] as string) ?? '';
+          const dist = levenshtein(query.toLowerCase(), name.toLowerCase());
+          return { row, dist };
+        });
+        scored.sort((a, b) => a.dist - b.dist);
+        // Only keep results with reasonable edit distance (≤ 30% of query length)
+        const maxDist = Math.max(3, Math.ceil(query.length * 0.3));
+        rows = scored.filter(s => s.dist <= maxDist).slice(0, limit).map(s => s.row);
+      }
+    }
+  }
+
+  const results: ServiceSearchResult[] = rows.map((row) => {
     const normalized = dialect.normalizeNode(row.n);
     const props = normalized.properties;
     const labelsArr = Array.isArray(row.labels)
@@ -119,6 +230,43 @@ export async function searchEntities(
     if (projectName) response.project = projectName;
   }
   return response;
+}
+
+/**
+ * Split an identifier into tokens by camelCase and underscore boundaries.
+ * "checkHardcodedSecrets" → ["check", "Hardcoded", "Secrets"]
+ * "get_file_path" → ["get", "file", "path"]
+ */
+function splitIdentifierTokens(name: string): string[] {
+  // Split on underscores first
+  const parts = name.split('_').filter(Boolean);
+  const tokens: string[] = [];
+  for (const part of parts) {
+    // Split camelCase: insert boundary before uppercase letters
+    const camelTokens = part.replace(/([a-z])([A-Z])/g, '$1\0$2').split('\0');
+    tokens.push(...camelTokens.filter(t => t.length >= 2));
+  }
+  return tokens;
+}
+
+/**
+ * Levenshtein edit distance between two strings.
+ */
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    let prev = i - 1;
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const temp = dp[j]!;
+      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j]!, dp[j - 1]!);
+      prev = temp;
+    }
+  }
+  return dp[n]!;
 }
 
 /**
@@ -217,22 +365,36 @@ export async function searchCodeImpl(
 
   let cypher: string;
   if (searchType === 'name') {
+    // Rank: exact match (3) > name contains (2) > alphabetical
     cypher = `
       MATCH (n)
       WHERE ${labelFilter}
         AND n.name CONTAINS $query ${scopeFilter}
-      RETURN n.name as name, ${firstLabel} as kind, n.filePath as file, n.startLine as line
-      ORDER BY n.name
+      WITH n, ${firstLabel} as kind,
+        CASE
+          WHEN n.name = $query THEN 3
+          WHEN toLower(n.name) = toLower($query) THEN 2
+          ELSE 1
+        END AS relevance
+      ORDER BY relevance DESC, n.name ASC
       LIMIT 50
+      RETURN n.name as name, kind, n.filePath as file, n.startLine as line
     `;
   } else {
+    // Fulltext/pattern: rank by relevance
     cypher = `
       MATCH (n)
       WHERE ${labelFilter}
         AND toLower(n.name) CONTAINS toLower($query) ${scopeFilter}
-      RETURN n.name as name, ${firstLabel} as kind, n.filePath as file, n.startLine as line
-      ORDER BY n.name
+      WITH n, ${firstLabel} as kind,
+        CASE
+          WHEN toLower(n.name) = toLower($query) THEN 3
+          WHEN toLower(n.name) CONTAINS toLower($query) THEN 2
+          ELSE 1
+        END AS relevance
+      ORDER BY relevance DESC, n.name ASC
       LIMIT 50
+      RETURN n.name as name, kind, n.filePath as file, n.startLine as line
     `;
   }
 
