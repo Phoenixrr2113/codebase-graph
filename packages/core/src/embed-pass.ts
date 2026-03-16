@@ -17,8 +17,6 @@ import {
   buildInterfaceEmbeddingText,
   buildComponentEmbeddingText,
   buildTypeEmbeddingText,
-  buildVariableEmbeddingText,
-  buildFileEmbeddingText,
   generateEmbeddings,
   isEmbeddingAvailable,
   type EmbeddingConfig,
@@ -44,7 +42,7 @@ export interface EmbedPassResult {
 
 /** Internal: an entity ready for embedding */
 interface EmbeddableItem {
-  nodeType: 'File' | 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component';
+  nodeType: 'Function' | 'Class' | 'Interface' | 'Type' | 'Component';
   text: string;
   textHash: string;
   identifier: Record<string, unknown>;
@@ -58,24 +56,34 @@ function hashText(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
+/** Track filtered entity counts for logging */
+let _lastFilterStats = { total: 0, kept: 0, skippedFiles: 0, skippedVars: 0, skippedTypes: 0, skippedFns: 0 };
+export function getLastFilterStats() { return _lastFilterStats; }
+
 /**
- * Collect all embeddable entities from a ParsedFileEntities result,
+ * Collect embeddable entities from a ParsedFileEntities result,
  * build their embedding text, and compute text hashes.
+ *
+ * Filters out low-value entities that add noise without semantic depth:
+ * - Files: "index.ts TypeScript file 42 lines" has no semantic content
+ * - Variables: "const MAX_RETRIES: number" has zero semantic depth
+ * - Types without docstrings: "type Props" adds nothing
+ * - Trivial functions: <3 lines, no docstring, no body snippet
  */
 function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
   const items: EmbeddableItem[] = [];
+  let skippedFiles = 0, skippedVars = 0, skippedTypes = 0, skippedFns = 0;
 
-  // File
-  const fileText = buildFileEmbeddingText(parsed.file);
-  items.push({
-    nodeType: 'File',
-    text: fileText,
-    textHash: hashText(fileText),
-    identifier: { filePath: parsed.file.path },
-  });
+  // Skip Files entirely — "index.ts TypeScript file 42 lines" has no semantic content
+  skippedFiles = 1;
 
-  // Functions
+  // Functions — skip trivial ones (<3 lines, no docstring, no body snippet)
   for (const fn of parsed.functions) {
+    const lineCount = fn.endLine - fn.startLine + 1;
+    if (lineCount < 3 && !fn.docstring && !fn.bodySnippet) {
+      skippedFns++;
+      continue;
+    }
     const text = buildFunctionEmbeddingText(fn);
     items.push({
       nodeType: 'Function',
@@ -85,7 +93,7 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
     });
   }
 
-  // Classes
+  // Classes — always embed (they have rich semantic content)
   for (const cls of parsed.classes) {
     const text = buildClassEmbeddingText(cls);
     items.push({
@@ -96,7 +104,7 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
     });
   }
 
-  // Interfaces
+  // Interfaces — always embed
   for (const iface of parsed.interfaces) {
     const text = buildInterfaceEmbeddingText(iface);
     items.push({
@@ -107,19 +115,15 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
     });
   }
 
-  // Variables
-  for (const v of parsed.variables) {
-    const text = buildVariableEmbeddingText(v);
-    items.push({
-      nodeType: 'Variable',
-      text,
-      textHash: hashText(text),
-      identifier: { name: v.name, filePath: v.filePath, line: v.line },
-    });
-  }
+  // Skip Variables entirely — "const MAX_RETRIES: number" has zero semantic depth
+  skippedVars = parsed.variables.length;
 
-  // Types
+  // Types — only embed if they have docstrings (otherwise "type Props" adds nothing)
   for (const t of parsed.types) {
+    if (!t.docstring) {
+      skippedTypes++;
+      continue;
+    }
     const text = buildTypeEmbeddingText(t);
     items.push({
       nodeType: 'Type',
@@ -129,7 +133,7 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
     });
   }
 
-  // Components
+  // Components — always embed (they have props, structure)
   for (const comp of parsed.components) {
     const text = buildComponentEmbeddingText(comp);
     items.push({
@@ -139,6 +143,17 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
       identifier: { name: comp.name, filePath: comp.filePath, startLine: comp.startLine },
     });
   }
+
+  // Update filter stats for logging
+  _lastFilterStats = {
+    total: 1 + parsed.functions.length + parsed.classes.length + parsed.interfaces.length +
+           parsed.variables.length + parsed.types.length + parsed.components.length,
+    kept: items.length,
+    skippedFiles,
+    skippedVars,
+    skippedTypes,
+    skippedFns,
+  };
 
   return items;
 }
@@ -224,12 +239,7 @@ export async function embedParsedEntities(
  * Build a cache key for an embeddable item (matches the format used by getEmbeddingHashesForFiles).
  */
 function itemCacheKey(item: EmbeddableItem): string {
-  if (item.nodeType === 'File') {
-    return `File::${item.identifier['path']}:0`;
-  }
-  const startLine = item.nodeType === 'Variable'
-    ? item.identifier['line']
-    : item.identifier['startLine'];
+  const startLine = item.identifier['startLine'];
   return `${item.nodeType}:${item.identifier['name']}:${item.identifier['filePath']}:${startLine}`;
 }
 
@@ -265,7 +275,10 @@ export async function embedAllParsedEntities(
     return { embedded: 0, skipped: 0, durationMs: 0 };
   }
 
-  logger.info(`Embedding pass: ${allItems.length} entities across ${parsedList.length} files`);
+  // Log how many entities were filtered out
+  const stats = getLastFilterStats();
+  const totalBeforeFilter = stats.total;
+  logger.info(`Embedding pass: ${allItems.length} entities to embed across ${parsedList.length} files (filtered from ~${totalBeforeFilter * parsedList.length / Math.max(parsedList.length, 1)} per-file total; skipped: Files, Variables, ${stats.skippedTypes} docstring-less Types, ${stats.skippedFns} trivial Functions)`);
 
   // 2. Query existing embedding hashes for incremental skip
   // preloadedHashes allows callers to snapshot hashes before clearing the graph (full reindex)

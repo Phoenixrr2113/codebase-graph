@@ -1,5 +1,5 @@
 /**
- * Two-tier Embedding Generation Utility
+ * Three-tier Embedding Generation Utility
  *
  * Tier 1 — LOCAL (default, free, always available):
  *   Uses @huggingface/transformers with nomic-embed-text-v1.5 (768-dim).
@@ -9,11 +9,16 @@
  * Tier 2 — CLOUD (opt-in, requires OPENROUTER_API_KEY):
  *   Uses OpenRouter with openai/text-embedding-3-small (1536-dim).
  *   Higher quality for production, costs ~$0.02/1M tokens.
- *   Activated via config: { embeddingProvider: "openrouter" }
+ *   Activated via config: { provider: "openrouter" }
+ *
+ * Tier 3 — VOYAGE (opt-in, requires VOYAGE_API_KEY):
+ *   Uses Voyage AI's voyage-code-3 (1024-dim), optimized for code retrieval.
+ *   Outperforms general-purpose models by ~14% on code search benchmarks.
+ *   Supports query/document input types for better retrieval accuracy.
+ *   First 200M tokens free. Activated via config: { provider: "voyage" }
  *
  * The provider is selected via EmbeddingConfig. Dimensions are determined
- * by the provider (768 local, 1536 cloud). Both are first-class — the
- * Kuzu schema uses configurable FLOAT[N] columns to support either.
+ * by the provider (768 local, 1536 cloud, 1024 voyage).
  */
 
 import { createLogger } from '@codegraph/logger';
@@ -24,7 +29,7 @@ const logger = createLogger({ namespace: 'nlp:embeddings' });
 // Types
 // ---------------------------------------------------------------------------
 
-export type EmbeddingProvider = 'local' | 'openrouter';
+export type EmbeddingProvider = 'local' | 'openrouter' | 'voyage';
 
 export interface EmbeddingConfig {
   /** Which provider to use. Default: 'local' */
@@ -33,8 +38,12 @@ export interface EmbeddingConfig {
   localModel?: string;
   /** Override for cloud model name (default: 'openai/text-embedding-3-small') */
   cloudModel?: string;
-  /** Max texts per batch for cloud API (default: 96) */
+  /** Max texts per batch for cloud API (default: 250) */
   cloudBatchSize?: number;
+  /** Override for Voyage model name (default: 'voyage-code-3') */
+  voyageModel?: string;
+  /** Input type hint for Voyage: 'document' for indexing, 'query' for search */
+  inputType?: 'document' | 'query';
 }
 
 export interface EmbeddingResult {
@@ -59,6 +68,11 @@ const LOCAL_DIMENSIONS = 768;
 const CLOUD_MODEL = 'openai/text-embedding-3-small';
 const CLOUD_DIMENSIONS = 1536;
 const CLOUD_BATCH_SIZE = 250;
+
+const VOYAGE_MODEL = 'voyage-code-3';
+const VOYAGE_DIMENSIONS = 1024;
+const VOYAGE_BATCH_SIZE = 128;
+const VOYAGE_API_URL = 'https://api.voyageai.com/v1/embeddings';
 
 // ---------------------------------------------------------------------------
 // Provider: Local (nomic-embed-text-v1.5 via @huggingface/transformers)
@@ -185,6 +199,78 @@ async function embedCloudBatch(
 }
 
 // ---------------------------------------------------------------------------
+// Provider: Voyage AI (direct API — code-optimized embeddings)
+// ---------------------------------------------------------------------------
+
+interface VoyageEmbeddingResponse {
+  data: Array<{ embedding: number[] }>;
+  usage: { total_tokens: number };
+}
+
+async function embedVoyage(
+  text: string,
+  model: string,
+  inputType?: 'document' | 'query',
+): Promise<number[]> {
+  const result = await embedVoyageBatch([text], model, 1, inputType);
+  return result[0]!;
+}
+
+async function embedVoyageBatch(
+  texts: string[],
+  model: string,
+  batchSize: number,
+  inputType?: 'document' | 'query',
+): Promise<number[][]> {
+  const apiKey = process.env['VOYAGE_API_KEY'];
+  if (!apiKey) throw new Error('VOYAGE_API_KEY not set');
+
+  // Split into chunks
+  const chunks: string[][] = [];
+  for (let i = 0; i < texts.length; i += batchSize) {
+    chunks.push(texts.slice(i, i + batchSize));
+  }
+
+  // Send chunks concurrently (bounded)
+  const results: number[][][] = new Array(chunks.length);
+  for (let wave = 0; wave < chunks.length; wave += CLOUD_CONCURRENCY) {
+    const waveChunks = chunks.slice(wave, wave + CLOUD_CONCURRENCY);
+    const waveResults = await Promise.all(
+      waveChunks.map(async (chunk) => {
+        const body: Record<string, unknown> = {
+          input: chunk,
+          model,
+          output_dimension: VOYAGE_DIMENSIONS,
+        };
+        if (inputType) body.input_type = inputType;
+
+        const response = await fetch(VOYAGE_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '');
+          throw new Error(`Voyage API error ${response.status}: ${errText}`);
+        }
+
+        const json = (await response.json()) as VoyageEmbeddingResponse;
+        return json.data.map((d) => d.embedding);
+      }),
+    );
+    for (let j = 0; j < waveResults.length; j++) {
+      results[wave + j] = waveResults[j]!;
+    }
+  }
+
+  return results.flat();
+}
+
+// ---------------------------------------------------------------------------
 // Resolved config helpers
 // ---------------------------------------------------------------------------
 
@@ -192,9 +278,10 @@ function resolveProvider(config?: EmbeddingConfig): EmbeddingProvider {
   // Explicit config takes priority
   if (config?.provider) return config.provider;
 
-  // Env var override: CODEGRAPH_EMBEDDING_PROVIDER=openrouter
+  // Env var override
   const envProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
   if (envProvider === 'openrouter') return 'openrouter';
+  if (envProvider === 'voyage') return 'voyage';
 
   return 'local';
 }
@@ -214,6 +301,10 @@ function resolveCloudBatchSize(config?: EmbeddingConfig): number {
   return config?.cloudBatchSize ?? CLOUD_BATCH_SIZE;
 }
 
+function resolveVoyageModel(config?: EmbeddingConfig): string {
+  return config?.voyageModel ?? VOYAGE_MODEL;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -223,12 +314,19 @@ function resolveCloudBatchSize(config?: EmbeddingConfig): number {
  *
  * Uses local model (768-dim) by default. Set `config.provider = 'openrouter'`
  * or env `CODEGRAPH_EMBEDDING_PROVIDER=openrouter` for cloud (1536-dim).
+ * Set `config.provider = 'voyage'` for code-optimized embeddings (1024-dim).
  */
 export async function generateEmbedding(
   text: string,
   config?: EmbeddingConfig,
 ): Promise<EmbeddingResult> {
   const provider = resolveProvider(config);
+
+  if (provider === 'voyage') {
+    const model = resolveVoyageModel(config);
+    const embedding = await embedVoyage(text, model, config?.inputType);
+    return { embedding, dimensions: embedding.length, provider: 'voyage' };
+  }
 
   if (provider === 'openrouter') {
     const model = resolveCloudModel(config);
@@ -244,23 +342,33 @@ export async function generateEmbedding(
 /**
  * Generate embeddings for multiple texts.
  *
- * Local: processes sequentially (~10ms/item on CPU).
- * Cloud: batches into chunks of `cloudBatchSize` (default 96) per API call.
+ * Local: processes in ONNX batches of 16 (~10ms/item on CPU).
+ * Cloud: batches into chunks of `cloudBatchSize` (default 250) per API call.
+ * Voyage: batches into chunks of 128 per API call with code-optimized model.
  */
 export async function generateEmbeddings(
   texts: string[],
   config?: EmbeddingConfig,
 ): Promise<EmbeddingBatchResult> {
+  const provider = resolveProvider(config);
+
   if (texts.length === 0) {
-    const provider = resolveProvider(config);
-    return {
-      embeddings: [],
-      dimensions: provider === 'openrouter' ? CLOUD_DIMENSIONS : LOCAL_DIMENSIONS,
-      provider,
-    };
+    const dims = provider === 'voyage' ? VOYAGE_DIMENSIONS
+      : provider === 'openrouter' ? CLOUD_DIMENSIONS
+      : LOCAL_DIMENSIONS;
+    return { embeddings: [], dimensions: dims, provider };
   }
 
-  const provider = resolveProvider(config);
+  if (provider === 'voyage') {
+    const model = resolveVoyageModel(config);
+    const inputType = config?.inputType ?? 'document';
+    const embeddings = await embedVoyageBatch(texts, model, VOYAGE_BATCH_SIZE, inputType);
+    return {
+      embeddings,
+      dimensions: embeddings[0]?.length ?? VOYAGE_DIMENSIONS,
+      provider: 'voyage',
+    };
+  }
 
   if (provider === 'openrouter') {
     const model = resolveCloudModel(config);
@@ -287,6 +395,7 @@ export async function generateEmbeddings(
  */
 export function getEmbeddingDimensions(config?: EmbeddingConfig): number {
   const provider = resolveProvider(config);
+  if (provider === 'voyage') return VOYAGE_DIMENSIONS;
   return provider === 'openrouter' ? CLOUD_DIMENSIONS : LOCAL_DIMENSIONS;
 }
 
@@ -299,11 +408,12 @@ export function getEmbeddingProvider(config?: EmbeddingConfig): EmbeddingProvide
 
 /**
  * Check if embeddings are available. Local is always available (auto-downloads model).
- * Cloud requires OPENROUTER_API_KEY env var.
+ * Cloud requires OPENROUTER_API_KEY. Voyage requires VOYAGE_API_KEY.
  */
 export function isEmbeddingAvailable(config?: EmbeddingConfig): boolean {
   const provider = resolveProvider(config);
   if (provider === 'local') return true;
+  if (provider === 'voyage') return !!process.env['VOYAGE_API_KEY'];
   return !!process.env['OPENROUTER_API_KEY'];
 }
 
@@ -312,7 +422,7 @@ export function isEmbeddingAvailable(config?: EmbeddingConfig): boolean {
  * doesn't pay the ~2-4s ONNX initialization cost.
  *
  * Call this at server startup (fire-and-forget). Non-fatal: logs and returns
- * on any error. No-op when using cloud embeddings.
+ * on any error. No-op when using cloud/voyage embeddings.
  */
 export async function warmupEmbedding(config?: EmbeddingConfig): Promise<void> {
   const provider = resolveProvider(config);

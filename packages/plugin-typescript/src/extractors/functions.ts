@@ -102,6 +102,19 @@ function parseFunctionNode(
   if (returnType) entity.returnType = returnType;
   if (docstring) entity.docstring = docstring;
 
+  // Extract first ~500 chars of function body for code-aware embeddings
+  const body = node.childForFieldName('body');
+  if (body) {
+    const fullText = body.text;
+    if (fullText.length <= 500) {
+      entity.bodySnippet = fullText;
+    } else {
+      const truncated = fullText.slice(0, 500);
+      const lastNewline = truncated.lastIndexOf('\n');
+      entity.bodySnippet = lastNewline > 0 ? truncated.slice(0, lastNewline) : truncated;
+    }
+  }
+
   return entity;
 }
 

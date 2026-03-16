@@ -76,13 +76,27 @@ export async function ensureSchemaImpl(graph: Graph): Promise<void> {
     }
   };
 
-  // --- Range indexes (lookup by exact value) ---
+  // --- Pre-create all node labels (FalkorDB #1240 workaround) ---
+  // FalkorDB has a race condition where concurrent writes that introduce new
+  // labels can crash the engine (signal 11). Creating dummy nodes ensures all
+  // labels exist before concurrent indexing starts. The dummy nodes are
+  // immediately deleted.
+  const allLabels = [
+    'File', 'Function', 'Class', 'Interface', 'Variable', 'Type',
+    'Component', 'Entity', 'Project', 'Commit', 'Metadata',
+    'MarkdownDocument', 'Section', 'CodeBlock', 'Link',
+  ];
+  const createDummies = allLabels.map(l => `CREATE (:${l} {__dummy: true})`).join(' ');
   try {
-    await graph.createNodeRangeIndex('File', 'filePath');
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : '';
-    if (!msg.includes('Index already exists') && !msg.includes('Attribute already indexed')) throw error;
+    await graph.query(createDummies);
+    // Delete the dummy nodes
+    await graph.query(`MATCH (n {__dummy: true}) DELETE n`);
+  } catch {
+    // Non-fatal — labels may already exist
   }
+
+  // --- Range indexes (lookup by exact value) ---
+  await safeIndex(`CREATE INDEX FOR (f:File) ON (f.filePath)`);
 
   // --- Commit & Metadata range indexes (git history / state tracking) ---
   await safeIndex(`CREATE INDEX FOR (c:Commit) ON (c.hash)`);
@@ -104,22 +118,13 @@ export async function ensureSchemaImpl(graph: Graph): Promise<void> {
   await safeIndex(`CREATE INDEX FOR (l:Link) ON (l.filePath)`);
 
   // --- Fulltext indexes (text search) ---
-  const fulltextTargets = ['Function', 'Class', 'Component', 'Interface', 'Type', 'Entity'];
+  // Use CALL procedure syntax (FalkorDB's native fulltext API)
+  const fulltextTargets = ['Function', 'Class', 'Component', 'Interface', 'Type'];
   for (const label of fulltextTargets) {
-    try {
-      await graph.createNodeFulltextIndex(label, 'name');
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : '';
-      if (!msg.includes('Index already exists') && !msg.includes('Attribute already indexed')) {
-        // Entity might not have 'name' — it uses 'text'. Try 'text' for Entity.
-        if (label === 'Entity') {
-          try {
-            await graph.createNodeFulltextIndex(label, 'text');
-          } catch { /* ignore */ }
-        }
-      }
-    }
+    await safeIndex(`CALL db.idx.fulltext.createNodeIndex('${label}', 'name')`);
   }
+  // Entity uses both 'name' and 'text'
+  await safeIndex(`CALL db.idx.fulltext.createNodeIndex('Entity', 'name', 'text')`);
 
   // --- Vector indexes (HNSW for embedding similarity search) ---
   // Dimension defaults to 768 (nomic-embed-text-v1.5 local model).

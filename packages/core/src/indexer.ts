@@ -44,6 +44,9 @@ import { glob } from 'glob';
 const execFileAsync = promisify(execFile);
 const logger = createLogger({ namespace: 'Core:Indexer' });
 
+/** Skip files larger than 512 KB — they stall the parser and are usually generated/bundled */
+const MAX_FILE_SIZE_BYTES = 512 * 1024;
+
 /** Default concurrency scales with available CPUs (min 4) */
 const DEFAULT_CONCURRENCY = Math.max(4, availableParallelism());
 
@@ -244,6 +247,9 @@ export async function indexProject(
 
     // Get graph operations
     const graphClient = options.client ?? await getGraphClient();
+    // Ensure schema/indexes exist before any writes (also pre-creates labels
+    // to prevent FalkorDB #1240 crash on concurrent label introduction)
+    await graphClient.ensureIndexes();
     const ops = createOperations(graphClient);
 
     // Create or update Project node
@@ -290,10 +296,12 @@ export async function indexProject(
       const batch = files.slice(i, i + concurrency);
       const results = await Promise.allSettled(
         batch.map(async (filePath) => {
-          const [fileStat, content] = await Promise.all([
-            stat(filePath),
-            readFile(filePath, 'utf-8'),
-          ]);
+          const fileStat = await stat(filePath);
+          // Skip oversized files (generated code, bundles, etc.)
+          if (fileStat.size > MAX_FILE_SIZE_BYTES) {
+            return null; // sentinel — filtered out below
+          }
+          const content = await readFile(filePath, 'utf-8');
           return { path: filePath, content, mtime: fileStat.mtime };
         }),
       );
@@ -301,6 +309,7 @@ export async function indexProject(
       for (const result of results) {
         if (result.status === 'rejected') continue;
         const file = result.value;
+        if (!file) { skippedCount++; continue; } // oversized file
         const hash = createHash('sha256').update(file.content).digest('hex').slice(0, 16);
         const storedHash = storedHashes.get(file.path);
 
@@ -637,6 +646,11 @@ export async function indexSingleFile(
       stat(filePath),
       readFile(filePath, 'utf-8'),
     ]);
+
+    // Skip oversized files
+    if (fileStat.size > MAX_FILE_SIZE_BYTES) {
+      return { success: true, entities: 0, edges: 0, error: `Skipped: file too large (${(fileStat.size / 1024).toFixed(0)} KB)` };
+    }
 
     const syntaxTree = await parseFile(filePath);
     const extracted = extractEntitiesForFile(syntaxTree.rootNode, filePath);

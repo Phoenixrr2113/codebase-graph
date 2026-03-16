@@ -32,44 +32,52 @@ export function getChildText(node: Parser.SyntaxNode, fieldName: string): string
   return child?.text;
 }
 
-/** Helper to find all nodes of a given type */
+/** Helper to find all nodes of a given type (cursor-based) */
 export function findNodesOfType(
   rootNode: Parser.SyntaxNode,
   type: string
 ): Parser.SyntaxNode[] {
   const results: Parser.SyntaxNode[] = [];
-  
-  function walk(node: Parser.SyntaxNode): void {
-    if (node.type === type) {
-      results.push(node);
+  const cursor = rootNode.walk();
+  let reachedRoot = false;
+
+  while (!reachedRoot) {
+    if (cursor.nodeType === type) {
+      results.push(cursor.currentNode);
     }
-    for (const child of node.children) {
-      walk(child);
+    if (cursor.gotoFirstChild()) continue;
+    if (cursor.gotoNextSibling()) continue;
+    while (true) {
+      if (!cursor.gotoParent()) { reachedRoot = true; break; }
+      if (cursor.gotoNextSibling()) break;
     }
   }
-  
-  walk(rootNode);
+
   return results;
 }
 
-/** Helper to find all nodes matching any of the given types */
+/** Helper to find all nodes matching any of the given types (cursor-based) */
 export function findNodesOfTypes(
   rootNode: Parser.SyntaxNode,
   types: string[]
 ): Parser.SyntaxNode[] {
   const results: Parser.SyntaxNode[] = [];
   const typeSet = new Set(types);
-  
-  function walk(node: Parser.SyntaxNode): void {
-    if (typeSet.has(node.type)) {
-      results.push(node);
+  const cursor = rootNode.walk();
+  let reachedRoot = false;
+
+  while (!reachedRoot) {
+    if (typeSet.has(cursor.nodeType)) {
+      results.push(cursor.currentNode);
     }
-    for (const child of node.children) {
-      walk(child);
+    if (cursor.gotoFirstChild()) continue;
+    if (cursor.gotoNextSibling()) continue;
+    while (true) {
+      if (!cursor.gotoParent()) { reachedRoot = true; break; }
+      if (cursor.gotoNextSibling()) break;
     }
   }
-  
-  walk(rootNode);
+
   return results;
 }
 
@@ -77,6 +85,9 @@ export function findNodesOfTypes(
  * Collect all nodes matching any of the given types in a single walk.
  * Returns a Map from node type to array of matching nodes.
  * This replaces multiple findNodesOfType/findNodesOfTypes calls with one traversal.
+ *
+ * Uses tree-sitter's TreeCursor API for faster traversal — avoids allocating
+ * intermediate `.children` arrays at every node (major GC pressure reduction).
  */
 export function collectNodesByType(
   rootNode: Parser.SyntaxNode,
@@ -88,16 +99,38 @@ export function collectNodesByType(
     result.set(t, []);
   }
 
-  function walk(node: Parser.SyntaxNode): void {
-    if (typeSet.has(node.type)) {
-      result.get(node.type)!.push(node);
+  const cursor = rootNode.walk();
+  let reachedRoot = false;
+
+  while (!reachedRoot) {
+    const nodeType = cursor.nodeType;
+
+    if (typeSet.has(nodeType)) {
+      result.get(nodeType)!.push(cursor.currentNode);
     }
-    for (const child of node.children) {
-      walk(child);
+
+    // Depth-first: try to go to first child
+    if (cursor.gotoFirstChild()) {
+      continue;
+    }
+
+    // No children: try next sibling
+    if (cursor.gotoNextSibling()) {
+      continue;
+    }
+
+    // No siblings: walk up until we find a next sibling or reach root
+    while (true) {
+      if (!cursor.gotoParent()) {
+        reachedRoot = true;
+        break;
+      }
+      if (cursor.gotoNextSibling()) {
+        break;
+      }
     }
   }
 
-  walk(rootNode);
   return result;
 }
 

@@ -96,6 +96,10 @@ export type {
   ConflictCandidate, ConflictResult,
 } from './conflict-resolution';
 
+// Reranker (Voyage AI cross-encoder)
+export { rerank, isRerankAvailable } from './reranker';
+export type { RerankResult, RerankOptions } from './reranker';
+
 // Embedding text construction (node → searchable natural language)
 export {
   buildFunctionEmbeddingText,

@@ -114,14 +114,81 @@ const NESTING_TYPES = new Set([
 // ============================================================================
 
 /**
- * Calculate all complexity metrics for a function node
+ * Calculate all complexity metrics for a function node in a single AST walk.
+ * Computes cyclomatic, cognitive, and nesting depth simultaneously.
+ *
+ * Previous implementation did 3 separate walks of the function body.
+ * This version does 1 walk, computing all 3 metrics at once (~3x faster).
  */
 export function calculateComplexity(functionNode: Parser.SyntaxNode): ComplexityMetrics {
-  const cyclomatic = calculateCyclomatic(functionNode);
-  const cognitive = calculateCognitive(functionNode);
-  const nestingDepth = calculateNestingDepth(functionNode);
+  let cyclomatic = 1; // Base complexity
+  let cognitive = 0;
+  let maxNestingDepth = 0;
 
-  return { cyclomatic, cognitive, nestingDepth };
+  // Use cursor API for zero-allocation tree walking
+  const startNode = functionNode.childForFieldName('body') ?? functionNode;
+  const cursor = startNode.walk();
+
+  // Track nesting with a depth counter — nesting types push, leaving them pops
+  let nestingLevel = 0;
+  // Stack to track which depths pushed nesting
+  const nestingStack: boolean[] = [];
+  let reachedRoot = false;
+
+  while (!reachedRoot) {
+    const nodeType = cursor.nodeType;
+
+    // --- Cyclomatic: count decision points ---
+    if (DECISION_POINT_TYPES.has(nodeType)) {
+      cyclomatic++;
+    }
+
+    // --- Cognitive: count flow breaks + nesting penalty ---
+    if (FLOW_BREAK_TYPES.has(nodeType)) {
+      cognitive += 1 + nestingLevel;
+    }
+
+    // --- Logical operators: count for both cyclomatic and cognitive ---
+    if (nodeType === 'binary_expression') {
+      const operator = cursor.currentNode.childForFieldName('operator');
+      if (operator && LOGICAL_OPERATORS.has(operator.text)) {
+        cyclomatic++;
+        cognitive++;
+      }
+    }
+
+    // --- Nesting depth: track for children ---
+    const pushesNesting = NESTING_TYPES.has(nodeType);
+
+    // Try to descend into children
+    if (cursor.gotoFirstChild()) {
+      if (pushesNesting) {
+        nestingLevel++;
+        if (nestingLevel > maxNestingDepth) maxNestingDepth = nestingLevel;
+      }
+      nestingStack.push(pushesNesting);
+      continue;
+    }
+
+    // No children: try next sibling
+    if (cursor.gotoNextSibling()) {
+      continue;
+    }
+
+    // Walk back up
+    while (true) {
+      if (!cursor.gotoParent()) {
+        reachedRoot = true;
+        break;
+      }
+      // Pop nesting when leaving a node that pushed it
+      const pushed = nestingStack.pop();
+      if (pushed) nestingLevel--;
+      if (cursor.gotoNextSibling()) break;
+    }
+  }
+
+  return { cyclomatic, cognitive, nestingDepth: maxNestingDepth };
 }
 
 /**

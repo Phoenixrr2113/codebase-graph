@@ -17,6 +17,8 @@ import { createKnowledgeOperations, type EntitySearchResult } from '@codegraph/g
 import {
   generateEmbedding,
   isEmbeddingAvailable,
+  rerank,
+  isRerankAvailable,
   type EmbeddingConfig,
 } from '@codegraph/plugin-nlp';
 
@@ -89,6 +91,8 @@ export interface HybridSearchResult {
     graphExpanded: number;
     aboutExpanded: number;
     embeddingAvailable: boolean;
+    reranked: boolean;
+    rerankDurationMs?: number;
     durationMs: number;
   };
 }
@@ -117,6 +121,8 @@ export interface HybridSearchOptions {
   includeAboutEdges?: boolean;
   /** Minimum normalized RRF score to include (default: 0.4). Set to 0 to disable. */
   minRRFScore?: number;
+  /** Enable cross-encoder reranking (default: true when VOYAGE_API_KEY is set) */
+  reranking?: boolean;
 }
 
 // ============================================================================
@@ -175,7 +181,7 @@ export async function hybridSearch(
 
     let queryEmbedding: number[];
     try {
-      const result = await generateEmbedding(query, embeddingConfig);
+      const result = await generateEmbedding(query, { ...embeddingConfig, inputType: 'query' });
       queryEmbedding = result.embedding;
       logger.debug(`Query embedded: ${result.dimensions}d via ${result.provider}`);
     } catch (err) {
@@ -338,7 +344,74 @@ export async function hybridSearch(
   ]);
 
 
-  // Drop results whose normalized RRF score is too far below the top hit.
+  // ----------------------------------------------------------------
+  // Step 4b: Reranker (optional, uses Voyage rerank-2 cross-encoder)
+  // ----------------------------------------------------------------
+  const useReranking = options.reranking ?? isRerankAvailable();
+  let reranked = false;
+  let rerankDurationMs: number | undefined;
+
+  // Only rerank when there's enough ambiguity to benefit from cross-encoder:
+  //   - Need multiple sources (vector+text) to have something to re-order
+  //   - Need enough candidates to justify the API call latency
+  const hasMultipleSources = vectorHitCount > 0 && textHitCount > 0;
+  const enoughCandidates = fusedHits.length >= 5;
+
+  if (useReranking && hasMultipleSources && enoughCandidates) {
+    // Take top ~30 candidates for reranking (more than final limit to give reranker room)
+    const rerankCandidates = fusedHits.slice(0, Math.max(limit * 2, 30));
+
+    // Save original RRF scores before reranking
+    const rrfScores = new Map<string, number>();
+    for (const hit of rerankCandidates) {
+      rrfScores.set(hit.key, hit.score);
+    }
+
+    // Build document texts for reranker from hit properties
+    const rerankDocs = rerankCandidates.map((hit) => {
+      const parts: string[] = [];
+      parts.push(`${hit.nodeType}: ${hit.name}`);
+      if (hit.filePath) parts.push(`in ${hit.filePath}`);
+      const doc = hit.properties.docstring as string | undefined;
+      if (doc) parts.push(doc.slice(0, 200));
+      const body = hit.properties.bodySnippet as string | undefined;
+      if (body) parts.push(body.slice(0, 300));
+      return parts.join(' ');
+    });
+
+    try {
+      const rerankStart = performance.now();
+      const rerankResults = await rerank(query, rerankDocs, { topK: Math.max(limit * 2, 30) });
+      rerankDurationMs = performance.now() - rerankStart;
+
+      // Blend reranker scores with RRF scores (60% RRF + 40% reranker).
+      // This lets the reranker promote/demote results without completely
+      // overriding strong text-match signals from RRF fusion.
+      const RRF_WEIGHT = 0.6;
+      const RERANK_WEIGHT = 0.4;
+
+      const rerankedHits: HybridSearchHit[] = [];
+      for (const rr of rerankResults) {
+        const hit = rerankCandidates[rr.index]!;
+        const originalRRF = rrfScores.get(hit.key) ?? 0;
+        hit.score = RRF_WEIGHT * originalRRF + RERANK_WEIGHT * rr.relevanceScore;
+        rerankedHits.push(hit);
+      }
+
+      // Re-sort by blended score
+      rerankedHits.sort((a, b) => b.score - a.score);
+
+      // Replace fusedHits with reranked results for downstream processing
+      fusedHits.length = 0;
+      fusedHits.push(...rerankedHits);
+      reranked = true;
+      logger.debug(`Reranked ${rerankCandidates.length} → ${rerankedHits.length} hits in ${rerankDurationMs.toFixed(0)}ms`);
+    } catch (err) {
+      logger.warn(`Reranking failed, using RRF scores: ${err}`);
+    }
+  }
+
+  // Drop results whose score is too far below the top hit.
   // This prunes tangential vector matches that dilute precision for focused queries.
   // Callers like CONTEXT_WALK can set minRRFScore=0 for broader exploration.
   const minRRFScore = options.minRRFScore ?? 0.4;
@@ -445,7 +518,8 @@ export async function hybridSearch(
   const durationMs = Date.now() - startTime;
   logger.info(
     `Hybrid search "${query}": ${allHits.length} hits ` +
-    `(${vectorHitCount} vector, ${textHitCount} text, ${graphExpanded} graph, ${aboutExpanded} about) in ${durationMs}ms`,
+    `(${vectorHitCount} vector, ${textHitCount} text, ${graphExpanded} graph, ${aboutExpanded} about` +
+    `${reranked ? `, reranked in ${rerankDurationMs?.toFixed(0)}ms` : ''}) in ${durationMs}ms`,
   );
 
   return {
@@ -459,6 +533,8 @@ export async function hybridSearch(
       graphExpanded,
       aboutExpanded,
       embeddingAvailable,
+      reranked,
+      ...(rerankDurationMs != null ? { rerankDurationMs } : {}),
       durationMs,
     },
   };

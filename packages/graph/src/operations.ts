@@ -606,10 +606,13 @@ const CYPHER = {
     DETACH DELETE child, d
   `,
 
+  // Edge queries use OPTIONAL MATCH + WHERE to avoid FalkorDB crashes on
+  // NULL records (Record_GetType segfault when MATCH finds no node).
   BATCH_CREATE_CALL_EDGES: `
     UNWIND $items AS item
-    MATCH (caller:Function {name: item.callerName, filePath: item.callerFile})
-    MATCH (callee:Function {name: item.calleeName, filePath: item.calleeFile})
+    OPTIONAL MATCH (caller:Function {name: item.callerName, filePath: item.callerFile})
+    OPTIONAL MATCH (callee:Function {name: item.calleeName, filePath: item.calleeFile})
+    WITH caller, callee, item WHERE caller IS NOT NULL AND callee IS NOT NULL
     MERGE (caller)-[c:CALLS]->(callee)
     ON CREATE SET c.line = item.line, c.count = 1
     ON MATCH SET c.count = c.count + 1
@@ -617,7 +620,8 @@ const CYPHER = {
 
   BATCH_CREATE_IMPORT_EDGES: `
     UNWIND $items AS item
-    MATCH (from:File {filePath: item.fromPath})
+    OPTIONAL MATCH (from:File {filePath: item.fromPath})
+    WITH from, item WHERE from IS NOT NULL
     MERGE (to:File {filePath: item.toPath})
     ON CREATE SET to:External
     MERGE (from)-[i:IMPORTS]->(to)
@@ -626,7 +630,8 @@ const CYPHER = {
 
   BATCH_CREATE_EXTENDS_EDGES: `
     UNWIND $items AS item
-    MATCH (child:Class {name: item.childName, filePath: item.childFile})
+    OPTIONAL MATCH (child:Class {name: item.childName, filePath: item.childFile})
+    WITH child, item WHERE child IS NOT NULL
     MERGE (parent:Class {name: item.parentName, filePath: COALESCE(item.parentFile, 'external')})
     ON CREATE SET parent:External
     MERGE (child)-[e:EXTENDS]->(parent)
@@ -634,7 +639,8 @@ const CYPHER = {
 
   BATCH_CREATE_IMPLEMENTS_EDGES: `
     UNWIND $items AS item
-    MATCH (c:Class {name: item.className, filePath: item.classFile})
+    OPTIONAL MATCH (c:Class {name: item.className, filePath: item.classFile})
+    WITH c, item WHERE c IS NOT NULL
     MERGE (i:Interface {name: item.interfaceName, filePath: COALESCE(item.interfaceFile, 'external')})
     ON CREATE SET i:External
     MERGE (c)-[impl:IMPLEMENTS]->(i)
@@ -642,16 +648,18 @@ const CYPHER = {
 
   BATCH_CREATE_RENDERS_EDGES: `
     UNWIND $items AS item
-    MATCH (parent:Component {name: item.parentName, filePath: item.parentFile})
-    MATCH (child:Component {name: item.childName})
+    OPTIONAL MATCH (parent:Component {name: item.parentName, filePath: item.parentFile})
+    OPTIONAL MATCH (child:Component {name: item.childName})
+    WITH parent, child, item WHERE parent IS NOT NULL AND child IS NOT NULL
     MERGE (parent)-[r:RENDERS]->(child)
     SET r.line = item.line
   `,
 
   BATCH_LINK_PROJECT_FILES: `
     UNWIND $items AS item
-    MATCH (p:Project {id: item.projectId})
-    MATCH (f:File {filePath: item.filePath})
+    OPTIONAL MATCH (p:Project {id: item.projectId})
+    OPTIONAL MATCH (f:File {filePath: item.filePath})
+    WITH p, f WHERE p IS NOT NULL AND f IS NOT NULL
     MERGE (p)-[:HAS_FILE]->(f)
   `,
 
@@ -1329,11 +1337,13 @@ class GraphOperationsImpl implements GraphOperations {
     const types = entitiesList.flatMap(e => e.types.map(t => typeToNodeProps(t)));
     const components = entitiesList.flatMap(e => e.components.map(comp => componentToNodeProps(comp)));
 
-    // Sub-chunk helper to avoid crashing FalkorDB with huge UNWIND arrays
-    const SUB_CHUNK = 500;
-    const chunkedQuery = async <T>(cypher: string, items: T[]): Promise<void> => {
-      for (let i = 0; i < items.length; i += SUB_CHUNK) {
-        await this.client.query(cypher, { params: { items: items.slice(i, i + SUB_CHUNK) } });
+    // Sub-chunk helper to avoid crashing FalkorDB with huge UNWIND arrays.
+    // Node MERGE uses larger chunks; edge MERGE uses smaller chunks because
+    // UNWIND + double-MATCH + MERGE is expensive and can crash FalkorDB.
+    const NODE_CHUNK = 500;
+    const chunkedQuery = async <T>(cypher: string, items: T[], chunkSize = NODE_CHUNK): Promise<void> => {
+      for (let i = 0; i < items.length; i += chunkSize) {
+        await this.client.query(cypher, { params: { items: items.slice(i, i + chunkSize) } });
       }
     };
 
@@ -1385,12 +1395,50 @@ class GraphOperationsImpl implements GraphOperations {
       }),
     );
 
-    // Create edges with sub-chunking
-    if (callEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_CALL_EDGES, callEdges);
-    if (importEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_IMPORT_EDGES, importEdges);
-    if (extendsEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_EXTENDS_EDGES, extendsEdges);
-    if (implementsEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_IMPLEMENTS_EDGES, implementsEdges);
-    if (rendersEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_RENDERS_EDGES, rendersEdges);
+    // Create edges individually to avoid FalkorDB UNWIND+MATCH crash (Record_GetType segfault)
+    const safeEdge = async (cypher: string, params: Record<string, unknown>): Promise<void> => {
+      try { await this.client.query(cypher, { params: params as QueryParams }); } catch { /* skip missing endpoints */ }
+    };
+    for (const e of callEdges) {
+      await safeEdge(
+        `MATCH (caller:Function {name: $callerName, filePath: $callerFile})
+         MATCH (callee:Function {name: $calleeName, filePath: $calleeFile})
+         MERGE (caller)-[c:CALLS]->(callee) ON CREATE SET c.line = $line, c.count = 1 ON MATCH SET c.count = c.count + 1`,
+        e,
+      );
+    }
+    for (const e of importEdges) {
+      await safeEdge(
+        `MATCH (from:File {filePath: $fromPath})
+         MERGE (to:File {filePath: $toPath}) ON CREATE SET to:External
+         MERGE (from)-[i:IMPORTS]->(to) SET i.specifiers = $specifiers`,
+        e,
+      );
+    }
+    for (const e of extendsEdges) {
+      await safeEdge(
+        `MATCH (child:Class {name: $childName, filePath: $childFile})
+         MERGE (parent:Class {name: $parentName, filePath: COALESCE($parentFile, 'external')}) ON CREATE SET parent:External
+         MERGE (child)-[ex:EXTENDS]->(parent)`,
+        e,
+      );
+    }
+    for (const e of implementsEdges) {
+      await safeEdge(
+        `MATCH (c:Class {name: $className, filePath: $classFile})
+         MERGE (i:Interface {name: $interfaceName, filePath: COALESCE($interfaceFile, 'external')}) ON CREATE SET i:External
+         MERGE (c)-[impl:IMPLEMENTS]->(i)`,
+        e,
+      );
+    }
+    for (const e of rendersEdges) {
+      await safeEdge(
+        `MATCH (parent:Component {name: $parentName, filePath: $parentFile})
+         MATCH (child:Component {name: $childName})
+         MERGE (parent)-[r:RENDERS]->(child) SET r.line = $line`,
+        e,
+      );
+    }
   }
 
   @trace()
@@ -1406,11 +1454,14 @@ class GraphOperationsImpl implements GraphOperations {
     const types = entitiesList.flatMap(e => e.types.map(t => typeToNodeProps(t)));
     const components = entitiesList.flatMap(e => e.components.map(comp => componentToNodeProps(comp)));
 
-    // Helper: run a query in sub-chunks to avoid crashing FalkorDB with huge UNWIND arrays
-    const SUB_CHUNK = 500;
-    const chunkedQuery = async <T>(cypher: string, items: T[]): Promise<void> => {
-      for (let i = 0; i < items.length; i += SUB_CHUNK) {
-        await this.client.query(cypher, { params: { items: items.slice(i, i + SUB_CHUNK) } });
+    // Helper: run a query in sub-chunks to avoid crashing FalkorDB with huge UNWIND arrays.
+    // Node CREATE uses larger chunks (simple inserts). Edge MERGE uses smaller chunks
+    // because UNWIND + double-MATCH + MERGE is O(n²) and crashes FalkorDB's
+    // Record_GetType on large arrays (FalkorDB #1240).
+    const NODE_CHUNK = 500;
+    const chunkedQuery = async <T>(cypher: string, items: T[], chunkSize = NODE_CHUNK): Promise<void> => {
+      for (let i = 0; i < items.length; i += chunkSize) {
+        await this.client.query(cypher, { params: { items: items.slice(i, i + chunkSize) } });
       }
     };
 
@@ -1464,12 +1515,51 @@ class GraphOperationsImpl implements GraphOperations {
       }),
     );
 
-    // Create edges with sub-chunking (reuses chunkedQuery helper from above)
-    if (callEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_CALL_EDGES, callEdges);
-    if (importEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_IMPORT_EDGES, importEdges);
-    if (extendsEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_EXTENDS_EDGES, extendsEdges);
-    if (implementsEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_IMPLEMENTS_EDGES, implementsEdges);
-    if (rendersEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_RENDERS_EDGES, rendersEdges);
+    // Create edges individually to avoid FalkorDB UNWIND+MATCH crash (Record_GetType segfault).
+    // This is slower but stable. FalkorDB crashes on UNWIND+MATCH edge queries on arm64.
+    const safeEdge = async (cypher: string, params: Record<string, unknown>): Promise<void> => {
+      try { await this.client.query(cypher, { params: params as QueryParams }); } catch { /* skip missing endpoints */ }
+    };
+    for (const e of callEdges) {
+      await safeEdge(
+        `MATCH (caller:Function {name: $callerName, filePath: $callerFile})
+         MATCH (callee:Function {name: $calleeName, filePath: $calleeFile})
+         MERGE (caller)-[c:CALLS]->(callee) ON CREATE SET c.line = $line, c.count = 1 ON MATCH SET c.count = c.count + 1`,
+        e,
+      );
+    }
+    for (const e of importEdges) {
+      await safeEdge(
+        `MATCH (from:File {filePath: $fromPath})
+         MERGE (to:File {filePath: $toPath}) ON CREATE SET to:External
+         MERGE (from)-[i:IMPORTS]->(to) SET i.specifiers = $specifiers`,
+        e,
+      );
+    }
+    for (const e of extendsEdges) {
+      await safeEdge(
+        `MATCH (child:Class {name: $childName, filePath: $childFile})
+         MERGE (parent:Class {name: $parentName, filePath: COALESCE($parentFile, 'external')}) ON CREATE SET parent:External
+         MERGE (child)-[ex:EXTENDS]->(parent)`,
+        e,
+      );
+    }
+    for (const e of implementsEdges) {
+      await safeEdge(
+        `MATCH (c:Class {name: $className, filePath: $classFile})
+         MERGE (i:Interface {name: $interfaceName, filePath: COALESCE($interfaceFile, 'external')}) ON CREATE SET i:External
+         MERGE (c)-[impl:IMPLEMENTS]->(i)`,
+        e,
+      );
+    }
+    for (const e of rendersEdges) {
+      await safeEdge(
+        `MATCH (parent:Component {name: $parentName, filePath: $parentFile})
+         MATCH (child:Component {name: $childName})
+         MERGE (parent)-[r:RENDERS]->(child) SET r.line = $line`,
+        e,
+      );
+    }
   }
 
   @trace()

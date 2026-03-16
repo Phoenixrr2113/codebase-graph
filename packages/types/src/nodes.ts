@@ -141,6 +141,8 @@ export interface FunctionEntity extends RangeEntity {
   cognitiveComplexity?: number;
   /** Maximum nesting depth */
   nestingDepth?: number;
+  /** First ~500 chars of function body (for code-aware embeddings) */
+  bodySnippet?: string;
   /** Embedding vector for semantic search */
   embedding?: number[];
   /** Hash of the text used to generate the embedding */

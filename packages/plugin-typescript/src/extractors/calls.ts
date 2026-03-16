@@ -189,26 +189,27 @@ function parseCallExpression(node: Parser.SyntaxNode): { calleeName: string; lin
   };
 }
 
+/** Pre-built set of builtin/common names to skip (allocated once, not per call) */
+const BUILTIN_NAMES = new Set([
+  // Console
+  'log', 'warn', 'error', 'info', 'debug', 'trace',
+  // Common utilities
+  'require', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
+  'parseInt', 'parseFloat', 'isNaN', 'isFinite',
+  // Array methods
+  'map', 'filter', 'reduce', 'forEach', 'find', 'some', 'every',
+  'push', 'pop', 'shift', 'unshift', 'slice', 'splice', 'concat',
+  // String methods
+  'split', 'join', 'trim', 'replace', 'match', 'includes', 'startsWith', 'endsWith',
+  // Object methods
+  'keys', 'values', 'entries', 'assign', 'freeze',
+  // Promise
+  'then', 'catch', 'finally', 'resolve', 'reject', 'all', 'race',
+]);
+
 /**
  * Check if a function name is a builtin or common utility to skip
  */
 function isBuiltinOrCommon(name: string): boolean {
-  const builtins = new Set([
-    // Console
-    'log', 'warn', 'error', 'info', 'debug', 'trace',
-    // Common utilities
-    'require', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
-    'parseInt', 'parseFloat', 'isNaN', 'isFinite',
-    // Array methods
-    'map', 'filter', 'reduce', 'forEach', 'find', 'some', 'every',
-    'push', 'pop', 'shift', 'unshift', 'slice', 'splice', 'concat',
-    // String methods
-    'split', 'join', 'trim', 'replace', 'match', 'includes', 'startsWith', 'endsWith',
-    // Object methods
-    'keys', 'values', 'entries', 'assign', 'freeze',
-    // Promise
-    'then', 'catch', 'finally', 'resolve', 'reject', 'all', 'race',
-  ]);
-
-  return builtins.has(name);
+  return BUILTIN_NAMES.has(name);
 }
