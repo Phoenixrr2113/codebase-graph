@@ -72,8 +72,9 @@ export async function saveConfig(config: MCPContextConfig): Promise<void> {
     if (!existsSync(CONFIG_DIR)) {
       await mkdir(CONFIG_DIR, { recursive: true });
     }
-    // Atomic write: write to temp file, then rename
-    const tmpFile = CONFIG_FILE + '.tmp';
+    // Atomic write: write to unique temp file, then rename.
+    // Unique suffix prevents concurrent saveConfig calls from clobbering each other's temp files.
+    const tmpFile = `${CONFIG_FILE}.tmp.${process.pid}.${Date.now()}`;
     await writeFile(tmpFile, JSON.stringify(config, null, 2));
     await rename(tmpFile, CONFIG_FILE);
     logger.info('Config saved', { projects: config.activeProjects });

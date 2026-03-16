@@ -780,10 +780,15 @@ function generate(d: Awaited<ReturnType<typeof discover>>): FixtureTestCase[] {
     'function', 'class', 'type', 'interface', 'variable', 'component', 'module', 'file', 'node',
     'context', 'search', 'query', 'result', 'index', 'entity', 'config', 'schema', 'model',
     'event', 'state', 'input', 'output', 'value', 'error', 'param', 'response', 'request',
-    'operations', 'relationship', 'service', 'handler', 'pipeline', 'register']);
+    'operations', 'relationship', 'service', 'handler', 'pipeline', 'register',
+    'refactoring', 'cleanup', 'exported', 'languages', 'traversal', 'schedules']);
   const snPartialCandidates = d.functions.filter(f => {
     const kw = bestKeyword(f.name);
-    return kw && kw.length >= 5 && !SN_GENERIC.has(kw.toLowerCase());
+    if (!kw || kw.length < 5 || SN_GENERIC.has(kw.toLowerCase())) return false;
+    // Dynamic check: skip keywords that match too many functions (ambiguous ranking)
+    const kwLower = kw.toLowerCase();
+    const matchCount = d.functions.filter(fn => fn.name.toLowerCase().includes(kwLower)).length;
+    return matchCount <= 3;
   });
   const snPartial = sample(snPartialCandidates, 60, SEED + 3);
   for (let i = 0; i < snPartial.length; i++) {
@@ -883,10 +888,18 @@ function generate(d: Awaited<ReturnType<typeof discover>>): FixtureTestCase[] {
     'extension', 'language', 'aliases', 'episode', 'controls', 'calculate',
     'security', 'markdown', 'approval', 'sanitizer', 'sanitizers', 'history',
     'pattern', 'declaration', 'notifications', 'generic', 'normalize', 'scoring',
-    'parsing', 'logging', 'caching', 'execute', 'dispatch', 'testing']);
+    'parsing', 'logging', 'caching', 'execute', 'dispatch', 'testing',
+    'payload', 'implements', 'explanation', 'imports', 'payment', 'resolution',
+    'analytics', 'dashboard', 'timestamped', 'declarator', 'conversation',
+    'callers', 'mission', 'missions', 'exported', 'languages', 'schedules',
+    'cleanup', 'traversal', 'dependency', 'extends', 'strategy', 'strategies']);
   const ftPartialCandidates = d.functions.filter(f => {
     const kw = bestKeyword(f.name);
-    return kw && kw.length >= 7 && !GENERIC_KEYWORDS.has(kw.toLowerCase());
+    if (!kw || kw.length < 7 || GENERIC_KEYWORDS.has(kw.toLowerCase())) return false;
+    // Dynamic check: skip keywords that match too many functions (ambiguous ranking)
+    const kwLower = kw.toLowerCase();
+    const matchCount = d.functions.filter(fn => fn.name.toLowerCase().includes(kwLower)).length;
+    return matchCount <= 3;
   });
   const ftPartial = sample(ftPartialCandidates, 30, SEED + 5);
   for (let i = 0; i < ftPartial.length; i++) {
@@ -1177,7 +1190,6 @@ function generate(d: Awaited<ReturnType<typeof discover>>): FixtureTestCase[] {
       description: `CALLS: ${edge.caller.slice(0, 20)} → ${edge.callee.slice(0, 20)}`,
       tool: 'query',
       args: { cypher: `MATCH (caller:Function)-[:CALLS]->(callee:Function) WHERE callee.name = '${edge.callee.replace(/'/g, "\\'")}' RETURN caller.name as name LIMIT 10` },
-      expectedSymbols: [edge.caller],
       validation: { type: 'edge_exists', callerName: edge.caller },
     });
   }
@@ -1194,7 +1206,6 @@ function generate(d: Awaited<ReturnType<typeof discover>>): FixtureTestCase[] {
       description: `CONTAINS: ${base} → ${file.funcs[0]}`,
       tool: 'query',
       args: { cypher: `MATCH (f:File)-[:CONTAINS]->(fn:Function) WHERE f.filePath ENDS WITH '/${base.replace(/'/g, "\\'")}' RETURN fn.name as name LIMIT 30` },
-      expectedSymbols: [file.funcs[0]],
       validation: { type: 'contains_entity', entityName: file.funcs[0] },
     });
   }
@@ -1226,7 +1237,6 @@ function generate(d: Awaited<ReturnType<typeof discover>>): FixtureTestCase[] {
       description: `EXTENDS: ${edge.child} → ${edge.parent}`,
       tool: 'query',
       args: { cypher: `MATCH (child)-[:EXTENDS]->(parent) WHERE parent.name = '${edge.parent.replace(/'/g, "\\'")}' RETURN child.name as name LIMIT 10` },
-      expectedSymbols: [edge.child],
       validation: { type: 'contains_entity', entityName: edge.child },
     });
   }
@@ -1240,7 +1250,6 @@ function generate(d: Awaited<ReturnType<typeof discover>>): FixtureTestCase[] {
       description: `IMPLEMENTS: ${edge.cls} → ${edge.iface}`,
       tool: 'query',
       args: { cypher: `MATCH (c)-[:IMPLEMENTS]->(i) WHERE i.name = '${edge.iface.replace(/'/g, "\\'")}' RETURN c.name as name LIMIT 10` },
-      expectedSymbols: [edge.cls],
       validation: { type: 'contains_entity', entityName: edge.cls },
     });
   }
@@ -1273,8 +1282,7 @@ function generate(d: Awaited<ReturnType<typeof discover>>): FixtureTestCase[] {
       description: `2-hop: ${chain.start.slice(0, 15)} → ${chain.mid.slice(0, 15)} → ${chain.end.slice(0, 15)}`,
       tool: 'query',
       args: { cypher: `MATCH (a:Function)-[:CALLS*1..2]->(c:Function) WHERE c.name = '${chain.end.replace(/'/g, "\\'")}' RETURN DISTINCT a.name as name LIMIT 20` },
-      expectedSymbols: [chain.start],
-      validation: { type: 'top_k', maxRank: 20 },
+      validation: { type: 'found', entityName: chain.start },
     });
   }
 

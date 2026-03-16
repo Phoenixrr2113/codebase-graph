@@ -17,6 +17,7 @@ const logger = createLogger({ namespace: 'MCP:Reindex' });
 export interface ReindexInput {
   mode?: 'incremental' | 'full';
   scope?: string;
+  concurrency?: number;
 }
 
 // Output type
@@ -46,6 +47,10 @@ export const reindexToolDefinition: ToolDefinition = {
       scope: {
         type: 'string',
         description: 'Specific file or directory path to reindex. If omitted, reindexes all active projects.',
+      },
+      concurrency: {
+        type: 'number',
+        description: 'Number of files to process in parallel. Defaults to CPU count.',
       },
     },
     required: [],
@@ -88,6 +93,7 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           force: input.mode === 'full',
           deepAnalysis: true,
           deferEmbeddings: true,
+          ...(input.concurrency != null && { concurrency: input.concurrency }),
         });
 
         // Sync git history after indexing
@@ -144,6 +150,7 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           force: input.mode === 'full',
           deepAnalysis: true,
           deferEmbeddings: true,
+          ...(input.concurrency != null && { concurrency: input.concurrency }),
         });
         totalFiles += result.stats.files;
         totalEntities += result.stats.entities;

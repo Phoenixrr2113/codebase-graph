@@ -59,6 +59,41 @@ export function extractInterfaces(
 }
 
 /**
+ * Extract types from pre-collected type alias and enum nodes (single-pass mode)
+ */
+export function extractTypesFromNodes(
+  typeAliasNodes: Parser.SyntaxNode[],
+  enumNodes: Parser.SyntaxNode[],
+  filePath: string
+): TypeEntity[] {
+  const types: TypeEntity[] = [];
+  for (const node of typeAliasNodes) {
+    const typeEntity = parseTypeAlias(node, filePath);
+    if (typeEntity) types.push(typeEntity);
+  }
+  for (const node of enumNodes) {
+    const enumEntity = parseEnum(node, filePath);
+    if (enumEntity) types.push(enumEntity);
+  }
+  return types;
+}
+
+/**
+ * Extract interfaces from pre-collected interface nodes (single-pass mode)
+ */
+export function extractInterfacesFromNodes(
+  interfaceNodes: Parser.SyntaxNode[],
+  filePath: string
+): InterfaceEntity[] {
+  const interfaces: InterfaceEntity[] = [];
+  for (const node of interfaceNodes) {
+    const interfaceEntity = parseInterface(node, filePath);
+    if (interfaceEntity) interfaces.push(interfaceEntity);
+  }
+  return interfaces;
+}
+
+/**
  * Parse a type alias declaration
  */
 function parseTypeAlias(

@@ -36,6 +36,25 @@ export function extractComponents(
 }
 
 /**
+ * Extract components from pre-collected function nodes (single-pass mode)
+ */
+export function extractComponentsFromNodes(
+  functionNodes: Parser.SyntaxNode[],
+  filePath: string
+): ComponentEntity[] {
+  const components: ComponentEntity[] = [];
+  for (const node of functionNodes) {
+    if (isReactComponent(node)) {
+      const component = parseComponent(node, filePath);
+      if (component) {
+        components.push(component);
+      }
+    }
+  }
+  return components;
+}
+
+/**
  * Check if a function is a React component (returns JSX)
  */
 function isReactComponent(node: Parser.SyntaxNode): boolean {

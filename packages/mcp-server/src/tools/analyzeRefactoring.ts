@@ -5,6 +5,7 @@
  * Uses @codegraph/core refactoring analysis module.
  */
 
+import { resolve } from 'node:path';
 import { codeGraphService } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
@@ -76,9 +77,10 @@ export async function analyzeFileForRefactoring(input: AnalyzeRefactoringInput):
       };
     }
 
+    const filePath = resolve(input.file);
     const refactoringOpts: { threshold?: number } = {};
     if (input.threshold != null) refactoringOpts.threshold = input.threshold;
-    const result = await codeGraphService.analyzeRefactoring(input.file, refactoringOpts);
+    const result = await codeGraphService.analyzeRefactoring(filePath, refactoringOpts);
 
     return {
       file: result.file,

@@ -34,14 +34,18 @@ import { getGraphClient } from './graphClient';
 import { embedParsedEntities, embedAllParsedEntities } from './embed-pass';
 import { createLogger } from '@codegraph/logger';
 import { stat, readFile } from 'node:fs/promises';
-import { basename, extname } from 'node:path';
+import { basename, extname, resolve } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
+import { availableParallelism } from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { glob } from 'glob';
 
+const execFileAsync = promisify(execFile);
 const logger = createLogger({ namespace: 'Core:Indexer' });
 
-/** Default number of files to process in parallel */
-const DEFAULT_CONCURRENCY = 20;
+/** Default concurrency scales with available CPUs (min 4) */
+const DEFAULT_CONCURRENCY = Math.max(4, availableParallelism());
 
 // ============================================================================
 // Embedding backpressure — bounded concurrency for deferred embeddings
@@ -96,6 +100,47 @@ export interface IndexResult {
   projectName: string;
   stats: IndexStats;
   errorMessages: string[];
+}
+
+// ============================================================================
+// File Discovery
+// ============================================================================
+
+/**
+ * Discover source files using git ls-files (faster than glob, respects .gitignore).
+ * Returns null if not a git repo or git is unavailable — caller should fall back to glob.
+ */
+async function discoverFilesGit(
+  rootPath: string,
+  extensions: string[],
+  ignorePatterns: string[],
+): Promise<string[] | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['ls-files', '--cached', '--others', '--exclude-standard'],
+      { cwd: rootPath, maxBuffer: 50 * 1024 * 1024 },
+    );
+
+    const extensionSet = new Set(extensions.map(e => e.startsWith('.') ? e : `.${e}`));
+    const files = stdout
+      .split('\n')
+      .filter(f => f.length > 0)
+      .filter(f => extensionSet.has(extname(f).toLowerCase()))
+      .map(f => resolve(rootPath, f));
+
+    // Apply ignore patterns as simple substring/glob checks
+    if (ignorePatterns.length > 0) {
+      const ignoreSegments = ignorePatterns
+        .map(p => p.replace(/\*\*/g, '').replace(/\*/g, '').replace(/\//g, ''))
+        .filter(s => s.length > 0);
+      return files.filter(f => !ignoreSegments.some(seg => f.includes(seg)));
+    }
+
+    return files;
+  } catch {
+    return null; // Not a git repo or git not available
+  }
 }
 
 // ============================================================================
@@ -158,14 +203,32 @@ export async function indexProject(
     registerPlugins();
     await initParser();
 
-    // Discover source files
-    const patterns = options.includePatterns ?? getSupportedExtensions().map(ext => `**/*${ext}`);
+    // Discover source files (git ls-files when available, glob fallback)
     const ignoreList = [...DEFAULT_IGNORE_PATTERNS, ...(options.ignorePatterns ?? [])];
-    const files = await glob(patterns, {
-      cwd: rootPath,
-      ignore: ignoreList,
-      absolute: true,
-    });
+    let files: string[];
+
+    if (options.includePatterns) {
+      // Custom patterns — use glob directly
+      files = await glob(options.includePatterns, {
+        cwd: rootPath,
+        ignore: ignoreList,
+        absolute: true,
+      });
+    } else {
+      // Try git ls-files first (faster, respects .gitignore natively)
+      const gitFiles = await discoverFilesGit(rootPath, getSupportedExtensions(), ignoreList);
+      if (gitFiles) {
+        files = gitFiles;
+        logger.info(`File discovery via git: ${files.length} files`);
+      } else {
+        const patterns = getSupportedExtensions().map(ext => `**/*${ext}`);
+        files = await glob(patterns, {
+          cwd: rootPath,
+          ignore: ignoreList,
+          absolute: true,
+        });
+      }
+    }
 
     logger.info(`Indexing ${rootPath}: found ${files.length} source files`);
 
@@ -259,9 +322,8 @@ export async function indexProject(
     const embeddingsEnabled = options.embeddings !== false;
 
     // ----------------------------------------------------------------
-    // PERF.10: Two-phase pipeline — parse all, then bulk upsert all
-    // Phase 1: Parse files in parallel batches (CPU-bound)
-    // Phase 2: Single bulk UNWIND upsert for all entities (I/O-bound)
+    // Pipelined index: parse batch N while upserting batch N-1
+    // Overlaps CPU-bound parsing with I/O-bound graph writes
     // ----------------------------------------------------------------
     let totalEntities = 0;
     let totalEdges = 0;
@@ -287,16 +349,77 @@ export async function indexProject(
       logger.info(`Split: ${codeFiles.length} code files, ${markdownFiles.length} markdown files`);
     }
 
-    // Phase 1a: Parse code files in parallel batches (tree-sitter)
+    // Full reindex optimization: clear project data first, then use CREATE (much faster than MERGE)
+    const useCreatePath = force;
+    let savedEmbeddingHashes: Map<string, string> | undefined;
+    if (useCreatePath && existingProject) {
+      // Snapshot embedding hashes BEFORE clearing — allows skipping unchanged embeddings
+      try {
+        const allFilePaths = filesToProcess.map(f => f.path);
+        savedEmbeddingHashes = await ops.getEmbeddingHashesForFiles(allFilePaths);
+        if (savedEmbeddingHashes.size > 0) {
+          logger.info(`Saved ${savedEmbeddingHashes.size} embedding hashes before clear`);
+        }
+      } catch {
+        // Non-fatal — will regenerate all embeddings
+      }
+      logger.info('Full reindex: clearing existing project data for fast CREATE path');
+      await ops.deleteProject(existingProject.id);
+    }
+    // Re-create the project node after clear
+    if (useCreatePath) {
+      project.createdAt = now;
+    }
+
+    // Pipelined parse + upsert for code files
     type ParsedResult = { file: string; built: ReturnType<typeof buildParsedFileEntities>; extracted: ReturnType<typeof extractEntitiesForFile> };
-    const allParsed: ParsedResult[] = [];
+    const allParsed: ParsedResult[] = []; // Accumulated for embedding phase
+
+    // Write a chunk of parsed results — uses CREATE (fast) or MERGE (incremental)
+    const upsertChunk = async (chunk: ParsedResult[]): Promise<void> => {
+      try {
+        if (useCreatePath) {
+          await ops.batchCreateBulk(chunk.map(r => r.built));
+        } else {
+          await ops.batchUpsertBulk(chunk.map(r => r.built));
+        }
+        await ops.linkProjectFiles(project.id, chunk.map(r => r.file));
+
+        for (const { extracted, built } of chunk) {
+          totalFiles++;
+          totalEntities += 1 + countEntities(extracted);
+          totalEdges += countEdges(built) + countEntities(extracted);
+        }
+      } catch (err) {
+        // Fall back to per-file writes for this chunk
+        logger.warn(`Bulk write failed for chunk, falling back to per-file: ${err instanceof Error ? err.message : err}`);
+        for (const { file, built, extracted } of chunk) {
+          try {
+            await ops.batchUpsert(built);
+            await ops.linkProjectFile(project.id, file);
+            totalFiles++;
+            totalEntities += 1 + countEntities(extracted);
+            totalEdges += countEdges(built) + countEntities(extracted);
+          } catch (fileErr) {
+            totalErrors++;
+            const msg = `Failed write: ${file}: ${fileErr instanceof Error ? fileErr.message : fileErr}`;
+            errorMessages.push(msg);
+            logger.warn(msg);
+          }
+        }
+      }
+    };
+
+    // Pipeline: parse batch N while upserting batch N-1
+    let pendingUpsert: Promise<void> | null = null;
+    let pendingBatch: ParsedResult[] = [];
+    const UPSERT_CHUNK_SIZE = 50;
 
     for (let i = 0; i < codeFiles.length; i += concurrency) {
       const batch = codeFiles.slice(i, i + concurrency);
 
       const parsed = await Promise.allSettled(
         batch.map(async (file) => {
-          // Use parseCode with already-loaded content (avoids redundant disk read)
           const ext = extname(file.path);
           const language = getLanguageForExtension(ext);
           if (!language) {
@@ -318,6 +441,7 @@ export async function indexProject(
         }),
       );
 
+      // Collect successfully parsed results
       for (let j = 0; j < parsed.length; j++) {
         const result = parsed[j]!;
         if (result.status === 'rejected') {
@@ -328,17 +452,33 @@ export async function indexProject(
           continue;
         }
         allParsed.push(result.value);
+        pendingBatch.push(result.value);
       }
 
-      // Progress logging for parse phase
+      // When pending batch reaches upsert chunk size, fire upsert (with backpressure)
+      if (pendingBatch.length >= UPSERT_CHUNK_SIZE) {
+        if (pendingUpsert) await pendingUpsert; // Backpressure: wait for previous upsert
+        const chunk = pendingBatch;
+        pendingBatch = [];
+        pendingUpsert = upsertChunk(chunk);
+      }
+
+      // Progress logging
       const processed = Math.min(i + concurrency, codeFiles.length);
       if (processed % progressInterval === 0 || processed === codeFiles.length) {
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        logger.info(`Parse (code): ${processed}/${codeFiles.length} files (${elapsed}s)`);
+        logger.info(`Pipeline: ${processed}/${codeFiles.length} parsed (${elapsed}s)`);
       }
     }
 
-    // Phase 1b: Parse markdown files in parallel batches (remark/unified)
+    // Flush remaining parsed results
+    if (pendingUpsert) await pendingUpsert;
+    if (pendingBatch.length > 0) {
+      await upsertChunk(pendingBatch);
+      pendingBatch = [];
+    }
+
+    // Parse markdown files (typically few, no pipeline needed)
     const allDocuments: ExtractedDocumentEntities[] = [];
 
     for (let i = 0; i < markdownFiles.length; i += concurrency) {
@@ -368,92 +508,49 @@ export async function indexProject(
     }
 
     const parseDurationMs = Date.now() - startTime - hashDurationMs;
-    logger.info(`Phase 1 (parse) complete: ${allParsed.length} code + ${allDocuments.length} docs in ${parseDurationMs}ms`);
+    logger.info(`Pipeline complete: ${allParsed.length} code + ${allDocuments.length} docs in ${parseDurationMs}ms`);
 
-    // Phase 2: Bulk upsert ALL entities in chunked UNWIND batches
-    // Process in chunks of 500 files to avoid oversized queries
-    const UPSERT_CHUNK_SIZE = 500;
+    // Upsert document entities (markdown)
+    if (allDocuments.length > 0) {
+      try {
+        await ops.batchUpsertDocuments(allDocuments);
+        totalFiles += allDocuments.length;
+        for (const doc of allDocuments) {
+          totalEntities += 1 + doc.sections.length + doc.codeBlocks.length + doc.links.length;
+          totalEdges += doc.sections.length + doc.codeBlocks.length + doc.links.length;
+        }
+      } catch (err) {
+        logger.warn(`Document bulk write failed: ${err instanceof Error ? err.message : err}`);
+        totalErrors += allDocuments.length;
+      }
+    }
 
-    if (allParsed.length > 0 || allDocuments.length > 0) {
-      const upsertStart = Date.now();
+    // Embeddings (runs after all structure is committed)
+    if (allParsed.length > 0 && embeddingsEnabled) {
+      const builtList = allParsed.map(r => r.built);
 
-      for (let i = 0; i < allParsed.length; i += UPSERT_CHUNK_SIZE) {
-        const chunk = allParsed.slice(i, i + UPSERT_CHUNK_SIZE);
-        try {
-          await ops.batchUpsertBulk(chunk.map(r => r.built));
-          await ops.linkProjectFiles(project.id, chunk.map(r => r.file));
-
-          for (const { extracted, built } of chunk) {
-            totalFiles++;
-            totalEntities += 1 + countEntities(extracted);
-            totalEdges += countEdges(built) + countEntities(extracted);
-          }
-        } catch (err) {
-          // Fall back to per-file writes for this chunk
-          logger.warn(`Bulk write failed for chunk, falling back to per-file: ${err instanceof Error ? err.message : err}`);
-          for (const { file, built, extracted } of chunk) {
-            try {
-              await ops.batchUpsert(built);
-              await ops.linkProjectFile(project.id, file);
-              totalFiles++;
-              totalEntities += 1 + countEntities(extracted);
-              totalEdges += countEdges(built) + countEntities(extracted);
-            } catch (fileErr) {
-              totalErrors++;
-              const msg = `Failed write: ${file}: ${fileErr instanceof Error ? fileErr.message : fileErr}`;
-              errorMessages.push(msg);
-              logger.warn(msg);
+      if (options.deferEmbeddings) {
+        // Fire-and-forget: graph structure is searchable immediately
+        embedAllParsedEntities(builtList, ops, embeddingConfig, savedEmbeddingHashes)
+          .then(result => {
+            if (result.embedded > 0) {
+              logger.info(`Background embedding complete: ${result.embedded} entities in ${result.durationMs.toFixed(0)}ms`);
             }
-          }
-        }
-      }
-
-      // Upsert document entities (markdown) in the same phase
-      if (allDocuments.length > 0) {
+          })
+          .catch(err => {
+            logger.warn(`Background embedding failed: ${err instanceof Error ? err.message : err}`);
+          });
+      } else {
+        const embedStart = Date.now();
         try {
-          await ops.batchUpsertDocuments(allDocuments);
-          totalFiles += allDocuments.length;
-          for (const doc of allDocuments) {
-            totalEntities += 1 + doc.sections.length + doc.codeBlocks.length + doc.links.length;
-            totalEdges += doc.sections.length + doc.codeBlocks.length + doc.links.length; // CONTAINS edges
-          }
+          const embedResult = await embedAllParsedEntities(builtList, ops, embeddingConfig, savedEmbeddingHashes);
+          totalEmbedded = embedResult.embedded;
         } catch (err) {
-          logger.warn(`Document bulk write failed: ${err instanceof Error ? err.message : err}`);
-          totalErrors += allDocuments.length;
+          logger.warn(`Embedding pass failed: ${err instanceof Error ? err.message : err}`);
         }
-      }
-
-      const upsertDurationMs = Date.now() - upsertStart;
-      logger.info(`Phase 2 (upsert) complete: ${totalFiles} files in ${upsertDurationMs}ms`);
-
-      // Phase 3: Embeddings (runs after structure is committed)
-      // Uses cross-file batching with incremental hash comparison
-      if (embeddingsEnabled) {
-        const builtList = allParsed.map(r => r.built);
-
-        if (options.deferEmbeddings) {
-          // Fire-and-forget: graph structure is searchable immediately
-          embedAllParsedEntities(builtList, ops, embeddingConfig)
-            .then(result => {
-              if (result.embedded > 0) {
-                logger.info(`Background embedding complete: ${result.embedded} entities in ${result.durationMs.toFixed(0)}ms`);
-              }
-            })
-            .catch(err => {
-              logger.warn(`Background embedding failed: ${err instanceof Error ? err.message : err}`);
-            });
-        } else {
-          const embedStart = Date.now();
-          try {
-            const embedResult = await embedAllParsedEntities(builtList, ops, embeddingConfig);
-            totalEmbedded = embedResult.embedded;
-          } catch (err) {
-            logger.warn(`Embedding pass failed: ${err instanceof Error ? err.message : err}`);
-          }
-          const embedDurationMs = Date.now() - embedStart;
-          if (totalEmbedded > 0) {
-            logger.info(`Phase 3 (embed) complete: ${totalEmbedded} entities in ${embedDurationMs}ms`);
-          }
+        const embedDurationMs = Date.now() - embedStart;
+        if (totalEmbedded > 0) {
+          logger.info(`Embed complete: ${totalEmbedded} entities in ${embedDurationMs}ms`);
         }
       }
     }

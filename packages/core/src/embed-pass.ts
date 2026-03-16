@@ -247,6 +247,7 @@ export async function embedAllParsedEntities(
   parsedList: ParsedFileEntities[],
   ops: GraphOperations,
   config?: EmbeddingConfig,
+  preloadedHashes?: Map<string, string>,
 ): Promise<EmbedPassResult> {
   const start = performance.now();
 
@@ -267,15 +268,22 @@ export async function embedAllParsedEntities(
   logger.info(`Embedding pass: ${allItems.length} entities across ${parsedList.length} files`);
 
   // 2. Query existing embedding hashes for incremental skip
-  const filePaths = parsedList.map(p => p.file.path);
-  let existingHashes = new Map<string, string>();
-  try {
-    existingHashes = await ops.getEmbeddingHashesForFiles(filePaths);
-    if (existingHashes.size > 0) {
-      logger.info(`Found ${existingHashes.size} existing embedding hashes for comparison`);
+  // preloadedHashes allows callers to snapshot hashes before clearing the graph (full reindex)
+  let existingHashes: Map<string, string>;
+  if (preloadedHashes && preloadedHashes.size > 0) {
+    existingHashes = preloadedHashes;
+    logger.info(`Using ${existingHashes.size} preloaded embedding hashes for comparison`);
+  } else {
+    existingHashes = new Map();
+    const filePaths = parsedList.map(p => p.file.path);
+    try {
+      existingHashes = await ops.getEmbeddingHashesForFiles(filePaths);
+      if (existingHashes.size > 0) {
+        logger.info(`Found ${existingHashes.size} existing embedding hashes for comparison`);
+      }
+    } catch {
+      // Non-fatal — will regenerate all
     }
-  } catch {
-    // Non-fatal — will regenerate all
   }
 
   // 3. Filter out unchanged entities

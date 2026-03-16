@@ -5,6 +5,7 @@
  * Queries graph for relationships and reads source file.
  */
 
+import { resolve } from 'node:path';
 import { codeGraphService, readSourceFile } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
@@ -67,10 +68,12 @@ export async function explainCode(input: ExplainCodeInput): Promise<ExplainCodeO
       return { code: '', dependencies: [], dependents: [], relatedTests: [], error: 'File path is required' };
     }
 
+    const filePath = resolve(input.file);
+
     // Read the file content using readSourceFile (validates against path traversal)
     let code: string;
     try {
-      const result = await readSourceFile(input.file, {
+      const result = await readSourceFile(filePath, {
         startLine: input.start_line,
         endLine: input.end_line,
       });
@@ -83,7 +86,7 @@ export async function explainCode(input: ExplainCodeInput): Promise<ExplainCodeO
     }
 
     // Delegate graph queries to service
-    const result = await codeGraphService.getCodeExplanation(input.file);
+    const result = await codeGraphService.getCodeExplanation(filePath);
 
     return {
       code,

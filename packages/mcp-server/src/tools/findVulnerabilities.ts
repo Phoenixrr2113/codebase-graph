@@ -5,7 +5,7 @@
  * Delegates to codeGraphService.scanVulnerabilities() for business logic.
  */
 
-import { codeGraphService } from '@codegraph/core';
+import { codeGraphService, getActiveProjectPaths } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
@@ -82,47 +82,60 @@ const SEVERITY_RANK: Record<string, number> = {
  */
 export async function findVulnerabilities(input: FindVulnerabilitiesInput): Promise<FindVulnerabilitiesOutput> {
   try {
-    const scope = (!input.scope || input.scope === 'all') ? process.cwd() : input.scope;
     const severity = input.severity ?? 'all';
     const category = input.category ?? 'all';
 
-    // Delegate to service layer
-    const scanOpts: Parameters<typeof codeGraphService.scanVulnerabilities>[0] = { path: scope };
-    if (category !== 'all') scanOpts.category = category;
+    // Resolve scope: use active project paths when scope is 'all' or unset
+    let scopePaths: string[];
+    if (!input.scope || input.scope === 'all') {
+      const activePaths = await getActiveProjectPaths();
+      scopePaths = activePaths.length > 0 ? activePaths : [process.cwd()];
+    } else {
+      scopePaths = [input.scope];
+    }
 
-    const result = await codeGraphService.scanVulnerabilities(scanOpts);
+    // Scan all scope paths and merge results
+    let allVulnerabilities: Vulnerability[] = [];
+    let totalFilesScanned = 0;
 
-    // Map service result to MCP output format
-    let vulnerabilities: Vulnerability[] = result.vulnerabilities.map(v => ({
-      type: v.type,
-      severity: v.severity as 'critical' | 'high' | 'medium' | 'low',
-      file: v.filePath,
-      line: v.line,
-      code: v.code,
-      description: v.message,
-      fix: v.recommendation,
-    }));
+    for (const scopePath of scopePaths) {
+      const scanOpts: Parameters<typeof codeGraphService.scanVulnerabilities>[0] = { path: scopePath };
+      if (category !== 'all') scanOpts.category = category;
+
+      const result = await codeGraphService.scanVulnerabilities(scanOpts);
+      totalFilesScanned += result.filesScanned;
+
+      allVulnerabilities.push(...result.vulnerabilities.map(v => ({
+        type: v.type,
+        severity: v.severity as 'critical' | 'high' | 'medium' | 'low',
+        file: v.filePath,
+        line: v.line,
+        code: v.code,
+        description: v.message,
+        fix: v.recommendation,
+      })));
+    }
 
     // Filter by minimum severity (service returns all, MCP needs severity filtering)
     if (severity !== 'all') {
       const minSeverity = SEVERITY_RANK[severity] ?? 0;
-      vulnerabilities = vulnerabilities.filter(
+      allVulnerabilities = allVulnerabilities.filter(
         v => (SEVERITY_RANK[v.severity] ?? 0) >= minSeverity,
       );
     }
 
     // Calculate summary
     const summary = {
-      critical: vulnerabilities.filter(v => v.severity === 'critical').length,
-      high: vulnerabilities.filter(v => v.severity === 'high').length,
-      medium: vulnerabilities.filter(v => v.severity === 'medium').length,
-      low: vulnerabilities.filter(v => v.severity === 'low').length,
+      critical: allVulnerabilities.filter(v => v.severity === 'critical').length,
+      high: allVulnerabilities.filter(v => v.severity === 'high').length,
+      medium: allVulnerabilities.filter(v => v.severity === 'medium').length,
+      low: allVulnerabilities.filter(v => v.severity === 'low').length,
     };
 
     return {
-      vulnerabilities,
+      vulnerabilities: allVulnerabilities,
       summary,
-      filesScanned: result.filesScanned,
+      filesScanned: totalFilesScanned,
     };
   } catch (error) {
     return {

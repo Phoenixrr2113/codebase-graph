@@ -99,6 +99,27 @@ export function extractImports(
 }
 
 /**
+ * Extract imports from pre-collected import_statement nodes (single-pass mode)
+ */
+export function extractImportsFromNodes(
+  importNodes: Parser.SyntaxNode[],
+  filePath: string
+): ImportEntity[] {
+  const imports: ImportEntity[] = [];
+  for (const node of importNodes) {
+    const importEntity = parseImportStatement(node, filePath);
+    if (importEntity) {
+      const resolved = resolveImportPath(importEntity.source, filePath);
+      if (resolved) {
+        importEntity.resolvedPath = resolved;
+      }
+      imports.push(importEntity);
+    }
+  }
+  return imports;
+}
+
+/**
  * Parse a single import statement node
  */
 function parseImportStatement(

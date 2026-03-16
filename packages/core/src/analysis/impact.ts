@@ -222,7 +222,7 @@ export function getDirectCallersQuery(symbolName: string): { cypher: string; par
   return {
     cypher: `
     MATCH (target:Function {name: $symbolName})<-[:CALLS]-(caller:Function)
-    RETURN caller.name as name, caller.filePath as file, 1 as depth
+    RETURN DISTINCT caller.name as name, caller.filePath as file, 1 as depth
   `.trim(),
     params: { symbolName },
   };

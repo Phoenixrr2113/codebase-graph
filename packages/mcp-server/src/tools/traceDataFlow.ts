@@ -5,6 +5,7 @@
  * Delegates to codeGraphService.analyzeDataflowForFile() for business logic.
  */
 
+import { resolve } from 'node:path';
 import { codeGraphService } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
@@ -79,7 +80,8 @@ export async function traceDataFlow(input: TraceDataFlowInput): Promise<TraceDat
     }
 
     // Delegate to service layer
-    const result = await codeGraphService.analyzeDataflowForFile(input.file, input.source);
+    const filePath = resolve(input.file);
+    const result = await codeGraphService.analyzeDataflowForFile(filePath, input.source);
 
     // Map service result to MCP output format
     const paths: DataFlowPath[] = result.paths;

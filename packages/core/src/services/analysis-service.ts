@@ -26,7 +26,7 @@ import {
   analyzeDataflow as runDataflowAnalysis,
 } from '../analysis';
 import type { SecurityFinding, DataflowAnalysisResult } from '../analysis';
-import { initParser, parseCode, parseFile } from '../pipeline';
+import { initParser, parseCode, parseFile, registerPlugins } from '../pipeline';
 import { labelOr } from './helpers';
 import type {
   ServiceEntityContext,
@@ -258,12 +258,12 @@ export async function getComplexityHotspotsImpl(options?: {
     WHERE f.complexity >= $threshold ${scopeFilter}
     RETURN f.name as name,
            f.filePath as file,
-           f.complexity as complexity,
-           coalesce(f.cognitiveComplexity, 0) as cognitive,
-           coalesce(f.nestingDepth, 0) as nesting,
-           CASE WHEN f.endLine IS NOT NULL AND f.startLine IS NOT NULL
-                THEN f.endLine - f.startLine + 1 ELSE 0 END as lines
-    ORDER BY f.complexity DESC
+           max(f.complexity) as complexity,
+           max(coalesce(f.cognitiveComplexity, 0)) as cognitive,
+           max(coalesce(f.nestingDepth, 0)) as nesting,
+           max(CASE WHEN f.endLine IS NOT NULL AND f.startLine IS NOT NULL
+                THEN f.endLine - f.startLine + 1 ELSE 0 END) as lines
+    ORDER BY complexity DESC
     LIMIT 50
   `;
 
@@ -663,7 +663,6 @@ export async function analyzeRefactoringImpl(
       startLine: number;
       endLine: number;
       internalCalls: number;
-      stateReads: number;
     }>(candidatesQuery.cypher, { params: candidatesQuery.params }),
     client.roQuery<{ caller: string; callee: string }>(callsQuery.cypher, { params: callsQuery.params }),
   ]);
@@ -675,7 +674,7 @@ export async function analyzeRefactoringImpl(
       startLine: f.startLine ?? 0,
       endLine: f.endLine ?? 0,
       internalCalls: f.internalCalls ?? 0,
-      stateReads: f.stateReads ?? 0,
+      stateReads: 0,
     })),
     callRelationships: callsResult.data.map((c) => ({
       caller: c.caller ?? '',
@@ -746,7 +745,8 @@ export async function scanVulnerabilitiesImpl(options?: ServiceScanOptions): Pro
     };
   }
 
-  // Initialize parser
+  // Initialize parser and language plugins
+  registerPlugins();
   await initParser();
 
   const allFindings: SecurityFinding[] = [];
@@ -829,6 +829,7 @@ export async function analyzeDataflowForFileImpl(
   filePath: string,
   variable?: string,
 ): Promise<ServiceDataflowResult> {
+  registerPlugins();
   await initParser();
 
   const tree = await parseFile(filePath);

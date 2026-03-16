@@ -655,6 +655,226 @@ const CYPHER = {
     MERGE (p)-[:HAS_FILE]->(f)
   `,
 
+  // --- Fast CREATE path for full reindex (no MERGE lookups needed) ---
+  // Used after clearing old data; CREATE is much faster than MERGE for bulk inserts.
+  BATCH_CREATE_FILES: `
+    UNWIND $items AS item
+    CREATE (f:File {filePath: item.filePath, name: item.name, extension: item.extension,
+      loc: item.loc, lastModified: item.lastModified, hash: item.hash,
+      sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
+  `,
+
+  BATCH_CREATE_FUNCTIONS_FAST: `
+    UNWIND $items AS item
+    CREATE (fn:Function {name: item.name, filePath: item.filePath, startLine: item.startLine,
+      endLine: item.endLine, isExported: item.isExported, isAsync: item.isAsync,
+      isArrow: item.isArrow, params: item.params, returnType: item.returnType,
+      docstring: item.docstring, complexity: item.complexity,
+      cognitiveComplexity: item.cognitiveComplexity, nestingDepth: item.nestingDepth,
+      sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
+    WITH fn
+    MATCH (f:File {filePath: fn.filePath})
+    CREATE (f)-[:CONTAINS]->(fn)
+  `,
+
+  BATCH_CREATE_CLASSES_FAST: `
+    UNWIND $items AS item
+    CREATE (c:Class {name: item.name, filePath: item.filePath, startLine: item.startLine,
+      endLine: item.endLine, isExported: item.isExported, isAbstract: item.isAbstract,
+      extends: item.extends, implements: item.implements, docstring: item.docstring,
+      sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
+    WITH c
+    MATCH (f:File {filePath: c.filePath})
+    CREATE (f)-[:CONTAINS]->(c)
+  `,
+
+  BATCH_CREATE_INTERFACES_FAST: `
+    UNWIND $items AS item
+    CREATE (i:Interface {name: item.name, filePath: item.filePath, startLine: item.startLine,
+      endLine: item.endLine, isExported: item.isExported, extends: item.extends,
+      docstring: item.docstring,
+      sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
+    WITH i
+    MATCH (f:File {filePath: i.filePath})
+    CREATE (f)-[:CONTAINS]->(i)
+  `,
+
+  BATCH_CREATE_VARIABLES_FAST: `
+    UNWIND $items AS item
+    CREATE (v:Variable {name: item.name, filePath: item.filePath, line: item.line,
+      kind: item.kind, isExported: item.isExported, type: item.type,
+      sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
+    WITH v
+    MATCH (f:File {filePath: v.filePath})
+    CREATE (f)-[:CONTAINS]->(v)
+  `,
+
+  BATCH_CREATE_TYPES_FAST: `
+    UNWIND $items AS item
+    CREATE (t:Type {name: item.name, filePath: item.filePath, startLine: item.startLine,
+      endLine: item.endLine, isExported: item.isExported, kind: item.kind,
+      docstring: item.docstring,
+      sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
+    WITH t
+    MATCH (f:File {filePath: t.filePath})
+    CREATE (f)-[:CONTAINS]->(t)
+  `,
+
+  BATCH_CREATE_COMPONENTS_FAST: `
+    UNWIND $items AS item
+    CREATE (comp:Component {name: item.name, filePath: item.filePath, startLine: item.startLine,
+      endLine: item.endLine, isExported: item.isExported, props: item.props,
+      propsType: item.propsType,
+      sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
+    WITH comp
+    MATCH (f:File {filePath: comp.filePath})
+    CREATE (f)-[:CONTAINS]->(comp)
+  `,
+
+  // --- Combined single-query upserts (reduces 7 round-trips to 1) ---
+  // Each block: UNWIND + MERGE/SET, separated by WITH count(*) AS _ to reset cardinality.
+  // The MATCH (f:File) + MERGE CONTAINS is inlined into each entity block.
+  // Empty arrays are safe: UNWIND [] produces zero rows, skipping that block.
+  COMBINED_UPSERT_ALL: `
+    UNWIND $files AS item
+    MERGE (f:File {filePath: item.filePath})
+    SET f.name = item.name,
+        f.extension = item.extension,
+        f.loc = item.loc,
+        f.lastModified = item.lastModified,
+        f.hash = item.hash,
+        f.sourcePipeline = item.sourcePipeline,
+        f.sourceTask = item.sourceTask,
+        f.processedAt = item.processedAt
+    WITH count(*) AS _c1
+    UNWIND $functions AS item
+    MERGE (fn:Function {name: item.name, filePath: item.filePath, startLine: item.startLine})
+    SET fn.endLine = item.endLine,
+        fn.isExported = item.isExported,
+        fn.isAsync = item.isAsync,
+        fn.isArrow = item.isArrow,
+        fn.params = item.params,
+        fn.returnType = item.returnType,
+        fn.docstring = item.docstring,
+        fn.complexity = item.complexity,
+        fn.cognitiveComplexity = item.cognitiveComplexity,
+        fn.nestingDepth = item.nestingDepth,
+        fn.sourcePipeline = item.sourcePipeline,
+        fn.sourceTask = item.sourceTask,
+        fn.processedAt = item.processedAt
+    WITH fn, item
+    MATCH (f:File {filePath: item.filePath})
+    MERGE (f)-[:CONTAINS]->(fn)
+    WITH count(*) AS _c2
+    UNWIND $classes AS item
+    MERGE (c:Class {name: item.name, filePath: item.filePath, startLine: item.startLine})
+    SET c.endLine = item.endLine,
+        c.isExported = item.isExported,
+        c.isAbstract = item.isAbstract,
+        c.extends = item.extends,
+        c.implements = item.implements,
+        c.docstring = item.docstring,
+        c.sourcePipeline = item.sourcePipeline,
+        c.sourceTask = item.sourceTask,
+        c.processedAt = item.processedAt
+    WITH c, item
+    MATCH (f:File {filePath: item.filePath})
+    MERGE (f)-[:CONTAINS]->(c)
+    WITH count(*) AS _c3
+    UNWIND $interfaces AS item
+    MERGE (i:Interface {name: item.name, filePath: item.filePath, startLine: item.startLine})
+    SET i.endLine = item.endLine,
+        i.isExported = item.isExported,
+        i.extends = item.extends,
+        i.docstring = item.docstring,
+        i.sourcePipeline = item.sourcePipeline,
+        i.sourceTask = item.sourceTask,
+        i.processedAt = item.processedAt
+    WITH i, item
+    MATCH (f:File {filePath: item.filePath})
+    MERGE (f)-[:CONTAINS]->(i)
+    WITH count(*) AS _c4
+    UNWIND $variables AS item
+    MERGE (v:Variable {name: item.name, filePath: item.filePath, line: item.line})
+    SET v.kind = item.kind,
+        v.isExported = item.isExported,
+        v.type = item.type,
+        v.sourcePipeline = item.sourcePipeline,
+        v.sourceTask = item.sourceTask,
+        v.processedAt = item.processedAt
+    WITH v, item
+    MATCH (f:File {filePath: item.filePath})
+    MERGE (f)-[:CONTAINS]->(v)
+    WITH count(*) AS _c5
+    UNWIND $types AS item
+    MERGE (t:Type {name: item.name, filePath: item.filePath, startLine: item.startLine})
+    SET t.endLine = item.endLine,
+        t.isExported = item.isExported,
+        t.kind = item.kind,
+        t.docstring = item.docstring,
+        t.sourcePipeline = item.sourcePipeline,
+        t.sourceTask = item.sourceTask,
+        t.processedAt = item.processedAt
+    WITH t, item
+    MATCH (f:File {filePath: item.filePath})
+    MERGE (f)-[:CONTAINS]->(t)
+    WITH count(*) AS _c6
+    UNWIND $components AS item
+    MERGE (comp:Component {name: item.name, filePath: item.filePath, startLine: item.startLine})
+    SET comp.endLine = item.endLine,
+        comp.isExported = item.isExported,
+        comp.props = item.props,
+        comp.propsType = item.propsType,
+        comp.sourcePipeline = item.sourcePipeline,
+        comp.sourceTask = item.sourceTask,
+        comp.processedAt = item.processedAt
+    WITH comp, item
+    MATCH (f:File {filePath: item.filePath})
+    MERGE (f)-[:CONTAINS]->(comp)
+    RETURN count(*) AS done
+  `,
+
+  // --- Combined edge creation (reduces 5 round-trips to 1) ---
+  COMBINED_CREATE_EDGES: `
+    UNWIND $callEdges AS item
+    MATCH (caller:Function {name: item.callerName, filePath: item.callerFile})
+    MATCH (callee:Function {name: item.calleeName, filePath: item.calleeFile})
+    MERGE (caller)-[c:CALLS]->(callee)
+    ON CREATE SET c.line = item.line, c.count = 1
+    ON MATCH SET c.count = c.count + 1
+    WITH count(*) AS _e1
+    UNWIND $importEdges AS item
+    MATCH (from:File {filePath: item.fromPath})
+    MERGE (to:File {filePath: item.toPath})
+    ON CREATE SET to:External
+    MERGE (from)-[i:IMPORTS]->(to)
+    SET i.specifiers = item.specifiers
+    WITH count(*) AS _e2
+    UNWIND $extendsEdges AS item
+    MATCH (child:Class {name: item.childName, filePath: item.childFile})
+    MERGE (parent:Class {name: item.parentName, filePath: COALESCE(item.parentFile, 'external')})
+    ON CREATE SET parent:External
+    MERGE (child)-[e:EXTENDS]->(parent)
+    WITH count(*) AS _e3
+    UNWIND $implementsEdges AS item
+    MATCH (c:Class {name: item.className, filePath: item.classFile})
+    MERGE (i:Interface {name: item.interfaceName, filePath: COALESCE(item.interfaceFile, 'external')})
+    ON CREATE SET i:External
+    MERGE (c)-[impl:IMPLEMENTS]->(i)
+    WITH count(*) AS _e4
+    UNWIND $rendersEdges AS item
+    MATCH (parent:Component {name: item.parentName, filePath: item.parentFile})
+    MATCH (child:Component {name: item.childName})
+    MERGE (parent)-[r:RENDERS]->(child)
+    SET r.line = item.line
+    WITH count(*) AS _e5
+    UNWIND $projectLinks AS item
+    MATCH (p:Project {id: item.projectId})
+    MATCH (f:File {filePath: item.filePath})
+    MERGE (p)-[:HAS_FILE]->(f)
+    RETURN count(*) AS done
+  `,
+
   // Embedding update operations (per-node-type) — uses vecf32() for proper vector storage
   UPDATE_FILE_EMBEDDING: `
     MATCH (f:File {filePath: $filePath})
@@ -813,6 +1033,9 @@ export interface GraphOperations {
 
   /** Batch upsert multiple files' entities using UNWIND (much fewer Cypher round trips) */
   batchUpsertBulk(entitiesList: ParsedFileEntities[]): Promise<void>;
+
+  /** Batch CREATE (no MERGE) — use after clearAll() for full reindex. Much faster than MERGE. */
+  batchCreateBulk(entitiesList: ParsedFileEntities[]): Promise<void>;
 
   /** Batch link multiple files to a project in one query */
   linkProjectFiles(projectId: string, filePaths: string[]): Promise<void>;
@@ -1106,76 +1329,55 @@ class GraphOperationsImpl implements GraphOperations {
     const types = entitiesList.flatMap(e => e.types.map(t => typeToNodeProps(t)));
     const components = entitiesList.flatMap(e => e.components.map(comp => componentToNodeProps(comp)));
 
-    // Upsert files first (parent nodes for CONTAINS edges)
-    if (files.length > 0) {
-      await this.client.query(CYPHER.BATCH_UPSERT_FILES, { params: { items: files } });
-    }
+    // Sub-chunk helper to avoid crashing FalkorDB with huge UNWIND arrays
+    const SUB_CHUNK = 500;
+    const chunkedQuery = async <T>(cypher: string, items: T[]): Promise<void> => {
+      for (let i = 0; i < items.length; i += SUB_CHUNK) {
+        await this.client.query(cypher, { params: { items: items.slice(i, i + SUB_CHUNK) } });
+      }
+    };
 
-    // Upsert all entity types (with CONTAINS edges to files)
-    const entityOps: Promise<void>[] = [];
-    if (functions.length > 0) {
-      entityOps.push(
-        this.client.query(CYPHER.BATCH_UPSERT_FUNCTIONS, { params: { items: functions } }).then(() => {}),
-      );
-    }
-    if (classes.length > 0) {
-      entityOps.push(
-        this.client.query(CYPHER.BATCH_UPSERT_CLASSES, { params: { items: classes } }).then(() => {}),
-      );
-    }
-    if (interfaces.length > 0) {
-      entityOps.push(
-        this.client.query(CYPHER.BATCH_UPSERT_INTERFACES, { params: { items: interfaces } }).then(() => {}),
-      );
-    }
-    if (variables.length > 0) {
-      entityOps.push(
-        this.client.query(CYPHER.BATCH_UPSERT_VARIABLES, { params: { items: variables } }).then(() => {}),
-      );
-    }
-    if (types.length > 0) {
-      entityOps.push(
-        this.client.query(CYPHER.BATCH_UPSERT_TYPES, { params: { items: types } }).then(() => {}),
-      );
-    }
-    if (components.length > 0) {
-      entityOps.push(
-        this.client.query(CYPHER.BATCH_UPSERT_COMPONENTS, { params: { items: components } }).then(() => {}),
-      );
-    }
-    // Wait for all entity upserts (entities must exist before edges)
-    await Promise.all(entityOps);
+    // Upsert files first (parent nodes for CONTAINS edges)
+    if (files.length > 0) await chunkedQuery(CYPHER.BATCH_UPSERT_FILES, files);
+
+    // Upsert all entity types sequentially with sub-chunking
+    if (functions.length > 0) await chunkedQuery(CYPHER.BATCH_UPSERT_FUNCTIONS, functions);
+    if (classes.length > 0) await chunkedQuery(CYPHER.BATCH_UPSERT_CLASSES, classes);
+    if (interfaces.length > 0) await chunkedQuery(CYPHER.BATCH_UPSERT_INTERFACES, interfaces);
+    if (variables.length > 0) await chunkedQuery(CYPHER.BATCH_UPSERT_VARIABLES, variables);
+    if (types.length > 0) await chunkedQuery(CYPHER.BATCH_UPSERT_TYPES, types);
+    if (components.length > 0) await chunkedQuery(CYPHER.BATCH_UPSERT_COMPONENTS, components);
 
     // Collect and batch all edges
-    const callEdgeItems = entitiesList.flatMap(e =>
+    const callEdges = entitiesList.flatMap(e =>
       e.callEdges.map(edge => {
         const caller = parseEntityId(edge.callerId);
         const callee = parseEntityId(edge.calleeId);
         return { callerName: caller.name, callerFile: caller.filePath, calleeName: callee.name, calleeFile: callee.filePath, line: edge.line };
       }),
     );
-    const importEdgeItems = entitiesList.flatMap(e =>
+    const importEdges = entitiesList.flatMap(e =>
       e.importsEdges.map(edge => ({
         fromPath: edge.fromFilePath,
         toPath: edge.toFilePath,
         specifiers: edge.specifiers ?? null,
       })),
     );
-    const extendsEdgeItems = entitiesList.flatMap(e =>
+    const extendsEdges = entitiesList.flatMap(e =>
       e.extendsEdges.map(edge => {
         const parent = parseEntityId(edge.parentId);
         const child = parseEntityId(edge.childId);
         return { childName: child.name, childFile: child.filePath, parentName: resolvedName(parent), parentFile: resolvedFilePath(parent) ?? null };
       }),
     );
-    const implementsEdgeItems = entitiesList.flatMap(e =>
+    const implementsEdges = entitiesList.flatMap(e =>
       e.implementsEdges.map(edge => {
         const iface = parseEntityId(edge.interfaceId);
         const cls = parseEntityId(edge.classId);
         return { className: cls.name, classFile: cls.filePath, interfaceName: resolvedName(iface), interfaceFile: resolvedFilePath(iface) ?? null };
       }),
     );
-    const rendersEdgeItems = entitiesList.flatMap(e =>
+    const rendersEdges = entitiesList.flatMap(e =>
       e.rendersEdges.map(edge => {
         const parent = parseEntityId(edge.parentId);
         const child = parseEntityId(edge.childId);
@@ -1183,34 +1385,91 @@ class GraphOperationsImpl implements GraphOperations {
       }),
     );
 
-    // Batch create all edges
-    const edgeOps: Promise<void>[] = [];
-    if (callEdgeItems.length > 0) {
-      edgeOps.push(
-        this.client.query(CYPHER.BATCH_CREATE_CALL_EDGES, { params: { items: callEdgeItems } }).then(() => {}),
-      );
+    // Create edges with sub-chunking
+    if (callEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_CALL_EDGES, callEdges);
+    if (importEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_IMPORT_EDGES, importEdges);
+    if (extendsEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_EXTENDS_EDGES, extendsEdges);
+    if (implementsEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_IMPLEMENTS_EDGES, implementsEdges);
+    if (rendersEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_RENDERS_EDGES, rendersEdges);
+  }
+
+  @trace()
+  async batchCreateBulk(entitiesList: ParsedFileEntities[]): Promise<void> {
+    if (entitiesList.length === 0) return;
+
+    // Collect all entities by type across all files
+    const files = entitiesList.map(e => fileToNodeProps(e.file));
+    const functions = entitiesList.flatMap(e => e.functions.map(fn => functionToNodeProps(fn)));
+    const classes = entitiesList.flatMap(e => e.classes.map(cls => classToNodeProps(cls)));
+    const interfaces = entitiesList.flatMap(e => e.interfaces.map(iface => interfaceToNodeProps(iface)));
+    const variables = entitiesList.flatMap(e => e.variables.map(v => variableToNodeProps(v)));
+    const types = entitiesList.flatMap(e => e.types.map(t => typeToNodeProps(t)));
+    const components = entitiesList.flatMap(e => e.components.map(comp => componentToNodeProps(comp)));
+
+    // Helper: run a query in sub-chunks to avoid crashing FalkorDB with huge UNWIND arrays
+    const SUB_CHUNK = 500;
+    const chunkedQuery = async <T>(cypher: string, items: T[]): Promise<void> => {
+      for (let i = 0; i < items.length; i += SUB_CHUNK) {
+        await this.client.query(cypher, { params: { items: items.slice(i, i + SUB_CHUNK) } });
+      }
+    };
+
+    // CREATE files first (must exist for CONTAINS edges in subsequent queries)
+    if (files.length > 0) {
+      await chunkedQuery(CYPHER.BATCH_CREATE_FILES, files);
     }
-    if (importEdgeItems.length > 0) {
-      edgeOps.push(
-        this.client.query(CYPHER.BATCH_CREATE_IMPORT_EDGES, { params: { items: importEdgeItems } }).then(() => {}),
-      );
-    }
-    if (extendsEdgeItems.length > 0) {
-      edgeOps.push(
-        this.client.query(CYPHER.BATCH_CREATE_EXTENDS_EDGES, { params: { items: extendsEdgeItems } }).then(() => {}),
-      );
-    }
-    if (implementsEdgeItems.length > 0) {
-      edgeOps.push(
-        this.client.query(CYPHER.BATCH_CREATE_IMPLEMENTS_EDGES, { params: { items: implementsEdgeItems } }).then(() => {}),
-      );
-    }
-    if (rendersEdgeItems.length > 0) {
-      edgeOps.push(
-        this.client.query(CYPHER.BATCH_CREATE_RENDERS_EDGES, { params: { items: rendersEdgeItems } }).then(() => {}),
-      );
-    }
-    await Promise.all(edgeOps);
+
+    // CREATE all entity types sequentially (FalkorDB is single-threaded; sequential avoids connection overload)
+    if (functions.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_FUNCTIONS_FAST, functions);
+    if (classes.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_CLASSES_FAST, classes);
+    if (interfaces.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_INTERFACES_FAST, interfaces);
+    if (variables.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_VARIABLES_FAST, variables);
+    if (types.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_TYPES_FAST, types);
+    if (components.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_COMPONENTS_FAST, components);
+
+    // Create edges (same as batchUpsertBulk — edges always use MERGE for idempotency)
+    const callEdges = entitiesList.flatMap(e =>
+      e.callEdges.map(edge => {
+        const caller = parseEntityId(edge.callerId);
+        const callee = parseEntityId(edge.calleeId);
+        return { callerName: caller.name, callerFile: caller.filePath, calleeName: callee.name, calleeFile: callee.filePath, line: edge.line };
+      }),
+    );
+    const importEdges = entitiesList.flatMap(e =>
+      e.importsEdges.map(edge => ({
+        fromPath: edge.fromFilePath,
+        toPath: edge.toFilePath,
+        specifiers: edge.specifiers ?? null,
+      })),
+    );
+    const extendsEdges = entitiesList.flatMap(e =>
+      e.extendsEdges.map(edge => {
+        const parent = parseEntityId(edge.parentId);
+        const child = parseEntityId(edge.childId);
+        return { childName: child.name, childFile: child.filePath, parentName: resolvedName(parent), parentFile: resolvedFilePath(parent) ?? null };
+      }),
+    );
+    const implementsEdges = entitiesList.flatMap(e =>
+      e.implementsEdges.map(edge => {
+        const iface = parseEntityId(edge.interfaceId);
+        const cls = parseEntityId(edge.classId);
+        return { className: cls.name, classFile: cls.filePath, interfaceName: resolvedName(iface), interfaceFile: resolvedFilePath(iface) ?? null };
+      }),
+    );
+    const rendersEdges = entitiesList.flatMap(e =>
+      e.rendersEdges.map(edge => {
+        const parent = parseEntityId(edge.parentId);
+        const child = parseEntityId(edge.childId);
+        return { parentName: parent.name, parentFile: parent.filePath, childName: child.name, line: edge.line };
+      }),
+    );
+
+    // Create edges with sub-chunking (reuses chunkedQuery helper from above)
+    if (callEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_CALL_EDGES, callEdges);
+    if (importEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_IMPORT_EDGES, importEdges);
+    if (extendsEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_EXTENDS_EDGES, extendsEdges);
+    if (implementsEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_IMPLEMENTS_EDGES, implementsEdges);
+    if (rendersEdges.length > 0) await chunkedQuery(CYPHER.BATCH_CREATE_RENDERS_EDGES, rendersEdges);
   }
 
   @trace()

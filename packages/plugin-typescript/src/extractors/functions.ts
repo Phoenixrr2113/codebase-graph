@@ -39,6 +39,23 @@ export function extractFunctions(
 }
 
 /**
+ * Extract functions from pre-collected function nodes (single-pass mode)
+ */
+export function extractFunctionsFromNodes(
+  functionNodes: Parser.SyntaxNode[],
+  filePath: string
+): FunctionEntity[] {
+  const functions: FunctionEntity[] = [];
+  for (const node of functionNodes) {
+    const functionEntity = parseFunctionNode(node, filePath);
+    if (functionEntity) {
+      functions.push(functionEntity);
+    }
+  }
+  return functions;
+}
+
+/**
  * Parse a function node into a FunctionEntity
  */
 function parseFunctionNode(

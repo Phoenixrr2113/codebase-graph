@@ -1094,7 +1094,7 @@ function fixtureValidationToFn(v: FixtureValidation, tc: FixtureTestCase): (resu
 
     case 'found':
       return (result) => {
-        const expectedSyms = tc.expectedSymbols ?? [];
+        const expectedSyms = tc.expectedSymbols ?? (v.entityName ? [v.entityName] : []);
         const expectedFs = tc.expectedFiles ?? [];
         if (expectedSyms.length > 0) {
           const names = extractNames(result, tc.tool);
@@ -1153,7 +1153,7 @@ function fixtureValidationToFn(v: FixtureValidation, tc: FixtureTestCase): (resu
     case 'edge_exists':
       return (result) => {
         const names = extractNames(result, tc.tool);
-        const expected = tc.expectedSymbols ?? [];
+        const expected = tc.expectedSymbols ?? (v.callerName ? [v.callerName] : []);
         return hasAny(names, expected) ? null : `Edge not found: want [${expected.join(', ')}] in [${names.slice(0, 5).join(', ')}]`;
       };
 

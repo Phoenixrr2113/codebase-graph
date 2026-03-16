@@ -73,6 +73,34 @@ export function findNodesOfTypes(
   return results;
 }
 
+/**
+ * Collect all nodes matching any of the given types in a single walk.
+ * Returns a Map from node type to array of matching nodes.
+ * This replaces multiple findNodesOfType/findNodesOfTypes calls with one traversal.
+ */
+export function collectNodesByType(
+  rootNode: Parser.SyntaxNode,
+  types: string[]
+): Map<string, Parser.SyntaxNode[]> {
+  const typeSet = new Set(types);
+  const result = new Map<string, Parser.SyntaxNode[]>();
+  for (const t of types) {
+    result.set(t, []);
+  }
+
+  function walk(node: Parser.SyntaxNode): void {
+    if (typeSet.has(node.type)) {
+      result.get(node.type)!.push(node);
+    }
+    for (const child of node.children) {
+      walk(child);
+    }
+  }
+
+  walk(rootNode);
+  return result;
+}
+
 /** Generate a unique ID for an entity */
 export function generateEntityId(filePath: string, kind: string, name: string, line: number): string {
   // Create a simple unique ID based on file, kind, name, and line

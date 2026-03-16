@@ -33,6 +33,21 @@ export function extractVariables(
 }
 
 /**
+ * Extract variables from pre-collected declaration nodes (single-pass mode)
+ */
+export function extractVariablesFromNodes(
+  declarationNodes: Parser.SyntaxNode[],
+  filePath: string
+): VariableEntity[] {
+  const variables: VariableEntity[] = [];
+  for (const node of declarationNodes) {
+    const extracted = parseVariableDeclaration(node, filePath);
+    variables.push(...extracted);
+  }
+  return variables;
+}
+
+/**
  * Parse a variable declaration node
  * Returns multiple entities since one declaration can have multiple declarators
  */

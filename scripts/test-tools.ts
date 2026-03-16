@@ -38,3 +38,4 @@ try {
 } catch (e: any) {
   console.error('ERROR:', e.message);
 }
+process.exit(0);

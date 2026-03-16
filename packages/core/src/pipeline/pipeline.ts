@@ -378,10 +378,10 @@ export function buildParsedFileEntities(
   const ext = extname(file.path).toLowerCase();
   const plugin = languageRegistry.getForExtension(ext);
 
-  // Enrich functions with complexity metrics if AST is available
-  if (rootNode) {
-    enrichFunctionsWithComplexity(rootNode, extracted.functions);
-  }
+  // Note: complexity metrics (cyclomatic, cognitive, nesting) are already
+  // computed during entity extraction by parseFunctionNode() → calculateComplexity().
+  // The previous enrichFunctionsWithComplexity() call was redundant (re-walked the
+  // entire AST doing 1 + 3N additional traversals for N functions).
 
   // --- Import edges ---
   // Import resolution varies by language capability:

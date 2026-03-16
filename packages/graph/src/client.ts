@@ -242,6 +242,19 @@ async function loadConfigFile(): Promise<Partial<GraphConfig>> {
   return {};
 }
 
+/**
+ * Detect the best default driver. Prefers FalkorDBLite (embedded, no Docker)
+ * when the package is installed; falls back to FalkorDB (remote) otherwise.
+ */
+async function detectDefaultDriver(): Promise<'falkordb' | 'falkordblite'> {
+  try {
+    await import('falkordblite');
+    return 'falkordblite';
+  } catch {
+    return 'falkordb';
+  }
+}
+
 export async function createClient(config?: FalkorConfig | GraphConfig): Promise<GraphClient> {
   // Layer config: explicit arg > config file > env vars > default (FalkorDB)
   const fileConfig = await loadConfigFile();
@@ -249,7 +262,7 @@ export async function createClient(config?: FalkorConfig | GraphConfig): Promise
   const driverType: 'falkordb' | 'falkordblite' = (config as GraphConfig)?.driver
     ?? process.env['CODEGRAPH_DRIVER'] as 'falkordb' | 'falkordblite' | undefined
     ?? fileConfig.driver
-    ?? 'falkordb';
+    ?? await detectDefaultDriver();
 
   const graphName = config?.graphName
     ?? process.env['FALKORDB_GRAPH']

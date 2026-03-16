@@ -285,14 +285,10 @@ export function getExtractionCandidatesQuery(filePath: string): { cypher: string
     MATCH (file:File {filePath: $filePath})-[:CONTAINS]->(fn:Function)
     OPTIONAL MATCH (fn)-[:CALLS]->(internal:Function)
     WHERE internal.filePath = file.filePath
-    OPTIONAL MATCH (fn)-[:READS]->(v:Variable)
-    WHERE v.filePath = file.filePath
-    WITH fn, count(DISTINCT internal) as internalCalls,
-         count(DISTINCT v) as stateReads
+    WITH fn, count(DISTINCT internal) as internalCalls
     RETURN fn.name as name, fn.startLine as startLine, fn.endLine as endLine,
-           internalCalls, stateReads,
-           internalCalls + stateReads as couplingScore
-    ORDER BY couplingScore ASC
+           internalCalls
+    ORDER BY internalCalls ASC
   `.trim(),
     params: { filePath },
   };

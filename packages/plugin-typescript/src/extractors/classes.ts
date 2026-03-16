@@ -38,6 +38,23 @@ export function extractClasses(
 }
 
 /**
+ * Extract classes from pre-collected class nodes (single-pass mode)
+ */
+export function extractClassesFromNodes(
+  classNodes: Parser.SyntaxNode[],
+  filePath: string
+): ClassEntity[] {
+  const classes: ClassEntity[] = [];
+  for (const node of classNodes) {
+    const classEntity = parseClassNode(node, filePath);
+    if (classEntity) {
+      classes.push(classEntity);
+    }
+  }
+  return classes;
+}
+
+/**
  * Parse a class node into a ClassEntity
  */
 function parseClassNode(
