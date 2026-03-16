@@ -1,5 +1,5 @@
 /**
- * Rule Loader — Loads externalized security and payment rules from JSON files
+ * Rule Loader — Loads externalized security rules from JSON files
  *
  * Compiles string patterns into Sets and RegExp objects for runtime use.
  * Rules are loaded once and cached for the process lifetime.
@@ -95,38 +95,11 @@ export interface SecurityRules {
   }>;
 }
 
-/** Compiled payment rules ready for runtime use */
-export interface PaymentRules {
-  stripe: {
-    paymentMethods: Set<string>;
-    keyPatterns: RegExp[];
-    idempotencyRequiredMethods: string[];
-  };
-
-  adyen: {
-    paymentMethods: Set<string>;
-    keyPatterns: RegExp[];
-  };
-
-  amountSources: string[];
-  pciSensitiveFields: Set<string>;
-  loggingFunctions: Set<string>;
-
-  vulnerabilities: Record<string, {
-    severity: string;
-    type: string;
-    description: string;
-    fix: string;
-  }>;
-}
-
 // ============================================================================
 // Rule Loading
 // ============================================================================
 
 let _securityRules: SecurityRules | null = null;
-let _paymentRules: PaymentRules | null = null;
-
 /**
  * Load and compile security rules from JSON.
  * Results are cached for the process lifetime.
@@ -253,44 +226,14 @@ export function getSecurityRules(): SecurityRules {
 }
 
 /**
- * Load and compile payment rules from JSON.
- * Results are cached for the process lifetime.
- */
-export function getPaymentRules(): PaymentRules {
-  if (_paymentRules) return _paymentRules;
-
-  const rulesPath = join(__dirname, 'payment-rules.json');
-  const raw = JSON.parse(readFileSync(rulesPath, 'utf-8'));
-
-  _paymentRules = {
-    stripe: {
-      paymentMethods: new Set(raw.stripe.payment_methods),
-      keyPatterns: raw.stripe.key_patterns.map((p: string) => new RegExp(p)),
-      idempotencyRequiredMethods: raw.stripe.idempotency_required_methods,
-    },
-    adyen: {
-      paymentMethods: new Set(raw.adyen.payment_methods),
-      keyPatterns: raw.adyen.key_patterns.map((p: string) => new RegExp(p)),
-    },
-    amountSources: raw.amount_sources,
-    pciSensitiveFields: new Set(raw.pci_sensitive_fields),
-    loggingFunctions: new Set(raw.logging_functions),
-    vulnerabilities: raw.vulnerabilities,
-  };
-
-  return _paymentRules;
-}
-
-/**
  * Reset cached rules (for testing).
  */
 export function resetRuleCache(): void {
   _securityRules = null;
-  _paymentRules = null;
 }
 
 /**
- * Get all vulnerability type metadata from both security and payment rules.
+ * Get all vulnerability type metadata from security rules.
  */
 export function getVulnerabilityTypes(): Array<{
   type: string;
@@ -298,7 +241,6 @@ export function getVulnerabilityTypes(): Array<{
   description: string;
 }> {
   const security = getSecurityRules();
-  const payment = getPaymentRules();
 
   return [
     { type: 'sql_injection', severity: security.sqlInjection.severity, description: security.sqlInjection.description },
@@ -307,10 +249,5 @@ export function getVulnerabilityTypes(): Array<{
     { type: 'path_traversal', severity: security.pathTraversal.severity, description: security.pathTraversal.description },
     { type: 'hardcoded_secret', severity: security.hardcodedSecrets.severity, description: security.hardcodedSecrets.description },
     { type: 'eval_usage', severity: security.evalUsage.severity, description: security.evalUsage.description },
-    ...Object.entries(payment.vulnerabilities).map(([, v]) => ({
-      type: v.type,
-      severity: v.severity,
-      description: v.description,
-    })),
   ];
 }

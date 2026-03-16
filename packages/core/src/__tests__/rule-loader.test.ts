@@ -1,15 +1,14 @@
 /**
  * Rule Loader — Unit Tests
  *
- * Verifies that externalized security and payment rules load correctly
+ * Verifies that externalized security rules load correctly
  * from JSON files, compile patterns into the right runtime types, and
- * provide consistent data between consumers (security.ts, dataflow.ts, payment.ts).
+ * provide consistent data between consumers (security.ts, dataflow.ts).
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   getSecurityRules,
-  getPaymentRules,
   resetRuleCache,
   getVulnerabilityTypes,
 } from '../analysis/rules/rule-loader';
@@ -235,106 +234,6 @@ describe('getSecurityRules', () => {
 });
 
 // ============================================================================
-// Payment Rules Loading
-// ============================================================================
-
-describe('getPaymentRules', () => {
-  it('loads payment rules from JSON successfully', () => {
-    const rules = getPaymentRules();
-    expect(rules).toBeDefined();
-  });
-
-  it('returns cached rules on subsequent calls', () => {
-    const first = getPaymentRules();
-    const second = getPaymentRules();
-    expect(first).toBe(second);
-  });
-
-  // --- Stripe ---
-  describe('stripe', () => {
-    it('has payment methods as Set', () => {
-      const { stripe } = getPaymentRules();
-      expect(stripe.paymentMethods).toBeInstanceOf(Set);
-      expect(stripe.paymentMethods.size).toBeGreaterThan(0);
-    });
-
-    it('has key patterns as RegExp[]', () => {
-      const { stripe } = getPaymentRules();
-      expect(Array.isArray(stripe.keyPatterns)).toBe(true);
-      expect(stripe.keyPatterns.length).toBeGreaterThan(0);
-      expect(stripe.keyPatterns[0]).toBeInstanceOf(RegExp);
-    });
-
-    it('key patterns match Stripe key formats', () => {
-      const { stripe } = getPaymentRules();
-      // Patterns require surrounding quotes (as they appear in source code)
-      const testKey = "'sk_test_51HGtqmLzJ3y0fKm0123456789abcdefghij'";
-      const matches = stripe.keyPatterns.some(p => p.test(testKey));
-      expect(matches).toBe(true);
-    });
-
-    it('has idempotency required methods', () => {
-      const { stripe } = getPaymentRules();
-      expect(Array.isArray(stripe.idempotencyRequiredMethods)).toBe(true);
-      expect(stripe.idempotencyRequiredMethods.length).toBeGreaterThan(0);
-    });
-  });
-
-  // --- Adyen ---
-  describe('adyen', () => {
-    it('has payment methods as Set', () => {
-      const { adyen } = getPaymentRules();
-      expect(adyen.paymentMethods).toBeInstanceOf(Set);
-      expect(adyen.paymentMethods.size).toBeGreaterThan(0);
-    });
-
-    it('has key patterns as RegExp[]', () => {
-      const { adyen } = getPaymentRules();
-      expect(Array.isArray(adyen.keyPatterns)).toBe(true);
-      expect(adyen.keyPatterns.length).toBeGreaterThan(0);
-      expect(adyen.keyPatterns[0]).toBeInstanceOf(RegExp);
-    });
-  });
-
-  // --- Shared Payment Fields ---
-  describe('shared payment fields', () => {
-    it('has amount sources', () => {
-      const rules = getPaymentRules();
-      expect(Array.isArray(rules.amountSources)).toBe(true);
-      expect(rules.amountSources.length).toBeGreaterThan(0);
-    });
-
-    it('has PCI sensitive fields as Set', () => {
-      const rules = getPaymentRules();
-      expect(rules.pciSensitiveFields).toBeInstanceOf(Set);
-      expect(rules.pciSensitiveFields.size).toBeGreaterThan(0);
-      expect(rules.pciSensitiveFields.has('cardNumber')).toBe(true);
-      expect(rules.pciSensitiveFields.has('cvv')).toBe(true);
-    });
-
-    it('has logging functions as Set', () => {
-      const rules = getPaymentRules();
-      expect(rules.loggingFunctions).toBeInstanceOf(Set);
-      expect(rules.loggingFunctions.size).toBeGreaterThan(0);
-      expect(rules.loggingFunctions.has('console.log')).toBe(true);
-    });
-
-    it('has vulnerability definitions', () => {
-      const rules = getPaymentRules();
-      expect(rules.vulnerabilities).toBeDefined();
-      const types = Object.values(rules.vulnerabilities);
-      expect(types.length).toBeGreaterThan(0);
-      for (const v of types) {
-        expect(v.type).toBeTruthy();
-        expect(v.severity).toBeTruthy();
-        expect(v.description).toBeTruthy();
-        expect(v.fix).toBeTruthy();
-      }
-    });
-  });
-});
-
-// ============================================================================
 // Cross-Module Consistency
 // ============================================================================
 
@@ -371,7 +270,7 @@ describe('Cross-module consistency', () => {
 // ============================================================================
 
 describe('getVulnerabilityTypes', () => {
-  it('returns combined vulnerability types from security and payment rules', () => {
+  it('returns vulnerability types from security rules', () => {
     const types = getVulnerabilityTypes();
     expect(types.length).toBeGreaterThan(0);
   });
@@ -385,13 +284,6 @@ describe('getVulnerabilityTypes', () => {
     expect(typeNames).toContain('path_traversal');
     expect(typeNames).toContain('hardcoded_secret');
     expect(typeNames).toContain('eval_usage');
-  });
-
-  it('includes payment vulnerability types', () => {
-    const types = getVulnerabilityTypes();
-    const typeNames = types.map(t => t.type);
-    // Payment rules should contribute types like unvalidated_payment_amount, etc.
-    expect(typeNames.some(t => t.includes('payment') || t.includes('pci') || t.includes('idempotency'))).toBe(true);
   });
 
   it('each type has severity and description', () => {
@@ -408,19 +300,12 @@ describe('getVulnerabilityTypes', () => {
 // ============================================================================
 
 describe('resetRuleCache', () => {
-  it('clears both security and payment caches', () => {
-    // Load both rule sets
+  it('clears security cache', () => {
     const sec1 = getSecurityRules();
-    const pay1 = getPaymentRules();
 
-    // Reset
     resetRuleCache();
 
-    // Load again — should be new objects
     const sec2 = getSecurityRules();
-    const pay2 = getPaymentRules();
-
     expect(sec2).not.toBe(sec1);
-    expect(pay2).not.toBe(pay1);
   });
 });

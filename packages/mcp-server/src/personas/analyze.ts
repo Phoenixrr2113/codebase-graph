@@ -24,8 +24,8 @@ export const analyzePersonaDefinition: ToolDefinition = {
 **Actions:**
 - **impact**: Find all code affected by changing a symbol. Returns callers, affected files, risk score.
   Params: symbol (required), file (optional, disambiguate), depth (default: 5)
-- **vulnerabilities**: Scan for security vulnerabilities (injection, XSS, auth, payment).
-  Params: scope (default: "all"), severity (critical|high|medium|low|all), category (injection|xss|auth|payment|all)
+- **vulnerabilities**: Scan for security vulnerabilities (injection, XSS, auth).
+  Params: scope (default: "all"), severity (critical|high|medium|low|all), category (injection|xss|auth|all)
 - **complexity**: Find complex code hotspots by cyclomatic/cognitive complexity.
   Params: scope (default: "all"), threshold (default: 10), sortBy (complexity|cognitive|nesting)
 - **refactoring**: Identify refactoring opportunities in a file (extraction candidates, responsibilities).
@@ -79,7 +79,7 @@ export const analyzePersonaDefinition: ToolDefinition = {
       },
       category: {
         type: 'string',
-        enum: ['injection', 'xss', 'auth', 'payment', 'all'],
+        enum: ['injection', 'xss', 'auth', 'all'],
         description: 'Vulnerability category filter',
       },
       threshold: {

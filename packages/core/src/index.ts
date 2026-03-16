@@ -118,15 +118,6 @@ export type {
   ScanOptions,
 } from './analysis';
 
-// Analysis - Payment
-export {
-  scanForPaymentVulnerabilities,
-  scanFileForPaymentIssues,
-  getPaymentVulnerabilityTypes,
-} from './analysis';
-
-export type { PaymentScanOptions } from './analysis';
-
 // Analysis - Impact
 export {
   analyzeImpact,

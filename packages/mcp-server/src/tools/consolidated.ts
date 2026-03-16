@@ -538,7 +538,7 @@ const rawHandlers: Record<string, ToolHandler> = {
     const input: FindVulnerabilitiesInput = {
       scope: (args.scope as string) || 'all',
       severity: (args.severity as 'critical' | 'high' | 'medium' | 'low' | 'all') || 'all',
-      category: (args.category as 'injection' | 'xss' | 'auth' | 'payment' | 'all') || 'all',
+      category: (args.category as 'injection' | 'xss' | 'auth' | 'all') || 'all',
     };
     return findVulnerabilities(input);
   },

@@ -25,14 +25,6 @@ export {
   type ScanOptions,
 } from './security';
 
-// Payment security rules
-export {
-  scanForPaymentVulnerabilities,
-  scanFileForPaymentIssues,
-  getPaymentVulnerabilityTypes,
-  type PaymentScanOptions,
-} from './rules/payment';
-
 // Impact analysis
 export {
   analyzeImpact,
@@ -108,12 +100,10 @@ export {
   type TwoPassOptions,
 } from './twoPassResolver';
 
-// Rule loader (externalized security & payment rule definitions)
+// Rule loader (externalized security rule definitions)
 export {
   getSecurityRules,
-  getPaymentRules,
   resetRuleCache,
   getVulnerabilityTypes,
   type SecurityRules,
-  type PaymentRules,
 } from './rules/rule-loader';

@@ -792,7 +792,6 @@ export async function scanVulnerabilitiesImpl(options?: ServiceScanOptions): Pro
       if (cat === 'injection') return typeLC.includes('injection');
       if (cat === 'xss') return typeLC.includes('xss');
       if (cat === 'auth') return typeLC.includes('auth') || typeLC.includes('password');
-      if (cat === 'payment') return typeLC.includes('payment') || typeLC.includes('stripe');
       return true;
     });
   }

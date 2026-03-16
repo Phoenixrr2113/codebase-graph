@@ -12,7 +12,7 @@ import type { ToolDefinition } from './consolidated';
 export interface FindVulnerabilitiesInput {
   scope?: string;
   severity?: 'critical' | 'high' | 'medium' | 'low' | 'all';
-  category?: 'injection' | 'xss' | 'auth' | 'payment' | 'all';
+  category?: 'injection' | 'xss' | 'auth' | 'all';
 }
 
 // Vulnerability type
@@ -59,7 +59,7 @@ export const findVulnerabilitiesToolDefinition: ToolDefinition = {
       },
       category: {
         type: 'string',
-        enum: ['injection', 'xss', 'auth', 'payment', 'all'],
+        enum: ['injection', 'xss', 'auth', 'all'],
         default: 'all',
         description: 'Vulnerability category to focus on',
       },
