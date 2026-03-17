@@ -31,6 +31,7 @@ export { GraphAnswerStrategy } from './strategies/graphAnswer';
 export { NLToCypherStrategy } from './strategies/nlToCypher';
 export { SmartSearchStrategy } from './strategies/smartSearch';
 export { ContextWalkStrategy } from './strategies/contextWalk';
+export { EnrichedSearchStrategy } from './strategies/enriched';
 
 // Factory — creates a registry with all default strategies
 import { SearchRegistry } from './registry';
@@ -39,6 +40,7 @@ import { GraphAnswerStrategy } from './strategies/graphAnswer';
 import { NLToCypherStrategy } from './strategies/nlToCypher';
 import { SmartSearchStrategy } from './strategies/smartSearch';
 import { ContextWalkStrategy } from './strategies/contextWalk';
+import { EnrichedSearchStrategy } from './strategies/enriched';
 
 /**
  * Create a search registry with all built-in strategies registered.
@@ -53,6 +55,7 @@ export function createDefaultSearchRegistry(): SearchRegistry {
   registry.register(new GraphAnswerStrategy());
   registry.register(new NLToCypherStrategy());
   registry.register(new ContextWalkStrategy());
+  registry.register(new EnrichedSearchStrategy());
 
   // SMART_SEARCH needs a reference to the registry for dispatch
   registry.register(new SmartSearchStrategy(registry));

@@ -1,23 +1,28 @@
 #!/usr/bin/env npx tsx
 /**
- * Benchmark: Search Relevance, Latency & Analysis
+ * Benchmark: Search Relevance Stress Test
  *
- * Comprehensive benchmark suite for CodeGraph v5 capabilities:
- *   - Search: 6 strategies (HYBRID, VECTOR, NL_TO_CYPHER, GRAPH_ANSWER, SMART_SEARCH, CONTEXT_WALK)
- *   - Analysis: impact, security, complexity, dataflow, refactoring
- *   - Persona tools: end-to-end persona tool routing
+ * Stress-tests HYBRID vs ENRICHED search with ranking-sensitive metrics
+ * (MRR, NDCG@5, NDCG@10) on hard queries designed to discriminate between
+ * basic search and enrichment-augmented search.
  *
- * Requires FalkorDB running locally and a Cerebras API key in .env.
+ * Query categories (from code search literature — CodeSearchNet, CoIR, CoSQA+):
+ *   1. Disambiguation: ambiguous terms with many matches, importance should break ties
+ *   2. Importance-sensitive: "main", "primary", "most used" — need fan-in/centrality
+ *   3. Recency-sensitive: "recent changes", "current implementation"
+ *   4. Quality-sensitive: prefer documented, exported, tested code over internals
+ *   5. Semantic gap: NL intent doesn't match symbol names
+ *   6. Cross-cutting: concepts spanning multiple packages
+ *   7. Needle-in-haystack: one correct result among many false positives
+ *
+ * Metrics (per CoIR/CodeSearchNet best practices):
+ *   - MRR (Mean Reciprocal Rank): 1/rank of first relevant result
+ *   - NDCG@K (Normalized Discounted Cumulative Gain): graded relevance, position-aware
+ *   - Success@1, Success@5: was a relevant result in top 1/5?
+ *   - Recall@10: what fraction of expected results in top 10?
  *
  * Usage:
- *   pnpm build && npx tsx scripts/benchmark-search.ts [label] [--reindex] [--no-llm] [--fast-only] [--embeddings] [--analysis]
- *
- * Flags:
- *   --reindex      Re-index the codebase before running
- *   --no-llm       Skip LLM-dependent strategies (HYBRID only)
- *   --fast-only    Use the fast model for ALL strategies
- *   --embeddings   Enable vector search via local embeddings (nomic-embed-text-v1.5)
- *   --analysis     Include analysis benchmarks (impact, security, complexity, dataflow)
+ *   pnpm build && npx tsx scripts/benchmark-search.ts [label] [--reindex] [--no-llm] [--fast-only] [--no-embeddings] [--analysis]
  */
 
 const { getGraphClient, closeGraphClient, indexProject, createDefaultSearchRegistry, codeGraphService, registerPlugins } =
@@ -27,11 +32,11 @@ const { getLLMModel, getLLMComplexModel, isLLMAvailable, warmupLLM, getLLMConfig
   await import('../packages/plugin-nlp/dist/index.js');
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 // Types for reference (actual values come from dynamic imports)
-type SearchType = 'VECTOR' | 'HYBRID' | 'GRAPH_ANSWER' | 'NL_TO_CYPHER' | 'SMART_SEARCH' | 'CONTEXT_WALK';
+type SearchType = 'VECTOR' | 'HYBRID' | 'ENRICHED' | 'GRAPH_ANSWER' | 'NL_TO_CYPHER' | 'SMART_SEARCH' | 'CONTEXT_WALK';
 interface SearchContext { client: any; llm?: any; complexLlm?: any; embeddings?: any; }
-interface SearchResponse { results: Array<{ name: string; nodeType: string; score: number; sources: string[] }>; total: number; meta: { searchType: string; durationMs: number; [key: string]: unknown }; answer?: string; routedTo?: SearchType; error?: string; }
+interface SearchResponse { results: Array<{ name: string; nodeType: string; score: number; sources: string[]; filePath?: string; properties?: Record<string, unknown> }>; total: number; meta: { searchType: string; durationMs: number; [key: string]: unknown }; answer?: string; routedTo?: SearchType; error?: string; }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -56,221 +61,434 @@ const args = process.argv.slice(2);
 const reindex = args.includes('--reindex');
 const noLlm = args.includes('--no-llm');
 const fastOnly = args.includes('--fast-only');
-const useEmbeddings = args.includes('--embeddings');
+const noEmbeddings = args.includes('--no-embeddings');
+const useEmbeddings = !noEmbeddings; // ON by default — embeddings are core functionality
 const runAnalysis = args.includes('--analysis');
 const label = args.filter(a => !a.startsWith('--'))[0] ?? 'unlabeled';
 
-// Embedding config for vector search (local nomic-embed-text-v1.5, 768d)
-const embeddingConfig = useEmbeddings ? { provider: 'local' as const } : undefined;
+// Embedding config for vector search — uses .env provider (voyage-code-3 1024d by default)
+// Enabled by default since nodes have embeddings — testing without them
+// doesn't reflect how the system actually runs.
+const embeddingProvider = (process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'voyage') as 'local' | 'openrouter' | 'voyage';
+const embeddingConfig = useEmbeddings ? { provider: embeddingProvider } : undefined;
 
 // ============================================================================
-// Golden test suite — 30 queries with expected results
+// Hard test suite — graded relevance, ranking-sensitive
 // ============================================================================
 
-interface TestCase {
+/**
+ * Test case with graded relevance.
+ * expectedResults is ORDERED by decreasing relevance (ideal ranking).
+ * Each entry has a relevance grade: 3=perfect, 2=good, 1=acceptable, 0=irrelevant.
+ * This enables NDCG computation.
+ */
+interface HardTestCase {
   query: string;
-  strategy: SearchType;
-  expectedNames: string[];
+  /** Run against both HYBRID and ENRICHED for head-to-head */
+  strategies: SearchType[];
+  /** Ordered list of expected results with graded relevance */
+  expectedResults: Array<{
+    /** Substring to match against result name (case-insensitive) */
+    namePattern: string;
+    /** Relevance grade: 3=perfect, 2=good, 1=acceptable */
+    relevance: 3 | 2 | 1;
+    /** Why this is relevant (for debugging) */
+    reason: string;
+  }>;
   description: string;
-  /** Category for grouping in reports */
-  category: 'symbol-lookup' | 'keyword' | 'structural' | 'question' | 'exploration' | 'routing';
+  category: 'disambiguation' | 'importance' | 'recency' | 'quality' | 'semantic-gap' | 'cross-cutting' | 'needle-in-haystack';
 }
 
-const TEST_CASES: TestCase[] = [
-  // ─── HYBRID: Symbol lookups (exact name match) ───
+/**
+ * Test cases verified against actual graph data (2026-03-17).
+ *
+ * Graph facts:
+ *   - 29,800 nodes across multiple codebases (codebase-graph, agntK, feature-spec-app, etc.)
+ *   - 6,915 nodes have embeddings (5,416 Function, 1,255 Interface, 157 Component, 85 Class)
+ *   - 3,552 CALLS edges, 6,191 IMPORTS edges (File→File), 0 ABOUT edges
+ *   - Top callers: getGraphClient (36), upsertNode (16), walkNode (14), toParams (12)
+ *   - IMPORTS edges are File→File only (not Function→Function), so importerCount=0 for functions
+ *   - 102 Commits, 791 MODIFIED_IN edges (covers ~18% of functions)
+ */
+const HARD_CASES: HardTestCase[] = [
+  // ═══════════════════════════════════════════════════════════════════
+  // DISAMBIGUATION: ambiguous terms where many results match
+  // Enriched search should use importance/centrality to break ties
+  // ═══════════════════════════════════════════════════════════════════
   {
-    query: 'hybridSearch',
-    strategy: 'HYBRID',
-    expectedNames: ['hybridSearch'],
-    description: 'Direct function name lookup',
-    category: 'symbol-lookup',
+    query: 'how does the hybrid search combine vector and text results',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'hybridSearch', relevance: 3, reason: 'Primary search function that combines vector + text' },
+      { namePattern: 'HybridSearchStrategy', relevance: 2, reason: 'Strategy wrapper for hybridSearch' },
+      { namePattern: 'HybridSearchHit', relevance: 1, reason: 'Type used by hybridSearch' },
+      { namePattern: 'HybridSearchResult', relevance: 1, reason: 'Return type of hybridSearch' },
+    ],
+    description: 'Disambiguation: hybrid search fusion logic',
+    category: 'disambiguation',
   },
   {
-    query: 'indexProject',
-    strategy: 'HYBRID',
-    expectedNames: ['indexProject'],
-    description: 'Core indexer function',
-    category: 'symbol-lookup',
+    query: 'source code parser entry point for TypeScript files',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'parseCode', relevance: 3, reason: 'Primary parser entry point, exported' },
+      { namePattern: 'parseFile', relevance: 3, reason: 'File-level parser, exported' },
+      { namePattern: 'parseFiles', relevance: 2, reason: 'Batch parser, exported' },
+      { namePattern: 'parseMarkdown', relevance: 2, reason: 'Markdown parser, exported' },
+      { namePattern: 'initParser', relevance: 1, reason: 'Parser initialization, exported' },
+    ],
+    description: 'Disambiguation: parsing functions for source code',
+    category: 'disambiguation',
   },
   {
-    query: 'SearchRegistry',
-    strategy: 'HYBRID',
-    expectedNames: ['SearchRegistry'],
-    description: 'Class name lookup',
-    category: 'symbol-lookup',
+    query: 'factory function for creating graph operations instances',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'createOperations', relevance: 3, reason: 'CRUD factory, used by service layer and all modules' },
+      { namePattern: 'createClient', relevance: 3, reason: 'Graph client factory' },
+      { namePattern: 'createDefaultSearchRegistry', relevance: 2, reason: 'Registry factory, public API' },
+      { namePattern: 'createLogger', relevance: 2, reason: 'Utility factory, used in 40+ files' },
+      { namePattern: 'createKnowledgeOperations', relevance: 2, reason: 'Knowledge ops factory' },
+    ],
+    description: 'Disambiguation: factory functions for graph operations',
+    category: 'disambiguation',
   },
   {
-    query: 'createClient',
-    strategy: 'HYBRID',
-    expectedNames: ['createClient'],
-    description: 'Graph client factory',
-    category: 'symbol-lookup',
-  },
-  {
-    query: 'registerPlugins',
-    strategy: 'HYBRID',
-    expectedNames: ['registerPlugins'],
-    description: 'Plugin registration function',
-    category: 'symbol-lookup',
-  },
-  {
-    query: 'parseCode',
-    strategy: 'HYBRID',
-    expectedNames: ['parseCode'],
-    description: 'Parser entry point',
-    category: 'symbol-lookup',
-  },
-  {
-    query: 'createLanguagePlugin',
-    strategy: 'HYBRID',
-    expectedNames: ['createLanguagePlugin'],
-    description: 'Generic plugin factory',
-    category: 'symbol-lookup',
-  },
-  {
-    query: 'FalkorDBDriver',
-    strategy: 'HYBRID',
-    expectedNames: ['FalkorDBDriver'],
-    description: 'Database driver class',
-    category: 'symbol-lookup',
-  },
-
-  // ─── HYBRID: Keyword search (broader matches) ───
-  {
-    query: 'embedding',
-    strategy: 'HYBRID',
-    expectedNames: ['generateEmbedding', 'embedding'],
-    description: 'Keyword: embedding-related symbols',
-    category: 'keyword',
-  },
-  {
-    query: 'vulnerability',
-    strategy: 'HYBRID',
-    expectedNames: ['vulnerabilities', 'Vulnerability'],
-    description: 'Keyword: security-related symbols',
-    category: 'keyword',
-  },
-  {
-    query: 'refactoring',
-    strategy: 'HYBRID',
-    expectedNames: ['analyzeRefactoring', 'refactoring'],
-    description: 'Keyword: refactoring-related symbols',
-    category: 'keyword',
-  },
-  {
-    query: 'knowledge graph',
-    strategy: 'HYBRID',
-    expectedNames: ['graph', 'GraphClient'],
-    description: 'Keyword: knowledge graph symbols',
-    category: 'keyword',
+    query: 'execute read-only Cypher queries against the graph database',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'roQuery', relevance: 3, reason: 'Core read-only query method on GraphClient' },
+      { namePattern: 'query', relevance: 2, reason: 'Write query method on GraphClient' },
+      { namePattern: 'SEARCH_QUERIES', relevance: 1, reason: 'Cypher query constants' },
+    ],
+    description: 'Disambiguation: database query execution methods',
+    category: 'disambiguation',
   },
 
-  // ─── NL_TO_CYPHER: Structural graph queries ───
+  // ═══════════════════════════════════════════════════════════════════
+  // IMPORTANCE: queries where fan-in/centrality should determine rank
+  // Verified callers: getGraphClient=36, upsertNode=16, walkNode=14, toParams=12
+  // ═══════════════════════════════════════════════════════════════════
   {
-    query: 'Show me all functions that call hybridSearch',
-    strategy: 'NL_TO_CYPHER',
-    expectedNames: ['search', 'hybridSearch'],
-    description: 'Callers of hybridSearch',
-    category: 'structural',
+    query: 'how to get a graph database client connection for queries',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'getGraphClient', relevance: 3, reason: '36 callers — most called codebase-graph function' },
+      { namePattern: 'GraphClient', relevance: 2, reason: 'Interface/type definition for the client' },
+      { namePattern: 'closeGraphClient', relevance: 2, reason: 'Cleanup, exported public API' },
+      { namePattern: 'createClient', relevance: 2, reason: 'Factory that creates the graph client' },
+    ],
+    description: 'Importance: getGraphClient has 36 verified callers',
+    category: 'importance',
   },
   {
-    query: 'Find files that contain functions calling hybridSearch',
-    strategy: 'NL_TO_CYPHER',
-    expectedNames: ['graphAnswer', 'contextWalk', 'hybrid', 'search'],
-    description: 'Files with hybridSearch callers',
-    category: 'structural',
+    query: 'CRUD operations interface for inserting and querying graph nodes',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'createOperations', relevance: 3, reason: 'Primary factory, used in every module that writes to graph' },
+      { namePattern: 'createKnowledgeOperations', relevance: 3, reason: 'Knowledge ops factory, used by service layer' },
+      { namePattern: 'GraphOperations', relevance: 2, reason: 'Interface defining all graph operations' },
+    ],
+    description: 'Importance: createOperations is used across all packages',
+    category: 'importance',
   },
   {
-    query: 'List all classes that have more than 5 methods',
-    strategy: 'NL_TO_CYPHER',
-    expectedNames: [],
-    description: 'Classes by method count',
-    category: 'structural',
-  },
-  {
-    query: 'Find all functions in the file client.ts',
-    strategy: 'NL_TO_CYPHER',
-    expectedNames: ['createClient', 'getGraphClient', 'closeGraphClient', 'close', 'query', 'Knowledge', 'constructor', 'config', 'dialect', 'ensure'],
-    description: 'Functions in specific file',
-    category: 'structural',
-  },
-  {
-    query: 'Show me functions that import from @codegraph/graph',
-    strategy: 'NL_TO_CYPHER',
-    expectedNames: [],
-    description: 'Import dependency query',
-    category: 'structural',
-  },
-
-  // ─── SMART_SEARCH: Auto-routing ───
-  {
-    query: 'parseCode',
-    strategy: 'SMART_SEARCH',
-    expectedNames: ['parseCode'],
-    description: 'Simple symbol → HYBRID',
-    category: 'routing',
-  },
-  {
-    query: 'List all functions that call indexProject',
-    strategy: 'SMART_SEARCH',
-    expectedNames: ['syncConfigToGraph'],
-    description: 'Structural → NL_TO_CYPHER',
-    category: 'routing',
-  },
-  {
-    query: 'What does the search registry do?',
-    strategy: 'SMART_SEARCH',
-    expectedNames: ['SearchRegistry', 'search'],
-    description: 'Question → GRAPH_ANSWER',
-    category: 'routing',
-  },
-  {
-    query: 'FalkorDBDriver',
-    strategy: 'SMART_SEARCH',
-    expectedNames: ['FalkorDBDriver'],
-    description: 'Class name → HYBRID',
-    category: 'routing',
+    query: 'logging utility used across all packages for debug output',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'createLogger', relevance: 3, reason: 'Used in 40+ files across all packages' },
+      { namePattern: 'Logger', relevance: 2, reason: 'Logger class/interface' },
+      { namePattern: 'LogLevel', relevance: 1, reason: 'Type definition for log levels' },
+    ],
+    description: 'Importance: createLogger is the most widely used utility',
+    category: 'importance',
   },
 
-  // ─── GRAPH_ANSWER: Question answering ───
+  // ═══════════════════════════════════════════════════════════════════
+  // RECENCY: recently-modified code should rank higher
+  // All recent commits are 2026-03-16 (complexity refactor)
+  // ═══════════════════════════════════════════════════════════════════
   {
-    query: 'What does the hybridSearch function do?',
-    strategy: 'GRAPH_ANSWER',
-    expectedNames: ['hybridSearch', 'Search'],
-    description: 'Function explanation',
-    category: 'question',
+    query: 'calculate code complexity metrics like cyclomatic and cognitive complexity',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'calculateComplexity', relevance: 3, reason: 'Primary complexity calculator, exported' },
+      { namePattern: 'getComplexityHotspots', relevance: 3, reason: 'Public API for complexity analysis' },
+      { namePattern: 'calculateCyclomatic', relevance: 2, reason: 'Core metric, exported' },
+      { namePattern: 'calculateCognitive', relevance: 2, reason: 'Key cognitive complexity metric' },
+      { namePattern: 'COMPLEXITY_THRESHOLDS', relevance: 1, reason: 'Constants for complexity levels' },
+    ],
+    description: 'Recency: complexity was recently refactored (2026-03-16)',
+    category: 'recency',
   },
   {
-    query: 'How does the plugin registration system work?',
-    strategy: 'GRAPH_ANSWER',
-    expectedNames: ['Plugin', 'register', 'language'],
-    description: 'System architecture question',
-    category: 'question',
-  },
-  {
-    query: 'What search strategies are available?',
-    strategy: 'GRAPH_ANSWER',
-    expectedNames: ['search', 'strategy'],
-    description: 'Feature enumeration question',
-    category: 'question',
+    query: 'search strategy pattern for routing queries to different search backends',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'EnrichedSearchStrategy', relevance: 3, reason: 'Brand new (2026-03-17)' },
+      { namePattern: 'HybridSearchStrategy', relevance: 3, reason: 'Core strategy, recently updated' },
+      { namePattern: 'SmartSearchStrategy', relevance: 2, reason: 'Meta-router strategy' },
+      { namePattern: 'SearchStrategy', relevance: 2, reason: 'Interface definition' },
+      { namePattern: 'GraphAnswerStrategy', relevance: 1, reason: 'LLM-based strategy' },
+    ],
+    description: 'Recency: enriched strategy is brand-new',
+    category: 'recency',
   },
 
-  // ─── CONTEXT_WALK: Multi-hop exploration ───
+  // ═══════════════════════════════════════════════════════════════════
+  // QUALITY: prefer documented, exported, tested over internal/sparse
+  // ═══════════════════════════════════════════════════════════════════
   {
-    query: 'How does a search query flow from the registry to the graph database?',
-    strategy: 'CONTEXT_WALK',
-    expectedNames: ['search', 'registry', 'query', 'graph', 'client'],
-    description: 'Multi-hop flow analysis',
-    category: 'exploration',
+    query: 'generate embedding vector for a text input using the configured provider',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'generateEmbedding', relevance: 3, reason: 'Public API, well-documented, tested, exported' },
+      { namePattern: 'isEmbeddingAvailable', relevance: 2, reason: 'Utility, exported, documented' },
+      { namePattern: 'warmupEmbedding', relevance: 2, reason: 'Public API for warmup' },
+      { namePattern: 'embedAllNodes', relevance: 2, reason: 'Exported from core, documented' },
+      { namePattern: 'EmbeddingConfig', relevance: 1, reason: 'Type/interface only' },
+    ],
+    description: 'Quality: generateEmbedding has docstring + tests + exports',
+    category: 'quality',
   },
   {
-    query: 'Trace the code path from parsing a file to storing entities in the graph',
-    strategy: 'CONTEXT_WALK',
-    expectedNames: ['parse', 'build', 'entity', 'file', 'index', 'Code', 'Graph', 'Service'],
-    description: 'Parse-to-store pipeline',
-    category: 'exploration',
+    query: 'index a project directory and build the code graph from source files',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'indexProject', relevance: 3, reason: 'Primary indexer, exported, heavily documented' },
+      { namePattern: 'indexSingleFile', relevance: 2, reason: 'Exported helper for single-file indexing' },
+      { namePattern: 'isProjectIndexed', relevance: 2, reason: 'Exported status check' },
+    ],
+    description: 'Quality: exact symbol lookup for core public API',
+    category: 'quality',
+  },
+  {
+    query: 'analyze impact of changing a function and find what would break',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'analyzeImpact', relevance: 3, reason: 'Exported, heavily used in MCP tools, tested' },
+      { namePattern: 'analyzeRefactoring', relevance: 3, reason: 'Exported, well-documented' },
+      { namePattern: 'analyzeDataflow', relevance: 2, reason: 'Exported, complex analysis' },
+    ],
+    description: 'Quality: exported analysis functions vs internal helpers',
+    category: 'quality',
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // SEMANTIC GAP: NL intent requires vector search to bridge
+  // These test whether embeddings find semantically related symbols
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    query: 'how does the system connect to the database and manage connection lifecycle',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'getGraphClient', relevance: 3, reason: 'Manages DB connection lifecycle — docstring says "database"' },
+      { namePattern: 'GraphClient', relevance: 2, reason: 'The connection interface' },
+      { namePattern: 'createClient', relevance: 2, reason: 'Creates the DB connection' },
+      { namePattern: 'closeGraphClient', relevance: 1, reason: 'Connection cleanup' },
+    ],
+    description: 'Semantic gap: database connection management',
+    category: 'semantic-gap',
+  },
+  {
+    query: 'find similar code nodes using vector embedding cosine similarity',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'searchByVector', relevance: 3, reason: 'Direct vector similarity search on code nodes' },
+      { namePattern: 'hybridSearch', relevance: 2, reason: 'Combines vector + text search' },
+      { namePattern: 'enrichedSearch', relevance: 2, reason: 'Uses vector pipeline internally' },
+      { namePattern: 'generateEmbedding', relevance: 1, reason: 'Creates embeddings used for vector search' },
+    ],
+    description: 'Semantic gap: vector similarity search functions',
+    category: 'semantic-gap',
+  },
+  {
+    query: 'sync git commit history into the graph and track file modifications',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'syncGitHistory', relevance: 3, reason: 'Syncs git commits into graph' },
+      { namePattern: 'getSymbolHistory', relevance: 3, reason: 'Gets git history for a symbol' },
+      { namePattern: 'commitToNodeProps', relevance: 2, reason: 'Converts git commit to node properties' },
+      { namePattern: 'getRepoInfo', relevance: 2, reason: 'Gets repo metadata' },
+    ],
+    description: 'Semantic gap: git history sync and tracking',
+    category: 'semantic-gap',
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CROSS-CUTTING: concepts spanning multiple packages
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    query: 'load and save project configuration settings from disk',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'loadConfig', relevance: 3, reason: 'Core config loader, most central' },
+      { namePattern: 'saveConfig', relevance: 2, reason: 'Core config writer' },
+      { namePattern: 'syncConfigToGraph', relevance: 2, reason: 'Config → graph sync' },
+      { namePattern: 'MCPContextConfig', relevance: 1, reason: 'Config type definition' },
+    ],
+    description: 'Cross-cutting: config spans core, api, mcp-server + other projects',
+    category: 'cross-cutting',
+  },
+  {
+    query: 'how are errors handled and propagated across the application layers',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'error', relevance: 2, reason: 'Error-related modules/functions' },
+      { namePattern: 'catch', relevance: 1, reason: 'Error handling patterns' },
+      { namePattern: 'throw', relevance: 1, reason: 'Error throwing patterns' },
+    ],
+    description: 'Cross-cutting: error handling spans all packages',
+    category: 'cross-cutting',
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // NEEDLE-IN-HAYSTACK: one specific result among many decoys
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    query: 'reciprocal rank fusion function that merges multiple result lists',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'rrfFuse', relevance: 3, reason: 'The specific RRF fusion function' },
+      { namePattern: 'hybridSearch', relevance: 1, reason: 'File containing rrfFuse' },
+    ],
+    description: 'Needle: specific internal function for RRF',
+    category: 'needle-in-haystack',
+  },
+  {
+    query: 'convert vector distance value to a normalized similarity score',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'distanceToScore', relevance: 3, reason: 'Specific score conversion helper' },
+    ],
+    description: 'Needle: small helper function among 5000+ symbols',
+    category: 'needle-in-haystack',
+  },
+  {
+    query: 'extract and preprocess search terms from a user query string',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'extractSearchTerms', relevance: 3, reason: 'Query preprocessing function' },
+      { namePattern: 'extractEnrichedTerms', relevance: 2, reason: 'Enriched search term extractor' },
+    ],
+    description: 'Needle: specific exported helper in hybridSearch.ts',
+    category: 'needle-in-haystack',
+  },
+  {
+    query: 'upsert a function node into the graph with its metadata and relationships',
+    strategies: ['HYBRID', 'ENRICHED'],
+    expectedResults: [
+      { namePattern: 'upsertFunction', relevance: 3, reason: 'Specific CRUD method for function nodes' },
+      { namePattern: 'upsertFile', relevance: 1, reason: 'Related upsert method' },
+      { namePattern: 'upsertClass', relevance: 1, reason: 'Related upsert method' },
+    ],
+    description: 'Needle: specific method in operations.ts',
+    category: 'needle-in-haystack',
   },
 ];
+
+// ============================================================================
+// Ranking metrics: MRR, NDCG@K, Success@K (per CodeSearchNet / CoIR)
+// ============================================================================
+
+/**
+ * Mean Reciprocal Rank: 1/rank of the first relevant result.
+ * MRR = 1.0 means #1 result is relevant; MRR = 0.5 means #2 is first relevant.
+ */
+function calculateMRR(expected: HardTestCase['expectedResults'], actual: string[]): number {
+  const actualLower = actual.map(n => (n ?? '').toLowerCase());
+  for (let i = 0; i < actualLower.length; i++) {
+    for (const exp of expected) {
+      if (actualLower[i]!.includes(exp.namePattern.toLowerCase()) ||
+          exp.namePattern.toLowerCase().includes(actualLower[i]!)) {
+        return 1 / (i + 1);
+      }
+    }
+  }
+  return 0;
+}
+
+/**
+ * Success@K: is there at least one relevant result in the top K?
+ */
+function successAtK(expected: HardTestCase['expectedResults'], actual: string[], k: number): boolean {
+  const topK = actual.slice(0, k).map(n => (n ?? '').toLowerCase());
+  for (const a of topK) {
+    for (const exp of expected) {
+      if (a.includes(exp.namePattern.toLowerCase()) || exp.namePattern.toLowerCase().includes(a)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * NDCG@K: Normalized Discounted Cumulative Gain.
+ *
+ * Measures ranking quality with graded relevance:
+ * - DCG = Σ (2^rel_i - 1) / log2(i + 2)  for positions i=0..K-1
+ * - IDCG = DCG of the ideal ranking (expected results in order)
+ * - NDCG = DCG / IDCG
+ *
+ * Returns 0-1 where 1.0 = perfect ranking order.
+ */
+function calculateNDCG(expected: HardTestCase['expectedResults'], actual: string[], k: number): number {
+  const topK = actual.slice(0, k);
+
+  // Compute relevance grade for each position in actual results
+  const grades: number[] = topK.map(name => {
+    const nameLower = (name ?? '').toLowerCase();
+    for (const exp of expected) {
+      if (nameLower.includes(exp.namePattern.toLowerCase()) ||
+          exp.namePattern.toLowerCase().includes(nameLower)) {
+        return exp.relevance;
+      }
+    }
+    return 0; // Not in expected = irrelevant
+  });
+
+  // DCG: sum of (2^rel - 1) / log2(position + 2)
+  let dcg = 0;
+  for (let i = 0; i < grades.length; i++) {
+    dcg += (Math.pow(2, grades[i]!) - 1) / Math.log2(i + 2);
+  }
+
+  // IDCG: ideal DCG (expected results sorted by relevance, truncated to K)
+  const idealGrades = expected
+    .map(e => e.relevance)
+    .sort((a, b) => b - a)
+    .slice(0, k);
+
+  let idcg = 0;
+  for (let i = 0; i < idealGrades.length; i++) {
+    idcg += (Math.pow(2, idealGrades[i]!) - 1) / Math.log2(i + 2);
+  }
+
+  return idcg > 0 ? dcg / idcg : 0;
+}
+
+/**
+ * Recall@K: fraction of expected results found in top K.
+ */
+function recallAtK(expected: HardTestCase['expectedResults'], actual: string[], k: number): number {
+  if (expected.length === 0) return 1.0;
+  const topK = actual.slice(0, k).map(n => (n ?? '').toLowerCase());
+  let found = 0;
+  for (const exp of expected) {
+    const expLower = exp.namePattern.toLowerCase();
+    if (topK.some(a => a.includes(expLower) || expLower.includes(a))) {
+      found++;
+    }
+  }
+  return found / expected.length;
+}
+
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.floor(sorted.length * p);
+  return sorted[Math.min(idx, sorted.length - 1)] ?? 0;
+}
 
 // ============================================================================
 // Analysis benchmark cases
@@ -348,53 +566,23 @@ function getAnalysisCases(): AnalysisBenchCase[] {
 }
 
 // ============================================================================
-// Metrics calculation
+// Per-query result tracking
 // ============================================================================
 
-interface QueryResult {
-  testCase: TestCase;
+interface HardQueryResult {
+  testCase: HardTestCase;
+  strategy: SearchType;
   latencyMs: number;
   resultNames: string[];
-  recall: number;
-  precision: number;
-  totalResults: number;
-  routedTo?: SearchType;
-  hasAnswer?: boolean;
+  /** Top 5 results with scores for debugging */
+  top5: Array<{ name: string; score: number; nodeType: string }>;
+  mrr: number;
+  ndcg5: number;
+  ndcg10: number;
+  success1: boolean;
+  success5: boolean;
+  recall10: number;
   error?: string;
-}
-
-function calculateRecall(expected: string[], actual: string[]): number {
-  if (expected.length === 0) return 1.0;
-  const actualLower = actual.filter(n => n != null).map(n => n.toLowerCase());
-  let found = 0;
-  for (const exp of expected) {
-    const expLower = exp.toLowerCase();
-    if (actualLower.some(a => a.includes(expLower) || expLower.includes(a))) {
-      found++;
-    }
-  }
-  return found / expected.length;
-}
-
-function calculatePrecision(expected: string[], actual: string[]): number {
-  const filtered = actual.filter(n => n != null);
-  if (filtered.length === 0) return 0;
-  if (expected.length === 0) return 0; // can't measure precision without expected
-  const expectedLower = expected.map(n => n.toLowerCase());
-  let relevant = 0;
-  for (const act of filtered) {
-    const actLower = act.toLowerCase();
-    if (expectedLower.some(e => actLower.includes(e) || e.includes(actLower))) {
-      relevant++;
-    }
-  }
-  return relevant / filtered.length;
-}
-
-function percentile(sorted: number[], p: number): number {
-  if (sorted.length === 0) return 0;
-  const idx = Math.floor(sorted.length * p);
-  return sorted[Math.min(idx, sorted.length - 1)] ?? 0;
 }
 
 // ============================================================================
@@ -402,13 +590,14 @@ function percentile(sorted: number[], p: number): number {
 // ============================================================================
 
 async function main() {
-  console.log(`\n${'═'.repeat(90)}`);
-  console.log(`  CodeGraph v5 Benchmark Suite: ${label}`);
-  console.log(`${'═'.repeat(90)}`);
+  console.log(`\n${'═'.repeat(100)}`);
+  console.log(`  CodeGraph Search Stress Test: ${label}`);
+  console.log(`${'═'.repeat(100)}`);
   console.log(`  Time: ${new Date().toISOString()}`);
-  console.log(`  LLM: ${noLlm ? 'disabled' : fastOnly ? 'fast-only (Cerebras for all)' : 'enabled (two-tier)'}`);
+  console.log(`  LLM: ${noLlm ? 'disabled' : fastOnly ? 'fast-only' : 'enabled (two-tier)'}`);
   console.log(`  Embeddings: ${useEmbeddings ? 'enabled (local)' : 'disabled'}`);
   console.log(`  Analysis: ${runAnalysis ? 'enabled' : 'disabled (use --analysis)'}`);
+  console.log(`  Test cases: ${HARD_CASES.length} queries × 2 strategies = ${HARD_CASES.length * 2} runs`);
   console.log(`  Reindex: ${reindex}\n`);
 
   // Register plugins for analysis
@@ -416,7 +605,6 @@ async function main() {
 
   // Step 1: Connect and optionally reindex
   const client = await getGraphClient();
-  const ops = createOperations(client);
 
   if (reindex) {
     console.log('Re-indexing codebase...');
@@ -448,282 +636,392 @@ async function main() {
     console.log('Warming up LLM...');
     await warmupLLM();
     context.llm = await getLLMModel();
-
     if (fastOnly) {
       context.complexLlm = context.llm;
-      console.log('LLM ready (fast-only mode: Cerebras for all strategies)');
     } else {
       const complexModel = await getLLMComplexModel();
       if (complexModel) context.complexLlm = complexModel;
-      const cfg = getLLMConfigResolved();
-      const tierInfo = cfg.complexProvider
-        ? `two-tier: ${cfg.provider}/${cfg.model} + ${cfg.complexProvider}/${cfg.complexModel}`
-        : `single-tier: ${cfg.provider}/${cfg.model}`;
-      console.log(`LLM ready (${tierInfo})`);
     }
-  } else if (!noLlm) {
-    console.log('WARNING: No LLM available — LLM-dependent strategies will be skipped');
   }
 
   if (useEmbeddings) {
     console.log('Warming up embedding model...');
     await warmupEmbedding(embeddingConfig);
     context.embeddings = embeddingConfig;
-    console.log('Embeddings ready (local nomic-embed-text-v1.5, 768d)');
+    console.log(`Embeddings ready (${embeddingProvider})\n`);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // SEARCH BENCHMARKS
+  // STRESS TEST: Run each query against both HYBRID and ENRICHED
   // ══════════════════════════════════════════════════════════════════════════
 
-  console.log(`\n${'═'.repeat(90)}`);
-  console.log('  SEARCH BENCHMARKS');
-  console.log(`${'═'.repeat(90)}\n`);
+  console.log(`${'═'.repeat(100)}`);
+  console.log('  RANKING STRESS TEST — HYBRID vs ENRICHED');
+  console.log(`${'═'.repeat(100)}\n`);
 
-  const results: QueryResult[] = [];
-  const skippedStrategies = new Set<SearchType>();
+  const allResults: HardQueryResult[] = [];
 
-  // Filter test cases based on available capabilities
-  const runnableCases = TEST_CASES.filter(tc => {
-    const strategy = registry.get(tc.strategy);
-    if (!strategy) {
-      skippedStrategies.add(tc.strategy);
-      return false;
-    }
-    if (strategy.requiresLLM && !context.llm) {
-      skippedStrategies.add(tc.strategy);
-      return false;
-    }
-    return true;
-  });
-
-  console.log(`Running ${runnableCases.length}/${TEST_CASES.length} search test cases...\n`);
-  console.log('─'.repeat(95));
+  // Table header
   console.log(
-    `${'Strategy'.padEnd(22)} ${'Query'.padEnd(38)} ${'Latency'.padStart(8)} ${'Recall'.padStart(8)} ${'Prec'.padStart(8)} ${'Hits'.padStart(5)} ${'Cat'.padStart(10)}`
+    `${'Strategy'.padEnd(10)} ${'Query'.padEnd(28)} ${'Category'.padEnd(18)} ` +
+    `${'MRR'.padStart(6)} ${'NDCG@5'.padStart(7)} ${'NDCG@10'.padStart(8)} ` +
+    `${'S@1'.padStart(4)} ${'S@5'.padStart(4)} ${'R@10'.padStart(6)} ` +
+    `${'Lat'.padStart(7)} ${'Top Result'.padEnd(20)}`
   );
-  console.log('─'.repeat(95));
+  console.log('─'.repeat(125));
 
-  for (const tc of runnableCases) {
-    const start = Date.now();
-    let response: SearchResponse;
-    let error: string | undefined;
+  for (const tc of HARD_CASES) {
+    for (const strategy of tc.strategies) {
+      // Check strategy availability
+      const strat = registry.get(strategy);
+      if (!strat) continue;
+      if (strat.requiresLLM && !context.llm) continue;
 
-    try {
-      response = await registry.search(
-        { query: tc.query, type: tc.strategy, limit: 20 },
-        context,
-      );
-    } catch (err) {
+      const start = Date.now();
+      let response: SearchResponse;
+
+      try {
+        response = await registry.search(
+          { query: tc.query, type: strategy, limit: 20 },
+          context,
+        );
+      } catch (err) {
+        const latency = Date.now() - start;
+        allResults.push({
+          testCase: tc,
+          strategy,
+          latencyMs: latency,
+          resultNames: [],
+          top5: [],
+          mrr: 0,
+          ndcg5: 0,
+          ndcg10: 0,
+          success1: false,
+          success5: false,
+          recall10: 0,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        console.log(
+          `${strategy.padEnd(10)} ${tc.query.slice(0, 28).padEnd(28)} ${tc.category.padEnd(18)} ` +
+          `${'ERR'.padStart(6)} ${'ERR'.padStart(7)} ${'ERR'.padStart(8)} ` +
+          `${'-'.padStart(4)} ${'-'.padStart(4)} ${'-'.padStart(6)} ` +
+          `${(latency + 'ms').padStart(7)}`
+        );
+        continue;
+      }
+
       const latency = Date.now() - start;
-      error = err instanceof Error ? err.message : String(err);
-      results.push({
+      const resultNames = response.results.map(r => r.name);
+      const top5 = response.results.slice(0, 5).map(r => ({
+        name: r.name,
+        score: r.score,
+        nodeType: r.nodeType,
+      }));
+
+      const mrr = calculateMRR(tc.expectedResults, resultNames);
+      const ndcg5 = calculateNDCG(tc.expectedResults, resultNames, 5);
+      const ndcg10 = calculateNDCG(tc.expectedResults, resultNames, 10);
+      const s1 = successAtK(tc.expectedResults, resultNames, 1);
+      const s5 = successAtK(tc.expectedResults, resultNames, 5);
+      const r10 = recallAtK(tc.expectedResults, resultNames, 10);
+
+      const qr: HardQueryResult = {
         testCase: tc,
+        strategy,
         latencyMs: latency,
-        resultNames: [],
-        recall: 0,
-        precision: 0,
-        totalResults: 0,
-        error,
-      });
+        resultNames,
+        top5,
+        mrr,
+        ndcg5,
+        ndcg10,
+        success1: s1,
+        success5: s5,
+        recall10: r10,
+      };
+      allResults.push(qr);
+
+      const topResult = resultNames[0] ?? '(none)';
       console.log(
-        `${tc.strategy.padEnd(22)} ${tc.description.slice(0, 38).padEnd(38)} ${(latency + 'ms').padStart(8)} ${'ERR'.padStart(8)} ${'ERR'.padStart(8)} ${'0'.padStart(5)} ${tc.category.padStart(10)}`
+        `${strategy.padEnd(10)} ${tc.query.slice(0, 28).padEnd(28)} ${tc.category.padEnd(18)} ` +
+        `${mrr.toFixed(2).padStart(6)} ${ndcg5.toFixed(3).padStart(7)} ${ndcg10.toFixed(3).padStart(8)} ` +
+        `${(s1 ? '✓' : '✗').padStart(4)} ${(s5 ? '✓' : '✗').padStart(4)} ${(r10 * 100).toFixed(0).padStart(5)}% ` +
+        `${(latency + 'ms').padStart(7)} ${topResult.slice(0, 20)}`
       );
-      continue;
     }
-
-    const latency = Date.now() - start;
-    const resultNames = response.results.map(r => r.name);
-    const recall = calculateRecall(tc.expectedNames, resultNames);
-    const precision = calculatePrecision(tc.expectedNames, resultNames);
-
-    const qr: QueryResult = {
-      testCase: tc,
-      latencyMs: latency,
-      resultNames,
-      recall,
-      precision,
-      totalResults: response.total,
-      routedTo: response.routedTo,
-      hasAnswer: !!response.answer,
-      error: response.error,
-    };
-    results.push(qr);
-
-    const recallStr = (recall * 100).toFixed(0) + '%';
-    const precStr = tc.expectedNames.length > 0 ? (precision * 100).toFixed(0) + '%' : 'n/a';
-    const stratLabel = qr.routedTo ? `${tc.strategy}→${qr.routedTo}` : tc.strategy;
-
-    console.log(
-      `${stratLabel.padEnd(22)} ${tc.description.slice(0, 38).padEnd(38)} ${(latency + 'ms').padStart(8)} ${recallStr.padStart(8)} ${precStr.padStart(8)} ${String(response.total).padStart(5)} ${tc.category.padStart(10)}`
-    );
   }
 
-  console.log('─'.repeat(95));
+  console.log('─'.repeat(125));
 
-  // ── Search summary by strategy ──
-  const byStrategy = new Map<string, QueryResult[]>();
-  for (const r of results) {
-    const key = r.testCase.strategy;
-    if (!byStrategy.has(key)) byStrategy.set(key, []);
-    byStrategy.get(key)!.push(r);
+  // ══════════════════════════════════════════════════════════════════════════
+  // SUMMARY: aggregate by strategy
+  // ══════════════════════════════════════════════════════════════════════════
+
+  console.log(`\n${'═'.repeat(100)}`);
+  console.log('  AGGREGATE METRICS BY STRATEGY');
+  console.log(`${'═'.repeat(100)}\n`);
+
+  const byStrategy = new Map<string, HardQueryResult[]>();
+  for (const r of allResults) {
+    if (!byStrategy.has(r.strategy)) byStrategy.set(r.strategy, []);
+    byStrategy.get(r.strategy)!.push(r);
   }
 
-  console.log('\n=== Search Summary by Strategy ===\n');
-  console.log(`${'Strategy'.padEnd(18)} ${'Queries'.padStart(8)} ${'Avg Lat'.padStart(10)} ${'P50 Lat'.padStart(10)} ${'P95 Lat'.padStart(10)} ${'Avg Recall'.padStart(11)} ${'Avg Prec'.padStart(11)}`);
-  console.log('─'.repeat(85));
+  console.log(
+    `${'Strategy'.padEnd(12)} ${'Queries'.padStart(8)} ` +
+    `${'Avg MRR'.padStart(8)} ${'Avg NDCG@5'.padStart(11)} ${'Avg NDCG@10'.padStart(12)} ` +
+    `${'S@1'.padStart(6)} ${'S@5'.padStart(6)} ${'Avg R@10'.padStart(9)} ` +
+    `${'Avg Lat'.padStart(8)} ${'P50'.padStart(6)} ${'P95'.padStart(6)}`
+  );
+  console.log('─'.repeat(100));
 
-  let totalLatency = 0;
-  let totalRecall = 0;
-  let totalPrecision = 0;
-  let totalQueries = 0;
-  let precisionCount = 0;
-
-  for (const [strategy, qrs] of byStrategy) {
-    const latencies = qrs.map(r => r.latencyMs).sort((a, b) => a - b);
-    const avgLat = latencies.reduce((s, v) => s + v, 0) / latencies.length;
+  for (const [strategy, results] of byStrategy) {
+    const n = results.length;
+    const avgMRR = results.reduce((s, r) => s + r.mrr, 0) / n;
+    const avgNDCG5 = results.reduce((s, r) => s + r.ndcg5, 0) / n;
+    const avgNDCG10 = results.reduce((s, r) => s + r.ndcg10, 0) / n;
+    const s1Rate = results.filter(r => r.success1).length / n;
+    const s5Rate = results.filter(r => r.success5).length / n;
+    const avgRecall10 = results.reduce((s, r) => s + r.recall10, 0) / n;
+    const latencies = results.map(r => r.latencyMs).sort((a, b) => a - b);
+    const avgLat = latencies.reduce((s, v) => s + v, 0) / n;
     const p50 = percentile(latencies, 0.5);
     const p95 = percentile(latencies, 0.95);
-    const avgRecall = qrs.reduce((s, r) => s + r.recall, 0) / qrs.length;
-    const withExpected = qrs.filter(r => r.testCase.expectedNames.length > 0);
-    const avgPrec = withExpected.length > 0 ? withExpected.reduce((s, r) => s + r.precision, 0) / withExpected.length : 0;
-
-    totalLatency += latencies.reduce((s, v) => s + v, 0);
-    totalRecall += qrs.reduce((s, r) => s + r.recall, 0);
-    totalPrecision += withExpected.reduce((s, r) => s + r.precision, 0);
-    totalQueries += qrs.length;
-    precisionCount += withExpected.length;
 
     console.log(
-      `${strategy.padEnd(18)} ${String(qrs.length).padStart(8)} ${(avgLat.toFixed(0) + 'ms').padStart(10)} ${(p50 + 'ms').padStart(10)} ${(p95 + 'ms').padStart(10)} ${((avgRecall * 100).toFixed(1) + '%').padStart(11)} ${((avgPrec * 100).toFixed(1) + '%').padStart(11)}`
+      `${strategy.padEnd(12)} ${String(n).padStart(8)} ` +
+      `${avgMRR.toFixed(3).padStart(8)} ${avgNDCG5.toFixed(3).padStart(11)} ${avgNDCG10.toFixed(3).padStart(12)} ` +
+      `${(s1Rate * 100).toFixed(0).padStart(5)}% ${(s5Rate * 100).toFixed(0).padStart(5)}% ${(avgRecall10 * 100).toFixed(1).padStart(8)}% ` +
+      `${(avgLat.toFixed(0) + 'ms').padStart(8)} ${(p50 + 'ms').padStart(6)} ${(p95 + 'ms').padStart(6)}`
     );
   }
 
-  console.log('─'.repeat(85));
+  console.log('─'.repeat(100));
 
-  const overallAvgLat = totalQueries > 0 ? totalLatency / totalQueries : 0;
-  const overallRecall = totalQueries > 0 ? totalRecall / totalQueries : 0;
-  const overallPrec = precisionCount > 0 ? totalPrecision / precisionCount : 0;
+  // ══════════════════════════════════════════════════════════════════════════
+  // HEAD-TO-HEAD: HYBRID vs ENRICHED per query
+  // ══════════════════════════════════════════════════════════════════════════
 
-  console.log(
-    `${'OVERALL'.padEnd(18)} ${String(totalQueries).padStart(8)} ${(overallAvgLat.toFixed(0) + 'ms').padStart(10)} ${''.padStart(10)} ${''.padStart(10)} ${((overallRecall * 100).toFixed(1) + '%').padStart(11)} ${((overallPrec * 100).toFixed(1) + '%').padStart(11)}`
-  );
+  const hybridResults = byStrategy.get('HYBRID') ?? [];
+  const enrichedResults = byStrategy.get('ENRICHED') ?? [];
 
-  // ── Search summary by category ──
-  const byCategory = new Map<string, QueryResult[]>();
-  for (const r of results) {
-    const cat = r.testCase.category;
-    if (!byCategory.has(cat)) byCategory.set(cat, []);
-    byCategory.get(cat)!.push(r);
-  }
+  if (hybridResults.length > 0 && enrichedResults.length > 0) {
+    console.log(`\n${'═'.repeat(100)}`);
+    console.log('  HEAD-TO-HEAD: HYBRID vs ENRICHED');
+    console.log(`${'═'.repeat(100)}\n`);
 
-  console.log('\n=== Search Summary by Category ===\n');
-  console.log(`${'Category'.padEnd(18)} ${'Queries'.padStart(8)} ${'Avg Lat'.padStart(10)} ${'Avg Recall'.padStart(11)}`);
-  console.log('─'.repeat(50));
+    // Match by query
+    const hByQuery = new Map(hybridResults.map(r => [r.testCase.query, r]));
+    const eByQuery = new Map(enrichedResults.map(r => [r.testCase.query, r]));
 
-  for (const [cat, qrs] of byCategory) {
-    const avgLat = qrs.reduce((s, r) => s + r.latencyMs, 0) / qrs.length;
-    const avgRecall = qrs.reduce((s, r) => s + r.recall, 0) / qrs.length;
     console.log(
-      `${cat.padEnd(18)} ${String(qrs.length).padStart(8)} ${(avgLat.toFixed(0) + 'ms').padStart(10)} ${((avgRecall * 100).toFixed(1) + '%').padStart(11)}`
+      `${'Query'.padEnd(28)} ${'Category'.padEnd(18)} ` +
+      `${'H.MRR'.padStart(6)} ${'E.MRR'.padStart(6)} ${'ΔMRR'.padStart(6)} ` +
+      `${'H.NDCG5'.padStart(8)} ${'E.NDCG5'.padStart(8)} ${'ΔNDCG5'.padStart(7)} ` +
+      `${'Overhead'.padStart(9)}`
     );
-  }
+    console.log('─'.repeat(105));
 
-  if (skippedStrategies.size > 0) {
-    console.log(`\nSkipped strategies (no LLM): ${[...skippedStrategies].join(', ')}`);
+    let mrrWins = 0, mrrLosses = 0, mrrTies = 0;
+    let ndcgWins = 0, ndcgLosses = 0, ndcgTies = 0;
+    let totalOverhead = 0;
+    let count = 0;
+
+    for (const [query, hR] of hByQuery) {
+      const eR = eByQuery.get(query);
+      if (!eR) continue;
+      count++;
+
+      const mrrDelta = eR.mrr - hR.mrr;
+      const ndcgDelta = eR.ndcg5 - hR.ndcg5;
+      const overhead = eR.latencyMs - hR.latencyMs;
+      totalOverhead += overhead;
+
+      if (mrrDelta > 0.01) mrrWins++;
+      else if (mrrDelta < -0.01) mrrLosses++;
+      else mrrTies++;
+
+      if (ndcgDelta > 0.005) ndcgWins++;
+      else if (ndcgDelta < -0.005) ndcgLosses++;
+      else ndcgTies++;
+
+      const mrrDeltaStr = mrrDelta > 0 ? `+${mrrDelta.toFixed(2)}` : mrrDelta < -0.01 ? mrrDelta.toFixed(2) : '=';
+      const ndcgDeltaStr = ndcgDelta > 0 ? `+${ndcgDelta.toFixed(3)}` : ndcgDelta < -0.005 ? ndcgDelta.toFixed(3) : '=';
+
+      console.log(
+        `${query.slice(0, 28).padEnd(28)} ${hR.testCase.category.padEnd(18)} ` +
+        `${hR.mrr.toFixed(2).padStart(6)} ${eR.mrr.toFixed(2).padStart(6)} ${mrrDeltaStr.padStart(6)} ` +
+        `${hR.ndcg5.toFixed(3).padStart(8)} ${eR.ndcg5.toFixed(3).padStart(8)} ${ndcgDeltaStr.padStart(7)} ` +
+        `${('+' + overhead + 'ms').padStart(9)}`
+      );
+    }
+
+    console.log('─'.repeat(105));
+
+    const hAvgMRR = hybridResults.reduce((s, r) => s + r.mrr, 0) / hybridResults.length;
+    const eAvgMRR = enrichedResults.reduce((s, r) => s + r.mrr, 0) / enrichedResults.length;
+    const hAvgNDCG5 = hybridResults.reduce((s, r) => s + r.ndcg5, 0) / hybridResults.length;
+    const eAvgNDCG5 = enrichedResults.reduce((s, r) => s + r.ndcg5, 0) / enrichedResults.length;
+    const avgOverhead = count > 0 ? totalOverhead / count : 0;
+
+    console.log(`\n  Compared: ${count} queries`);
+    console.log(`  MRR  wins/ties/losses: ${mrrWins}/${mrrTies}/${mrrLosses}`);
+    console.log(`  NDCG@5 wins/ties/losses: ${ndcgWins}/${ndcgTies}/${ndcgLosses}`);
+    console.log(`  Avg MRR:    HYBRID ${hAvgMRR.toFixed(3)} vs ENRICHED ${eAvgMRR.toFixed(3)} (Δ ${(eAvgMRR - hAvgMRR > 0 ? '+' : '')}${(eAvgMRR - hAvgMRR).toFixed(3)})`);
+    console.log(`  Avg NDCG@5: HYBRID ${hAvgNDCG5.toFixed(3)} vs ENRICHED ${eAvgNDCG5.toFixed(3)} (Δ ${(eAvgNDCG5 - hAvgNDCG5 > 0 ? '+' : '')}${(eAvgNDCG5 - hAvgNDCG5).toFixed(3)})`);
+    console.log(`  Avg overhead: +${avgOverhead.toFixed(0)}ms`);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // ANALYSIS BENCHMARKS
+  // BY CATEGORY: where does enrichment help most?
+  // ══════════════════════════════════════════════════════════════════════════
+
+  console.log(`\n${'═'.repeat(100)}`);
+  console.log('  BY CATEGORY: Where Does Enrichment Help?');
+  console.log(`${'═'.repeat(100)}\n`);
+
+  const categories = [...new Set(HARD_CASES.map(tc => tc.category))];
+
+  console.log(
+    `${'Category'.padEnd(20)} ` +
+    `${'H.MRR'.padStart(7)} ${'E.MRR'.padStart(7)} ${'ΔMRR'.padStart(7)} ` +
+    `${'H.NDCG@5'.padStart(9)} ${'E.NDCG@5'.padStart(9)} ${'ΔNDCG@5'.padStart(8)} ` +
+    `${'H.S@1'.padStart(6)} ${'E.S@1'.padStart(6)}`
+  );
+  console.log('─'.repeat(90));
+
+  for (const cat of categories) {
+    const hCat = hybridResults.filter(r => r.testCase.category === cat);
+    const eCat = enrichedResults.filter(r => r.testCase.category === cat);
+
+    if (hCat.length === 0 || eCat.length === 0) continue;
+
+    const hMRR = hCat.reduce((s, r) => s + r.mrr, 0) / hCat.length;
+    const eMRR = eCat.reduce((s, r) => s + r.mrr, 0) / eCat.length;
+    const hNDCG = hCat.reduce((s, r) => s + r.ndcg5, 0) / hCat.length;
+    const eNDCG = eCat.reduce((s, r) => s + r.ndcg5, 0) / eCat.length;
+    const hS1 = hCat.filter(r => r.success1).length / hCat.length;
+    const eS1 = eCat.filter(r => r.success1).length / eCat.length;
+
+    const mrrDelta = eMRR - hMRR;
+    const ndcgDelta = eNDCG - hNDCG;
+    const mrrStr = mrrDelta > 0 ? `+${mrrDelta.toFixed(3)}` : mrrDelta < -0.01 ? mrrDelta.toFixed(3) : '=';
+    const ndcgStr = ndcgDelta > 0 ? `+${ndcgDelta.toFixed(3)}` : ndcgDelta < -0.005 ? ndcgDelta.toFixed(3) : '=';
+
+    console.log(
+      `${cat.padEnd(20)} ` +
+      `${hMRR.toFixed(3).padStart(7)} ${eMRR.toFixed(3).padStart(7)} ${mrrStr.padStart(7)} ` +
+      `${hNDCG.toFixed(3).padStart(9)} ${eNDCG.toFixed(3).padStart(9)} ${ndcgStr.padStart(8)} ` +
+      `${(hS1 * 100).toFixed(0).padStart(5)}% ${(eS1 * 100).toFixed(0).padStart(5)}%`
+    );
+  }
+
+  console.log('─'.repeat(90));
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ANALYSIS BENCHMARKS (optional)
   // ══════════════════════════════════════════════════════════════════════════
 
   const analysisResults: Array<{ name: string; latencyMs: number; success: boolean; resultCount: number; details?: string; error?: string }> = [];
 
   if (runAnalysis) {
-    console.log(`\n${'═'.repeat(90)}`);
+    console.log(`\n${'═'.repeat(100)}`);
     console.log('  ANALYSIS BENCHMARKS');
-    console.log(`${'═'.repeat(90)}\n`);
+    console.log(`${'═'.repeat(100)}\n`);
 
     const cases = getAnalysisCases();
-    console.log(`Running ${cases.length} analysis benchmarks...\n`);
-    console.log('─'.repeat(80));
-    console.log(
-      `${'Analysis'.padEnd(25)} ${'Description'.padEnd(35)} ${'Latency'.padStart(8)} ${'Status'.padStart(8)} ${'Count'.padStart(6)}`
-    );
-    console.log('─'.repeat(80));
-
     for (const ac of cases) {
       const start = Date.now();
       try {
         const result = await ac.run();
         const latency = Date.now() - start;
-        analysisResults.push({
-          name: ac.name,
-          latencyMs: latency,
-          success: result.success,
-          resultCount: result.resultCount,
-          details: result.details,
-        });
-        console.log(
-          `${ac.name.padEnd(25)} ${ac.description.slice(0, 35).padEnd(35)} ${(latency + 'ms').padStart(8)} ${(result.success ? 'OK' : 'FAIL').padStart(8)} ${String(result.resultCount).padStart(6)}${result.details ? `  ${result.details}` : ''}`
-        );
+        analysisResults.push({ name: ac.name, latencyMs: latency, success: result.success, resultCount: result.resultCount, details: result.details });
+        console.log(`  ${result.success ? '✓' : '✗'} ${ac.name.padEnd(25)} ${(latency + 'ms').padStart(8)} ${String(result.resultCount).padStart(5)} results${result.details ? `  (${result.details})` : ''}`);
       } catch (err) {
         const latency = Date.now() - start;
-        const error = err instanceof Error ? err.message : String(err);
-        analysisResults.push({
-          name: ac.name,
-          latencyMs: latency,
-          success: false,
-          resultCount: 0,
-          error,
-        });
-        console.log(
-          `${ac.name.padEnd(25)} ${ac.description.slice(0, 35).padEnd(35)} ${(latency + 'ms').padStart(8)} ${'ERR'.padStart(8)} ${'0'.padStart(6)}  ${error.slice(0, 40)}`
-        );
+        analysisResults.push({ name: ac.name, latencyMs: latency, success: false, resultCount: 0, error: String(err) });
+        console.log(`  ✗ ${ac.name.padEnd(25)} ${(latency + 'ms').padStart(8)} ERROR`);
       }
     }
-
-    console.log('─'.repeat(80));
-
-    const avgAnalysisLat = analysisResults.reduce((s, r) => s + r.latencyMs, 0) / analysisResults.length;
-    const passCount = analysisResults.filter(r => r.success).length;
-    console.log(`\nAnalysis: ${passCount}/${analysisResults.length} passed, avg latency ${avgAnalysisLat.toFixed(0)}ms`);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
   // FINAL SUMMARY
   // ══════════════════════════════════════════════════════════════════════════
 
-  console.log(`\n${'═'.repeat(90)}`);
+  console.log(`\n${'═'.repeat(100)}`);
   console.log('  FINAL SUMMARY');
-  console.log(`${'═'.repeat(90)}\n`);
+  console.log(`${'═'.repeat(100)}\n`);
 
-  const allLatencies = results.map(r => r.latencyMs).sort((a, b) => a - b);
-  const p50All = percentile(allLatencies, 0.5);
-  const p95All = percentile(allLatencies, 0.95);
+  for (const [strategy, results] of byStrategy) {
+    const n = results.length;
+    const avgMRR = results.reduce((s, r) => s + r.mrr, 0) / n;
+    const avgNDCG5 = results.reduce((s, r) => s + r.ndcg5, 0) / n;
+    const s1Rate = results.filter(r => r.success1).length / n;
+    const s5Rate = results.filter(r => r.success5).length / n;
+    const avgLat = results.reduce((s, r) => s + r.latencyMs, 0) / n;
 
-  console.log(`  Search queries:    ${totalQueries} (${TEST_CASES.length - runnableCases.length} skipped)`);
-  console.log(`  Avg recall:        ${(overallRecall * 100).toFixed(1)}%`);
-  console.log(`  Avg precision:     ${(overallPrec * 100).toFixed(1)}%`);
-  console.log(`  Avg latency:       ${overallAvgLat.toFixed(0)}ms (P50: ${p50All}ms, P95: ${p95All}ms)`);
-
-  if (runAnalysis) {
-    const passCount = analysisResults.filter(r => r.success).length;
-    const avgAnalysisLat = analysisResults.reduce((s, r) => s + r.latencyMs, 0) / analysisResults.length;
-    console.log(`  Analysis:          ${passCount}/${analysisResults.length} passed, avg ${avgAnalysisLat.toFixed(0)}ms`);
+    console.log(`  ${strategy}:`);
+    console.log(`    MRR: ${avgMRR.toFixed(3)}  NDCG@5: ${avgNDCG5.toFixed(3)}  S@1: ${(s1Rate * 100).toFixed(0)}%  S@5: ${(s5Rate * 100).toFixed(0)}%  Avg latency: ${avgLat.toFixed(0)}ms`);
   }
 
-  // Failure details
-  const failures = results.filter(r => r.recall === 0 && r.testCase.expectedNames.length > 0);
-  if (failures.length > 0) {
-    console.log(`\n  Failures (0% recall):`);
-    for (const f of failures) {
-      console.log(`    - ${f.testCase.strategy}: "${f.testCase.query}" (expected: ${f.testCase.expectedNames.join(', ')})`);
+  // Worst cases
+  const worst = allResults
+    .filter(r => r.mrr === 0 && r.testCase.expectedResults.length > 0)
+    .slice(0, 5);
+  if (worst.length > 0) {
+    console.log('\n  Worst cases (MRR=0):');
+    for (const w of worst) {
+      console.log(`    ${w.strategy}: "${w.testCase.query}" → top: ${w.resultNames.slice(0, 3).join(', ') || '(empty)'}`);
     }
   }
 
-  // Machine-readable summary
-  console.log(`\n[BENCHMARK] ${label} | queries=${totalQueries} | avg_latency_ms=${overallAvgLat.toFixed(0)} | p50_ms=${p50All} | p95_ms=${p95All} | avg_recall=${(overallRecall * 100).toFixed(1)}% | avg_precision=${(overallPrec * 100).toFixed(1)}% | skipped=${TEST_CASES.length - runnableCases.length}${runAnalysis ? ` | analysis=${analysisResults.filter(r => r.success).length}/${analysisResults.length}` : ''}`);
+  // Save results to JSON
+  const resultsDir = resolve(ROOT, 'scripts/benchmark-results');
+  mkdirSync(resultsDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const filename = `${label}-${timestamp}.json`;
+  const filepath = resolve(resultsDir, filename);
+  writeFileSync(filepath, JSON.stringify({
+    label,
+    timestamp: new Date().toISOString(),
+    nodeCount,
+    embeddings: useEmbeddings,
+    llm: !noLlm,
+    results: allResults.map(r => ({
+      query: r.testCase.query,
+      strategy: r.strategy,
+      category: r.testCase.category,
+      latencyMs: r.latencyMs,
+      mrr: r.mrr,
+      ndcg5: r.ndcg5,
+      ndcg10: r.ndcg10,
+      success1: r.success1,
+      success5: r.success5,
+      recall10: r.recall10,
+      top5: r.top5,
+    })),
+    summary: Object.fromEntries([...byStrategy].map(([strat, results]) => [strat, {
+      avgMRR: results.reduce((s, r) => s + r.mrr, 0) / results.length,
+      avgNDCG5: results.reduce((s, r) => s + r.ndcg5, 0) / results.length,
+      avgNDCG10: results.reduce((s, r) => s + r.ndcg10, 0) / results.length,
+      successAt1: results.filter(r => r.success1).length / results.length,
+      successAt5: results.filter(r => r.success5).length / results.length,
+      avgRecall10: results.reduce((s, r) => s + r.recall10, 0) / results.length,
+      avgLatencyMs: results.reduce((s, r) => s + r.latencyMs, 0) / results.length,
+    }])),
+  }, null, 2));
+  console.log(`\n  Results saved: ${filepath}`);
+
+  // Machine-readable summary line
+  const hSummary = byStrategy.get('HYBRID');
+  const eSummary = byStrategy.get('ENRICHED');
+  if (hSummary && eSummary) {
+    const hMRR = hSummary.reduce((s, r) => s + r.mrr, 0) / hSummary.length;
+    const eMRR = eSummary.reduce((s, r) => s + r.mrr, 0) / eSummary.length;
+    const hNDCG = hSummary.reduce((s, r) => s + r.ndcg5, 0) / hSummary.length;
+    const eNDCG = eSummary.reduce((s, r) => s + r.ndcg5, 0) / eSummary.length;
+    console.log(`\n[STRESS] ${label} | H.MRR=${hMRR.toFixed(3)} E.MRR=${eMRR.toFixed(3)} | H.NDCG@5=${hNDCG.toFixed(3)} E.NDCG@5=${eNDCG.toFixed(3)} | queries=${allResults.length}`);
+  }
 
   await closeGraphClient();
 }

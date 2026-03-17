@@ -27,6 +27,7 @@ import type { EmbeddingConfig } from '@codegraph/plugin-nlp';
 export type SearchType =
   | 'VECTOR'
   | 'HYBRID'
+  | 'ENRICHED'
   | 'GRAPH_ANSWER'
   | 'NL_TO_CYPHER'
   | 'SMART_SEARCH'

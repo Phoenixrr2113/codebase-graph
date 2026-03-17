@@ -52,6 +52,16 @@ export type {
   CodeNodeType,
 } from './hybridSearch';
 
+// Enriched search (hybrid + non-LLM enrichment signals)
+export { enrichedSearch } from './enrichedSearch';
+export type {
+  EnrichedSearchHit,
+  EnrichedSearchResult,
+  EnrichedSearchOptions,
+  EnrichmentData,
+  DocSnippet,
+} from './enrichedSearch';
+
 // Search strategy registry (WS12)
 export {
   SearchRegistry,
@@ -64,6 +74,7 @@ export {
   NLToCypherStrategy,
   SmartSearchStrategy,
   ContextWalkStrategy,
+  EnrichedSearchStrategy,
 } from './search';
 export type {
   SearchType,
