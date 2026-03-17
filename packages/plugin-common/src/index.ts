@@ -9,6 +9,20 @@
 import type { SyntaxNode, ExtractedEntities } from '@codegraph/types';
 
 // ============================================================================
+// Complexity Analysis (universal, all languages)
+// ============================================================================
+
+export {
+  calculateComplexity,
+  calculateCyclomatic,
+  calculateCognitive,
+  calculateNestingDepth,
+  classifyComplexity,
+  COMPLEXITY_THRESHOLDS,
+  type ComplexityMetrics,
+} from './complexity';
+
+// ============================================================================
 // AST Traversal
 // ============================================================================
 

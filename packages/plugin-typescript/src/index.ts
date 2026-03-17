@@ -135,7 +135,7 @@ export type {
   InheritanceResult,
 } from './extractors';
 
-// Complexity metrics (used by function extractor and analysis pipeline)
+// Complexity metrics — re-exported from @codegraph/plugin-common (universal, all languages)
 export {
   calculateComplexity,
   calculateCyclomatic,
@@ -143,6 +143,5 @@ export {
   calculateNestingDepth,
   classifyComplexity,
   COMPLEXITY_THRESHOLDS,
-} from './complexity';
-
-export type { ComplexityMetrics } from './complexity';
+  type ComplexityMetrics,
+} from '@codegraph/plugin-common';

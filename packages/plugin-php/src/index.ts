@@ -34,7 +34,7 @@ import type {
   CallReference,
   SyntaxNode,
 } from '@codegraph/types';
-import { findNodesOfType, generateEntityId } from '@codegraph/plugin-common';
+import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 // tree-sitter-php exports { php, php_only } — we need the full grammar
@@ -330,6 +330,12 @@ function extractFunctionFromNode(
   if (returnType) entity.returnType = returnType;
   if (docstring) entity.docstring = docstring;
 
+  // Universal complexity metrics
+  const metrics = calculateComplexity(node);
+  entity.complexity = metrics.cyclomatic;
+  entity.cognitiveComplexity = metrics.cognitive;
+  entity.nestingDepth = metrics.nestingDepth;
+
   return entity;
 }
 
@@ -369,6 +375,12 @@ function extractMethodFromNode(
 
   if (returnType) entity.returnType = returnType;
   if (docstring) entity.docstring = docstring;
+
+  // Universal complexity metrics
+  const mMetrics = calculateComplexity(node);
+  entity.complexity = mMetrics.cyclomatic;
+  entity.cognitiveComplexity = mMetrics.cognitive;
+  entity.nestingDepth = mMetrics.nestingDepth;
 
   return entity;
 }

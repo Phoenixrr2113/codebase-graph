@@ -27,7 +27,7 @@ import type {
   CallReference,
   SyntaxNode,
 } from '@codegraph/types';
-import { findNodesOfType, generateEntityId } from '@codegraph/plugin-common';
+import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 /** Get the tree-sitter grammar for Go */
@@ -307,6 +307,12 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
     if (returnType) entity.returnType = returnType;
     if (docstring) entity.docstring = docstring;
 
+    // Universal complexity metrics
+    const metrics = calculateComplexity(node);
+    entity.complexity = metrics.cyclomatic;
+    entity.cognitiveComplexity = metrics.cognitive;
+    entity.nestingDepth = metrics.nestingDepth;
+
     functions.push(entity);
   }
 
@@ -346,6 +352,12 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
     if (docstring) entity.docstring = docstring;
     // Note: receiver type is encoded in the function id (e.g., "Server.Start")
     // The parent relationship is expressed via CONTAINS edges in the graph
+
+    // Universal complexity metrics
+    const mMetrics = calculateComplexity(node);
+    entity.complexity = mMetrics.cyclomatic;
+    entity.cognitiveComplexity = mMetrics.cognitive;
+    entity.nestingDepth = mMetrics.nestingDepth;
 
     functions.push(entity);
   }

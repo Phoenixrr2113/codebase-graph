@@ -6,7 +6,7 @@
 import Parser from 'tree-sitter';
 import type { FunctionEntity, FunctionParam } from '@codegraph/types';
 import { findNodesOfTypes, getLocation, generateEntityId } from './types';
-import { calculateComplexity } from '../complexity';
+import { calculateComplexity } from '@codegraph/plugin-common';
 
 /** Node types that represent function declarations */
 const FUNCTION_TYPES = [

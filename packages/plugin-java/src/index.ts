@@ -18,7 +18,7 @@ import type {
   TypeEntity,
   SyntaxNode,
 } from '@codegraph/types';
-import { findNodesOfType, generateEntityId } from '@codegraph/plugin-common';
+import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 /** Get the tree-sitter grammar for Java */
@@ -306,6 +306,12 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
 
     if (returnType) entity.returnType = returnType;
     if (docstring) entity.docstring = docstring;
+
+    // Universal complexity metrics
+    const metrics = calculateComplexity(node);
+    entity.complexity = metrics.cyclomatic;
+    entity.cognitiveComplexity = metrics.cognitive;
+    entity.nestingDepth = metrics.nestingDepth;
 
     functions.push(entity);
   }

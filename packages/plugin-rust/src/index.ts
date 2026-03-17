@@ -31,7 +31,7 @@ import type {
   CallReference,
   SyntaxNode,
 } from '@codegraph/types';
-import { findNodesOfType, generateEntityId } from '@codegraph/plugin-common';
+import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 export function getGrammar(): unknown {
@@ -278,6 +278,12 @@ function extractFunctionFromNode(
 
   if (returnType) entity.returnType = returnType;
   if (docstring) entity.docstring = docstring;
+
+  // Universal complexity metrics
+  const metrics = calculateComplexity(node);
+  entity.complexity = metrics.cyclomatic;
+  entity.cognitiveComplexity = metrics.cognitive;
+  entity.nestingDepth = metrics.nestingDepth;
 
   return entity;
 }
