@@ -31,7 +31,8 @@ export type SearchType =
   | 'GRAPH_ANSWER'
   | 'NL_TO_CYPHER'
   | 'SMART_SEARCH'
-  | 'CONTEXT_WALK';
+  | 'CONTEXT_WALK'
+  | 'ENRICHED_V2';
 
 // ============================================================================
 // Search Context — shared dependencies passed to all strategies

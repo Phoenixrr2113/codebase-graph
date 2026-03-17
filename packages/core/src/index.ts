@@ -62,6 +62,10 @@ export type {
   DocSnippet,
 } from './enrichedSearch';
 
+// Enriched search V2 (clean incremental build)
+export { enrichedSearchV2 } from './enrichedSearchV2';
+export type { EnrichedV2Result, EnrichedV2Hit, EnrichedV2Options } from './enrichedSearchV2';
+
 // Search strategy registry (WS12)
 export {
   SearchRegistry,

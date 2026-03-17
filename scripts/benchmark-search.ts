@@ -117,7 +117,7 @@ const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
   {
     query: 'how does the hybrid search combine vector and text results',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'hybridSearch', relevance: 3, reason: 'Primary search function that combines vector + text' },
       { namePattern: 'HybridSearchStrategy', relevance: 2, reason: 'Strategy wrapper for hybridSearch' },
@@ -129,7 +129,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'source code parser entry point for TypeScript files',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'parseCode', relevance: 3, reason: 'Primary parser entry point, exported' },
       { namePattern: 'parseFile', relevance: 3, reason: 'File-level parser, exported' },
@@ -142,7 +142,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'factory function for creating graph operations instances',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'createOperations', relevance: 3, reason: 'CRUD factory, used by service layer and all modules' },
       { namePattern: 'createClient', relevance: 3, reason: 'Graph client factory' },
@@ -155,7 +155,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'execute read-only Cypher queries against the graph database',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'roQuery', relevance: 3, reason: 'Core read-only query method on GraphClient' },
       { namePattern: 'query', relevance: 2, reason: 'Write query method on GraphClient' },
@@ -171,7 +171,7 @@ const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
   {
     query: 'how to get a graph database client connection for queries',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'getGraphClient', relevance: 3, reason: '36 callers — most called codebase-graph function' },
       { namePattern: 'GraphClient', relevance: 2, reason: 'Interface/type definition for the client' },
@@ -183,7 +183,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'CRUD operations interface for inserting and querying graph nodes',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'createOperations', relevance: 3, reason: 'Primary factory, used in every module that writes to graph' },
       { namePattern: 'createKnowledgeOperations', relevance: 3, reason: 'Knowledge ops factory, used by service layer' },
@@ -194,7 +194,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'logging utility used across all packages for debug output',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'createLogger', relevance: 3, reason: 'Used in 40+ files across all packages' },
       { namePattern: 'Logger', relevance: 2, reason: 'Logger class/interface' },
@@ -210,7 +210,7 @@ const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
   {
     query: 'calculate code complexity metrics like cyclomatic and cognitive complexity',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'calculateComplexity', relevance: 3, reason: 'Primary complexity calculator, exported' },
       { namePattern: 'getComplexityHotspots', relevance: 3, reason: 'Public API for complexity analysis' },
@@ -223,7 +223,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'search strategy pattern for routing queries to different search backends',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'EnrichedSearchStrategy', relevance: 3, reason: 'Brand new (2026-03-17)' },
       { namePattern: 'HybridSearchStrategy', relevance: 3, reason: 'Core strategy, recently updated' },
@@ -240,7 +240,7 @@ const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
   {
     query: 'generate embedding vector for a text input using the configured provider',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'generateEmbedding', relevance: 3, reason: 'Public API, well-documented, tested, exported' },
       { namePattern: 'isEmbeddingAvailable', relevance: 2, reason: 'Utility, exported, documented' },
@@ -253,7 +253,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'index a project directory and build the code graph from source files',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'indexProject', relevance: 3, reason: 'Primary indexer, exported, heavily documented' },
       { namePattern: 'indexSingleFile', relevance: 2, reason: 'Exported helper for single-file indexing' },
@@ -264,7 +264,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'analyze impact of changing a function and find what would break',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'analyzeImpact', relevance: 3, reason: 'Exported, heavily used in MCP tools, tested' },
       { namePattern: 'analyzeRefactoring', relevance: 3, reason: 'Exported, well-documented' },
@@ -280,7 +280,7 @@ const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
   {
     query: 'how does the system connect to the database and manage connection lifecycle',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'getGraphClient', relevance: 3, reason: 'Manages DB connection lifecycle — docstring says "database"' },
       { namePattern: 'GraphClient', relevance: 2, reason: 'The connection interface' },
@@ -292,7 +292,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'find similar code nodes using vector embedding cosine similarity',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'searchByVector', relevance: 3, reason: 'Direct vector similarity search on code nodes' },
       { namePattern: 'hybridSearch', relevance: 2, reason: 'Combines vector + text search' },
@@ -304,7 +304,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'sync git commit history into the graph and track file modifications',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'syncGitHistory', relevance: 3, reason: 'Syncs git commits into graph' },
       { namePattern: 'getSymbolHistory', relevance: 3, reason: 'Gets git history for a symbol' },
@@ -320,7 +320,7 @@ const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
   {
     query: 'load and save project configuration settings from disk',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'loadConfig', relevance: 3, reason: 'Core config loader, most central' },
       { namePattern: 'saveConfig', relevance: 2, reason: 'Core config writer' },
@@ -332,7 +332,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'how are errors handled and propagated across the application layers',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'error', relevance: 2, reason: 'Error-related modules/functions' },
       { namePattern: 'catch', relevance: 1, reason: 'Error handling patterns' },
@@ -347,7 +347,7 @@ const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
   {
     query: 'reciprocal rank fusion function that merges multiple result lists',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'rrfFuse', relevance: 3, reason: 'The specific RRF fusion function' },
       { namePattern: 'hybridSearch', relevance: 1, reason: 'File containing rrfFuse' },
@@ -357,7 +357,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'convert vector distance value to a normalized similarity score',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'distanceToScore', relevance: 3, reason: 'Specific score conversion helper' },
     ],
@@ -366,7 +366,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'extract and preprocess search terms from a user query string',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'extractSearchTerms', relevance: 3, reason: 'Query preprocessing function' },
       { namePattern: 'extractEnrichedTerms', relevance: 2, reason: 'Enriched search term extractor' },
@@ -376,7 +376,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'upsert a function node into the graph with its metadata and relationships',
-    strategies: ['HYBRID', 'ENRICHED'],
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
     expectedResults: [
       { namePattern: 'upsertFunction', relevance: 3, reason: 'Specific CRUD method for function nodes' },
       { namePattern: 'upsertFile', relevance: 1, reason: 'Related upsert method' },
@@ -595,9 +595,12 @@ async function main() {
   console.log(`${'═'.repeat(100)}`);
   console.log(`  Time: ${new Date().toISOString()}`);
   console.log(`  LLM: ${noLlm ? 'disabled' : fastOnly ? 'fast-only' : 'enabled (two-tier)'}`);
-  console.log(`  Embeddings: ${useEmbeddings ? 'enabled (local)' : 'disabled'}`);
+  console.log(`  Embeddings: ${useEmbeddings ? `enabled (${embeddingProvider})` : 'disabled'}`);
   console.log(`  Analysis: ${runAnalysis ? 'enabled' : 'disabled (use --analysis)'}`);
-  console.log(`  Test cases: ${HARD_CASES.length} queries × 2 strategies = ${HARD_CASES.length * 2} runs`);
+  const strategySet = new Set(HARD_CASES.flatMap(tc => tc.strategies));
+  const strategyCount = strategySet.size;
+  console.log(`  Strategies: ${[...strategySet].join(', ')}`);
+  console.log(`  Test cases: ${HARD_CASES.length} queries × up to ${strategyCount} strategies`);
   console.log(`  Reindex: ${reindex}\n`);
 
   // Register plugins for analysis
@@ -656,7 +659,7 @@ async function main() {
   // ══════════════════════════════════════════════════════════════════════════
 
   console.log(`${'═'.repeat(100)}`);
-  console.log('  RANKING STRESS TEST — HYBRID vs ENRICHED');
+  console.log('  RANKING STRESS TEST — ALL STRATEGIES');
   console.log(`${'═'.repeat(100)}\n`);
 
   const allResults: HardQueryResult[] = [];
@@ -798,77 +801,49 @@ async function main() {
   console.log('─'.repeat(100));
 
   // ══════════════════════════════════════════════════════════════════════════
-  // HEAD-TO-HEAD: HYBRID vs ENRICHED per query
+  // PER-QUERY COMPARISON: all strategies side by side
   // ══════════════════════════════════════════════════════════════════════════
 
-  const hybridResults = byStrategy.get('HYBRID') ?? [];
-  const enrichedResults = byStrategy.get('ENRICHED') ?? [];
-
-  if (hybridResults.length > 0 && enrichedResults.length > 0) {
+  const strategyNames = [...byStrategy.keys()];
+  if (strategyNames.length >= 2) {
     console.log(`\n${'═'.repeat(100)}`);
-    console.log('  HEAD-TO-HEAD: HYBRID vs ENRICHED');
+    console.log('  PER-QUERY MRR COMPARISON');
     console.log(`${'═'.repeat(100)}\n`);
 
-    // Match by query
-    const hByQuery = new Map(hybridResults.map(r => [r.testCase.query, r]));
-    const eByQuery = new Map(enrichedResults.map(r => [r.testCase.query, r]));
-
-    console.log(
-      `${'Query'.padEnd(28)} ${'Category'.padEnd(18)} ` +
-      `${'H.MRR'.padStart(6)} ${'E.MRR'.padStart(6)} ${'ΔMRR'.padStart(6)} ` +
-      `${'H.NDCG5'.padStart(8)} ${'E.NDCG5'.padStart(8)} ${'ΔNDCG5'.padStart(7)} ` +
-      `${'Overhead'.padStart(9)}`
-    );
-    console.log('─'.repeat(105));
-
-    let mrrWins = 0, mrrLosses = 0, mrrTies = 0;
-    let ndcgWins = 0, ndcgLosses = 0, ndcgTies = 0;
-    let totalOverhead = 0;
-    let count = 0;
-
-    for (const [query, hR] of hByQuery) {
-      const eR = eByQuery.get(query);
-      if (!eR) continue;
-      count++;
-
-      const mrrDelta = eR.mrr - hR.mrr;
-      const ndcgDelta = eR.ndcg5 - hR.ndcg5;
-      const overhead = eR.latencyMs - hR.latencyMs;
-      totalOverhead += overhead;
-
-      if (mrrDelta > 0.01) mrrWins++;
-      else if (mrrDelta < -0.01) mrrLosses++;
-      else mrrTies++;
-
-      if (ndcgDelta > 0.005) ndcgWins++;
-      else if (ndcgDelta < -0.005) ndcgLosses++;
-      else ndcgTies++;
-
-      const mrrDeltaStr = mrrDelta > 0 ? `+${mrrDelta.toFixed(2)}` : mrrDelta < -0.01 ? mrrDelta.toFixed(2) : '=';
-      const ndcgDeltaStr = ndcgDelta > 0 ? `+${ndcgDelta.toFixed(3)}` : ndcgDelta < -0.005 ? ndcgDelta.toFixed(3) : '=';
-
-      console.log(
-        `${query.slice(0, 28).padEnd(28)} ${hR.testCase.category.padEnd(18)} ` +
-        `${hR.mrr.toFixed(2).padStart(6)} ${eR.mrr.toFixed(2).padStart(6)} ${mrrDeltaStr.padStart(6)} ` +
-        `${hR.ndcg5.toFixed(3).padStart(8)} ${eR.ndcg5.toFixed(3).padStart(8)} ${ndcgDeltaStr.padStart(7)} ` +
-        `${('+' + overhead + 'ms').padStart(9)}`
-      );
+    // Build per-query lookup for each strategy
+    const resultsByQueryStrategy = new Map<string, Map<string, HardQueryResult>>();
+    for (const r of allResults) {
+      if (!resultsByQueryStrategy.has(r.testCase.query)) {
+        resultsByQueryStrategy.set(r.testCase.query, new Map());
+      }
+      resultsByQueryStrategy.get(r.testCase.query)!.set(r.strategy, r);
     }
 
-    console.log('─'.repeat(105));
+    // Header
+    const stratCols = strategyNames.map(s => s.slice(0, 10).padStart(10)).join(' ');
+    console.log(`${'Query'.padEnd(28)} ${'Category'.padEnd(18)} ${stratCols}  ${'Best'.padEnd(12)}`);
+    console.log('─'.repeat(28 + 18 + strategyNames.length * 11 + 14));
 
-    const hAvgMRR = hybridResults.reduce((s, r) => s + r.mrr, 0) / hybridResults.length;
-    const eAvgMRR = enrichedResults.reduce((s, r) => s + r.mrr, 0) / enrichedResults.length;
-    const hAvgNDCG5 = hybridResults.reduce((s, r) => s + r.ndcg5, 0) / hybridResults.length;
-    const eAvgNDCG5 = enrichedResults.reduce((s, r) => s + r.ndcg5, 0) / enrichedResults.length;
-    const avgOverhead = count > 0 ? totalOverhead / count : 0;
+    for (const tc of HARD_CASES) {
+      const qMap = resultsByQueryStrategy.get(tc.query);
+      if (!qMap) continue;
 
-    console.log(`\n  Compared: ${count} queries`);
-    console.log(`  MRR  wins/ties/losses: ${mrrWins}/${mrrTies}/${mrrLosses}`);
-    console.log(`  NDCG@5 wins/ties/losses: ${ndcgWins}/${ndcgTies}/${ndcgLosses}`);
-    console.log(`  Avg MRR:    HYBRID ${hAvgMRR.toFixed(3)} vs ENRICHED ${eAvgMRR.toFixed(3)} (Δ ${(eAvgMRR - hAvgMRR > 0 ? '+' : '')}${(eAvgMRR - hAvgMRR).toFixed(3)})`);
-    console.log(`  Avg NDCG@5: HYBRID ${hAvgNDCG5.toFixed(3)} vs ENRICHED ${eAvgNDCG5.toFixed(3)} (Δ ${(eAvgNDCG5 - hAvgNDCG5 > 0 ? '+' : '')}${(eAvgNDCG5 - hAvgNDCG5).toFixed(3)})`);
-    console.log(`  Avg overhead: +${avgOverhead.toFixed(0)}ms`);
+      let bestMRR = -1;
+      let bestStrat = '';
+      const cols: string[] = [];
+      for (const s of strategyNames) {
+        const r = qMap.get(s);
+        if (r) {
+          cols.push(r.mrr.toFixed(2).padStart(10));
+          if (r.mrr > bestMRR) { bestMRR = r.mrr; bestStrat = s; }
+        } else {
+          cols.push('-'.padStart(10));
+        }
+      }
+      console.log(`${tc.query.slice(0, 28).padEnd(28)} ${tc.category.padEnd(18)} ${cols.join(' ')}  ${bestStrat}`);
+    }
+
+    console.log('─'.repeat(28 + 18 + strategyNames.length * 11 + 14));
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -876,46 +851,31 @@ async function main() {
   // ══════════════════════════════════════════════════════════════════════════
 
   console.log(`\n${'═'.repeat(100)}`);
-  console.log('  BY CATEGORY: Where Does Enrichment Help?');
+  console.log('  BY CATEGORY: Average MRR per Strategy');
   console.log(`${'═'.repeat(100)}\n`);
 
   const categories = [...new Set(HARD_CASES.map(tc => tc.category))];
 
-  console.log(
-    `${'Category'.padEnd(20)} ` +
-    `${'H.MRR'.padStart(7)} ${'E.MRR'.padStart(7)} ${'ΔMRR'.padStart(7)} ` +
-    `${'H.NDCG@5'.padStart(9)} ${'E.NDCG@5'.padStart(9)} ${'ΔNDCG@5'.padStart(8)} ` +
-    `${'H.S@1'.padStart(6)} ${'E.S@1'.padStart(6)}`
-  );
-  console.log('─'.repeat(90));
+  // Dynamic header based on strategies that actually ran
+  const catStratCols = strategyNames.map(s => s.slice(0, 10).padStart(10)).join(' ');
+  console.log(`${'Category'.padEnd(20)} ${catStratCols}`);
+  console.log('─'.repeat(20 + strategyNames.length * 11));
 
   for (const cat of categories) {
-    const hCat = hybridResults.filter(r => r.testCase.category === cat);
-    const eCat = enrichedResults.filter(r => r.testCase.category === cat);
-
-    if (hCat.length === 0 || eCat.length === 0) continue;
-
-    const hMRR = hCat.reduce((s, r) => s + r.mrr, 0) / hCat.length;
-    const eMRR = eCat.reduce((s, r) => s + r.mrr, 0) / eCat.length;
-    const hNDCG = hCat.reduce((s, r) => s + r.ndcg5, 0) / hCat.length;
-    const eNDCG = eCat.reduce((s, r) => s + r.ndcg5, 0) / eCat.length;
-    const hS1 = hCat.filter(r => r.success1).length / hCat.length;
-    const eS1 = eCat.filter(r => r.success1).length / eCat.length;
-
-    const mrrDelta = eMRR - hMRR;
-    const ndcgDelta = eNDCG - hNDCG;
-    const mrrStr = mrrDelta > 0 ? `+${mrrDelta.toFixed(3)}` : mrrDelta < -0.01 ? mrrDelta.toFixed(3) : '=';
-    const ndcgStr = ndcgDelta > 0 ? `+${ndcgDelta.toFixed(3)}` : ndcgDelta < -0.005 ? ndcgDelta.toFixed(3) : '=';
-
-    console.log(
-      `${cat.padEnd(20)} ` +
-      `${hMRR.toFixed(3).padStart(7)} ${eMRR.toFixed(3).padStart(7)} ${mrrStr.padStart(7)} ` +
-      `${hNDCG.toFixed(3).padStart(9)} ${eNDCG.toFixed(3).padStart(9)} ${ndcgStr.padStart(8)} ` +
-      `${(hS1 * 100).toFixed(0).padStart(5)}% ${(eS1 * 100).toFixed(0).padStart(5)}%`
-    );
+    const cols: string[] = [];
+    for (const strat of strategyNames) {
+      const results = (byStrategy.get(strat) ?? []).filter(r => r.testCase.category === cat);
+      if (results.length === 0) {
+        cols.push('-'.padStart(10));
+      } else {
+        const avgMRR = results.reduce((s, r) => s + r.mrr, 0) / results.length;
+        cols.push(avgMRR.toFixed(3).padStart(10));
+      }
+    }
+    console.log(`${cat.padEnd(20)} ${cols.join(' ')}`);
   }
 
-  console.log('─'.repeat(90));
+  console.log('─'.repeat(20 + strategyNames.length * 11));
 
   // ══════════════════════════════════════════════════════════════════════════
   // ANALYSIS BENCHMARKS (optional)
@@ -1013,15 +973,13 @@ async function main() {
   console.log(`\n  Results saved: ${filepath}`);
 
   // Machine-readable summary line
-  const hSummary = byStrategy.get('HYBRID');
-  const eSummary = byStrategy.get('ENRICHED');
-  if (hSummary && eSummary) {
-    const hMRR = hSummary.reduce((s, r) => s + r.mrr, 0) / hSummary.length;
-    const eMRR = eSummary.reduce((s, r) => s + r.mrr, 0) / eSummary.length;
-    const hNDCG = hSummary.reduce((s, r) => s + r.ndcg5, 0) / hSummary.length;
-    const eNDCG = eSummary.reduce((s, r) => s + r.ndcg5, 0) / eSummary.length;
-    console.log(`\n[STRESS] ${label} | H.MRR=${hMRR.toFixed(3)} E.MRR=${eMRR.toFixed(3)} | H.NDCG@5=${hNDCG.toFixed(3)} E.NDCG@5=${eNDCG.toFixed(3)} | queries=${allResults.length}`);
+  const summaryParts: string[] = [`[STRESS] ${label}`];
+  for (const [strat, results] of byStrategy) {
+    const avgMRR = results.reduce((s, r) => s + r.mrr, 0) / results.length;
+    summaryParts.push(`${strat}.MRR=${avgMRR.toFixed(3)}`);
   }
+  summaryParts.push(`queries=${allResults.length}`);
+  console.log(`\n${summaryParts.join(' | ')}`);
 
   await closeGraphClient();
 }
