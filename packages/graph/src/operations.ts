@@ -1872,7 +1872,15 @@ class GraphOperationsImpl implements GraphOperations {
     const cypher = `
       CALL db.idx.vector.queryNodes('${nodeType}', 'embedding', $k, vecf32($queryVec))
       YIELD node, score
-      RETURN node.name AS name, ${filePathExpr} AS filePath${startLineReturn}, score
+      RETURN node.name AS name, ${filePathExpr} AS filePath${startLineReturn}, score,
+             node.endLine AS endLine,
+             node.complexity AS complexity,
+             node.cognitiveComplexity AS cognitiveComplexity,
+             node.nestingDepth AS nestingDepth,
+             node.isExported AS isExported,
+             node.isAsync AS isAsync,
+             node.docstring AS docstring,
+             node.loc AS loc
     `;
 
     try {

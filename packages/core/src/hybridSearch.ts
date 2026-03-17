@@ -248,7 +248,7 @@ export async function hybridSearch(
           score: 0, // Will be set by RRF
           sources: ['vector'],
           vectorDistance: r.distance,
-          properties: r.properties,
+          properties: extractNodeProperties(r.properties),
         };
         if (r.startLine != null) hit.startLine = r.startLine;
         vectorHitsList.push({ hit, internalScore });
@@ -300,7 +300,7 @@ export async function hybridSearch(
         startLine: r.startLine,
         score: 0, // Will be set by RRF
         sources: ['text'],
-        properties: {},
+        properties: extractNodeProperties(r),
       },
       internalScore,
     });
@@ -513,6 +513,36 @@ export async function hybridSearch(
       });
       aboutExpanded++;
     }
+  }
+
+  // ----------------------------------------------------------------
+  // Step 6: Enrich function hits with call counts (fan-in/fan-out)
+  // ----------------------------------------------------------------
+  const functionHits = allHits.filter(
+    (h) => h.nodeType === 'Function' && h.filePath && h.name,
+  );
+  if (functionHits.length > 0) {
+    const callCountCypher = `
+      MATCH (f:Function {name: $name, filePath: $filePath})
+      OPTIONAL MATCH (caller)-[:CALLS]->(f)
+      OPTIONAL MATCH (f)-[:CALLS]->(callee)
+      RETURN count(DISTINCT caller) AS callerCount,
+             count(DISTINCT callee) AS calleeCount
+    `;
+    // Run all call count queries in parallel (capped at 10 hits)
+    const callQueries = functionHits.slice(0, 10).map(async (hit) => {
+      try {
+        const result = await client.roQuery<{ callerCount: number; calleeCount: number }>(
+          callCountCypher,
+          { params: { name: hit.name, filePath: hit.filePath! } },
+        );
+        if (result.data[0]) {
+          hit.properties.callerCount = result.data[0].callerCount;
+          hit.properties.calleeCount = result.data[0].calleeCount;
+        }
+      } catch { /* non-critical */ }
+    });
+    await Promise.all(callQueries);
   }
 
   const durationMs = Date.now() - startTime;
@@ -777,6 +807,39 @@ export function extractSearchTerms(query: string): string[] {
 }
 
 // ============================================================================
+// Node property extraction (enriches search hits with analytics data)
+// ============================================================================
+
+/**
+ * Extract useful properties from a search result row, filtering out nulls
+ * and internal fields. These properties enrich the search response so the
+ * LLM gets complexity, docstring, export status, etc. without extra queries.
+ */
+function extractNodeProperties(row: Record<string, unknown>): Record<string, unknown> {
+  const props: Record<string, unknown> = {};
+
+  // Complexity metrics (Function nodes)
+  if (row.complexity != null) props.complexity = row.complexity;
+  if (row.cognitiveComplexity != null) props.cognitiveComplexity = row.cognitiveComplexity;
+  if (row.nestingDepth != null) props.nestingDepth = row.nestingDepth;
+
+  // Code metadata
+  if (row.isExported != null) props.isExported = row.isExported;
+  if (row.isAsync != null) props.isAsync = row.isAsync;
+  if (row.endLine != null) props.endLine = row.endLine;
+  if (row.loc != null) props.loc = row.loc;
+
+  // Documentation (truncate for token budget — full docstring is usually too verbose)
+  if (row.docstring != null && typeof row.docstring === 'string') {
+    props.docstring = row.docstring.length > 200
+      ? row.docstring.slice(0, 200) + '...'
+      : row.docstring;
+  }
+
+  return props;
+}
+
+// ============================================================================
 // Text search across code node types
 // ============================================================================
 
@@ -785,6 +848,16 @@ interface TextSearchHit {
   name: string;
   filePath: string;
   startLine: number;
+  // Enriched fields (may be null for non-Function nodes)
+  endLine?: number;
+  complexity?: number;
+  cognitiveComplexity?: number;
+  nestingDepth?: number;
+  isExported?: boolean;
+  isAsync?: boolean;
+  docstring?: string;
+  loc?: number;
+  [key: string]: unknown;
 }
 
 /**
@@ -850,7 +923,15 @@ async function textSearchNodes(
       ${scopeFilter}
     RETURN n.name AS name, ${firstLabel} AS nodeType,
            n.filePath AS filePath,
-           n.startLine AS startLine
+           n.startLine AS startLine,
+           n.endLine AS endLine,
+           n.complexity AS complexity,
+           n.cognitiveComplexity AS cognitiveComplexity,
+           n.nestingDepth AS nestingDepth,
+           n.isExported AS isExported,
+           n.isAsync AS isAsync,
+           n.docstring AS docstring,
+           n.loc AS loc
     ORDER BY ${relevanceExpr} DESC, n.name
     LIMIT $limit
   `;
