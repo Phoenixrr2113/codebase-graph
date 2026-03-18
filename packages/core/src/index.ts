@@ -26,8 +26,6 @@ export {
 } from './config';
 export type { MCPContextConfig, ProjectInfo } from './config';
 
-// Config sync
-export { syncConfigToGraph, initialSync, syncIfNeeded } from './configSync';
 
 // Indexer
 export { indexProject, indexSingleFile, isProjectIndexed } from './indexer';
@@ -77,16 +75,6 @@ export type {
 export { syncGitHistory, getRepoInfo } from './gitSync';
 export type { GitSyncResult, GitSyncOptions } from './gitSync';
 
-// Token estimation (WS3)
-export {
-  estimateTokens,
-  tokensToChars,
-  fitsTokenBudget,
-  truncateToTokenBudget,
-} from './tokenEstimator';
-
-// Schema docs
-export { getSchemaDocumentation, getShortSchema } from './schema';
 
 
 // Pipeline module (moved from @codegraph/parser in Phase 3B-3)
@@ -164,23 +152,6 @@ export type {
 export { readSourceFile } from './sourceReader';
 export type { ReadSourceOptions, SourceFileResult } from './sourceReader';
 
-// Change detection
-export {
-  calculateFileHash,
-  detectChanges,
-  getFilesToProcess,
-  getFilesToRemove,
-  getRenamedFiles,
-  hasChanges,
-  formatChangeSummary,
-} from './changeDetection';
-export type {
-  ChangeType,
-  FileChange,
-  ChangeSummary,
-  StoredFileInfo,
-  ChangeDetectionOptions,
-} from './changeDetection';
 
 // File system watcher
 export {

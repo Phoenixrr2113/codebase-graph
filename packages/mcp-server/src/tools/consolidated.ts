@@ -24,7 +24,6 @@
  * First-use triggers setup prompt for project selection.
  */
 
-import { searchToolDefinition, search, type SearchInput } from './search';
 import { getContextToolDefinition, getContext, type GetContextInput } from './getContext';
 import { queryGraphToolDefinition, queryGraph, type QueryGraphInput } from './queryGraph';
 import {
@@ -40,12 +39,7 @@ import {
 } from './reindex';
 
 // Analysis tools
-import { indexStatusToolDefinition, getIndexStatus } from './indexStatus';
-import { findSymbolToolDefinition, findSymbol, type FindSymbolInput } from './findSymbol';
 import { searchCodeToolDefinition, searchCode, type SearchCodeInput } from './searchCode';
-import { askCodeToolDefinition, askCode, type AskCodeInput } from './askCode';
-import { queryCypherToolDefinition, queryCypher, type QueryCypherInput } from './queryCypher';
-import { explainCodeToolDefinition, explainCode, type ExplainCodeInput } from './explainCode';
 import { repoMapToolDefinition, getRepoMap, type RepoMapInput } from './repoMap';
 
 // Knowledge graph tools
@@ -56,7 +50,7 @@ import { personaToolDefinitions, personaHandlers, useRawTools } from '../persona
 
 // Infrastructure
 import {
-  getShortSchema, needsSetup,
+  needsSetup,
   getActiveProjectPaths, updateLastUsed, isStale, indexProject,
   codeGraphService, readSourceFile,
 } from '@codegraph/core';
@@ -151,7 +145,6 @@ Before using search/get_context, please run:
       const fileTreeOptions = rootPath ? { maxDepth: 3, rootPath } : { maxDepth: 3 };
       const fileTree = await codeGraphService.buildFileTree(fileTreeOptions);
       const summary = await codeGraphService.getIndexSummary();
-      const schema = getShortSchema();
 
       const projectInfo = activePaths.length > 0
         ? `Active: ${activePaths.map(p => p.split('/').pop()).join(', ')}`
@@ -162,9 +155,6 @@ Before using search/get_context, please run:
 
 ${projectInfo}
 ${summary}
-
-### Schema
-${schema}
 
 ### File Structure
 ${fileTree}
@@ -206,10 +196,6 @@ ${fileTree}
       },
     },
     configureProjectsToolDefinition,
-    {
-      ...searchToolDefinition,
-      description: contextPreamble + searchToolDefinition.description,
-    },
     getContextToolDefinition,
     {
       ...queryGraphToolDefinition,
@@ -218,16 +204,11 @@ ${fileTree}
     reindexToolDefinition,
 
     // ---- Index & status tools ----
-    indexStatusToolDefinition,
     getStatsToolDefinition,
     getSourceToolDefinition,
 
     // ---- Symbol & code tools ----
-    findSymbolToolDefinition,
     searchCodeToolDefinition,
-    askCodeToolDefinition,
-    queryCypherToolDefinition,
-    explainCodeToolDefinition,
     repoMapToolDefinition,
 
     // ---- Knowledge graph tools ----
@@ -249,18 +230,12 @@ export const staticTools: ToolDefinition[] = useRawTools()
         inputSchema: { type: 'object', properties: {} },
       },
       configureProjectsToolDefinition,
-      searchToolDefinition,
       getContextToolDefinition,
       queryGraphToolDefinition,
       reindexToolDefinition,
-      indexStatusToolDefinition,
       getStatsToolDefinition,
       getSourceToolDefinition,
-      findSymbolToolDefinition,
       searchCodeToolDefinition,
-      askCodeToolDefinition,
-      queryCypherToolDefinition,
-      explainCodeToolDefinition,
       repoMapToolDefinition,
       ...knowledgeToolDefinitions,
     ]
@@ -326,18 +301,6 @@ const rawHandlers: Record<string, ToolHandler> = {
     return configureProjects(input);
   },
 
-  search: async (args) => {
-    const setupPrompt = await checkSetupRequired();
-    if (setupPrompt) return setupPrompt;
-
-    const input: SearchInput = {
-      query: args.query as string,
-      type: (args.type as SearchInput['type']) || 'all',
-      limit: (args.limit as number) || 20,
-    };
-    return search(input);
-  },
-
   get_context: async (args) => {
     const setupPrompt = await checkSetupRequired();
     if (setupPrompt) return setupPrompt;
@@ -368,11 +331,6 @@ const rawHandlers: Record<string, ToolHandler> = {
   },
 
   // ==== Index & status tools ====
-
-  get_index_status: async (args) => {
-    const input = args.repo ? { repo: args.repo as string } : {};
-    return getIndexStatus(input);
-  },
 
   get_stats: async () => {
     try {
@@ -423,15 +381,6 @@ const rawHandlers: Record<string, ToolHandler> = {
 
   // ==== Symbol & code tools ====
 
-  find_symbol: async (args) => {
-    const input = {
-      name: args.name as string,
-      kind: (args.kind as 'function' | 'class' | 'interface' | 'variable' | 'any') || 'any',
-    } as FindSymbolInput;
-    if (args.file != null) input.file = args.file as string;
-    return findSymbol(input);
-  },
-
   search_code: async (args) => {
     const input = {
       query: args.query as string,
@@ -443,32 +392,6 @@ const rawHandlers: Record<string, ToolHandler> = {
       input.strategy = args.strategy as NonNullable<SearchCodeInput['strategy']>;
     }
     return searchCode(input);
-  },
-
-  ask_code: async (args) => {
-    const input: AskCodeInput = {
-      question: args.question as string,
-    };
-    if (args.scope != null) input.scope = args.scope as string;
-    if (args.limit != null) input.limit = args.limit as number;
-    return askCode(input);
-  },
-
-  query_cypher: async (args) => {
-    const input: QueryCypherInput = {
-      question: args.question as string,
-    };
-    if (args.scope != null) input.scope = args.scope as string;
-    return queryCypher(input);
-  },
-
-  explain_code: async (args) => {
-    const input = {
-      file: args.file as string,
-    } as ExplainCodeInput;
-    if (args.start_line != null) input.start_line = args.start_line as number;
-    if (args.end_line != null) input.end_line = args.end_line as number;
-    return explainCode(input);
   },
 
   get_repo_map: async (args) => {
@@ -531,4 +454,4 @@ export async function handleToolCall(
 }
 
 // Re-export for backwards compatibility during migration
-export { searchToolDefinition, getContextToolDefinition, configureProjectsToolDefinition };
+export { getContextToolDefinition, configureProjectsToolDefinition };

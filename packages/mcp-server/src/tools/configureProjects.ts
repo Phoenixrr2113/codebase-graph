@@ -9,7 +9,7 @@
 
 import {
   codeGraphService, loadConfig, setActiveProjects,
-  needsSetup, syncConfigToGraph, type ProjectInfo,
+  needsSetup, type ProjectInfo,
 } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
 import type { ToolDefinition } from './consolidated';
@@ -150,21 +150,13 @@ export async function configureProjects(
       }
       const resolved = resolveProjectPaths(input.projects, available);
       await setActiveProjects(resolved);
-
-      // Sync: indexes new projects, deletes removed ones
-      const syncResult = await syncConfigToGraph();
       available = await getAvailableProjects();
-
-      const parts: string[] = [`Active projects set to: ${resolved.map(p => p.split('/').pop()).join(', ')}`];
-      if (syncResult.indexed.length > 0) parts.push(`Indexed: ${syncResult.indexed.map(p => p.split('/').pop()).join(', ')}`);
-      if (syncResult.deleted.length > 0) parts.push(`Deleted: ${syncResult.deleted.map(p => p.split('/').pop()).join(', ')}`);
-      if (syncResult.errors.length > 0) parts.push(`Errors: ${syncResult.errors.length}`);
 
       return {
         setupComplete: true,
         availableProjects: available,
         activeProjects: resolved,
-        message: parts.join('. '),
+        message: `Active projects set to: ${resolved.map(p => p.split('/').pop()).join(', ')}`,
       };
     }
 
@@ -180,18 +172,13 @@ export async function configureProjects(
       const resolved = resolveProjectPaths(input.projects, available);
       const newActive = [...new Set([...currentActive, ...resolved])];
       await setActiveProjects(newActive);
-
-      const syncResult = await syncConfigToGraph();
       available = await getAvailableProjects();
-
-      const parts: string[] = [`Added: ${resolved.map(p => p.split('/').pop()).join(', ')}`];
-      if (syncResult.indexed.length > 0) parts.push(`Indexed: ${syncResult.indexed.map(p => p.split('/').pop()).join(', ')}`);
 
       return {
         setupComplete: true,
         availableProjects: available,
         activeProjects: newActive,
-        message: parts.join('. '),
+        message: `Added: ${resolved.map(p => p.split('/').pop()).join(', ')}`,
       };
     }
 
@@ -208,19 +195,13 @@ export async function configureProjects(
       const resolvedSet = new Set(resolved);
       const remaining = currentActive.filter(p => !resolvedSet.has(p));
       await setActiveProjects(remaining);
-
-      const syncResult = await syncConfigToGraph();
       available = await getAvailableProjects();
-
-      const parts: string[] = [`Removed: ${input.projects.join(', ')}`];
-      if (syncResult.deleted.length > 0) parts.push(`Deleted from graph: ${syncResult.deleted.map(p => p.split('/').pop()).join(', ')}`);
-      parts.push(`Active: ${remaining.map(p => p.split('/').pop()).join(', ') || '(none)'}`);
 
       return {
         setupComplete: true,
         availableProjects: available,
         activeProjects: remaining,
-        message: parts.join('. '),
+        message: `Removed: ${input.projects.join(', ')}. Active: ${remaining.map(p => p.split('/').pop()).join(', ') || '(none)'}`,
       };
     }
 

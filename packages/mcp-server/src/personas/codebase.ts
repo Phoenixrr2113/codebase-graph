@@ -8,7 +8,6 @@
 import type { ToolDefinition } from '../tools/consolidated';
 import { configureProjects, type ConfigureProjectsInput } from '../tools/configureProjects';
 import { triggerReindex, type ReindexInput } from '../tools/reindex';
-import { getIndexStatus } from '../tools/indexStatus';
 import { codeGraphService, readSourceFile } from '@codegraph/core';
 import { validateFilePath } from './validation';
 import { createLogger } from '@codegraph/logger';
@@ -129,8 +128,17 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
     }
 
     case 'status': {
-      const input = args.repo ? { repo: args.repo as string } : {};
-      result = await getIndexStatus(input);
+      try {
+        const stats = await codeGraphService.getGraphStats();
+        result = {
+          totalNodes: stats.totalNodes,
+          totalEdges: stats.totalEdges,
+          nodesByType: stats.nodesByType,
+          edgesByType: stats.edgesByType,
+        };
+      } catch (error) {
+        result = { error: error instanceof Error ? error.message : 'Unknown error getting status' };
+      }
       toolUsed = 'get_index_status';
       break;
     }

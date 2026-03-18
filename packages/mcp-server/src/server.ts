@@ -12,7 +12,6 @@ import {
 } from '@modelcontextprotocol/sdk/types';
 import { createLogger, toErrorMessage } from '@codegraph/logger';
 import { getTools, handleToolCall, staticTools } from './tools/consolidated';
-import { initialSync } from '@codegraph/core';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -114,10 +113,7 @@ export class CodeGraphMCPServer {
       transport: 'stdio',
     });
 
-    // Sync config → graph on startup (index new projects, delete removed ones)
-    initialSync().catch(err => {
-      logger.warn('Initial config sync failed (non-fatal)', { error: err });
-    });
+    // Server started — config sync handled by tools on first use
   }
 
   /**
