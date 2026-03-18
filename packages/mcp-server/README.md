@@ -1,10 +1,10 @@
 # @codegraph/mcp-server
 
-MCP (Model Context Protocol) server for CodeGraph. Provides **5 persona tools** that consolidate 28 underlying capabilities into a simple interface for AI assistants (Claude, Cursor, etc.).
+MCP (Model Context Protocol) server for CodeGraph. Provides **4 persona tools** that consolidate underlying capabilities into a simple interface for AI assistants (Claude, Cursor, etc.).
 
 ## Persona Tools (Default)
 
-By default, the server exposes 5 high-level persona tools. Each tool accepts an `action` parameter and routes internally to the appropriate underlying operations, with built-in input validation, result limits, and error handling.
+By default, the server exposes 4 high-level persona tools. Each tool accepts an `action` parameter and routes internally to the appropriate underlying operations, with built-in input validation, result limits, and error handling.
 
 ### search
 
@@ -17,19 +17,6 @@ Find code, symbols, and answers across the codebase.
 | `ask` | Ask a natural language question — auto-routes to best search strategy |
 | `cypher` | Translate natural language to Cypher and execute |
 | `explain` | Get code with context: dependencies, tests, complexity metrics |
-
-### analyze
-
-Analyze code for impact, security, complexity, and refactoring opportunities.
-
-| Action | Description |
-|--------|-------------|
-| `impact` | Find all code affected by changing a symbol (callers, tests, risk) |
-| `security` | Scan for security vulnerabilities using dataflow analysis |
-| `complexity` | Generate complexity report with hotspots |
-| `dataflow` | Track data flow from source to sink |
-| `refactoring` | Identify extraction candidates and refactoring opportunities |
-| `history` | Get git commit history for a specific symbol |
 
 ### knowledge
 
@@ -68,18 +55,16 @@ Execute read-only Cypher queries against the graph.
 |--------|-------------|
 | `cypher` | Execute a validated, read-only Cypher query |
 
-## Raw Tools (28)
+## Raw Tools
 
-For power users, set `CODEGRAPH_RAW_TOOLS=1` to expose all 28 individual tools instead of persona tools:
+For power users, set `CODEGRAPH_RAW_TOOLS=1` to expose individual tools instead of persona tools:
 
 | Category | Tools |
 |----------|-------|
 | Core | `ping`, `configure_projects` |
 | Index | `get_index_status`, `trigger_reindex`, `get_stats` |
-| Search | `find_symbol`, `search_code`, `search`, `get_context`, `query_graph` |
-| AI Search | `ask_code`, `query_cypher` |
-| Analysis | `analyze_impact`, `find_vulnerabilities`, `get_complexity_report`, `trace_data_flow` |
-| Context | `explain_code`, `get_symbol_history`, `get_repo_map`, `get_source`, `analyze_file_for_refactoring` |
+| Search | `search_code`, `get_context`, `query_graph` |
+| Context | `get_repo_map`, `get_source` |
 | Knowledge | `store_entity`, `store_relationship`, `store_fact`, `ingest_conversation`, `query_knowledge`, `recall`, `decay_and_prune`, `get_knowledge_stats` |
 
 ## MCP Configuration
@@ -142,15 +127,14 @@ MCP Client (Claude, Cursor, etc.)
   │ stdio
   ▼
 CodeGraphMCPServer
-  ├── Persona Handlers (search, analyze, knowledge, codebase, query)
+  ├── Persona Handlers (search, knowledge, codebase, query)
   │     ├── Input Validation (validation.ts)
   │     └── Action Routing → underlying tool implementations
-  ├── Raw Tool Registry (28 tools, opt-in via CODEGRAPH_RAW_TOOLS=1)
-  ├── Config Sync (initialSync on startup)
+  ├── Raw Tool Registry (opt-in via CODEGRAPH_RAW_TOOLS=1)
   └── Graceful Shutdown (SIGINT/SIGTERM)
         │
         ▼
-  @codegraph/core (service layer, search, analysis)
+  @codegraph/core (service layer, search)
         │
         ▼
   @codegraph/graph (database driver)

@@ -1,42 +1,28 @@
-import type React from "react"
-import type { Metadata } from "next"
-import { Sora, JetBrains_Mono } from "next/font/google"
-import { Analytics } from "@vercel/analytics/next"
-import { ThemeProvider } from "@/components/theme-provider"
-import "./globals.css"
-
-const sora = Sora({
-  subsets: ["latin"],
-  variable: "--font-sora",
-})
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-jetbrains",
-})
+import type { Metadata, Viewport } from 'next'
+import { Analytics } from '@vercel/analytics/next'
+import './globals.css'
 
 export const metadata: Metadata = {
-  title: "ControlAI - Device Control Reimagined",
-  description:
-    "The only platform that controls Android, Desktop, and iOS from any browser—with AI-enhanced automation that's 8x faster than current solutions.",
-  generator: "v0.app",
-  icons: {
-    icon: [
-      {
-        url: "/icon-light-32x32.png",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/icon-dark-32x32.png",
-        media: "(prefers-color-scheme: dark)",
-      },
-      {
-        url: "/icon.svg",
-        type: "image/svg+xml",
-      },
-    ],
-    apple: "/apple-icon.png",
+  title: 'CodeGraph — Deep Codebase Understanding for AI Agents',
+  description: 'CodeGraph builds a queryable knowledge graph of every function, class, and relationship in your codebase — then gives your AI assistant the tools to search, analyze, and navigate it.',
+  keywords: ['CodeGraph', 'agntk', 'MCP', 'AI agent', 'codebase', 'knowledge graph', 'developer tools'],
+  authors: [{ name: 'CodeGraph' }],
+  openGraph: {
+    title: 'CodeGraph — Deep Codebase Understanding for AI Agents',
+    description: 'Your AI agent doesn\'t understand your codebase. CodeGraph fixes that.',
+    type: 'website',
   },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'CodeGraph — Deep Codebase Understanding for AI Agents',
+    description: 'Your AI agent doesn\'t understand your codebase. CodeGraph fixes that.',
+  },
+}
+
+export const viewport: Viewport = {
+  themeColor: '#0a0a0a',
+  width: 'device-width',
+  initialScale: 1,
 }
 
 export default function RootLayout({
@@ -45,11 +31,9 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${sora.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-          {children}
-        </ThemeProvider>
+    <html lang="en" className="dark">
+      <body className="font-sans antialiased">
+        {children}
         <Analytics />
       </body>
     </html>

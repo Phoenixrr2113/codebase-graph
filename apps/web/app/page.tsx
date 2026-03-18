@@ -1,27 +1,38 @@
-import { LandingHero } from "@/features/landing/components/hero"
-import { ProblemSection } from "@/features/landing/components/problem-section"
-import { SolutionSection } from "@/features/landing/components/solution-section"
-import { HowItWorks } from "@/features/landing/components/how-it-works"
-import { PlatformCapabilities } from "@/features/landing/components/platform-capabilities"
-import { UseCases } from "@/features/landing/components/use-cases"
-import { Pricing } from "@/features/landing/components/pricing"
-import { CtaSection } from "@/features/landing/components/cta-section"
-import { LandingFooter } from "@/features/landing/components/footer"
-import { LandingNav } from "@/features/landing/components/nav"
+import { Navigation } from "@/components/landing/navigation"
+import { HeroSection } from "@/components/landing/hero-section"
+import { ProblemSection } from "@/components/landing/problem-section"
+import { HowItWorksSection } from "@/components/landing/how-it-works-section"
+import { MCPToolsSection } from "@/components/landing/mcp-tools-section"
+import { SearchStrategiesSection } from "@/components/landing/search-strategies-section"
+import { LanguageSupportSection } from "@/components/landing/language-support-section"
+import { PerformanceSection } from "@/components/landing/performance-section"
+import { ArchitectureSection } from "@/components/landing/architecture-section"
+import { AgntkSection } from "@/components/landing/agntk-section"
+import { FullStackSection } from "@/components/landing/full-stack-section"
+import { PricingSection } from "@/components/landing/pricing-section"
+import { TechCredibilityBar, Footer } from "@/components/landing/footer-section"
 
-export default function Home() {
+export default function LandingPage() {
   return (
-    <main className="min-h-screen bg-background">
-      <LandingNav />
-      <LandingHero />
+    <main className="min-h-screen">
+      <Navigation />
+      <HeroSection />
       <ProblemSection />
-      <SolutionSection />
-      <HowItWorks />
-      <UseCases />
-      <PlatformCapabilities />
-      <Pricing />
-      <CtaSection />
-      <LandingFooter />
+      <HowItWorksSection />
+      <MCPToolsSection />
+      <SearchStrategiesSection />
+      <div id="languages">
+        <LanguageSupportSection />
+      </div>
+      <PerformanceSection />
+      <ArchitectureSection />
+      <AgntkSection />
+      <FullStackSection />
+      <div id="pricing">
+        <PricingSection />
+      </div>
+      <TechCredibilityBar />
+      <Footer />
     </main>
   )
 }

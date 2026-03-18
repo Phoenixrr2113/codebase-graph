@@ -6,7 +6,7 @@
 ![FalkorDBLite](https://img.shields.io/badge/FalkorDBLite-Embedded-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)
 ![Languages](https://img.shields.io/badge/Languages-42-green)
-![MCP](https://img.shields.io/badge/MCP-5%20Persona%20Tools-green)
+![MCP](https://img.shields.io/badge/MCP-4%20Persona%20Tools-green)
 ![Tests](https://img.shields.io/badge/Tests-1320%20Passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
@@ -86,7 +86,7 @@ Open [http://localhost:3000](http://localhost:3000), add a project, and start ex
 
 ## Usage with AI Assistants (MCP)
 
-CodeGraph provides 5 persona-based MCP tools that consolidate 28 underlying capabilities into a simple interface for AI assistants:
+CodeGraph provides 4 persona-based MCP tools that consolidate underlying capabilities into a simple interface for AI assistants:
 
 ```json
 {
@@ -102,34 +102,25 @@ CodeGraph provides 5 persona-based MCP tools that consolidate 28 underlying capa
 | Tool | What it does |
 |------|-------------|
 | **search** | Find code, symbols, ask questions — routes to the best search strategy automatically |
-| **analyze** | Impact analysis, security scanning, complexity metrics, refactoring suggestions, dataflow tracing |
 | **knowledge** | Store and recall domain knowledge — entities, relationships, facts, conversations |
 | **codebase** | Index status, project structure, source code, file trees |
 | **query** | Execute Cypher queries against the graph (read-only, validated) |
 
 Then ask your AI assistant:
-> "What functions are affected if I change `processPayment`?"
-
-The `analyze` tool returns direct callers, transitive dependencies, affected tests, and a risk score.
-
 > "How does the auth flow work?"
 
 The `search` tool combines vector similarity, text matching, and graph traversal to find relevant code and synthesize an answer.
 
-Raw tools (28 individual tools) are available via `CODEGRAPH_RAW_TOOLS=1` for power users.
+Raw tools are available via `CODEGRAPH_RAW_TOOLS=1` for power users.
 
 ## Search Strategies
 
-CodeGraph supports 6 search strategies — 86.4% recall, 73.3% precision:
+CodeGraph supports 2 search strategies:
 
 | Strategy | Description |
 |----------|-------------|
 | `HYBRID` | Combined vector + text + graph traversal with RRF fusion |
-| `GRAPH_ANSWER` | LLM synthesizes answer by traversing the graph |
-| `NL_TO_CYPHER` | LLM translates natural language to Cypher query |
-| `SMART_SEARCH` | Auto-routes to best strategy based on query type |
-| `CONTEXT_WALK` | LLM-guided iterative graph exploration |
-| `VECTOR` | Pure vector similarity search using embeddings |
+| `ENRICHED_V2` | Vector retrieval + cross-encoder reranking (primary) |
 
 ## What Gets Extracted
 
@@ -152,13 +143,9 @@ Ruby, Kotlin, Swift, Scala, Dart, C, C++, Objective-C, Lua, Elixir, Erlang, R, H
 
 Tier 2 languages use the generic plugin system with declarative configs. They extract functions, classes, imports, and variables using tree-sitter grammars (installed as optional dependencies).
 
-### Analysis Capabilities
+### Additional Capabilities
 
 - **Complexity** — Cyclomatic, cognitive, nesting depth
-- **Security** — OWASP Top 10 + payment-specific rules (Stripe, Adyen)
-- **Dataflow** — Taint tracking from sources to sinks
-- **Impact** — Change impact analysis with risk scoring
-- **Refactoring** — Extraction candidates, responsibility analysis
 - **Git History** — Commits linked to code changes
 - **Knowledge Graph** — Entity/relationship extraction with temporal memory
 - **Embeddings** — Local (nomic-embed-text-v1.5, 768-dim) + cloud (OpenRouter)
@@ -173,7 +160,7 @@ Tier 2 languages use the generic plugin system with declarative configs. They ex
                                                             │ REST + WebSocket
 ┌───────────────────────────────────────────────────────────┴─┐
 │                      API (Hono)                             │
-│   Parse Service  •  Analysis Engine  •  File Watcher       │
+│   Parse Service  •  Search Engine  •  File Watcher         │
 └───────────────────────────────────────────────────────────┬─┘
                                                             │
 ┌───────────────────────────────────────────────────────────┴─┐
@@ -189,7 +176,7 @@ Tier 2 languages use the generic plugin system with declarative configs. They ex
 
 ┌─────────────────────────────────────────────────────────────┐
 │                    MCP Server (stdio)                        │
-│         5 persona tools  •  28 raw tools available          │
+│         4 persona tools  •  raw tools available             │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐

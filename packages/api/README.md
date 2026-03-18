@@ -4,7 +4,7 @@ REST API and WebSocket server for CodeGraph, built with [Hono](https://hono.dev)
 
 ## Overview
 
-The API package provides an HTTP interface to CodeGraph's parsing, search, and analysis capabilities. It includes WebSocket support for live updates during indexing and file watching.
+The API package provides an HTTP interface to CodeGraph's parsing and search capabilities. It includes WebSocket support for live updates during indexing and file watching.
 
 ## Endpoints
 
@@ -77,7 +77,7 @@ Hono App
 
 ## Tests
 
-5 test files covering app setup, change detection, git service, model layer, and two-pass resolver.
+Test files covering app setup, git service, and model layer.
 
 ```bash
 cd packages/api
