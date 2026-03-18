@@ -6,7 +6,7 @@
  */
 
 import { resolve } from 'node:path';
-import { codeGraphService, readSourceFile } from '@codegraph/core';
+import { readSourceFile } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Input schema
@@ -85,15 +85,11 @@ export async function explainCode(input: ExplainCodeInput): Promise<ExplainCodeO
       };
     }
 
-    // Delegate graph queries to service
-    const result = await codeGraphService.getCodeExplanation(filePath);
-
     return {
       code,
-      dependencies: result.dependencies,
-      dependents: result.dependents,
-      relatedTests: result.relatedTests,
-      complexity: result.complexity,
+      dependencies: [],
+      dependents: [],
+      relatedTests: [],
     };
   } catch (error) {
     return {

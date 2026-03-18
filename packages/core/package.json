@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc && cp src/analysis/rules/*.json dist/analysis/rules/",
+    "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest",
     "clean": "rm -rf dist"

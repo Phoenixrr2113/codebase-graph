@@ -88,103 +88,6 @@ export {
 // Schema docs
 export { getSchemaDocumentation, getShortSchema } from './schema';
 
-// Analysis module (moved from @codegraph/parser in Phase 3B-2)
-
-// Analysis - Complexity
-export {
-  calculateComplexity,
-  calculateCyclomatic,
-  calculateCognitive,
-  calculateNestingDepth,
-  classifyComplexity,
-  COMPLEXITY_THRESHOLDS,
-} from './analysis';
-
-export type { ComplexityMetrics } from './analysis';
-
-// Analysis - Security
-export {
-  scanForVulnerabilities,
-  scanFile,
-  sortBySeverity,
-  severityToNumber,
-} from './analysis';
-
-export type {
-  SecurityFinding,
-  SecuritySeverity,
-  ScanOptions,
-} from './analysis';
-
-// Analysis - Impact
-export {
-  analyzeImpact,
-  classifyRisk,
-  calculateRiskScore,
-  getDirectCallersQuery,
-  getTransitiveCallersQuery,
-  getAffectedTestsQuery,
-  isTestFile,
-  getAffectedFiles,
-  groupCallersByFile,
-  getImpactSummary,
-  RISK_WEIGHTS,
-  RISK_THRESHOLDS,
-} from './analysis';
-
-export type {
-  ImpactAnalysisResult,
-  ImpactAnalysisInput,
-  ImpactAnalysisOptions,
-  CallerInfo,
-  TestInfo,
-} from './analysis';
-
-// Analysis - Refactoring
-export {
-  analyzeRefactoring,
-  classifyCouplingLevel,
-  calculateCouplingScore,
-  isSafeToExtract,
-  getExtractionCandidatesQuery,
-  getInternalCallsQuery,
-  getExtractionOrder,
-  getRefactoringSummary,
-  needsRefactoring,
-  DEFAULT_EXTRACTION_THRESHOLD,
-  COUPLING_THRESHOLDS,
-} from './analysis';
-
-export type {
-  FunctionCoupling,
-  Responsibility,
-  RefactoringAnalysisResult,
-  RefactoringAnalysisInput,
-  RefactoringAnalysisOptions,
-} from './analysis';
-
-// Analysis - Dataflow
-export {
-  analyzeDataflow,
-  isTaintSource,
-  isTaintSink,
-  isSanitizer,
-  getTaintSourcePatterns,
-  getTaintSinkPatterns,
-  getSanitizerPatterns,
-  getDataflowSummary,
-} from './analysis';
-
-export type {
-  TaintSource,
-  TaintSink,
-  TaintSourceCategory,
-  TaintSinkCategory,
-  FlowStep,
-  DataFlowPath,
-  DataflowAnalysisResult,
-  DataflowAnalysisOptions,
-} from './analysis';
 
 // Pipeline module (moved from @codegraph/parser in Phase 3B-3)
 
@@ -294,21 +197,6 @@ export type {
   WatchServiceConfig,
 } from './watchService';
 
-// Two-pass resolution (re-exported from analysis)
-export {
-  SymbolRegistry,
-  collectSymbols,
-  resolveRelationships,
-  twoPassResolve,
-  isBuiltIn,
-  getResolutionSummary,
-} from './analysis';
-export type {
-  SymbolInfo,
-  UnresolvedCall,
-  ResolutionResult,
-  TwoPassOptions,
-} from './analysis';
 
 // Service layer (Phase 3A)
 export { codeGraphService, warmupSearch } from './service';
@@ -324,15 +212,6 @@ export type {
   ServiceComplexitySummary,
   ServiceProjectInfo,
   ServiceChangeInfo,
-  ServiceImpactResult,
-  ServiceExtractionCandidate,
-  ServiceResponsibility,
-  ServiceRefactoringResult,
-  // New consolidated types
-  ServiceScanOptions,
-  ServiceVulnerability,
-  ServiceScanResult,
-  ServiceDataflowResult,
   // API model replacement types
   EntityWithConnections,
   Pagination,

@@ -153,50 +153,48 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
         };
       }
 
-      // Get detailed symbol info
-      const detail = await codeGraphService.getSymbolDetail(
-        input.symbol,
-        findResult.symbol.file,
-      );
+      // Build entity from findSymbol result
+      const sym = findResult.symbol;
+      const entity: EntityContext = {
+        name: sym.name,
+        type: sym.kind,
+        filePath: sym.file,
+        startLine: sym.line,
+        endLine: sym.endLine,
+        complexity: sym.complexity,
+      };
 
-      const entity: EntityContext | undefined = detail
-        ? {
-            name: detail.name,
-            type: detail.type,
-            filePath: detail.filePath,
-            startLine: detail.startLine,
-            endLine: detail.endLine,
-            docstring: detail.docstring,
-            params: detail.params,
-            returnType: detail.returnType,
-            complexity: detail.complexity,
-          }
-        : undefined;
-
-      // Get relationships
+      // Get relationships via graph queries
       const relationships: RelatedEntity[] = [];
       if (input.includeRelationships) {
-        const [callers, calls] = await Promise.all([
-          codeGraphService.getFunctionCallers(input.symbol),
-          codeGraphService.getSymbolCalls(input.symbol),
-        ]);
+        try {
+          const callersResult = await codeGraphService.executeReadQuery(
+            `MATCH (caller)-[:CALLS]->(target) WHERE target.name = $name RETURN caller.name AS name, labels(caller)[0] AS type, caller.filePath AS filePath LIMIT 20`,
+            { name: input.symbol },
+          );
+          for (const row of callersResult.results as Record<string, unknown>[]) {
+            relationships.push({
+              name: row.name as string,
+              type: (row.type as string) || 'Function',
+              relationship: 'CALLED_BY',
+              filePath: (row.filePath as string) || '',
+            });
+          }
 
-        for (const caller of callers) {
-          relationships.push({
-            name: caller.name,
-            type: 'Function',
-            relationship: 'CALLED_BY',
-            filePath: caller.filePath,
-          });
-        }
-
-        for (const call of calls) {
-          relationships.push({
-            name: call.name,
-            type: call.type,
-            relationship: 'CALLS',
-            filePath: call.filePath,
-          });
+          const callsResult = await codeGraphService.executeReadQuery(
+            `MATCH (source)-[:CALLS]->(target) WHERE source.name = $name RETURN target.name AS name, labels(target)[0] AS type, target.filePath AS filePath LIMIT 20`,
+            { name: input.symbol },
+          );
+          for (const row of callsResult.results as Record<string, unknown>[]) {
+            relationships.push({
+              name: row.name as string,
+              type: (row.type as string) || 'Function',
+              relationship: 'CALLS',
+              filePath: (row.filePath as string) || '',
+            });
+          }
+        } catch {
+          // Graph queries may fail if graph is not available
         }
       }
 

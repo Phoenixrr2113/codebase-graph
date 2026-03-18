@@ -11,7 +11,6 @@
 import type { ParseResult, FileError } from '@codegraph/types';
 import { indexProject, indexSingleFile, getGraphClient, codeGraphService } from '@codegraph/core';
 import { createLogger, traced, toErrorMessage } from '@codegraph/logger';
-import { getAnalyticsService } from './analyticsService';
 
 const logger = createLogger({ namespace: 'API:Parse' });
 
@@ -73,16 +72,6 @@ export const parseProject = traced('parseProject', async function parseProject(
       status: 'error',
       error: toErrorMessage(error),
     };
-  } finally {
-    // Trigger post-ingestion analytics (non-blocking)
-    try {
-      const analyticsService = getAnalyticsService();
-      analyticsService.onIngestionComplete(projectPath).catch(err => {
-        logger.warn('Post-ingestion analytics failed:', err);
-      });
-    } catch {
-      // Analytics service not available - ignore
-    }
   }
 });
 

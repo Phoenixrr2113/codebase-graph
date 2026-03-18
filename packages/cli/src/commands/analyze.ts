@@ -6,7 +6,7 @@ const logger = createLogger({ namespace: 'cli:analyze' });
 
 export const analyzeCommand = new Command('analyze')
   .description('Run analysis on the code graph')
-  .argument('<type>', 'Analysis type: callers, deps')
+  .argument('<type>', 'Analysis type: deps')
   .argument('<target>', 'Target function name or file path')
   .option('-g, --graph <name>', 'Graph name', 'codegraph')
   .option('-h, --host <host>', 'FalkorDB host', 'localhost')
@@ -20,20 +20,6 @@ export const analyzeCommand = new Command('analyze')
       let result: unknown;
 
       switch (type) {
-        case 'callers': {
-          const callers = await codeGraphService.getFunctionCallers(target);
-          result = {
-            function: target,
-            callers: callers.map(c => ({
-              name: c.name,
-              file: c.filePath,
-              line: c.startLine,
-            })),
-            count: callers.length,
-          };
-          break;
-        }
-
         case 'deps': {
           const deps = await codeGraphService.getDependencyTree(target, parseInt(options.depth));
           result = deps;
@@ -42,7 +28,7 @@ export const analyzeCommand = new Command('analyze')
 
         default:
           console.error(`Unknown analysis type: ${type}`);
-          console.error('Valid types: callers, deps');
+          console.error('Valid types: deps');
           process.exit(1);
       }
 

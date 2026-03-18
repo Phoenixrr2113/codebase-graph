@@ -3,7 +3,6 @@
  *
  * Delegates to focused sub-services:
  * - SearchService: search, findSymbol, searchCode, hybridSearchCode, strategySearch
- * - AnalysisService: impact, refactoring, security, context, reporting
  * - GraphDataService: graph traversal, entity access, project management
  *
  * Consumers: @codegraph/mcp-server, @codegraph/api, @codegraph/cli
@@ -21,10 +20,6 @@ export type {
   ServiceComplexitySummary,
   ServiceProjectInfo,
   ServiceChangeInfo,
-  ServiceImpactResult,
-  ServiceExtractionCandidate,
-  ServiceResponsibility,
-  ServiceRefactoringResult,
   EntityWithConnections,
   Pagination,
   PaginatedNodesResult,
@@ -32,10 +27,6 @@ export type {
   Direction,
   NeighborsResult,
   CypherResult,
-  ServiceScanOptions,
-  ServiceVulnerability,
-  ServiceScanResult,
-  ServiceDataflowResult,
 } from './services/types';
 
 // Import sub-service implementations
@@ -48,20 +39,6 @@ import {
   warmupSearch as warmupSearchImpl,
 } from './services/search-service';
 
-import {
-  getCodeExplanationImpl,
-  getSymbolCallsImpl,
-  getFunctionCallersImpl,
-  getSymbolDetailImpl,
-  getComplexityHotspotsImpl,
-  getIndexStatusImpl,
-  getRepoMapImpl,
-  getSymbolHistoryImpl,
-  analyzeImpactImpl,
-  analyzeRefactoringImpl,
-  scanVulnerabilitiesImpl,
-  analyzeDataflowForFileImpl,
-} from './services/analysis-service';
 
 import {
   getGraphStatsImpl,
@@ -87,17 +64,6 @@ import type {
   ServiceSearchResult,
   ServiceSymbolResult,
   ServiceCodeSearchResult,
-  ServiceEntityContext,
-  ServiceDependencyInfo,
-  ServiceComplexityHotspot,
-  ServiceComplexitySummary,
-  ServiceProjectInfo,
-  ServiceChangeInfo,
-  ServiceImpactResult,
-  ServiceRefactoringResult,
-  ServiceScanOptions,
-  ServiceScanResult,
-  ServiceDataflowResult,
   EntityWithConnections,
   PaginatedNodesResult,
   NodesQueryOptions,
@@ -163,98 +129,6 @@ class CodeGraphServiceImpl {
     options?: { limit?: number; scope?: string },
   ): Promise<SearchResponse> {
     return strategySearchImpl(query, strategy, options);
-  }
-
-  // --- Context & Explanation ---
-
-  async getCodeExplanation(filePath: string): Promise<{
-    dependencies: ServiceDependencyInfo[];
-    dependents: ServiceDependencyInfo[];
-    relatedTests: string[];
-    complexity?: number;
-  }> {
-    return getCodeExplanationImpl(filePath);
-  }
-
-  async getSymbolCalls(name: string): Promise<Array<{ name: string; type: string; filePath: string }>> {
-    return getSymbolCallsImpl(name);
-  }
-
-  async getFunctionCallers(name: string): Promise<Array<{ name: string; filePath: string; startLine?: number }>> {
-    return getFunctionCallersImpl(name);
-  }
-
-  async getSymbolDetail(name: string, filePath: string): Promise<ServiceEntityContext | null> {
-    return getSymbolDetailImpl(name, filePath);
-  }
-
-  // --- Reporting ---
-
-  async getComplexityHotspots(options?: {
-    threshold?: number;
-    scope?: string;
-    sortBy?: 'complexity' | 'cognitive' | 'nesting';
-  }): Promise<{ hotspots: ServiceComplexityHotspot[]; summary: ServiceComplexitySummary }> {
-    return getComplexityHotspotsImpl(options);
-  }
-
-  async getIndexStatus(repo?: string): Promise<{
-    status: 'ready' | 'empty' | 'error';
-    totalFiles: number;
-    totalFunctions: number;
-    totalClasses: number;
-    totalEdges: number;
-    lastIndexed?: string;
-    projects: ServiceProjectInfo[];
-  }> {
-    return getIndexStatusImpl(repo);
-  }
-
-  async getRepoMap(options?: {
-    maxTokens?: number;
-    focusFiles?: string[];
-    focusSymbols?: string[];
-  }): Promise<{ map: string; filesIncluded: number; symbolsIncluded: number }> {
-    return getRepoMapImpl(options);
-  }
-
-  async getSymbolHistory(
-    symbol: string,
-    options?: { file?: string; limit?: number },
-  ): Promise<{
-    file?: string;
-    changes: ServiceChangeInfo[];
-    authors: string[];
-    ageDays: number;
-    changeFrequency: number;
-  }> {
-    return getSymbolHistoryImpl(symbol, options);
-  }
-
-  // --- Analysis ---
-
-  async analyzeImpact(
-    symbol: string,
-    options?: { file?: string; depth?: number },
-  ): Promise<ServiceImpactResult> {
-    return analyzeImpactImpl(symbol, options);
-  }
-
-  async analyzeRefactoring(
-    file: string,
-    options?: { threshold?: number },
-  ): Promise<ServiceRefactoringResult> {
-    return analyzeRefactoringImpl(file, options);
-  }
-
-  // --- Security & Dataflow ---
-
-  async scanVulnerabilities(options?: ServiceScanOptions): Promise<ServiceScanResult> {
-    return scanVulnerabilitiesImpl(options);
-  }
-
-  async analyzeDataflowForFile(filePath: string, variable?: string): Promise<ServiceDataflowResult> {
-    return analyzeDataflowForFileImpl(filePath, variable);
   }
 
   // --- Graph Stats ---

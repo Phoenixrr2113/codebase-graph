@@ -11,17 +11,11 @@
  * - query: Advanced raw Cypher queries
  * - trigger_reindex: Re-index codebase
  *
- * Analysis Tools:
+ * Additional Tools:
  * - get_index_status: Index health and stats
  * - find_symbol: Find symbol by name with source location
  * - search_code: Search code by name/pattern
  * - explain_code: Code with dependencies, tests, complexity
- * - get_complexity_report: Complexity hotspots
- * - analyze_impact: Change impact analysis
- * - analyze_file_for_refactoring: Refactoring opportunities
- * - find_vulnerabilities: Security vulnerability scanning
- * - trace_data_flow: Data flow tracing
- * - get_symbol_history: Git commit history for symbols
  * - get_repo_map: Ranked symbol map for context
  * - get_stats: Graph-wide statistics
  * - get_source: Read source code with line ranges
@@ -52,12 +46,6 @@ import { searchCodeToolDefinition, searchCode, type SearchCodeInput } from './se
 import { askCodeToolDefinition, askCode, type AskCodeInput } from './askCode';
 import { queryCypherToolDefinition, queryCypher, type QueryCypherInput } from './queryCypher';
 import { explainCodeToolDefinition, explainCode, type ExplainCodeInput } from './explainCode';
-import { complexityReportToolDefinition, getComplexityReport, type ComplexityReportInput } from './complexityReport';
-import { analyzeImpactToolDefinition, analyzeImpact, type AnalyzeImpactInput } from './analyzeImpact';
-import { analyzeRefactoringToolDefinition, analyzeFileForRefactoring, type AnalyzeRefactoringInput } from './analyzeRefactoring';
-import { findVulnerabilitiesToolDefinition, findVulnerabilities, type FindVulnerabilitiesInput } from './findVulnerabilities';
-import { traceDataFlowToolDefinition, traceDataFlow, type TraceDataFlowInput } from './traceDataFlow';
-import { symbolHistoryToolDefinition, getSymbolHistory, type SymbolHistoryInput } from './symbolHistory';
 import { repoMapToolDefinition, getRepoMap, type RepoMapInput } from './repoMap';
 
 // Knowledge graph tools
@@ -242,14 +230,6 @@ ${fileTree}
     explainCodeToolDefinition,
     repoMapToolDefinition,
 
-    // ---- Analysis tools ----
-    complexityReportToolDefinition,
-    analyzeImpactToolDefinition,
-    analyzeRefactoringToolDefinition,
-    findVulnerabilitiesToolDefinition,
-    traceDataFlowToolDefinition,
-    symbolHistoryToolDefinition,
-
     // ---- Knowledge graph tools ----
     ...knowledgeToolDefinitions,
   ];
@@ -282,12 +262,6 @@ export const staticTools: ToolDefinition[] = useRawTools()
       queryCypherToolDefinition,
       explainCodeToolDefinition,
       repoMapToolDefinition,
-      complexityReportToolDefinition,
-      analyzeImpactToolDefinition,
-      analyzeRefactoringToolDefinition,
-      findVulnerabilitiesToolDefinition,
-      traceDataFlowToolDefinition,
-      symbolHistoryToolDefinition,
       ...knowledgeToolDefinitions,
     ]
   : personaToolDefinitions;
@@ -504,61 +478,6 @@ const rawHandlers: Record<string, ToolHandler> = {
     if (args.focusFiles != null) input.focusFiles = args.focusFiles as string[];
     if (args.focusSymbols != null) input.focusSymbols = args.focusSymbols as string[];
     return getRepoMap(input);
-  },
-
-  // ==== Analysis tools ====
-
-  get_complexity_report: async (args) => {
-    const input: ComplexityReportInput = {
-      scope: (args.scope as string) || 'all',
-      threshold: (args.threshold as number) || 10,
-      sortBy: (args.sortBy as 'complexity' | 'cognitive' | 'nesting') || 'complexity',
-    };
-    return getComplexityReport(input);
-  },
-
-  analyze_impact: async (args) => {
-    const input = {
-      symbol: args.symbol as string,
-      depth: (args.depth as number) || 5,
-    } as AnalyzeImpactInput;
-    if (args.file != null) input.file = args.file as string;
-    return analyzeImpact(input);
-  },
-
-  analyze_file_for_refactoring: async (args) => {
-    const input: AnalyzeRefactoringInput = {
-      file: args.file as string,
-      threshold: (args.threshold as number) || 3,
-    };
-    return analyzeFileForRefactoring(input);
-  },
-
-  find_vulnerabilities: async (args) => {
-    const input: FindVulnerabilitiesInput = {
-      scope: (args.scope as string) || 'all',
-      severity: (args.severity as 'critical' | 'high' | 'medium' | 'low' | 'all') || 'all',
-      category: (args.category as 'injection' | 'xss' | 'auth' | 'all') || 'all',
-    };
-    return findVulnerabilities(input);
-  },
-
-  trace_data_flow: async (args) => {
-    const input = {
-      source: args.source as string,
-    } as TraceDataFlowInput;
-    if (args.sink != null) input.sink = args.sink as string;
-    if (args.file != null) input.file = args.file as string;
-    return traceDataFlow(input);
-  },
-
-  get_symbol_history: async (args) => {
-    const input = {
-      symbol: args.symbol as string,
-      limit: (args.limit as number) || 20,
-    } as SymbolHistoryInput;
-    if (args.file != null) input.file = args.file as string;
-    return getSymbolHistory(input);
   },
 
   // ==== Knowledge graph tools ====

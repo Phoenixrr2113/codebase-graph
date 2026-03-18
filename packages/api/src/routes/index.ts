@@ -13,4 +13,3 @@ export { search } from './search';
 export { source } from './source';
 export { projects } from './projects';
 export { nodes } from './nodes';
-export { default as analytics } from './analytics';

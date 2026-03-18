@@ -54,13 +54,15 @@ export const repoMapToolDefinition: ToolDefinition = {
 /**
  * Handler for get_repo_map tool
  */
-export async function getRepoMap(input: RepoMapInput): Promise<RepoMapOutput> {
+export async function getRepoMap(_input: RepoMapInput): Promise<RepoMapOutput> {
   try {
-    const opts: { maxTokens?: number; focusFiles?: string[]; focusSymbols?: string[] } = {};
-    if (input.maxTokens != null) opts.maxTokens = input.maxTokens;
-    if (input.focusFiles) opts.focusFiles = input.focusFiles;
-    if (input.focusSymbols) opts.focusSymbols = input.focusSymbols;
-    return await codeGraphService.getRepoMap(opts);
+    const [fileTree, summary] = await Promise.all([
+      codeGraphService.buildFileTree({ maxDepth: 3 }),
+      codeGraphService.getIndexSummary(),
+    ]);
+    const map = `${summary}\n\n${fileTree}`;
+    const filesIncluded = (map.match(/\n/g) || []).length;
+    return { map, filesIncluded, symbolsIncluded: 0 };
   } catch (error) {
     return {
       map: '',

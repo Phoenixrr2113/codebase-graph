@@ -50,9 +50,29 @@ export const indexStatusToolDefinition: ToolDefinition = {
 /**
  * Handler for get_index_status tool
  */
-export async function getIndexStatus(input: IndexStatusInput): Promise<IndexStatusOutput> {
+export async function getIndexStatus(_input: IndexStatusInput): Promise<IndexStatusOutput> {
   try {
-    return await codeGraphService.getIndexStatus(input.repo);
+    const stats = await codeGraphService.getGraphStats();
+    const nodesByType = (stats.nodesByType ?? {}) as Record<string, number>;
+    const totalFiles = nodesByType['File'] ?? 0;
+    const totalFunctions = nodesByType['Function'] ?? 0;
+    const totalClasses = nodesByType['Class'] ?? 0;
+
+    const projects = await codeGraphService.getProjects();
+    const projectList = projects.map(p => ({
+      name: (p as unknown as Record<string, unknown>).name as string ?? '',
+      path: (p as unknown as Record<string, unknown>).rootPath as string ?? '',
+      fileCount: 0,
+    }));
+
+    return {
+      status: totalFiles > 0 ? 'ready' : 'empty',
+      totalFiles,
+      totalFunctions,
+      totalClasses,
+      totalEdges: stats.totalEdges ?? 0,
+      projects: projectList,
+    };
   } catch (error) {
     return {
       status: 'error',
