@@ -240,7 +240,6 @@ async function embedVoyageBatch(
         const body: Record<string, unknown> = {
           input: chunk,
           model,
-          output_dimension: VOYAGE_DIMENSIONS,
         };
         if (inputType) body.input_type = inputType;
 
@@ -291,10 +290,10 @@ function resolveLocalModel(config?: EmbeddingConfig): string {
 }
 
 function resolveCloudModel(config?: EmbeddingConfig): string {
-  if (config?.cloudModel) return config.cloudModel;
-  const envModel = process.env['CODEGRAPH_CLOUD_MODEL'];
-  if (envModel) return envModel;
-  return CLOUD_MODEL;
+  return config?.cloudModel
+    ?? process.env['CODEGRAPH_EMBEDDING_MODEL']
+    ?? process.env['CODEGRAPH_CLOUD_MODEL']
+    ?? CLOUD_MODEL;
 }
 
 function resolveCloudBatchSize(config?: EmbeddingConfig): number {
@@ -302,7 +301,9 @@ function resolveCloudBatchSize(config?: EmbeddingConfig): number {
 }
 
 function resolveVoyageModel(config?: EmbeddingConfig): string {
-  return config?.voyageModel ?? VOYAGE_MODEL;
+  return config?.voyageModel
+    ?? process.env['CODEGRAPH_EMBEDDING_MODEL']
+    ?? VOYAGE_MODEL;
 }
 
 // ---------------------------------------------------------------------------

@@ -17,7 +17,7 @@ This package provides the NLP pipeline that powers CodeGraph's knowledge graph a
 ### Entity Extraction
 
 - **`EntityExtractor`** — LLM-powered extraction of entities, relationships, and facts from text
-- **Schemas**: `ExtractionResponseSchema`, `GraphAnswerSchema`, `NLToCypherSchema`, `SearchRouteSchema`, `ContextWalkStepSchema`
+- **Schemas**: `ExtractionResponseSchema`, `BatchExtractionResponseSchema`
 - **`extractAndStore` / `extractAndStoreBatch`** — Extract from text and persist to graph
 - **`extractConversation` / `ingestConversation`** — Episodic extraction from multi-turn conversations
 

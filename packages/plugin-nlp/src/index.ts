@@ -28,22 +28,14 @@ export {
 } from './llm';
 export type { LLMProvider, LLMConfig } from './llm';
 
-// Zod schemas for structured LLM output (extraction + WS12 search types)
+// Zod schemas for structured LLM output (extraction)
 export {
   ExtractionResponseSchema,
   BatchExtractionResponseSchema,
-  GraphAnswerSchema,
-  NLToCypherSchema,
-  SearchRouteSchema,
-  ContextWalkStepSchema,
 } from './schemas';
 export type {
   ExtractionResponse,
   BatchExtractionResponse,
-  GraphAnswer,
-  NLToCypher,
-  SearchRoute,
-  ContextWalkStep,
 } from './schemas';
 
 // Core extractor
@@ -96,9 +88,9 @@ export type {
   ConflictCandidate, ConflictResult,
 } from './conflict-resolution';
 
-// Reranker (Voyage AI cross-encoder)
+// Reranker (configurable cross-encoder: voyage, jina)
 export { rerank, isRerankAvailable } from './reranker';
-export type { RerankResult, RerankOptions } from './reranker';
+export type { RerankResult, RerankOptions, RerankProvider } from './reranker';
 
 // Embedding text construction (node → searchable natural language)
 export {

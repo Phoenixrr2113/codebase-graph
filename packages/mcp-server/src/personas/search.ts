@@ -45,7 +45,7 @@ export const searchPersonaDefinition: ToolDefinition = {
 
 **Actions:**
 - **find**: Search for files, functions, classes, symbols by name or semantics.
-  Params: query (required), type (all|file|function|class|interface|component), strategy (SMART_SEARCH|HYBRID|GRAPH_ANSWER|NL_TO_CYPHER|CONTEXT_WALK), scope, language, limit
+  Params: query (required), type (all|file|function|class|interface|component), strategy (HYBRID|ENRICHED_V2), scope, language, limit
 - **context**: Get detailed context for a file or symbol including relationships.
   Params: file and/or symbol (one required), includeRelationships, maxDepth
 - **ask**: Ask natural language questions about the code. Returns an LLM-generated answer with sources.
@@ -88,7 +88,7 @@ export const searchPersonaDefinition: ToolDefinition = {
       },
       strategy: {
         type: 'string',
-        description: 'Search strategy: SMART_SEARCH|HYBRID|GRAPH_ANSWER|NL_TO_CYPHER|CONTEXT_WALK',
+        description: 'Search strategy: HYBRID|ENRICHED_V2',
       },
       scope: {
         type: 'string',

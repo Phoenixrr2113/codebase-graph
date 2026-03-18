@@ -103,12 +103,8 @@ The search persona's `ask` action supports multiple search strategies:
 
 | Strategy | Description |
 |----------|-------------|
-| `VECTOR` | Pure vector similarity search using embeddings |
 | `HYBRID` | Combined vector + text + graph traversal with RRF fusion |
-| `GRAPH_ANSWER` | LLM synthesizes answer by traversing the graph |
-| `NL_TO_CYPHER` | LLM translates natural language to Cypher query |
-| `SMART_SEARCH` | Auto-routes to the best strategy based on query type |
-| `CONTEXT_WALK` | LLM-guided iterative graph exploration |
+| `ENRICHED_V2` | Vector retrieval + cross-encoder reranking (primary) |
 
 ## Input Validation
 

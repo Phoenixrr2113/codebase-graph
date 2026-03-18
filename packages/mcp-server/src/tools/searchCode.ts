@@ -17,7 +17,7 @@ import type { SearchResultItem, SearchRelatedItem } from '@codegraph/core';
 import type { ToolDefinition } from './consolidated';
 
 // Strategy type for advanced search
-export type SearchStrategy = 'SMART_SEARCH' | 'HYBRID' | 'GRAPH_ANSWER' | 'NL_TO_CYPHER' | 'CONTEXT_WALK';
+export type SearchStrategy = 'HYBRID' | 'ENRICHED_V2';
 
 // Input schema
 export interface SearchCodeInput {
@@ -67,17 +67,17 @@ export interface SearchCodeOutput {
     embeddingAvailable: boolean;
     durationMs: number;
   };
-  /** LLM-generated answer (GRAPH_ANSWER, CONTEXT_WALK, SMART_SEARCH→GRAPH_ANSWER) */
+  /** LLM-generated answer (if applicable) */
   answer?: string;
   /** Answer confidence score (0-1) */
   answerConfidence?: number;
-  /** Generated Cypher query (NL_TO_CYPHER) */
+  /** Generated Cypher query (if applicable) */
   cypher?: string;
-  /** Cypher query explanation (NL_TO_CYPHER) */
+  /** Cypher query explanation (if applicable) */
   cypherExplanation?: string;
-  /** Which strategy was used (SMART_SEARCH routing info) */
+  /** Which strategy was used */
   routedTo?: string;
-  /** Routing reasoning (SMART_SEARCH) */
+  /** Routing reasoning */
   routingReason?: string;
   error?: string | undefined;
 }
@@ -90,8 +90,7 @@ export const searchCodeToolDefinition: ToolDefinition = {
     'Uses hybrid search (vector similarity + text matching + graph traversal + knowledge graph) ' +
     'to find functions, classes, interfaces, and other code symbols. ' +
     'Related results may include linked knowledge entities (bugs, decisions, concepts) via ABOUT edges. ' +
-    'Set `strategy` for advanced AI-powered search: SMART_SEARCH (auto-routes), GRAPH_ANSWER (Q&A), ' +
-    'NL_TO_CYPHER (graph queries), CONTEXT_WALK (multi-hop exploration).',
+    'Set `strategy` for advanced search: HYBRID (vector+text+graph), ENRICHED_V2 (vector+reranker).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -110,14 +109,11 @@ export const searchCodeToolDefinition: ToolDefinition = {
       },
       strategy: {
         type: 'string',
-        enum: ['SMART_SEARCH', 'HYBRID', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'CONTEXT_WALK'],
+        enum: ['HYBRID', 'ENRICHED_V2'],
         description:
           'Advanced search strategy (overrides type). ' +
-          'SMART_SEARCH: auto-routes to best strategy based on query analysis. ' +
           'HYBRID: vector + text + graph traversal. ' +
-          'GRAPH_ANSWER: answers questions using graph context + LLM (requires LLM). ' +
-          'NL_TO_CYPHER: translates question to Cypher and executes (requires LLM). ' +
-          'CONTEXT_WALK: iterative multi-hop graph exploration (requires LLM).',
+          'ENRICHED_V2: vector retrieval + cross-encoder reranking (primary).',
       },
       scope: {
         type: 'string',

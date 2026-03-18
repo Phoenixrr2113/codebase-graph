@@ -69,12 +69,9 @@ query.post(
  * POST /api/query/natural
  * Convert natural language question to Cypher and execute
  *
- * Uses the NLToCypherStrategy from @codegraph/core which:
- * 1. Sends the question + graph schema to the configured LLM
- * 2. Generates a read-only Cypher query
- * 3. Validates the query is safe (no writes)
- * 4. Executes against FalkorDB
- * 5. Returns the Cypher, results, and explanation
+ * Uses the ENRICHED_V2 search strategy from @codegraph/core which:
+ * 1. Performs vector retrieval + cross-encoder reranking
+ * 2. Returns ranked results
  *
  * @body question - Natural language question
  * @body stream - Enable SSE streaming (not yet implemented)
@@ -115,15 +112,11 @@ query.post(
       const complexLlm = await getLLMComplexModel();
 
       const response: SearchResponse = await registry.search(
-        { query: question, type: 'SMART_SEARCH', limit: 50 },
+        { query: question, type: 'ENRICHED_V2', limit: 50 },
         { client, llm, ...(complexLlm ? { complexLlm } : {}) },
       );
 
       // Map SearchResponse to the endpoint's shape.
-      // SMART_SEARCH routes to the best strategy:
-      //   - GRAPH_ANSWER for "how/what/why" questions → returns `answer`
-      //   - NL_TO_CYPHER for structural queries → returns `cypher`
-      //   - HYBRID for simple lookups → returns results
       return c.json({
         question,
         cypher: response.cypher ?? null,
@@ -136,7 +129,7 @@ query.post(
           properties: r.properties,
         })),
         explanation: response.cypherExplanation ?? response.error ?? null,
-        // Synthesized answer (from GRAPH_ANSWER / CONTEXT_WALK)
+        // Synthesized answer (if applicable)
         answer: response.answer ?? null,
         answerConfidence: response.answerConfidence ?? null,
         answerSources: response.answerSources ?? null,

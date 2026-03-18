@@ -25,10 +25,7 @@ The core package is the central hub of CodeGraph. It re-exports key interfaces f
 - **`SearchRegistry`** — Strategy pattern for pluggable search strategies
 - **Strategies:**
   - `HybridSearchStrategy` — Vector + text + graph
-  - `GraphAnswerStrategy` — LLM synthesizes answers from graph traversal
-  - `NLToCypherStrategy` — LLM translates natural language to Cypher
-  - `SmartSearchStrategy` — Auto-routes to the best strategy
-  - `ContextWalkStrategy` — LLM-guided iterative graph exploration
+  - `EnrichedV2Strategy` — Vector retrieval + cross-encoder reranking
 
 ### Analysis
 

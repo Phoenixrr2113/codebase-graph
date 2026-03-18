@@ -4,11 +4,7 @@
  * Translates natural language questions into Cypher queries, executes them
  * against the graph database, and returns structured results.
  *
- * Uses the NL_TO_CYPHER search strategy:
- *   1. LLM translates question → Cypher query
- *   2. Safety check (read-only queries only)
- *   3. Execute against FalkorDB
- *   4. Return results + generated Cypher
+ * Uses the ENRICHED_V2 search strategy for result retrieval.
  *
  * Examples:
  *   "Show me all functions that call sendEmail"
@@ -121,7 +117,7 @@ export async function queryCypher(input: QueryCypherInput): Promise<QueryCypherO
 
     const request: Parameters<typeof registry.search>[0] = {
       query: input.question,
-      type: 'NL_TO_CYPHER',
+      type: 'ENRICHED_V2',
     };
     if (input.scope) request.scope = input.scope;
     const response: SearchResponse = await registry.search(request, context);
@@ -142,7 +138,7 @@ export async function queryCypher(input: QueryCypherInput): Promise<QueryCypherO
       results,
       total: response.total,
       meta: {
-        searchType: 'NL_TO_CYPHER',
+        searchType: 'ENRICHED_V2',
         durationMs: response.meta.durationMs,
       },
     };

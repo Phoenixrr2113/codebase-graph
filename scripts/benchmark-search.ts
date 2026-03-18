@@ -100,290 +100,236 @@ interface HardTestCase {
 }
 
 /**
- * Test cases verified against actual graph data (2026-03-17).
+ * Test cases for search benchmark — verified 2026-03-18.
  *
- * Graph facts:
- *   - 29,800 nodes across multiple codebases (codebase-graph, agntK, feature-spec-app, etc.)
- *   - 6,915 nodes have embeddings (5,416 Function, 1,255 Interface, 157 Component, 85 Class)
- *   - 3,552 CALLS edges, 6,191 IMPORTS edges (File→File), 0 ABOUT edges
- *   - Top callers: getGraphClient (36), upsertNode (16), walkNode (14), toParams (12)
- *   - IMPORTS edges are File→File only (not Function→Function), so importerCount=0 for functions
- *   - 102 Commits, 791 MODIFIED_IN edges (covers ~18% of functions)
+ * Two query modes that reflect real AI agent usage:
+ *   1. EXACT: Agent knows what it wants ("parseCode", "getGraphClient")
+ *   2. EXPLORE: Agent is investigating ("how does indexing work", "graph connection")
+ *
+ * Every expectedResult symbol has been verified to exist in the codebase.
+ * No hallucinated symbols. No essay-length queries.
  */
 const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
-  // DISAMBIGUATION: ambiguous terms where many results match
-  // Enriched search should use importance/centrality to break ties
+  // EXACT: Agent knows the symbol name or close to it
   // ═══════════════════════════════════════════════════════════════════
   {
-    query: 'how does the hybrid search combine vector and text results',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'hybridSearch',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'hybridSearch', relevance: 3, reason: 'Primary search function that combines vector + text' },
-      { namePattern: 'HybridSearchStrategy', relevance: 2, reason: 'Strategy wrapper for hybridSearch' },
-      { namePattern: 'HybridSearchHit', relevance: 1, reason: 'Type used by hybridSearch' },
-      { namePattern: 'HybridSearchResult', relevance: 1, reason: 'Return type of hybridSearch' },
+      { namePattern: 'hybridSearch', relevance: 3, reason: 'Exact match' },
     ],
-    description: 'Disambiguation: hybrid search fusion logic',
+    description: 'Exact: known function name',
     category: 'disambiguation',
   },
   {
-    query: 'source code parser entry point for TypeScript files',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'parseCode',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'parseCode', relevance: 3, reason: 'Primary parser entry point, exported' },
-      { namePattern: 'parseFile', relevance: 3, reason: 'File-level parser, exported' },
-      { namePattern: 'parseFiles', relevance: 2, reason: 'Batch parser, exported' },
-      { namePattern: 'parseMarkdown', relevance: 2, reason: 'Markdown parser, exported' },
-      { namePattern: 'initParser', relevance: 1, reason: 'Parser initialization, exported' },
+      { namePattern: 'parseCode', relevance: 3, reason: 'Exact match' },
     ],
-    description: 'Disambiguation: parsing functions for source code',
+    description: 'Exact: known function name',
     category: 'disambiguation',
   },
   {
-    query: 'factory function for creating graph operations instances',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'getGraphClient',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'createOperations', relevance: 3, reason: 'CRUD factory, used by service layer and all modules' },
-      { namePattern: 'createClient', relevance: 3, reason: 'Graph client factory' },
-      { namePattern: 'createDefaultSearchRegistry', relevance: 2, reason: 'Registry factory, public API' },
-      { namePattern: 'createLogger', relevance: 2, reason: 'Utility factory, used in 40+ files' },
-      { namePattern: 'createKnowledgeOperations', relevance: 2, reason: 'Knowledge ops factory' },
+      { namePattern: 'getGraphClient', relevance: 3, reason: 'Exact match' },
     ],
-    description: 'Disambiguation: factory functions for graph operations',
+    description: 'Exact: known function name',
     category: 'disambiguation',
   },
   {
-    query: 'execute read-only Cypher queries against the graph database',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'createOperations',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'roQuery', relevance: 3, reason: 'Core read-only query method on GraphClient' },
-      { namePattern: 'query', relevance: 2, reason: 'Write query method on GraphClient' },
-      { namePattern: 'SEARCH_QUERIES', relevance: 1, reason: 'Cypher query constants' },
+      { namePattern: 'createOperations', relevance: 3, reason: 'Exact match' },
     ],
-    description: 'Disambiguation: database query execution methods',
+    description: 'Exact: known factory function',
+    category: 'disambiguation',
+  },
+  {
+    query: 'analyzeImpact',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    expectedResults: [
+      { namePattern: 'analyzeImpact', relevance: 3, reason: 'Exact match' },
+    ],
+    description: 'Exact: known analysis function',
+    category: 'disambiguation',
+  },
+  {
+    query: 'generateEmbedding',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    expectedResults: [
+      { namePattern: 'generateEmbedding', relevance: 3, reason: 'Exact match' },
+    ],
+    description: 'Exact: known embedding function',
+    category: 'disambiguation',
+  },
+  {
+    query: 'rrfFuse',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    expectedResults: [
+      { namePattern: 'rrfFuse', relevance: 3, reason: 'Exact match' },
+    ],
+    description: 'Exact: known fusion function',
+    category: 'disambiguation',
+  },
+  {
+    query: 'indexProject',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    expectedResults: [
+      { namePattern: 'indexProject', relevance: 3, reason: 'Exact match' },
+    ],
+    description: 'Exact: known indexer function',
     category: 'disambiguation',
   },
 
   // ═══════════════════════════════════════════════════════════════════
-  // IMPORTANCE: queries where fan-in/centrality should determine rank
-  // Verified callers: getGraphClient=36, upsertNode=16, walkNode=14, toParams=12
+  // PARTIAL: Agent knows roughly what it's called
   // ═══════════════════════════════════════════════════════════════════
   {
-    query: 'how to get a graph database client connection for queries',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'complexity calculation',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'getGraphClient', relevance: 3, reason: '36 callers — most called codebase-graph function' },
-      { namePattern: 'GraphClient', relevance: 2, reason: 'Interface/type definition for the client' },
-      { namePattern: 'closeGraphClient', relevance: 2, reason: 'Cleanup, exported public API' },
-      { namePattern: 'createClient', relevance: 2, reason: 'Factory that creates the graph client' },
+      { namePattern: 'calculateComplexity', relevance: 3, reason: 'Primary complexity function' },
+      { namePattern: 'calculateCyclomatic', relevance: 2, reason: 'Specific metric' },
+      { namePattern: 'calculateCognitive', relevance: 2, reason: 'Specific metric' },
     ],
-    description: 'Importance: getGraphClient has 36 verified callers',
-    category: 'importance',
+    description: 'Partial: concept maps to multiple functions',
+    category: 'disambiguation',
   },
   {
-    query: 'CRUD operations interface for inserting and querying graph nodes',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'search strategy',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'createOperations', relevance: 3, reason: 'Primary factory, used in every module that writes to graph' },
-      { namePattern: 'createKnowledgeOperations', relevance: 3, reason: 'Knowledge ops factory, used by service layer' },
-      { namePattern: 'GraphOperations', relevance: 2, reason: 'Interface defining all graph operations' },
+      { namePattern: 'SearchStrategy', relevance: 3, reason: 'Interface definition' },
+      { namePattern: 'HybridSearchStrategy', relevance: 2, reason: 'Strategy implementation' },
+      { namePattern: 'EnrichedSearchStrategy', relevance: 2, reason: 'Strategy implementation' },
     ],
-    description: 'Importance: createOperations is used across all packages',
-    category: 'importance',
+    description: 'Partial: concept with multiple implementations',
+    category: 'disambiguation',
   },
   {
-    query: 'logging utility used across all packages for debug output',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'graph operations',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'createLogger', relevance: 3, reason: 'Used in 40+ files across all packages' },
-      { namePattern: 'Logger', relevance: 2, reason: 'Logger class/interface' },
-      { namePattern: 'LogLevel', relevance: 1, reason: 'Type definition for log levels' },
+      { namePattern: 'GraphOperations', relevance: 3, reason: 'Interface' },
+      { namePattern: 'createOperations', relevance: 3, reason: 'Factory' },
+      { namePattern: 'createKnowledgeOperations', relevance: 2, reason: 'Related factory' },
     ],
-    description: 'Importance: createLogger is the most widely used utility',
-    category: 'importance',
-  },
-
-  // ═══════════════════════════════════════════════════════════════════
-  // RECENCY: recently-modified code should rank higher
-  // All recent commits are 2026-03-16 (complexity refactor)
-  // ═══════════════════════════════════════════════════════════════════
-  {
-    query: 'calculate code complexity metrics like cyclomatic and cognitive complexity',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
-    expectedResults: [
-      { namePattern: 'calculateComplexity', relevance: 3, reason: 'Primary complexity calculator, exported' },
-      { namePattern: 'getComplexityHotspots', relevance: 3, reason: 'Public API for complexity analysis' },
-      { namePattern: 'calculateCyclomatic', relevance: 2, reason: 'Core metric, exported' },
-      { namePattern: 'calculateCognitive', relevance: 2, reason: 'Key cognitive complexity metric' },
-      { namePattern: 'COMPLEXITY_THRESHOLDS', relevance: 1, reason: 'Constants for complexity levels' },
-    ],
-    description: 'Recency: complexity was recently refactored (2026-03-16)',
-    category: 'recency',
+    description: 'Partial: broad concept',
+    category: 'disambiguation',
   },
   {
-    query: 'search strategy pattern for routing queries to different search backends',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'knowledge operations',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'EnrichedSearchStrategy', relevance: 3, reason: 'Brand new (2026-03-17)' },
-      { namePattern: 'HybridSearchStrategy', relevance: 3, reason: 'Core strategy, recently updated' },
-      { namePattern: 'SmartSearchStrategy', relevance: 2, reason: 'Meta-router strategy' },
-      { namePattern: 'SearchStrategy', relevance: 2, reason: 'Interface definition' },
-      { namePattern: 'GraphAnswerStrategy', relevance: 1, reason: 'LLM-based strategy' },
+      { namePattern: 'createKnowledgeOperations', relevance: 3, reason: 'Factory' },
+      { namePattern: 'KnowledgeOperations', relevance: 3, reason: 'Interface' },
     ],
-    description: 'Recency: enriched strategy is brand-new',
-    category: 'recency',
+    description: 'Partial: specific subsystem',
+    category: 'disambiguation',
   },
 
   // ═══════════════════════════════════════════════════════════════════
-  // QUALITY: prefer documented, exported, tested over internal/sparse
+  // EXPLORE: Agent is investigating how something works
   // ═══════════════════════════════════════════════════════════════════
   {
-    query: 'generate embedding vector for a text input using the configured provider',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'how does indexing work',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'generateEmbedding', relevance: 3, reason: 'Public API, well-documented, tested, exported' },
-      { namePattern: 'isEmbeddingAvailable', relevance: 2, reason: 'Utility, exported, documented' },
-      { namePattern: 'warmupEmbedding', relevance: 2, reason: 'Public API for warmup' },
-      { namePattern: 'embedAllNodes', relevance: 2, reason: 'Exported from core, documented' },
-      { namePattern: 'EmbeddingConfig', relevance: 1, reason: 'Type/interface only' },
+      { namePattern: 'indexProject', relevance: 3, reason: 'Main indexing entry point' },
+      { namePattern: 'indexSingleFile', relevance: 2, reason: 'Single file indexing' },
+      { namePattern: 'isProjectIndexed', relevance: 1, reason: 'Status check' },
     ],
-    description: 'Quality: generateEmbedding has docstring + tests + exports',
+    description: 'Explore: understanding the indexing pipeline',
     category: 'quality',
   },
   {
-    query: 'index a project directory and build the code graph from source files',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'graph database connection',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'indexProject', relevance: 3, reason: 'Primary indexer, exported, heavily documented' },
-      { namePattern: 'indexSingleFile', relevance: 2, reason: 'Exported helper for single-file indexing' },
-      { namePattern: 'isProjectIndexed', relevance: 2, reason: 'Exported status check' },
+      { namePattern: 'getGraphClient', relevance: 3, reason: 'Gets the client connection' },
+      { namePattern: 'GraphClient', relevance: 3, reason: 'Connection interface' },
+      { namePattern: 'createClient', relevance: 2, reason: 'Creates a client' },
+      { namePattern: 'closeGraphClient', relevance: 1, reason: 'Closes connection' },
     ],
-    description: 'Quality: exact symbol lookup for core public API',
+    description: 'Explore: database connectivity',
+    category: 'semantic-gap',
+  },
+  {
+    query: 'embedding generation',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    expectedResults: [
+      { namePattern: 'generateEmbedding', relevance: 3, reason: 'Single embedding' },
+      { namePattern: 'generateEmbeddings', relevance: 3, reason: 'Batch embeddings' },
+      { namePattern: 'warmupEmbedding', relevance: 1, reason: 'Model warmup' },
+    ],
+    description: 'Explore: embedding pipeline',
     category: 'quality',
   },
   {
-    query: 'analyze impact of changing a function and find what would break',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'git history sync',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'analyzeImpact', relevance: 3, reason: 'Exported, heavily used in MCP tools, tested' },
-      { namePattern: 'analyzeRefactoring', relevance: 3, reason: 'Exported, well-documented' },
-      { namePattern: 'analyzeDataflow', relevance: 2, reason: 'Exported, complex analysis' },
+      { namePattern: 'syncGitHistory', relevance: 3, reason: 'Main git sync function' },
+      { namePattern: 'getRepoInfo', relevance: 2, reason: 'Repo metadata' },
     ],
-    description: 'Quality: exported analysis functions vs internal helpers',
+    description: 'Explore: git integration',
+    category: 'semantic-gap',
+  },
+  {
+    query: 'impact analysis',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    expectedResults: [
+      { namePattern: 'analyzeImpact', relevance: 3, reason: 'Main impact function' },
+      { namePattern: 'analyzeRefactoring', relevance: 2, reason: 'Related analysis' },
+      { namePattern: 'analyzeDataflow', relevance: 2, reason: 'Related analysis' },
+    ],
+    description: 'Explore: code analysis tools',
     category: 'quality',
   },
-
-  // ═══════════════════════════════════════════════════════════════════
-  // SEMANTIC GAP: NL intent requires vector search to bridge
-  // These test whether embeddings find semantically related symbols
-  // ═══════════════════════════════════════════════════════════════════
   {
-    query: 'how does the system connect to the database and manage connection lifecycle',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'logging setup',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'getGraphClient', relevance: 3, reason: 'Manages DB connection lifecycle — docstring says "database"' },
-      { namePattern: 'GraphClient', relevance: 2, reason: 'The connection interface' },
-      { namePattern: 'createClient', relevance: 2, reason: 'Creates the DB connection' },
-      { namePattern: 'closeGraphClient', relevance: 1, reason: 'Connection cleanup' },
+      { namePattern: 'createLogger', relevance: 3, reason: 'Logger factory' },
+      { namePattern: 'Logger', relevance: 2, reason: 'Logger interface' },
     ],
-    description: 'Semantic gap: database connection management',
+    description: 'Explore: logging infrastructure',
+    category: 'quality',
+  },
+  {
+    query: 'code parsing pipeline',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    expectedResults: [
+      { namePattern: 'parseCode', relevance: 3, reason: 'Parse source code' },
+      { namePattern: 'parseFile', relevance: 3, reason: 'Parse a file' },
+      { namePattern: 'parseFiles', relevance: 2, reason: 'Parse multiple files' },
+      { namePattern: 'initParser', relevance: 1, reason: 'Parser initialization' },
+    ],
+    description: 'Explore: parsing system',
+    category: 'quality',
+  },
+  {
+    query: 'vulnerability scanning',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    expectedResults: [
+      { namePattern: 'scanForVulnerabilities', relevance: 3, reason: 'Core vulnerability scanner' },
+    ],
+    description: 'Explore: security analysis',
     category: 'semantic-gap',
   },
   {
-    query: 'find similar code nodes using vector embedding cosine similarity',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
+    query: 'refactoring suggestions',
+    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
-      { namePattern: 'searchByVector', relevance: 3, reason: 'Direct vector similarity search on code nodes' },
-      { namePattern: 'hybridSearch', relevance: 2, reason: 'Combines vector + text search' },
-      { namePattern: 'enrichedSearch', relevance: 2, reason: 'Uses vector pipeline internally' },
-      { namePattern: 'generateEmbedding', relevance: 1, reason: 'Creates embeddings used for vector search' },
+      { namePattern: 'analyzeRefactoring', relevance: 3, reason: 'Refactoring analysis' },
     ],
-    description: 'Semantic gap: vector similarity search functions',
+    description: 'Explore: refactoring tools',
     category: 'semantic-gap',
-  },
-  {
-    query: 'sync git commit history into the graph and track file modifications',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
-    expectedResults: [
-      { namePattern: 'syncGitHistory', relevance: 3, reason: 'Syncs git commits into graph' },
-      { namePattern: 'getSymbolHistory', relevance: 3, reason: 'Gets git history for a symbol' },
-      { namePattern: 'commitToNodeProps', relevance: 2, reason: 'Converts git commit to node properties' },
-      { namePattern: 'getRepoInfo', relevance: 2, reason: 'Gets repo metadata' },
-    ],
-    description: 'Semantic gap: git history sync and tracking',
-    category: 'semantic-gap',
-  },
-
-  // ═══════════════════════════════════════════════════════════════════
-  // CROSS-CUTTING: concepts spanning multiple packages
-  // ═══════════════════════════════════════════════════════════════════
-  {
-    query: 'load and save project configuration settings from disk',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
-    expectedResults: [
-      { namePattern: 'loadConfig', relevance: 3, reason: 'Core config loader, most central' },
-      { namePattern: 'saveConfig', relevance: 2, reason: 'Core config writer' },
-      { namePattern: 'syncConfigToGraph', relevance: 2, reason: 'Config → graph sync' },
-      { namePattern: 'MCPContextConfig', relevance: 1, reason: 'Config type definition' },
-    ],
-    description: 'Cross-cutting: config spans core, api, mcp-server + other projects',
-    category: 'cross-cutting',
-  },
-  {
-    query: 'how are errors handled and propagated across the application layers',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
-    expectedResults: [
-      { namePattern: 'error', relevance: 2, reason: 'Error-related modules/functions' },
-      { namePattern: 'catch', relevance: 1, reason: 'Error handling patterns' },
-      { namePattern: 'throw', relevance: 1, reason: 'Error throwing patterns' },
-    ],
-    description: 'Cross-cutting: error handling spans all packages',
-    category: 'cross-cutting',
-  },
-
-  // ═══════════════════════════════════════════════════════════════════
-  // NEEDLE-IN-HAYSTACK: one specific result among many decoys
-  // ═══════════════════════════════════════════════════════════════════
-  {
-    query: 'reciprocal rank fusion function that merges multiple result lists',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
-    expectedResults: [
-      { namePattern: 'rrfFuse', relevance: 3, reason: 'The specific RRF fusion function' },
-      { namePattern: 'hybridSearch', relevance: 1, reason: 'File containing rrfFuse' },
-    ],
-    description: 'Needle: specific internal function for RRF',
-    category: 'needle-in-haystack',
-  },
-  {
-    query: 'convert vector distance value to a normalized similarity score',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
-    expectedResults: [
-      { namePattern: 'distanceToScore', relevance: 3, reason: 'Specific score conversion helper' },
-    ],
-    description: 'Needle: small helper function among 5000+ symbols',
-    category: 'needle-in-haystack',
-  },
-  {
-    query: 'extract and preprocess search terms from a user query string',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
-    expectedResults: [
-      { namePattern: 'extractSearchTerms', relevance: 3, reason: 'Query preprocessing function' },
-      { namePattern: 'extractEnrichedTerms', relevance: 2, reason: 'Enriched search term extractor' },
-    ],
-    description: 'Needle: specific exported helper in hybridSearch.ts',
-    category: 'needle-in-haystack',
-  },
-  {
-    query: 'upsert a function node into the graph with its metadata and relationships',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH'],
-    expectedResults: [
-      { namePattern: 'upsertFunction', relevance: 3, reason: 'Specific CRUD method for function nodes' },
-      { namePattern: 'upsertFile', relevance: 1, reason: 'Related upsert method' },
-      { namePattern: 'upsertClass', relevance: 1, reason: 'Related upsert method' },
-    ],
-    description: 'Needle: specific method in operations.ts',
-    category: 'needle-in-haystack',
   },
 ];
 

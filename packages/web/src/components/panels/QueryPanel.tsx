@@ -194,7 +194,7 @@ export function QueryPanel({ className }: QueryPanelProps) {
                 </div>
               )}
 
-              {/* Synthesized answer (from GRAPH_ANSWER / CONTEXT_WALK) — shown prominently */}
+              {/* Synthesized answer — shown prominently */}
               {nlAnswer && (
                 <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-md p-3">
                   <div className="flex items-center gap-1.5 mb-1.5">
@@ -223,7 +223,7 @@ export function QueryPanel({ className }: QueryPanelProps) {
                 </div>
               )}
 
-              {/* Cypher explanation (from NL_TO_CYPHER) */}
+              {/* Cypher explanation */}
               {nlExplanation && !nlAnswer && (
                 <div className="text-xs text-cyan-400/80 bg-cyan-500/10 border border-cyan-500/20 rounded p-2">
                   {nlExplanation}

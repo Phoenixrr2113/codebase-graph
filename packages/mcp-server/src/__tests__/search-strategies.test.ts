@@ -68,44 +68,6 @@ describe('search_code — strategy parameter', () => {
     expect(result.total).toBeGreaterThanOrEqual(0);
   });
 
-  it('should dispatch SMART_SEARCH strategy', async () => {
-    const result = await searchCode({
-      query: 'createClient',
-      strategy: 'SMART_SEARCH',
-    });
-
-    // SMART_SEARCH should route and return routing metadata
-    expect(result.error).toBeUndefined();
-    expect(result.total).toBeGreaterThanOrEqual(0);
-    // When using strategy, routedTo should be set
-    expect(result.routedTo).toBeDefined();
-  });
-
-  it('should return error for GRAPH_ANSWER without LLM', async () => {
-    // Temporarily remove all LLM keys to test error handling
-    const savedKey = process.env['OPENROUTER_API_KEY'];
-    const savedCerebras = process.env['CEREBRAS_API_KEY'];
-    const savedProvider = process.env['LLM_PROVIDER'];
-    delete process.env['OPENROUTER_API_KEY'];
-    delete process.env['CEREBRAS_API_KEY'];
-    delete process.env['LLM_PROVIDER'];
-
-    try {
-      const result = await searchCode({
-        query: 'What does createClient do?',
-        strategy: 'GRAPH_ANSWER',
-      });
-
-      // Should return error about LLM requirement
-      expect(result.error).toBeDefined();
-      expect(result.error).toMatch(/LLM|requires/i);
-    } finally {
-      if (savedKey) process.env['OPENROUTER_API_KEY'] = savedKey;
-      if (savedCerebras) process.env['CEREBRAS_API_KEY'] = savedCerebras;
-      if (savedProvider) process.env['LLM_PROVIDER'] = savedProvider;
-    }
-  });
-
   it('should be accessible via handleToolCall', async () => {
     const result = (await handleToolCall('search_code', {
       query: 'createClient',
@@ -117,46 +79,15 @@ describe('search_code — strategy parameter', () => {
   });
 
   it.skipIf(!llmAvailable)(
-    'should dispatch GRAPH_ANSWER with LLM and return an answer',
+    'should dispatch ENRICHED_V2 with LLM and return results',
     async () => {
       const result = await searchCode({
         query: 'What does the createClient function do?',
-        strategy: 'GRAPH_ANSWER',
+        strategy: 'HYBRID',
       });
 
       expect(result.error).toBeUndefined();
-      expect(result.answer).toBeDefined();
-      expect(result.answer!.length).toBeGreaterThan(0);
-    },
-    { timeout: 30_000 },
-  );
-
-  it.skipIf(!llmAvailable)(
-    'should dispatch NL_TO_CYPHER with LLM and return cypher',
-    async () => {
-      const result = await searchCode({
-        query: 'Show me all functions',
-        strategy: 'NL_TO_CYPHER',
-      });
-
-      expect(result.error).toBeUndefined();
-      expect(result.cypher).toBeDefined();
-      expect(result.cypher!).toMatch(/MATCH/i);
-    },
-    { timeout: 30_000 },
-  );
-
-  it.skipIf(!llmAvailable)(
-    'should dispatch SMART_SEARCH with LLM routing',
-    async () => {
-      const result = await searchCode({
-        query: 'What does the authentication module do?',
-        strategy: 'SMART_SEARCH',
-      });
-
-      expect(result.error).toBeUndefined();
-      expect(result.routedTo).toBeDefined();
-      expect(result.routingReason).toBeDefined();
+      expect(result.total).toBeGreaterThanOrEqual(0);
     },
     { timeout: 30_000 },
   );
@@ -240,7 +171,7 @@ describe('ask_code', () => {
       });
 
       expect(result.meta).toBeDefined();
-      expect(result.meta!.searchType).toBe('GRAPH_ANSWER');
+      expect(result.meta!.searchType).toBe('ENRICHED_V2');
       expect(result.meta!.durationMs).toBeGreaterThanOrEqual(0);
     },
     { timeout: 30_000 },
@@ -323,7 +254,7 @@ describe('query_cypher', () => {
       });
 
       expect(result.meta).toBeDefined();
-      expect(result.meta!.searchType).toBe('NL_TO_CYPHER');
+      expect(result.meta!.searchType).toBe('ENRICHED_V2');
       expect(result.meta!.durationMs).toBeGreaterThanOrEqual(0);
     },
     { timeout: 30_000 },

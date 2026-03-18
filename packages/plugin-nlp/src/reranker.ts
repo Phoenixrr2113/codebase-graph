@@ -1,12 +1,14 @@
 /**
- * Voyage AI Reranker — cross-encoder reranking for search results.
+ * Reranker — cross-encoder reranking for search results.
  *
- * Uses Voyage's rerank-2 model to re-score search results based on
- * query-document relevance. Cross-encoder models see query+document together,
- * yielding ~14% accuracy improvement over embedding-only retrieval.
+ * Configurable via environment variables:
+ *   CODEGRAPH_RERANK_PROVIDER: 'voyage' | 'jina' (default: auto-detect from available API keys)
+ *   CODEGRAPH_RERANK_MODEL: model name override (default: provider-specific)
+ *   CODEGRAPH_RERANK: 'false' to disable reranking entirely
+ *   VOYAGE_API_KEY: API key for Voyage
+ *   JINA_API_KEY: API key for Jina
  *
- * Graceful degradation: if VOYAGE_API_KEY is not set or the API fails,
- * returns the original order with synthetic scores.
+ * Graceful degradation: if no API key is available, returns original order.
  */
 
 import { createLogger } from '@codegraph/logger';
@@ -17,6 +19,8 @@ const logger = createLogger({ namespace: 'nlp:reranker' });
 // Types
 // ---------------------------------------------------------------------------
 
+export type RerankProvider = 'voyage' | 'jina';
+
 export interface RerankResult {
   /** Original index in the input documents array */
   index: number;
@@ -25,31 +29,79 @@ export interface RerankResult {
 }
 
 export interface RerankOptions {
-  /** Reranker model (default: 'rerank-2') */
+  /** Reranker provider override */
+  provider?: RerankProvider;
+  /** Reranker model override */
   model?: string;
   /** Number of top results to return (default: all) */
   topK?: number;
 }
 
 // ---------------------------------------------------------------------------
-// Constants
+// Provider config
 // ---------------------------------------------------------------------------
 
-const RERANK_API_URL = 'https://api.voyageai.com/v1/rerank';
-const DEFAULT_MODEL = 'rerank-2';
+interface ProviderConfig {
+  apiUrl: string;
+  apiKeyEnv: string;
+  defaultModel: string;
+  /** Map provider response to our format */
+  parseResponse: (json: unknown) => RerankResult[];
+  /** Build provider-specific request body */
+  buildBody: (query: string, documents: string[], model: string, topK: number) => Record<string, unknown>;
+}
+
+const PROVIDERS: Record<RerankProvider, ProviderConfig> = {
+  voyage: {
+    apiUrl: 'https://api.voyageai.com/v1/rerank',
+    apiKeyEnv: 'VOYAGE_API_KEY',
+    defaultModel: 'rerank-2',
+    buildBody: (query, documents, model, topK) => ({
+      query, documents, model, top_k: topK,
+    }),
+    parseResponse: (json) => {
+      const res = json as { data: Array<{ index: number; relevance_score: number }> };
+      return res.data.map(d => ({
+        index: d.index,
+        relevanceScore: d.relevance_score,
+      }));
+    },
+  },
+  jina: {
+    apiUrl: 'https://api.jina.ai/v1/rerank',
+    apiKeyEnv: 'JINA_API_KEY',
+    defaultModel: 'jina-reranker-v2-base-multilingual',
+    buildBody: (query, documents, model, topK) => ({
+      query, documents, model, top_n: topK,
+    }),
+    parseResponse: (json) => {
+      const res = json as { results: Array<{ index: number; relevance_score: number }> };
+      return res.results.map(d => ({
+        index: d.index,
+        relevanceScore: d.relevance_score,
+      }));
+    },
+  },
+};
 
 // ---------------------------------------------------------------------------
-// API response type
+// Provider resolution
 // ---------------------------------------------------------------------------
 
-interface VoyageRerankResponse {
-  data: Array<{
-    index: number;
-    relevance_score: number;
-  }>;
-  usage: {
-    total_tokens: number;
-  };
+function resolveProvider(override?: RerankProvider): RerankProvider | null {
+  // Explicit override
+  if (override) return override;
+
+  // Environment variable
+  const envProvider = process.env['CODEGRAPH_RERANK_PROVIDER'];
+  if (envProvider && envProvider in PROVIDERS) return envProvider as RerankProvider;
+
+  // Auto-detect from available API keys
+  for (const [name, config] of Object.entries(PROVIDERS)) {
+    if (process.env[config.apiKeyEnv]) return name as RerankProvider;
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,23 +109,21 @@ interface VoyageRerankResponse {
 // ---------------------------------------------------------------------------
 
 /**
- * Check if the reranker is available (VOYAGE_API_KEY is set).
+ * Check if any reranker provider is available.
  */
 export function isRerankAvailable(): boolean {
   if (process.env['CODEGRAPH_RERANK'] === 'false') return false;
-  return !!process.env['VOYAGE_API_KEY'];
+  return resolveProvider() !== null;
 }
 
 /**
- * Rerank documents by relevance to a query using Voyage AI's cross-encoder.
+ * Rerank documents by relevance to a query using a cross-encoder.
  *
- * @param query - The search query
- * @param documents - Array of document texts to rerank
- * @param options - Reranker options
- * @returns Reranked results sorted by relevance (highest first)
+ * Provider is auto-detected from available API keys, or can be set via
+ * CODEGRAPH_RERANK_PROVIDER env var or options.provider.
  *
- * Graceful degradation: if API key is missing or API fails, returns
- * original order with linearly decaying synthetic scores.
+ * Graceful degradation: if no provider is available or API fails,
+ * returns original order with synthetic scores.
  */
 export async function rerank(
   query: string,
@@ -82,30 +132,32 @@ export async function rerank(
 ): Promise<RerankResult[]> {
   if (documents.length === 0) return [];
 
-  const apiKey = process.env['VOYAGE_API_KEY'];
-  if (!apiKey) {
-    logger.debug('Reranker unavailable (no VOYAGE_API_KEY), returning original order');
+  const providerName = resolveProvider(options?.provider);
+  if (!providerName) {
+    logger.debug('Reranker unavailable (no API key), returning original order');
     return fallbackScores(documents.length, options?.topK);
   }
 
-  const model = options?.model ?? DEFAULT_MODEL;
+  const provider = PROVIDERS[providerName]!;
+  const apiKey = process.env[provider.apiKeyEnv];
+  if (!apiKey) {
+    logger.debug(`Reranker ${providerName} unavailable (no ${provider.apiKeyEnv})`);
+    return fallbackScores(documents.length, options?.topK);
+  }
+
+  const model = options?.model ?? process.env['CODEGRAPH_RERANK_MODEL'] ?? provider.defaultModel;
   const topK = options?.topK ?? documents.length;
 
   try {
     const start = performance.now();
 
-    const response = await fetch(RERANK_API_URL, {
+    const response = await fetch(provider.apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        query,
-        documents,
-        model,
-        top_k: topK,
-      }),
+      body: JSON.stringify(provider.buildBody(query, documents, model, topK)),
     });
 
     if (!response.ok) {
@@ -114,15 +166,11 @@ export async function rerank(
       return fallbackScores(documents.length, topK);
     }
 
-    const json = (await response.json()) as VoyageRerankResponse;
+    const json = await response.json();
     const ms = (performance.now() - start).toFixed(0);
-    logger.debug(`Reranked ${documents.length} docs in ${ms}ms (model: ${model})`);
+    logger.debug(`Reranked ${documents.length} docs in ${ms}ms (${providerName}/${model})`);
 
-    return json.data
-      .map((d) => ({
-        index: d.index,
-        relevanceScore: d.relevance_score,
-      }))
+    return provider.parseResponse(json)
       .sort((a, b) => b.relevanceScore - a.relevanceScore);
   } catch (err) {
     logger.warn(`Reranker failed: ${err instanceof Error ? err.message : err}`);
@@ -134,10 +182,6 @@ export async function rerank(
 // Fallback
 // ---------------------------------------------------------------------------
 
-/**
- * Generate synthetic scores preserving original order.
- * Used when the reranker API is unavailable.
- */
 function fallbackScores(count: number, topK?: number): RerankResult[] {
   const results: RerankResult[] = [];
   const n = topK ? Math.min(topK, count) : count;

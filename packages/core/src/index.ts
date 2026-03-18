@@ -52,33 +52,16 @@ export type {
   CodeNodeType,
 } from './hybridSearch';
 
-// Enriched search (hybrid + non-LLM enrichment signals)
-export { enrichedSearch } from './enrichedSearch';
-export type {
-  EnrichedSearchHit,
-  EnrichedSearchResult,
-  EnrichedSearchOptions,
-  EnrichmentData,
-  DocSnippet,
-} from './enrichedSearch';
-
-// Enriched search V2 (clean incremental build)
+// Enriched search V2 (vector + reranker)
 export { enrichedSearchV2 } from './enrichedSearchV2';
 export type { EnrichedV2Result, EnrichedV2Hit, EnrichedV2Options } from './enrichedSearchV2';
 
-// Search strategy registry (WS12)
+// Search strategy registry
 export {
   SearchRegistry,
   createSearchRegistry,
   createDefaultSearchRegistry,
-} from './search';
-export {
   HybridSearchStrategy,
-  GraphAnswerStrategy,
-  NLToCypherStrategy,
-  SmartSearchStrategy,
-  ContextWalkStrategy,
-  EnrichedSearchStrategy,
 } from './search';
 export type {
   SearchType,

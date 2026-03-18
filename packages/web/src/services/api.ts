@@ -152,7 +152,7 @@ export interface NaturalQueryResponse {
     properties?: Record<string, unknown>;
   }>;
   explanation: string | null;
-  /** Synthesized answer from GRAPH_ANSWER / CONTEXT_WALK strategies */
+  /** Synthesized answer (if applicable) */
   answer: string | null;
   answerConfidence: number | null;
   answerSources: Array<{ nodeType: string; name: string; relevance: string }> | null;

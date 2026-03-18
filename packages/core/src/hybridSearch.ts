@@ -413,7 +413,7 @@ export async function hybridSearch(
 
   // Drop results whose score is too far below the top hit.
   // This prunes tangential vector matches that dilute precision for focused queries.
-  // Callers like CONTEXT_WALK can set minRRFScore=0 for broader exploration.
+  // Callers can set minRRFScore=0 for broader exploration.
   const minRRFScore = options.minRRFScore ?? 0.4;
   const allHits = fusedHits
     .filter((h) => h.score >= minRRFScore)
@@ -894,7 +894,7 @@ async function textSearchNodes(
   // Match against name (primary) and docstring (secondary).
   // filePath is intentionally excluded — it causes false positives (e.g.,
   // searching "hybridSearch" would return RowType just because it lives in
-  // hybridSearch.ts). File-scoped queries should use NL_TO_CYPHER instead.
+  // hybridSearch.ts).
   const termConditions = terms.map((_, i) => {
     const nameMatch = `toLower(n.name) CONTAINS toLower($term${i})`;
     const docMatch = `(n.docstring IS NOT NULL AND toLower(n.docstring) CONTAINS toLower($term${i}))`;

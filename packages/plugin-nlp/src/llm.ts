@@ -6,8 +6,8 @@
  * resolution, entity resolution, and WS12 search types).
  *
  * Two-tier model system:
- *   - Default model: Used for most queries (routing, NL→Cypher, simple answers)
- *   - Complex model: Used for multi-step reasoning (GRAPH_ANSWER, CONTEXT_WALK)
+ *   - Default model: Used for most queries (search, extraction, simple answers)
+ *   - Complex model: Used for multi-step reasoning
  *
  * The complex model defaults to the same provider as the default model
  * (e.g., Cerebras for both tiers). This is optimal when the provider is fast
@@ -254,7 +254,7 @@ export async function getLLMModel(config?: LLMConfig): Promise<LanguageModel> {
 /**
  * Get the complex-tier LanguageModel for multi-step reasoning.
  *
- * Used by strategies that need deeper reasoning: GRAPH_ANSWER, CONTEXT_WALK.
+ * Used by strategies that need deeper reasoning.
  *
  * Provider priority:
  * 1. COMPLEX_LLM_PROVIDER env var (explicit override, e.g., "glm")
@@ -264,7 +264,7 @@ export async function getLLMModel(config?: LLMConfig): Promise<LanguageModel> {
  *
  * When using the same provider for both tiers (e.g., Cerebras), the complex
  * model is identical to the default model. This is intentional — benchmarks
- * show Cerebras qwen-3-235b at ~5s for GRAPH_ANSWER vs ~22s for GLM, making
+ * show Cerebras qwen-3-235b at ~5s for complex queries vs ~22s for GLM, making
  * unified Cerebras the optimal configuration when rate limits allow.
  *
  * @returns LanguageModel for complex reasoning, or null if not configured

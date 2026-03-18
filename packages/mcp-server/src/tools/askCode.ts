@@ -1,15 +1,13 @@
 /**
  * MCP Tool: ask_code
  *
- * Answers natural language questions about the codebase using GRAPH_ANSWER strategy.
- * Delegates to codeGraphService.strategySearch() with GRAPH_ANSWER type.
+ * Answers natural language questions about the codebase using ENRICHED_V2 strategy.
+ * Delegates to codeGraphService.strategySearch() with ENRICHED_V2 type.
  *
  * Examples:
  *   "What does the authentication module do?"
  *   "Who created the payment service?"
  *   "What decisions were made about the database?"
- *
- * Requires an LLM provider (CEREBRAS_API_KEY or OPENROUTER_API_KEY).
  */
 
 import { codeGraphService } from '@codegraph/core';
@@ -113,7 +111,7 @@ export async function askCode(input: AskCodeInput): Promise<AskCodeOutput> {
 
     const response = await codeGraphService.strategySearch(
       input.question,
-      'GRAPH_ANSWER',
+      'ENRICHED_V2',
       opts,
     );
 
@@ -141,7 +139,7 @@ export async function askCode(input: AskCodeInput): Promise<AskCodeOutput> {
     });
 
     const meta: NonNullable<AskCodeOutput['meta']> = {
-      searchType: 'GRAPH_ANSWER',
+      searchType: 'ENRICHED_V2',
       durationMs: response.meta.durationMs,
     };
     if (typeof response.meta['vectorHits'] === 'number') meta.vectorHits = response.meta['vectorHits'];

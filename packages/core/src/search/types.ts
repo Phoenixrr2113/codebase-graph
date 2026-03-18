@@ -15,23 +15,13 @@ import type { EmbeddingConfig } from '@codegraph/plugin-nlp';
 // ============================================================================
 
 /**
- * All supported search strategies.
+ * Supported search strategies.
  *
- * - VECTOR: Pure vector similarity search
- * - HYBRID: Vector + text + graph traversal (existing)
- * - GRAPH_ANSWER: Vector search → gather context → LLM answer
- * - NL_TO_CYPHER: Natural language → Cypher query → execute
- * - SMART_SEARCH: Auto-routes to best strategy based on query
- * - CONTEXT_WALK: Iterative multi-round graph exploration
+ * - HYBRID: Vector + text + graph traversal (fallback)
+ * - ENRICHED_V2: Vector retrieval + cross-encoder reranking (primary)
  */
 export type SearchType =
-  | 'VECTOR'
   | 'HYBRID'
-  | 'ENRICHED'
-  | 'GRAPH_ANSWER'
-  | 'NL_TO_CYPHER'
-  | 'SMART_SEARCH'
-  | 'CONTEXT_WALK'
   | 'ENRICHED_V2';
 
 // ============================================================================
@@ -43,7 +33,7 @@ export interface SearchContext {
   client: GraphClient;
   /** LLM for answer generation, query translation, routing (optional for non-LLM types) */
   llm?: LanguageModel;
-  /** Complex LLM for multi-step reasoning (GRAPH_ANSWER, CONTEXT_WALK). Falls back to llm if not set. */
+  /** Complex LLM for multi-step reasoning. Falls back to llm if not set. */
   complexLlm?: LanguageModel;
   /** Embedding config for vector search */
   embeddings?: EmbeddingConfig;
@@ -107,19 +97,19 @@ export interface SearchResponse {
   results: SearchResultItem[];
   /** Related nodes (from graph traversal) */
   related?: SearchRelatedItem[];
-  /** LLM-generated answer (for GRAPH_ANSWER, CONTEXT_WALK) */
+  /** LLM-generated answer (if applicable) */
   answer?: string;
   /** Confidence in the answer (0-1) */
   answerConfidence?: number;
   /** Answer sources (which nodes informed the answer) */
   answerSources?: Array<{ nodeType: string; name: string; relevance: string }>;
-  /** Generated Cypher query (for NL_TO_CYPHER) */
+  /** Generated Cypher query (if applicable) */
   cypher?: string;
-  /** Cypher query explanation (for NL_TO_CYPHER) */
+  /** Cypher query explanation (if applicable) */
   cypherExplanation?: string;
-  /** How the query was routed (for SMART_SEARCH) */
+  /** How the query was routed (if applicable) */
   routedTo?: SearchType;
-  /** Routing reasoning (for SMART_SEARCH) */
+  /** Routing reasoning (if applicable) */
   routingReason?: string;
   /** Total result count */
   total: number;
