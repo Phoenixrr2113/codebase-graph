@@ -2,11 +2,13 @@
 
 ## Current State
 
-### Search: MRR 0.931, S@1=88%, S@5=100%, median 301ms
+### Search: MRR 0.956, S@1=94%, S@5=100%, median 310ms (stable across 3 runs)
 - Pipeline: Voyage code-3 embeddings → FalkorDB HNSW → Jina reranker-v3
 - Pure reranker scoring (no manual text matching, no NODE_TYPE_BOOST)
-- Graph: 2859 nodes (dropped 4369 non-exported variables, 60% smaller)
+- Embedding text: signature + modifiers + docstring + body snippet (300 chars) + file path
+- Graph: 2817 nodes (dropped 4369 non-exported variables, 60% smaller)
 - Clean 3-layer chain: MCP tool → codeGraphService.search() → enrichedSearchV2()
+- Environment validation in benchmark/reindex scripts (driver bug caught and fixed)
 
 ### MCP Tools: SIMPLIFIED ✅
 - 4 persona tools: search (find + context), knowledge (store + recall), codebase, query
@@ -81,16 +83,23 @@ Do the same analysis we did on search across the ENTIRE codebase:
 
 ---
 
-## Phase 4: Fix Remaining Weak Queries
+## Phase 4: Fix Remaining Weak Query
 
-Two queries below MRR 1.0:
-- "graph database connection" → MRR 0.33 (semantic gap → expects `getGraphClient`)
-- "how does indexing work" → MRR 0.50 (expects `indexProject`, gets `IndexStats`)
+One query below MRR 1.0:
+- "how does indexing work" → MRR 0.25 (expects `indexProject`, gets `IndexingDemo` landing page component)
 
-Root cause: embedding model doesn't bridge the gap between a *description* of what something does and its *name*. Potential fixes:
-- Include docstring in embedding text at index time (so `getGraphClient`'s embedding includes "database connection")
-- Richer reranker documents (so the cross-encoder can see the docstring)
-- Bigger candidate pool (give the reranker more options)
+Root cause: query is a natural language question, and the landing page literally has a "How It Works" section. This is arguably correct behavior — the search found the most textually relevant result. The fix may be to improve the benchmark query rather than the search.
+
+Previous weak query "graph database connection" → now MRR 1.0 (body snippet in embeddings helped bridge the semantic gap).
+
+## Phase 4.5: FalkorDBLite Support
+
+Get FalkorDBLite working so users don't need Docker:
+- Install redis-server (`brew install redis`)
+- Fix driver detection: FALKORDB_HOST/URL env vars should override auto-detection
+- Test indexing + search with FalkorDBLite driver
+- Ensure vector indexes work identically
+- Update docs with setup instructions for both modes
 
 ---
 
@@ -125,8 +134,9 @@ Delete 7 plugin packages (~5,400 lines → ~1,200 lines of configs).
 
 | Date | Config | MRR | S@1 | S@5 | Latency | Notes |
 |------|--------|-----|-----|-----|---------|-------|
-| 03-19 | Post-cleanup (3-layer chain) | **0.931** | 88% | 100% | 301ms median | Same as before, zero regression |
-| 03-19 | V2 + Jina v3 (no unexported vars) | **0.931** | 88% | 100% | 301ms median | 2859 nodes, 17 queries |
+| 03-19 | **Body in embeddings + driver fix** | **0.956** | **94%** | **100%** | 310ms | Stable (3 runs identical), 2817 nodes |
+| 03-19 | Driver fix, no body | 0.956 | 94% | 100% | 324ms | Confirmed: previous MRR drops were driver bug |
+| 03-19 | ⚠️ Wrong driver (falkordblite) | 0.735 | 71% | 76% | 279ms | Driver bug — querying wrong database |
 | 03-18 | V2 + Jina v3 | 0.905 | 86% | 95% | 427ms | 7228 nodes, 22 queries |
 | 03-18 | V2 + Jina v2 | 0.858 | 82% | 86% | 401ms | |
 | 03-18 | V2 + Voyage rerank-2 | 0.808 | 73% | 95% | 394ms | |
