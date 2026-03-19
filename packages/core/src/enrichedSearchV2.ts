@@ -42,14 +42,17 @@ export interface EnrichedV2Hit {
   endLine?: number;
   score: number;
   sources: string[];
-  // Enrichment from node properties (already indexed)
+  // Node properties (already indexed)
   isExported?: boolean;
   isAsync?: boolean;
+  params?: string;
+  returnType?: string;
+  signature?: string;
   docstring?: string;
   complexity?: number;
   cognitiveComplexity?: number;
   loc?: number;
-  // Enrichment from graph traversal (batch query)
+  // Graph traversal (batch query)
   callerCount?: number;
   callees?: string[];
   importerCount?: number;
@@ -173,8 +176,8 @@ function distanceToScore(distance: number): number {
 interface Candidate {
   name: string;
   nodeType: string;
-  filePath?: string;
-  startLine?: number;
+  filePath?: string | undefined;
+  startLine?: number | undefined;
   properties: Record<string, unknown>;
   vectorScore: number;
   score: number;
@@ -224,15 +227,14 @@ async function retrieveCandidates(
       seen.add(key);
 
       const vScore = distanceToScore(r.distance);
+      // r.properties contains the full row from searchByVector (all node fields)
+      const props = r.properties ?? {};
       candidates.push({
         name: r.name,
         nodeType: r.nodeType,
         filePath: r.filePath,
-        properties: {
-          ...(r as any).properties,
-          isExported: (r as any).isExported,
-          docstring: (r as any).docstring,
-        },
+        startLine: r.startLine,
+        properties: props,
         vectorScore: vScore,
         score: vScore,
       });
@@ -322,6 +324,9 @@ export async function enrichedSearchV2(
         ...(props.endLine != null ? { endLine: props.endLine as number } : {}),
         ...(props.isExported != null ? { isExported: props.isExported as boolean } : {}),
         ...(props.isAsync != null ? { isAsync: props.isAsync as boolean } : {}),
+        ...(props.params ? { params: props.params as string } : {}),
+        ...(props.returnType ? { returnType: props.returnType as string } : {}),
+        ...(props.signature ? { signature: props.signature as string } : {}),
         ...(props.docstring ? { docstring: props.docstring as string } : {}),
         ...(props.complexity != null ? { complexity: props.complexity as number } : {}),
         ...(props.cognitiveComplexity != null ? { cognitiveComplexity: props.cognitiveComplexity as number } : {}),

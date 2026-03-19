@@ -1880,7 +1880,10 @@ class GraphOperationsImpl implements GraphOperations {
              node.isExported AS isExported,
              node.isAsync AS isAsync,
              node.docstring AS docstring,
-             node.loc AS loc
+             node.loc AS loc,
+             node.params AS params,
+             node.returnType AS returnType,
+             node.signature AS signature
     `;
 
     try {
