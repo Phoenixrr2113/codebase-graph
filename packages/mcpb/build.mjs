@@ -181,6 +181,14 @@ bundleContent = bundleContent.replace(
 );
 writeFileSync(bundlePath, bundleContent);
 
+// Copy MCP SDK's runtime dependencies
+for (const sdkDep of ['zod', 'zod-to-json-schema', 'content-type', 'raw-body', 'eventsource', 'pkce-challenge', 'express-rate-limit']) {
+  const src = resolveRealPath(sdkDep);
+  if (src) {
+    cpSync(src, resolve(nmDest, sdkDep), { recursive: true, dereference: true });
+  }
+}
+
 // Copy runtime deps needed by tree-sitter
 for (const dep of ['node-addon-api', 'prebuild-install', 'node-gyp-build']) {
   const src = resolveRealPath(dep);
