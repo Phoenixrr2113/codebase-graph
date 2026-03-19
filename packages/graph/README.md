@@ -126,10 +126,11 @@ Relative paths in `databasePath` are resolved against the directory containing t
 
 ## Tests
 
-- **25 tests** — `falkordb-operations.test.ts` (CRUD, vector search against FalkorDB Docker)
-- **17 tests** — `falkordb-knowledge-operations.test.ts` (knowledge ops against FalkorDB Docker)
+- **35 tests** — `falkordb-operations.test.ts` (CRUD, vector search, provenance against FalkorDB Docker)
+- **12 tests** — `falkordb-knowledge-operations.test.ts` (knowledge ops against FalkorDB Docker)
 - **9 tests** — `falkordblite.test.ts` (CRUD, vector search, knowledge ops against FalkorDBLite)
-- Additional test files for queries, about-edges, and git operations
+- **9 tests** — `about-edges.test.ts` (ABOUT edge linking between knowledge and code entities)
+- **19 tests** — `falkordb-git-operations.test.ts` (git churn, commit history, file change tracking)
 
 All integration tests run against real databases (no mocks).
 

@@ -64,7 +64,10 @@ export interface EnrichedV2Hit {
 
 export interface EnrichedV2Options {
   limit?: number;
+  /** Single path prefix to scope results to */
   scope?: string;
+  /** Multiple path prefixes to scope results to (for multi-project filtering) */
+  scopePaths?: string[];
   embeddings?: EmbeddingConfig;
   /** Disable the reranker (vector-only mode for testing) */
   skipReranker?: boolean;
@@ -297,11 +300,29 @@ export function candidateKey(c: Candidate): string {
   return `${c.nodeType}:${c.filePath}:${c.name}`;
 }
 
+/**
+ * Check if a file path matches the scope filter.
+ * Returns true if the path should be INCLUDED.
+ */
+function matchesScope(
+  filePath: string | undefined,
+  scope: string | undefined,
+  scopePaths: string[] | undefined,
+): boolean {
+  if (!filePath) return true; // No path to filter on — include
+  if (scope) return filePath.startsWith(scope);
+  if (scopePaths && scopePaths.length > 0) {
+    return scopePaths.some(sp => filePath.startsWith(sp));
+  }
+  return true; // No scope — include all
+}
+
 async function retrieveCandidates(
   client: GraphClient,
   query: string,
   limit: number,
   scope: string | undefined,
+  scopePaths: string[] | undefined,
   embeddings?: EmbeddingConfig,
 ): Promise<Candidate[]> {
   if (!isEmbeddingAvailable(embeddings)) return [];
@@ -329,7 +350,7 @@ async function retrieveCandidates(
 
   for (const results of allResults) {
     for (const r of results) {
-      if (scope && r.filePath && !r.filePath.startsWith(scope)) continue;
+      if (!matchesScope(r.filePath, scope, scopePaths)) continue;
 
       const key = `${r.nodeType}:${r.filePath}:${r.name}`;
       if (seen.has(key)) continue;
@@ -365,8 +386,9 @@ export async function enrichedSearchV2(
   const start = Date.now();
   const limit = options.limit ?? 20;
   const scope = options.scope;
+  const scopePaths = options.scopePaths;
 
-  const candidates = await retrieveCandidates(client, query, limit, scope, options.embeddings);
+  const candidates = await retrieveCandidates(client, query, limit, scope, scopePaths, options.embeddings);
 
   if (candidates.length === 0) {
     return { hits: [], meta: { query, vectorHits: 0, durationMs: Date.now() - start } };

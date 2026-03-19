@@ -101,7 +101,9 @@ export {
   WatchService,
   startWatching,
   stopWatching,
+  stopWatchingProject,
   getActiveWatcher,
+  getActiveWatchers,
 } from './watchService';
 export type {
   FileEventType,

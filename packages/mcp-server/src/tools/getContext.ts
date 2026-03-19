@@ -3,7 +3,7 @@
  * Get detailed context for a specific file or symbol
  */
 
-import { codeGraphService } from '@codegraph/core';
+import { codeGraphService, getActiveProjectPaths } from '@codegraph/core';
 import { toErrorMessage } from '@codegraph/logger';
 import type { ToolDefinition } from './router';
 
@@ -94,10 +94,22 @@ Examples:
 // Handler
 // ============================================================================
 
+/**
+ * Check if a file path is within any of the given project paths.
+ * Returns true if no scopes specified (no filtering).
+ */
+function isInScope(filePath: string, scopePaths: string[]): boolean {
+  if (scopePaths.length === 0) return true;
+  return scopePaths.some(sp => filePath.startsWith(sp));
+}
+
 export async function getContext(input: GetContextInput): Promise<GetContextOutput> {
   if (!input.file && !input.symbol) {
     return { relationships: [], error: 'Either file or symbol must be specified' };
   }
+
+  // Get active project paths for scope filtering
+  const activePaths = await getActiveProjectPaths();
 
   try {
     // File context — uses core service subgraph query
@@ -126,6 +138,8 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
         for (const edge of subgraph.edges) {
           const targetNode = subgraph.nodes.find((n) => n.id === edge.target);
           if (targetNode && edge.label !== 'CONTAINS') {
+            // Filter relationships to active projects
+            if (targetNode.filePath && !isInScope(targetNode.filePath, activePaths)) continue;
             relationships.push({
               name: targetNode.displayName,
               type: targetNode.label,
@@ -141,7 +155,6 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
 
     // Symbol context — uses CodeGraphService
     if (input.symbol) {
-      // Find the symbol and its file
       // Find symbol via direct Cypher lookup
       const fileFilter = input.file ? 'AND n.filePath CONTAINS $file' : '';
       const findResult = await codeGraphService.executeReadQuery(
@@ -175,11 +188,13 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
             { name: input.symbol },
           );
           for (const row of callersResult.results as Record<string, unknown>[]) {
+            const fp = (row.filePath as string) || '';
+            if (fp && !isInScope(fp, activePaths)) continue;
             relationships.push({
               name: row.name as string,
               type: (row.type as string) || 'Function',
               relationship: 'CALLED_BY',
-              filePath: (row.filePath as string) || '',
+              filePath: fp,
             });
           }
 
@@ -188,11 +203,13 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
             { name: input.symbol },
           );
           for (const row of callsResult.results as Record<string, unknown>[]) {
+            const fp = (row.filePath as string) || '';
+            if (fp && !isInScope(fp, activePaths)) continue;
             relationships.push({
               name: row.name as string,
               type: (row.type as string) || 'Function',
               relationship: 'CALLS',
-              filePath: (row.filePath as string) || '',
+              filePath: fp,
             });
           }
         } catch {

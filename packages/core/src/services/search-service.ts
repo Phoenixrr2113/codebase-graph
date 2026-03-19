@@ -4,6 +4,7 @@
  */
 
 import { getGraphClient } from '../graphClient';
+import { getActiveProjectPaths } from '../config';
 import { enrichedSearchV2 } from '../enrichedSearchV2';
 import type { EnrichedV2Result, EnrichedV2Options } from '../enrichedSearchV2';
 
@@ -13,6 +14,9 @@ import type { EnrichedV2Result, EnrichedV2Options } from '../enrichedSearchV2';
 
 /**
  * Primary search — vector retrieval + cross-encoder reranking.
+ *
+ * When no explicit scope is provided and the scope is not "all",
+ * auto-scopes to active projects from config.
  */
 export async function searchImpl(
   query: string,
@@ -23,7 +27,21 @@ export async function searchImpl(
   const opts: EnrichedV2Options = {
     limit: options?.limit ?? 20,
   };
-  if (options?.scope && options.scope !== 'all') opts.scope = options.scope;
+
+  if (options?.scope && options.scope !== 'all') {
+    // Explicit scope provided
+    opts.scope = options.scope;
+  } else if (!options?.scope) {
+    // No scope — auto-inject active projects
+    const activePaths = await getActiveProjectPaths();
+    if (activePaths.length === 1) {
+      opts.scope = activePaths[0]!;
+    } else if (activePaths.length > 1) {
+      opts.scopePaths = activePaths;
+    }
+    // activePaths.length === 0 → search all (no filtering)
+  }
+  // scope === 'all' → no filtering (intentional)
 
   return enrichedSearchV2(query, client, opts);
 }

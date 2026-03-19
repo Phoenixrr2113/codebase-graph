@@ -305,38 +305,62 @@ export async function loadGitignorePatterns(projectPath: string): Promise<string
 }
 
 // ============================================================================
-// Module-level singleton for easy import
+// Module-level multi-project watcher registry
 // ============================================================================
 
-let activeWatchService: WatchService | null = null;
+const activeWatchers = new Map<string, WatchService>();
 
 /**
- * Start watching a project
+ * Start watching a project. If a watcher already exists for this path, it is
+ * stopped first and replaced.
  */
 export const startWatching = traced('startWatching', async function startWatching(config: WatchServiceConfig): Promise<WatchService> {
-  // Stop any existing watcher
-  if (activeWatchService) {
-    await activeWatchService.stop();
+  const key = config.projectPath;
+
+  // Stop existing watcher for this project (if any)
+  const existing = activeWatchers.get(key);
+  if (existing) {
+    await existing.stop();
   }
 
-  activeWatchService = new WatchService(config);
-  await activeWatchService.start();
-  return activeWatchService;
+  const watcher = new WatchService(config);
+  await watcher.start();
+  activeWatchers.set(key, watcher);
+  return watcher;
 });
 
 /**
- * Stop the active watcher
+ * Stop watcher for a specific project path.
+ */
+export async function stopWatchingProject(projectPath: string): Promise<void> {
+  const watcher = activeWatchers.get(projectPath);
+  if (watcher) {
+    await watcher.stop();
+    activeWatchers.delete(projectPath);
+  }
+}
+
+/**
+ * Stop all active watchers.
  */
 export const stopWatching = traced('stopWatching', async function stopWatching(): Promise<void> {
-  if (activeWatchService) {
-    await activeWatchService.stop();
-    activeWatchService = null;
+  for (const [key, watcher] of activeWatchers) {
+    await watcher.stop();
+    activeWatchers.delete(key);
   }
 });
 
 /**
- * Get the active watch service (if any)
+ * Get all active watchers.
+ */
+export function getActiveWatchers(): Map<string, WatchService> {
+  return activeWatchers;
+}
+
+/**
+ * Get the active watch service (if any). Returns first watcher for backwards compat.
  */
 export function getActiveWatcher(): WatchService | null {
-  return activeWatchService;
+  const first = activeWatchers.values().next();
+  return first.done ? null : first.value;
 }

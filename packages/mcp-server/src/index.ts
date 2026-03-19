@@ -11,6 +11,16 @@
 // MCP stdio transport requires stdout to be clean JSON-RPC — force all logs to stderr
 process.env.CODEGRAPH_LOG_STDERR = 'true';
 
+// Node 20+ required (global fetch, crypto.randomUUID, etc.)
+const [major] = process.versions.node.split('.').map(Number);
+if (major != null && major < 20) {
+  process.stderr.write(
+    `[CodeGraph] Error: Node.js >= 20.0.0 required (found ${process.versions.node}). ` +
+    `Please update Node.js or configure Claude Desktop to use a newer version.\n`
+  );
+  process.exit(1);
+}
+
 import { createMCPServer } from './server';
 import {
   closeGraphClient,
@@ -38,45 +48,51 @@ async function startAutoReindex(): Promise<void> {
       return;
     }
 
+    let started = 0;
     for (const project of projects) {
       const projectPath = project.rootPath;
       if (!projectPath) continue;
 
       logger.info(`Starting file watcher for: ${projectPath}`);
 
-      await startWatching({
-        projectPath,
-        debounceMs: 1000, // Wait 1s after last save before reindexing
-        onFileChanged: async (filePath: string) => {
-          try {
-            const result = await indexSingleFile(filePath, projectPath);
-            if (result.success) {
-              logger.info(`Auto-indexed: ${filePath} (${result.entities} entities)`);
-            } else {
-              logger.warn(`Auto-index failed: ${filePath}`, result.error);
+      try {
+        await startWatching({
+          projectPath,
+          debounceMs: 1000,
+          onFileChanged: async (filePath: string) => {
+            try {
+              const result = await indexSingleFile(filePath, projectPath);
+              if (result.success) {
+                logger.info(`Auto-indexed: ${filePath} (${result.entities} entities)`);
+              } else {
+                logger.warn(`Auto-index failed: ${filePath}`, result.error);
+              }
+              return result;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              logger.error(`Auto-index error: ${filePath}`, msg);
+              return { success: false, error: msg };
             }
-            return result;
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            logger.error(`Auto-index error: ${filePath}`, msg);
-            return { success: false, error: msg };
-          }
-        },
-        onFileRemoved: async (filePath: string) => {
-          try {
-            await codeGraphService.removeFileAndCleanup(filePath);
-            logger.info(`Auto-removed from graph: ${filePath}`);
-            return { success: true };
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            logger.error(`Auto-remove error: ${filePath}`, msg);
-            return { success: false, error: msg };
-          }
-        },
-      });
+          },
+          onFileRemoved: async (filePath: string) => {
+            try {
+              await codeGraphService.removeFileAndCleanup(filePath);
+              logger.info(`Auto-removed from graph: ${filePath}`);
+              return { success: true };
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              logger.error(`Auto-remove error: ${filePath}`, msg);
+              return { success: false, error: msg };
+            }
+          },
+        });
+        started++;
+      } catch (err) {
+        logger.warn(`Failed to start watcher for ${projectPath}:`, err);
+      }
     }
 
-    logger.info(`File watcher active for ${projects.length} project(s)`);
+    logger.info(`File watcher active for ${started} project(s)`);
   } catch (err) {
     logger.warn('Auto-reindex setup failed (non-fatal):', err);
   }

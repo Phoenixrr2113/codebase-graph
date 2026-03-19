@@ -10,9 +10,12 @@ This package provides the NLP pipeline that powers CodeGraph's knowledge graph a
 
 ### LLM Integration
 
-- **`getLLMModel` / `getLLMComplexModel`** — Multi-provider LLM factory (OpenRouter, Ollama)
+- **`getLLMModel` / `getLLMComplexModel`** — Multi-provider LLM factory (Cerebras, GLM, OpenRouter, Ollama)
 - **`isLLMAvailable`** — Check if an LLM provider is configured
+- Two-tier model system: default (fast inference) and complex (multi-step reasoning)
 - Uses Vercel AI SDK v6 (`generateText`, `generateObject`) with Zod schemas
+- Cerebras and GLM use `@ai-sdk/openai-compatible`; OpenRouter uses `@openrouter/ai-sdk-provider`; Ollama uses `@ai-sdk/openai-compatible` pointed at localhost
+- Built-in retry with exponential backoff for transient errors (429, 5xx, network)
 
 ### Entity Extraction
 
@@ -23,16 +26,33 @@ This package provides the NLP pipeline that powers CodeGraph's knowledge graph a
 
 ### Embeddings
 
-Two-tier embedding strategy:
+Three-tier embedding strategy:
 
-| Tier | Model | Dimensions | Speed |
-|------|-------|-----------|-------|
-| **Local** | `nomic-ai/nomic-embed-text-v1.5` (ONNX) | 768 | ~10ms/batch |
-| **Cloud** | OpenRouter (configurable) | varies | network-dependent |
+| Tier | Provider | Model | Dimensions | Notes |
+|------|----------|-------|-----------|-------|
+| **Local** | `local` | `nomic-ai/nomic-embed-text-v1.5` (ONNX, q8) | 768 | ~10ms/batch, auto-downloads ~140MB on first use |
+| **Cloud** | `openrouter` | `openai/text-embedding-3-small` | 1536 | Via OpenRouter API |
+| **Voyage** | `voyage` | `voyage-code-3` | 1024 | Code-optimized, supports query/document input types |
 
 - **`generateEmbedding` / `generateEmbeddings`** — Generate embeddings with automatic tier selection
-- Local embeddings use `@huggingface/transformers` v3.8.1 with CPU inference
+- Local embeddings use `@huggingface/transformers` with CPU inference (ONNX runtime)
+- Cloud embeddings are cached (up to 1000 entries) to avoid redundant API calls
 - Embedding text builders for: Function, Class, Interface, Component, Type, Variable, File
+
+### Reranker
+
+Cross-encoder reranking for search results. Auto-detects provider from available API keys.
+
+| Provider | Default Model | API Key Env |
+|----------|---------------|-------------|
+| **Voyage** | `rerank-2` | `VOYAGE_API_KEY` |
+| **Jina** | `jina-reranker-v2-base-multilingual` | `JINA_API_KEY` |
+
+- **`rerank`** — Rerank documents by relevance to a query
+- **`isRerankAvailable`** — Check if a reranker provider is available
+- Graceful degradation: returns original order if no provider is configured or API fails
+- Provider/model overridable via `CODEGRAPH_RERANK_PROVIDER` and `CODEGRAPH_RERANK_MODEL` env vars
+- Disable entirely with `CODEGRAPH_RERANK=false`
 
 ### Bridge Linking
 
@@ -80,18 +100,52 @@ await linkEntitiesToCode(knowledgeOps, graphOps);
 
 ## Configuration
 
-Requires at least one LLM provider for entity extraction:
+### LLM (required for entity extraction)
 
 ```env
-# OpenRouter (recommended)
-OPENROUTER_API_KEY=your-key
+# Provider selection (default: cerebras if key present, else openrouter)
+LLM_PROVIDER=cerebras          # cerebras | glm | openrouter | ollama
+LLM_MODEL=                     # model name override (default: provider-specific)
 
-# Or Ollama (local)
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama3
+# Cerebras (default, fast inference)
+CEREBRAS_API_KEY=your-key
+CEREBRAS_MODEL=qwen-3-235b-a22b-instruct-2507  # default
+
+# GLM (deep reasoning)
+GLM_API_KEY=your-key
+GLM_MODEL=GLM-4.7              # default
+
+# OpenRouter
+OPENROUTER_API_KEY=your-key    # default model: google/gemini-2.5-flash
+
+# Ollama (local)
+OLLAMA_BASE_URL=http://localhost:11434/v1  # default
+
+# Complex model tier (defaults to same as LLM_PROVIDER)
+COMPLEX_LLM_PROVIDER=          # override provider for complex reasoning
+COMPLEX_LLM_MODEL=             # override model for complex tier
+```
+
+### Embeddings
+
+```env
+CODEGRAPH_EMBEDDING_PROVIDER=local   # local | openrouter | voyage (default: local)
+CODEGRAPH_EMBEDDING_MODEL=           # model override for cloud/voyage
+VOYAGE_API_KEY=your-key              # required for voyage provider
+OPENROUTER_API_KEY=your-key          # required for openrouter provider
 ```
 
 Embeddings work without any configuration (local model auto-downloads on first use).
+
+### Reranker
+
+```env
+CODEGRAPH_RERANK_PROVIDER=jina  # voyage | jina (default: auto-detect from API keys)
+CODEGRAPH_RERANK_MODEL=         # model override
+CODEGRAPH_RERANK=false          # set to disable reranking entirely
+VOYAGE_API_KEY=your-key         # for voyage reranker
+JINA_API_KEY=your-key           # for jina reranker
+```
 
 ## Tests
 

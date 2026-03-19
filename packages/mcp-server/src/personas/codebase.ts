@@ -19,7 +19,7 @@ export const indexPersonaDefinition: ToolDefinition = {
 
 **Actions:**
 - **configure**: View and manage active codebases. First-time setup.
-  Params: projectAction (list|set|add|remove|status), projects (string[])
+  Params: projectAction (list|set|add|remove|status), projects (string[], auto-detected if omitted)
 - **reindex**: Re-index codebase (incremental or full).
   Params: mode (incremental|full), scope (optional file/directory path)
 - **status**: Get current indexing status (file/function/class counts, last indexed).

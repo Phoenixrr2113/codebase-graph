@@ -47,7 +47,7 @@ Execute read-only Cypher queries against the graph.
 
 ## Raw Tools
 
-For power users, set `CODEGRAPH_RAW_TOOLS=1` to expose individual tools instead of persona tools:
+For power users, set `CODEGRAPH_RAW_TOOLS=true` to expose individual tools alongside persona tools:
 
 | Category | Tools |
 |----------|-------|
@@ -93,10 +93,10 @@ pnpm test --filter=@codegraph/mcp-server
 
 ### Test Suite
 
-- `consolidated.test.ts` — Core tools (ping, configure, search, context, query)
-- `legacy.test.ts` — Legacy tool tests (needs cleanup for removed tools)
-- `knowledge.test.ts` — Knowledge graph tools (store, recall, decay)
-- `e2e-knowledge.test.ts` — End-to-end knowledge pipeline
+- **14 tests** — `consolidated.test.ts` (persona tools: ping, configure, search, context, query)
+- **6 tests** — `legacy.test.ts` (raw tool handlers: ping, search, query, reindex)
+- **20 tests** — `knowledge.test.ts` (knowledge graph tools: store, recall, decay)
+- **9 tests** — `e2e-knowledge.test.ts` (end-to-end knowledge pipeline)
 
 All tests run against real FalkorDB database with extracted data (no mocks).
 
