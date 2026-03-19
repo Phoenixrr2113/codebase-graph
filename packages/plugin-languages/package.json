@@ -19,8 +19,12 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@codegraph/plugin-common": "workspace:*",
     "@codegraph/plugin-generic": "workspace:*",
-    "@codegraph/types": "workspace:*"
+    "@codegraph/types": "workspace:*",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-c-sharp": "^0.21.3",
+    "tree-sitter-php": "^0.23.11"
   },
   "optionalDependencies": {
     "tree-sitter-ruby": "^0.22.0",

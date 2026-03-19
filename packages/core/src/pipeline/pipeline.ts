@@ -19,11 +19,8 @@ import {
   typescriptPlugin,
 } from '@codegraph/plugin-typescript';
 import { resolvePythonImport, pythonPlugin } from '@codegraph/plugin-python';
-import { csharpPlugin } from '@codegraph/plugin-csharp';
-import { javaPlugin } from '@codegraph/plugin-java';
 import { goPlugin } from '@codegraph/plugin-go';
 import { rustPlugin } from '@codegraph/plugin-rust';
-import { phpPlugin } from '@codegraph/plugin-php';
 import { languageRegistry } from './registry';
 import { stat, readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
@@ -47,11 +44,8 @@ export function registerPlugins(): void {
   // Structurally compatible but nominally different — cast through unknown.
   languageRegistry.register(typescriptPlugin as unknown as LanguagePlugin);
   languageRegistry.register(pythonPlugin as unknown as LanguagePlugin);
-  languageRegistry.register(csharpPlugin as unknown as LanguagePlugin);
-  languageRegistry.register(javaPlugin as unknown as LanguagePlugin);
   languageRegistry.register(goPlugin as unknown as LanguagePlugin);
   languageRegistry.register(rustPlugin as unknown as LanguagePlugin);
-  languageRegistry.register(phpPlugin as unknown as LanguagePlugin);
 
   pluginsRegistered = true;
 }

@@ -15,7 +15,7 @@ import {
   calculateCognitive,
   calculateNestingDepth,
   classifyComplexity,
-} from '../analysis';
+} from '@codegraph/plugin-common';
 import type Parser from 'tree-sitter';
 
 // Initialize parser before tests

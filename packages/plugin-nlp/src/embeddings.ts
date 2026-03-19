@@ -307,6 +307,23 @@ function resolveVoyageModel(config?: EmbeddingConfig): string {
 }
 
 // ---------------------------------------------------------------------------
+// Embedding cache — caches query→vector for cloud providers to avoid
+// redundant API calls. Local embeddings are ~10ms so not worth caching.
+// ---------------------------------------------------------------------------
+
+const EMBEDDING_CACHE_MAX = 1000;
+const _embeddingCache = new Map<string, number[]>();
+
+function embeddingCacheKey(provider: string, model: string, inputType: string | undefined, text: string): string {
+  return `${provider}:${model}:${inputType ?? ''}:${text}`;
+}
+
+/** Clear the embedding cache (e.g., after model change). */
+export function clearEmbeddingCache(): void {
+  _embeddingCache.clear();
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -325,16 +342,27 @@ export async function generateEmbedding(
 
   if (provider === 'voyage') {
     const model = resolveVoyageModel(config);
+    const key = embeddingCacheKey(provider, model, config?.inputType, text);
+    const cached = _embeddingCache.get(key);
+    if (cached) return { embedding: cached, dimensions: cached.length, provider };
     const embedding = await embedVoyage(text, model, config?.inputType);
+    if (_embeddingCache.size >= EMBEDDING_CACHE_MAX) _embeddingCache.delete(_embeddingCache.keys().next().value!);
+    _embeddingCache.set(key, embedding);
     return { embedding, dimensions: embedding.length, provider: 'voyage' };
   }
 
   if (provider === 'openrouter') {
     const model = resolveCloudModel(config);
+    const key = embeddingCacheKey(provider, model, undefined, text);
+    const cached = _embeddingCache.get(key);
+    if (cached) return { embedding: cached, dimensions: cached.length, provider };
     const embedding = await embedCloud(text, model);
+    if (_embeddingCache.size >= EMBEDDING_CACHE_MAX) _embeddingCache.delete(_embeddingCache.keys().next().value!);
+    _embeddingCache.set(key, embedding);
     return { embedding, dimensions: embedding.length, provider: 'openrouter' };
   }
 
+  // Local embeddings are ~10ms — no cache needed
   const model = resolveLocalModel(config);
   const embedding = await embedLocal(text, model);
   return { embedding, dimensions: embedding.length, provider: 'local' };

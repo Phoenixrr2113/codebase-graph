@@ -11,9 +11,7 @@ import { PuzzleTabs } from "@/components/ui/puzzle-tabs"
 
 const stats = [
   { value: 42, suffix: "", label: "languages" },
-  { value: 5, suffix: "", label: "MCP tools" },
-  { value: 94, suffix: "%", label: "search accuracy" },
-  { value: 1000, suffix: "+", label: "tests" },
+  { value: 100, suffix: "%", label: "local & private" },
 ]
 
 export function HeroSection() {
@@ -29,7 +27,7 @@ export function HeroSection() {
   "mcpServers": {
     "codegraph": {
       "command": "./codegraph-mcp",
-      "env": { "CODEGRAPH_DRIVER": "falkordblite" }
+      "env": { "CODEGRAPH_DRIVER": "embedded" }
     }
   }
 }`}
@@ -47,7 +45,7 @@ export function HeroSection() {
   "mcpServers": {
     "codegraph": {
       "command": "codegraph-mcp",
-      "args": ["--driver", "falkordblite"]
+      "args": ["--driver", "embedded"]
     }
   }
 }`}

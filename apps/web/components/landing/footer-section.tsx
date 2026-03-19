@@ -4,14 +4,14 @@ import { motion } from "framer-motion"
 import { Github, MessageCircle, FileText, ShoppingBag, GitGraph } from "lucide-react"
 
 const techStats = [
-  "TypeScript 5.7",
-  "21-package monorepo",
-  "1,000+ tests",
-  "13 node types",
-  "21 edge types",
-  "6 search strategies",
-  "FalkorDB graph engine",
+  "42 languages",
+  "Local-first architecture",
+  "Knowledge graph powered",
+  "AI-powered reranking",
+  "Incremental indexing",
+  "Zero cloud required",
 ]
+
 
 const footerLinks = [
   { label: "Docs", href: "#", icon: FileText },
@@ -29,7 +29,7 @@ export function TechCredibilityBar() {
       transition={{ duration: 0.6 }}
       className="py-4 sm:py-6 px-4 sm:px-6 border-y border-border bg-muted/30 overflow-hidden"
     >
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         <div className="flex flex-wrap items-center justify-center gap-x-3 sm:gap-x-4 gap-y-1.5 sm:gap-y-2 text-[10px] sm:text-xs font-mono text-muted-foreground">
           {techStats.map((stat, i) => (
             <span key={stat} className="flex items-center gap-1.5 sm:gap-2">
@@ -46,7 +46,7 @@ export function TechCredibilityBar() {
 export function Footer() {
   return (
     <footer className="py-8 sm:py-12 px-4 sm:px-6">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6">
           {/* Logo */}
           <motion.div 

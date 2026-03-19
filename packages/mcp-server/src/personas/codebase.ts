@@ -1,8 +1,7 @@
 /**
  * Index Persona — Project configuration, indexing, status, and source access
  *
- * Consolidates: configure_projects, trigger_reindex, get_index_status,
- *               get_stats, get_source, ping
+ * Consolidates: configure_projects, trigger_reindex, get_stats, get_source, ping
  */
 
 import type { ToolDefinition } from '../tools/router';
@@ -139,7 +138,7 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
       } catch (error) {
         result = { error: error instanceof Error ? error.message : 'Unknown error getting status' };
       }
-      toolUsed = 'get_index_status';
+      toolUsed = 'get_status';
       break;
     }
 
@@ -166,7 +165,7 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
       const pathCheck = await validateFilePath(args.path as string);
       if (!pathCheck.valid) return { error: pathCheck.error };
       try {
-        const fileResult = await readSourceFile(args.path as string, {
+        const fileResult = await readSourceFile(pathCheck.resolved, {
           startLine: (args.startLine as number) || undefined,
           endLine: (args.endLine as number) || undefined,
         });

@@ -20,8 +20,7 @@
   "dependencies": {
     "@codegraph/logger": "workspace:*",
     "@codegraph/types": "workspace:*",
-    "falkordb": "^6.4.1",
-    "kuzu": "^0.11.3"
+    "falkordb": "^6.4.1"
   },
   "optionalDependencies": {
     "falkordblite": "^0.2.0"

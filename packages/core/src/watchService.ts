@@ -10,6 +10,8 @@
 
 import { watch, type FSWatcher } from 'chokidar';
 import fastGlob from 'fast-glob';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { createLogger, traced } from '@codegraph/logger';
 import { getSupportedExtensions, registerPlugins, DEFAULT_IGNORE_PATTERNS } from './pipeline';
@@ -86,13 +88,17 @@ export class WatchService extends EventEmitter {
     // Ensure plugins are registered before querying supported extensions
     registerPlugins();
 
+    // Load .gitignore patterns and merge with built-in ignores
+    const gitignorePatterns = await loadGitignorePatterns(this.projectPath);
+    const allIgnore = [...this.ignorePatterns, ...gitignorePatterns];
+
     // Discover initial files using fast-glob
     const supportedExts = getSupportedExtensions();
     const patterns = supportedExts.map(ext => `**/*${ext}`);
     const files = await fastGlob(patterns, {
       cwd: this.projectPath,
       absolute: true,
-      ignore: this.ignorePatterns,
+      ignore: allIgnore,
       onlyFiles: true,
     });
 
@@ -259,6 +265,42 @@ export class WatchService extends EventEmitter {
       return path.includes(rest.replace(/\*/g, ''));
     }
     return false;
+  }
+}
+
+// ============================================================================
+// Gitignore Support
+// ============================================================================
+
+/**
+ * Load .gitignore from a project root and convert to glob ignore patterns.
+ * Returns an empty array if no .gitignore exists.
+ */
+export async function loadGitignorePatterns(projectPath: string): Promise<string[]> {
+  try {
+    const raw = await readFile(join(projectPath, '.gitignore'), 'utf-8');
+    return raw
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.startsWith('#'))
+      .map(pattern => {
+        // Convert gitignore patterns to glob patterns for fast-glob
+        // "dir/" → "**/dir/**", "dir" → "**/dir/**", "*.log" → "**/*.log"
+        if (pattern.startsWith('/')) {
+          // Anchored to repo root — strip leading slash
+          const p = pattern.slice(1);
+          return p.endsWith('/') ? `${p}**` : p;
+        }
+        if (pattern.endsWith('/')) {
+          return `**/${pattern}**`;
+        }
+        // Already a glob or filename — prefix with **/ if not already
+        if (pattern.startsWith('**/')) return pattern;
+        if (pattern.includes('/')) return pattern;
+        return `**/${pattern}`;
+      });
+  } catch {
+    return [];
   }
 }
 

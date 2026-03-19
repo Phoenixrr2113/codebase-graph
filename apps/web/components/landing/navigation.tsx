@@ -46,7 +46,7 @@ export function Navigation() {
         isScrolled ? "bg-background/80 backdrop-blur-lg border-b border-border" : "bg-transparent"
       )}
     >
-      <nav className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+      <nav className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
         {/* Logo */}
         <motion.a 
           href="#" 

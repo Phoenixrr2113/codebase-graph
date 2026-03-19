@@ -44,12 +44,8 @@ export type { EmbeddableNodeType } from './embed-nodes';
 export { enrichedSearchV2 } from './enrichedSearchV2';
 export type { EnrichedV2Result, EnrichedV2Hit, EnrichedV2Options } from './enrichedSearchV2';
 
-// Search types (strategy registry removed — enrichedSearchV2 is the only search)
-export type {
-  SearchType,
-  SearchResponse,
-  SearchResultItem,
-} from './search';
+// Search types (only ENRICHED_V2 exists)
+export type { SearchType } from './search';
 
 // Git history sync
 export { syncGitHistory, getRepoInfo } from './gitSync';
@@ -116,7 +112,7 @@ export type {
 } from './watchService';
 
 
-// Service layer (Phase 3A)
+// Service layer
 export { codeGraphService, warmupSearch } from './service';
 export type { CodeGraphService } from './service';
 export type {

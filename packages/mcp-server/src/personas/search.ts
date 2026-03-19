@@ -39,7 +39,7 @@ export const searchPersonaDefinition: ToolDefinition = {
 - Find a function: { action: "find", query: "parseProject" }
 - Explore a topic: { action: "find", query: "error handling" }
 - Get file context: { action: "context", file: "src/service.ts" }
-- Get symbol context: { action: "context", symbol: "hybridSearch" }`,
+- Get symbol context: { action: "context", symbol: "enrichedSearchV2" }`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -117,7 +117,7 @@ export async function handleSearch(args: Record<string, unknown>): Promise<unkno
       if (input.file) {
         const pathCheck = await validateFilePath(input.file);
         if (!pathCheck.valid) return { error: pathCheck.error };
-        contextInput.file = input.file;
+        contextInput.file = pathCheck.resolved;
       }
       if (input.symbol) contextInput.symbol = input.symbol;
       result = await getContext(contextInput);

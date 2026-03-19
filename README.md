@@ -7,7 +7,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)
 ![Languages](https://img.shields.io/badge/Languages-42-green)
 ![MCP](https://img.shields.io/badge/MCP-4%20Persona%20Tools-green)
-![Tests](https://img.shields.io/badge/Tests-1320%20Passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ## The Problem
@@ -29,9 +29,9 @@ Your Codebase  →  Tree-sitter Parser  →  FalkorDB Graph  →  Insights
 
   42 languages        Functions, Classes, Components, Interfaces, Types
   74 file extensions  CALLS, IMPORTS, EXTENDS, IMPLEMENTS, RENDERS edges
-                      Complexity metrics, security vulnerabilities
+                      Complexity metrics per function
                       Knowledge graph with temporal memory
-                      Hybrid search (vector + text + graph traversal)
+                      Vector search + cross-encoder reranking
                       Git history integration
 ```
 
@@ -86,41 +86,60 @@ Open [http://localhost:3000](http://localhost:3000), add a project, and start ex
 
 ## Usage with AI Assistants (MCP)
 
-CodeGraph provides 4 persona-based MCP tools that consolidate underlying capabilities into a simple interface for AI assistants:
+CodeGraph provides 4 persona-based MCP tools for AI assistants.
+
+### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
-  "codegraph": {
-    "command": "node",
-    "args": ["./packages/mcp-server/dist/index.js"]
+  "mcpServers": {
+    "codegraph": {
+      "command": "node",
+      "args": ["/path/to/codebase-graph/packages/mcp-server/dist/index.js"],
+      "env": {
+        "VOYAGE_API_KEY": "your-key",
+        "JINA_API_KEY": "your-key"
+      }
+    }
   }
 }
+```
+
+### Claude Code
+
+Add to `.claude/settings.json` or run:
+
+```bash
+claude mcp add codegraph node /path/to/codebase-graph/packages/mcp-server/dist/index.js
 ```
 
 ### Persona Tools
 
 | Tool | What it does |
 |------|-------------|
-| **search** | Find code, symbols, ask questions — routes to the best search strategy automatically |
+| **search** | Find code and symbols by name or meaning, get context for files and symbols |
 | **knowledge** | Store and recall domain knowledge — entities, relationships, facts, conversations |
-| **codebase** | Index status, project structure, source code, file trees |
+| **codebase** | Configure projects, reindex, check status/stats, read source code |
 | **query** | Execute Cypher queries against the graph (read-only, validated) |
 
 Then ask your AI assistant:
 > "How does the auth flow work?"
 
-The `search` tool combines vector similarity, text matching, and graph traversal to find relevant code and synthesize an answer.
+The `search` tool uses vector similarity (Voyage code-3) and cross-encoder reranking (Jina reranker-v3) to find relevant code.
 
 Raw tools are available via `CODEGRAPH_RAW_TOOLS=1` for power users.
 
-## Search Strategies
+## Search
 
-CodeGraph supports 2 search strategies:
+CodeGraph uses a single high-quality search pipeline:
 
-| Strategy | Description |
-|----------|-------------|
-| `HYBRID` | Combined vector + text + graph traversal with RRF fusion |
-| `ENRICHED_V2` | Vector retrieval + cross-encoder reranking (primary) |
+- **Vector retrieval**: Voyage code-3 embeddings → FalkorDB HNSW index
+- **Cross-encoder reranking**: Jina reranker-v3 for precision ranking
+- **Graph enrichment**: Callers, callees, importers added to results
+
+Benchmark: MRR 0.944, Success@1 90%, Success@5 100%, ~400ms latency.
 
 ## What Gets Extracted
 
@@ -148,7 +167,7 @@ Tier 2 languages use the generic plugin system with declarative configs. They ex
 - **Complexity** — Cyclomatic, cognitive, nesting depth
 - **Git History** — Commits linked to code changes
 - **Knowledge Graph** — Entity/relationship extraction with temporal memory
-- **Embeddings** — Local (nomic-embed-text-v1.5, 768-dim) + cloud (OpenRouter)
+- **Embeddings** — Local (nomic-embed-text-v1.5, 768-dim) + cloud (Voyage code-3)
 
 ## Architecture
 
@@ -183,7 +202,7 @@ Tier 2 languages use the generic plugin system with declarative configs. They ex
 │                    NLP Pipeline                              │
 │   Entity Extraction  •  Embeddings  •  Bridge Linking       │
 │   Conversation Ingestion  •  Entity Resolution              │
-│   Local: nomic-embed-text-v1.5  •  Cloud: OpenRouter        │
+│   Local: nomic-embed-text-v1.5  •  Cloud: Voyage code-3     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -191,10 +210,10 @@ Tier 2 languages use the generic plugin system with declarative configs. They ex
 
 | Package | Description |
 |---------|-------------|
-| [`@codegraph/core`](packages/core/) | Main orchestrator — parsing, analysis, search, embedding, service layer |
+| [`@codegraph/core`](packages/core/) | Main orchestrator — parsing, indexing, search, embedding, service layer |
 | [`@codegraph/graph`](packages/graph/) | Driver-agnostic graph database client (FalkorDB, FalkorDBLite) |
 | [`@codegraph/plugin-nlp`](packages/plugin-nlp/) | NLP extraction, embeddings, knowledge graph operations |
-| [`@codegraph/mcp-server`](packages/mcp-server/) | MCP server — 5 persona tools for AI assistants |
+| [`@codegraph/mcp-server`](packages/mcp-server/) | MCP server — 4 persona tools for AI assistants |
 | [`@codegraph/api`](packages/api/) | REST API + WebSocket server (Hono) |
 | [`@codegraph/cli`](packages/cli/) | CLI for extracting and querying code graphs |
 | [`@codegraph/web`](packages/web/) | Next.js 16 frontend with interactive graph visualization |
@@ -202,14 +221,11 @@ Tier 2 languages use the generic plugin system with declarative configs. They ex
 | [`@codegraph/types`](packages/types/) | Shared TypeScript types |
 | [`@codegraph/plugin-generic`](packages/plugin-generic/) | Generic language plugin factory (`createLanguagePlugin()`) |
 | [`@codegraph/plugin-common`](packages/plugin-common/) | Shared plugin utilities (language registry, extension maps) |
-| [`@codegraph/plugin-languages`](packages/plugin-languages/) | 34 tier-2 language configs with lazy grammar loading |
+| [`@codegraph/plugin-languages`](packages/plugin-languages/) | 37 language configs (Java, C#, PHP + 34 tier-2) with lazy grammar loading |
 | `@codegraph/plugin-typescript` | TypeScript/JavaScript language extractor |
 | `@codegraph/plugin-python` | Python language extractor |
-| `@codegraph/plugin-csharp` | C# language extractor |
 | `@codegraph/plugin-go` | Go language extractor |
-| `@codegraph/plugin-java` | Java language extractor |
 | `@codegraph/plugin-rust` | Rust language extractor |
-| `@codegraph/plugin-php` | PHP language extractor |
 | `@codegraph/plugin-markdown` | Markdown document extractor |
 
 ## Configuration
@@ -250,7 +266,7 @@ OPENROUTER_API_KEY=your-key    # OpenRouter (recommended)
 CEREBRAS_API_KEY=your-key      # Cerebras (fastest, used for search routing)
 
 # MCP persona mode (default) vs raw tools
-CODEGRAPH_RAW_TOOLS=1          # Set to expose 28 individual tools instead of 5 personas
+CODEGRAPH_RAW_TOOLS=1          # Set to expose individual tools instead of 4 personas
 ```
 
 ### Auto-Detection Priority
@@ -273,7 +289,7 @@ Explicit arguments > .codegraph/config.json > Environment variables > Default (f
 pnpm install        # Install dependencies
 pnpm build          # Build all 21 packages
 pnpm dev            # Start dev servers (API:3001, Web:3000)
-pnpm test           # Run all 1,320 tests
+pnpm test           # Run all tests
 pnpm docker:db      # Start FalkorDB via Docker
 pnpm docker:reset   # Reset FalkorDB (wipe data)
 ```
@@ -284,10 +300,10 @@ pnpm docker:reset   # Reset FalkorDB (wipe data)
 - **API**: Hono, WebSocket, Node.js
 - **Parsing**: Tree-sitter — 42 languages (8 tier-1 + 34 tier-2)
 - **Graph DB**: FalkorDB (Docker) or FalkorDBLite (embedded)
-- **Embeddings**: Local (nomic-embed-text-v1.5) + Cloud (OpenRouter)
+- **Embeddings**: Local (nomic-embed-text-v1.5) + Cloud (Voyage code-3)
 - **LLM**: Vercel AI SDK v6, multi-provider (OpenRouter, Cerebras, Ollama)
 - **Build**: Turborepo, pnpm workspaces, ESM
-- **Testing**: Vitest (62 test files, 1,320 tests passing)
+- **Testing**: Vitest (36 test files)
 
 ## Roadmap
 

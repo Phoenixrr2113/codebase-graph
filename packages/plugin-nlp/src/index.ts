@@ -59,6 +59,7 @@ export type {
 
 // Embedding generation (two-tier: local + cloud)
 export {
+  clearEmbeddingCache,
   generateEmbedding,
   generateEmbeddings,
   getEmbeddingDimensions,

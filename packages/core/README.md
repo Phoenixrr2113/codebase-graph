@@ -10,36 +10,44 @@ The core package is the central hub of CodeGraph. It re-exports key interfaces f
 
 ### Service Layer
 
-- **`CodeGraphService`** — Main service facade for parsing, indexing, and querying codebases
-- **`KnowledgeService`** — Knowledge graph facade for entity/relationship/fact operations
-
-### Parsing Pipeline
-
-- **`PipelineRunner`** — Orchestrates multi-language parsing with Task wrapper and provenance tracking
-- **`initParser` / `parseCode` / `parseFile`** — Tree-sitter WASM parser initialization and code parsing
-- **`SymbolRegistry`** — Two-pass resolution: collect symbols, then resolve cross-file relationships
+- **`codeGraphService`** — Main service facade for search, graph traversal, entity access, project management
+  - `search()` — Vector retrieval + cross-encoder reranking (enrichedSearchV2)
+  - `getGraphStats()`, `getFullGraph()`, `getFileSubgraph()`, `getDependencyTree()`
+  - `buildFileTree()`, `getIndexSummary()`, `getProjects()`, `deleteProject()`
+  - `executeReadQuery()`, `getEntityWithConnections()`, `getNodesPaginated()`, `getNeighbors()`
+- **`knowledgeService`** — Knowledge graph facade for entity/relationship/fact operations
+  - `storeEntity()`, `storeRelationship()`, `storeFact()`, `recall()`
+  - `getMemoryStats()`, `decayRelevance()`, `pruneStaleEntities()`
 
 ### Search
 
-- **`hybridSearch`** — Combined vector + text + graph traversal search
-- **`SearchRegistry`** — Strategy pattern for pluggable search strategies
-- **Strategies:**
-  - `HybridSearchStrategy` — Vector + text + graph
-  - `EnrichedV2Strategy` — Vector retrieval + cross-encoder reranking
+- **`enrichedSearchV2`** — Vector retrieval + cross-encoder reranking (the only active search strategy)
+  - Pipeline: query → embed (Voyage code-3) → vector search → reranker (Jina reranker-v3) → graph enrichment
 
-### Complexity
+### Indexing
 
-- **Complexity** — Cyclomatic, cognitive, nesting depth metrics
+- **`indexProject`** — Full project indexing with incremental support, parallel processing, embeddings
+- **`indexSingleFile`** — Index a single file
+- **`isProjectIndexed`** — Check project indexing status
 
 ### Embedding
 
-- **`embedParsedEntities`** — Embed newly parsed code entities
-- **`embedAllNodes`** — Bulk embed all nodes in the graph
+- **`embedParsedEntities`** — Embed newly parsed code entities during indexing
+- **`embedAllParsedEntities`** — Batch embed multiple parsed results
+- **`embedAllNodes`** — Retroactive bulk embedding for existing graph nodes
+
+### Parsing Pipeline
+
+- **`initParser` / `parseCode` / `parseFile` / `disposeParser`** — Tree-sitter parser lifecycle
+- **`getLanguageForExtension`** — Resolve language plugin by file extension
+- **`registerPlugins` / `registerTier2Languages`** — Register language plugins
+- **`extractEntitiesForFile` / `buildParsedFileEntities`** — Entity extraction pipeline
 
 ### Configuration
 
-- **`loadConfig` / `saveConfig`** — Read/write `.codegraph/config.json`
+- **`loadConfig` / `saveConfig`** — Read/write `~/.codegraph/mcp-context.json`
 - **`getActiveProjectPaths`** — Manage which projects are indexed
+- **`needsSetup` / `isStale`** — Setup and staleness detection
 
 ### Git Integration
 
@@ -48,17 +56,18 @@ The core package is the central hub of CodeGraph. It re-exports key interfaces f
 
 ### Utilities
 
-- **`WatchService`** — File system watcher for live updates
+- **`WatchService`** — File system watcher for live incremental updates
+- **`readSourceFile`** — Read file content with line slicing and path traversal protection
 
 ## Usage
 
 ```typescript
-import { codeGraphService, knowledgeService } from '@codegraph/core';
+import { codeGraphService, knowledgeService, indexProject } from '@codegraph/core';
 
 // Index a project
-await codeGraphService.extract({ paths: ['/path/to/project'] });
+await indexProject('/path/to/project', client);
 
-// Search
+// Search (returns { hits, meta })
 const results = await codeGraphService.search('authentication');
 
 // Knowledge operations
@@ -68,13 +77,10 @@ const recall = await knowledgeService.recall('auth service');
 
 ## Tests
 
-21 test files covering:
-- Service layer (indexing, search)
-- Pipeline orchestration and runner
-- Complexity metrics
-- Search registry and strategy routing
-- Hybrid search (FalkorDB integration)
-- E2E smoke tests and multi-language indexing
+3 test files:
+- `config.test.ts` — Config load/save, setup detection, staleness, atomic writes
+- `service.test.ts` — Service layer tests (needs update to match current API)
+- `complexity.test.ts` — Complexity metrics (needs import path fix)
 
 ```bash
 cd packages/core

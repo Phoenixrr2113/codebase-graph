@@ -67,6 +67,9 @@ interface RotatingTextProps {
 export function RotatingText({ words, interval = 3000, className }: RotatingTextProps) {
   const [index, setIndex] = useState(0)
 
+  // Find the longest word to use as the invisible width placeholder
+  const longestWord = words.reduce((a, b) => a.length > b.length ? a : b, "")
+
   useEffect(() => {
     const timer = setInterval(() => {
       setIndex((prev) => (prev + 1) % words.length)
@@ -76,6 +79,11 @@ export function RotatingText({ words, interval = 3000, className }: RotatingText
 
   return (
     <span className={cn("inline-block relative", className)}>
+      {/* Invisible longest word to reserve width */}
+      <span className="invisible" aria-hidden="true">
+        {longestWord}
+      </span>
+      {/* Visible rotating word positioned on top */}
       <AnimatePresence mode="wait">
         <motion.span
           key={index}
@@ -83,7 +91,7 @@ export function RotatingText({ words, interval = 3000, className }: RotatingText
           animate={{ opacity: 1, y: 0, rotateX: 0 }}
           exit={{ opacity: 0, y: -20, rotateX: 90 }}
           transition={{ duration: 0.3 }}
-          className="inline-block"
+          className="absolute left-0 top-0"
         >
           {words[index]}
         </motion.span>

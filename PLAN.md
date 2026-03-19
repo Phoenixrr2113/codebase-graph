@@ -80,8 +80,8 @@ Audited all packages with 5 parallel agents. Results:
 7. **Docstring in embedding text** — include docstring when generating embeddings at index time (helps semantic gap queries)
 
 ### Performance:
-8. **Cache layer** — in-memory Map<queryHash, result>, invalidate on reindex or TTL (5 min), skip embedding + reranker API calls on repeat queries
-9. **Cold start warmup** — first query is ~600ms (embedding model init). Pre-warm on MCP server start.
+8. **Embedding cache** — ✅ DONE. LRU Map<cacheKey, vector> in embeddings.ts (cloud providers only, local ~10ms not worth caching). Research showed full result caches have near-zero hit rate for developer tools — embedding-only cache is the industry standard.
+9. **Cold start warmup** — ✅ DONE. Pre-warm on MCP server start.
 
 ### Additional graph signals (one at a time, benchmark each):
 10. Test coverage (does a test file reference this?)
@@ -152,18 +152,38 @@ Build a code search benchmark similar to Cognee's evaluation methodology:
 
 ---
 
-## Phase 6: Generic Plugin Migration
+## Phase 6: Generic Plugin Migration — DONE ✅
 
-Migrate 7 dedicated language plugins → generic configs + overrides.
-Delete 7 plugin packages (~5,400 lines → ~1,200 lines of configs).
+### Tier 1: Java, C#, PHP → plugin-languages configs ✅
+Moved 3 dedicated plugin packages into `plugin-languages/src/configs/` as config files with override functions.
+- Deleted: `packages/plugin-java/`, `packages/plugin-csharp/`, `packages/plugin-php/` (3 packages)
+- Added: `configs/java.ts`, `configs/csharp.ts`, `configs/php.ts` in plugin-languages
+- Grammar loader updated to support `grammarTransform` (PHP exports `{ php, php_only }`)
+- Tree-sitter grammars moved from individual packages to plugin-languages dependencies
+- Pipeline.ts updated: Java/C#/PHP now register via `registerTier2Languages()`
+
+### Tier 2+3: Python, Rust, Go, TypeScript — kept as dedicated packages ✅
+Research showed these cannot be consolidated:
+- **Python**: `resolvePythonImport()` hard-coded in pipeline.ts, 4 custom extractors
+- **Rust**: 811 lines of impl-block traversal, 4 import patterns, trait bounds
+- **Go**: method receivers, pointer unwrapping, struct/interface disambiguation
+- **TypeScript**: 2,400 lines, JSX/React extractors, single-pass optimization, import resolution
 
 ---
 
-## Phase 7: Packaging
+## Phase 7: Packaging — DONE ✅
 
-- Bun binary compilation (`bun build --compile`)
-- Polar.sh license integration
-- npm distribution
+### npm private package setup ✅
+- Added `"private": true` and `"bin"` config to mcp-server package.json
+- Added `#!/usr/bin/env node` shebang to entry point
+- Updated README with Claude Desktop and Claude Code setup instructions
+
+### Distribution strategy (research-informed):
+1. **npm + npx** (primary) — standard MCP distribution, handles native deps naturally
+2. **Desktop Extension (.mcpb)** — future: one-click install for Claude Desktop
+3. **Docker image** — future: sidesteps all native dependency issues
+4. **Bun binary** — deferred: tree-sitter has open Bun issues, WASM modules don't bundle
+5. **Polar.sh** — deferred: not needed until commercial tier
 
 ---
 

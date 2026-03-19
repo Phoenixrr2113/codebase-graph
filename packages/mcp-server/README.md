@@ -8,15 +8,12 @@ By default, the server exposes 4 high-level persona tools. Each tool accepts an 
 
 ### search
 
-Find code, symbols, and answers across the codebase.
+Find code, symbols, and understand structure across the codebase.
 
 | Action | Description |
 |--------|-------------|
-| `find` | Find files, functions, classes by name or keyword |
+| `find` | Search for files, functions, classes by name or meaning (vector + reranking) |
 | `context` | Get detailed context for a file or symbol with relationships |
-| `ask` | Ask a natural language question — auto-routes to best search strategy |
-| `cypher` | Translate natural language to Cypher and execute |
-| `explain` | Get code with context: dependencies, tests, complexity metrics |
 
 ### knowledge
 
@@ -24,14 +21,8 @@ Store and recall domain knowledge with temporal memory.
 
 | Action | Description |
 |--------|-------------|
-| `store_entity` | Store an entity (deduplicates by text+type) |
-| `store_relationship` | Store a relationship between entities |
-| `store_fact` | Extract entities/relationships from natural language via LLM |
-| `ingest` | Ingest a multi-turn conversation into the knowledge graph |
-| `query` | Search knowledge graph by type, text, or semantic similarity |
-| `recall` | Recall everything known about an entity |
-| `maintain` | Run temporal decay and pruning |
-| `stats` | Knowledge graph health metrics |
+| `store` | Auto-detects type and stores entity, relationship, fact, or conversation |
+| `recall` | Recall everything known about a topic |
 
 ### codebase
 
@@ -39,13 +30,12 @@ Manage and inspect the indexed codebase.
 
 | Action | Description |
 |--------|-------------|
-| `status` | Get current index status (file counts, last update) |
-| `structure` | Get codebase file tree and structure |
-| `source` | Read source code from a file with optional line range |
+| `configure` | View and manage active codebases (list, set, add, remove, status) |
 | `reindex` | Trigger incremental or full reindex |
-| `stats` | Graph-wide statistics (node/edge counts, most connected entities) |
-| `map` | Get a ranked map of important symbols for LLM context |
-| `configure` | View and manage which codebases are in context |
+| `status` | Get current index status (node/edge counts by type) |
+| `stats` | Get detailed graph statistics (counts, largest files, most connected) |
+| `source` | Read source code from a file with optional line range |
+| `ping` | Test connectivity |
 
 ### query
 
@@ -53,7 +43,7 @@ Execute read-only Cypher queries against the graph.
 
 | Action | Description |
 |--------|-------------|
-| `cypher` | Execute a validated, read-only Cypher query |
+| `cypher` | Execute a validated, read-only Cypher query with params |
 
 ## Raw Tools
 
@@ -62,9 +52,9 @@ For power users, set `CODEGRAPH_RAW_TOOLS=1` to expose individual tools instead 
 | Category | Tools |
 |----------|-------|
 | Core | `ping`, `configure_projects` |
-| Index | `get_index_status`, `trigger_reindex`, `get_stats` |
+| Index | `trigger_reindex`, `get_stats` |
 | Search | `search_code`, `get_context`, `query_graph` |
-| Context | `get_repo_map`, `get_source` |
+| Source | `get_source` |
 | Knowledge | `store_entity`, `store_relationship`, `store_fact`, `ingest_conversation`, `query_knowledge`, `recall`, `decay_and_prune`, `get_knowledge_stats` |
 
 ## MCP Configuration
@@ -81,15 +71,6 @@ Add to your MCP client config (Claude Desktop, Cursor, etc.):
 ```
 
 The server auto-detects the database backend from `.codegraph/config.json` or environment variables. See the [root README](../../README.md) for configuration details.
-
-## Search Strategies
-
-The search persona's `ask` action supports multiple search strategies:
-
-| Strategy | Description |
-|----------|-------------|
-| `HYBRID` | Combined vector + text + graph traversal with RRF fusion |
-| `ENRICHED_V2` | Vector retrieval + cross-encoder reranking (primary) |
 
 ## Input Validation
 
@@ -112,13 +93,12 @@ pnpm test --filter=@codegraph/mcp-server
 
 ### Test Suite
 
-- **5 test files** covering all tool categories
 - `consolidated.test.ts` — Core tools (ping, configure, search, context, query)
-- `legacy.test.ts` — Analysis and context tools
+- `legacy.test.ts` — Legacy tool tests (needs cleanup for removed tools)
 - `knowledge.test.ts` — Knowledge graph tools (store, recall, decay)
 - `e2e-knowledge.test.ts` — End-to-end knowledge pipeline
-- `search-strategies.test.ts` — Search strategy routing and execution
-- All tests run against real FalkorDB database with extracted data (no mocks)
+
+All tests run against real FalkorDB database with extracted data (no mocks).
 
 ## Architecture
 

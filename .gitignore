@@ -48,5 +48,11 @@ codeGraph-v2-plans.yml
 codeGraph-v3-plans.yml
 CONSOLIDATION-PLAN.md
 .claude/plan.md
+.claude/settings.local.json
 codeGraph-v4-plans.yml
 codeGraph-v5-plans.yml
+
+scripts/benchmark-coir/
+
+# MCPB build artifacts
+*.mcpb

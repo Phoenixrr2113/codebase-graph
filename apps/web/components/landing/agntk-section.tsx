@@ -42,7 +42,7 @@ export function AgntkSection() {
 
   return (
     <section id="agntk" className="py-16 sm:py-20 md:py-24 px-4 sm:px-6 bg-secondary/30 border-y border-border">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}

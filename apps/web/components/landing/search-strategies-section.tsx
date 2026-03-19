@@ -8,10 +8,10 @@ import { cn } from "@/lib/utils"
 const strategies = [
   {
     icon: Zap,
-    name: "Hybrid Search",
-    tagline: "Best all-rounder",
-    description: "Combines vector embeddings, text matching, and graph signals for accurate results. Works instantly, no API keys needed.",
-    useCase: "Finding functions, classes, or code patterns",
+    name: "Local Mode",
+    tagline: "Zero config, instant results",
+    description: "Uses local embeddings with text matching and graph signals. No API keys needed — works out of the box.",
+    useCase: "Quick search without external dependencies",
     demo: {
       query: "find all payment handlers",
       result: "15 matches across 4 files",
@@ -19,9 +19,9 @@ const strategies = [
   },
   {
     icon: Sparkles,
-    name: "Enriched Search",
+    name: "Cloud-Enhanced",
     tagline: "Maximum precision",
-    description: "Voyage code-3 embeddings with Jina cross-encoder reranking. Returns enriched results with complexity, callers, and relationship data. MRR 0.944, ~400ms.",
+    description: "Cloud embeddings with AI-powered reranking. Returns enriched results with complexity, callers, and relationship data. Industry-leading accuracy.",
     useCase: "High-accuracy search with rich context",
     demo: {
       query: "error handling patterns",
@@ -46,7 +46,7 @@ export function SearchStrategiesSection() {
 
   return (
     <section className="py-16 sm:py-20 md:py-24 px-4 sm:px-6 bg-muted/30">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -55,10 +55,10 @@ export function SearchStrategiesSection() {
           className="text-center mb-10 sm:mb-12"
         >
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3 sm:mb-4">
-            Two search strategies, one goal: precision
+            One search pipeline, two modes
           </h2>
           <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto">
-            Fast hybrid search for everyday use, or enriched search with cross-encoder reranking for maximum accuracy.
+            Works instantly with local embeddings. Add your cloud API keys to unlock AI-powered reranking for maximum accuracy.
           </p>
         </motion.div>
 
@@ -156,7 +156,7 @@ export function SearchStrategiesSection() {
           transition={{ duration: 0.6, delay: 0.3 }}
           className="mt-6 sm:mt-8 text-center text-xs sm:text-sm text-muted-foreground"
         >
-          Hybrid search works instantly with no setup. Enriched search activates when you add your Voyage and Jina API keys.
+          Local mode works instantly with no setup. Cloud-enhanced mode activates when you add your API keys.
         </motion.p>
       </div>
     </section>

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Search, GitBranch, Brain, FolderTree, Terminal, ChevronRight } from "lucide-react"
+import { Search, Brain, FolderTree, Terminal, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const tools = [
@@ -10,12 +10,12 @@ const tools = [
     icon: Search,
     name: "Search",
     headline: "Find anything instantly",
-    description: "Hybrid vector + text search with cross-encoder reranking. Enriched results include complexity, callers, and relationship data.",
+    description: "Intelligent search with AI-powered reranking. Enriched results include complexity, callers, callees, and relationship data. Also provides deep context for any file or symbol.",
     capabilities: [
-      "Hybrid vector + text search",
-      "Cross-encoder reranking",
+      "AI-powered reranking",
       "Enriched result metadata",
-      "Code pattern matching",
+      "Caller & callee graphs",
+      "Symbol context & relationships",
     ],
     example: {
       query: "Find all payment-related functions",
@@ -28,28 +28,6 @@ const tools = [
       latency: "47ms",
     },
     featured: true,
-  },
-  {
-    icon: GitBranch,
-    name: "Context",
-    headline: "Deep dive into any symbol",
-    description: "Understand any file or symbol in depth. See callers, callees, imports, exports, and relationships at a glance.",
-    capabilities: [
-      "Caller & callee graphs",
-      "Import/export relationships",
-      "File structure overview",
-      "Symbol dependency maps",
-    ],
-    example: {
-      query: "Context for processPayment",
-      result: "3 callers, 5 callees, 2 importers",
-      details: [
-        "checkout.ts:42 - createOrder() [caller]",
-        "stripe.ts:15 - chargeCard() [callee]",
-        "orders.ts:8 - imports processPayment",
-      ],
-      latency: "52ms",
-    },
   },
   {
     icon: Brain,
@@ -101,7 +79,7 @@ const tools = [
     headline: "Direct access for power users",
     description: "When you need precise control, query the knowledge graph directly. Read-only access with safety guardrails.",
     capabilities: [
-      "Direct graph queries",
+      "Direct queries",
       "Custom traversals",
       "Advanced filtering",
       "Bulk operations",
@@ -125,7 +103,7 @@ export function MCPToolsSection() {
 
   return (
     <section className="py-16 sm:py-20 md:py-24 px-4 sm:px-6">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -137,10 +115,10 @@ export function MCPToolsSection() {
             MCP Tools
           </span>
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3 sm:mb-4 text-balance">
-            Five powerful tools for your AI
+            Powerful tools for your AI
           </h2>
           <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            CodeGraph exposes your codebase through five intelligent tools. Your AI editor picks the right one automatically based on what you ask.
+            CodeGraph exposes your codebase through intelligent tools. Your AI editor picks the right one automatically based on what you ask.
           </p>
         </motion.div>
 

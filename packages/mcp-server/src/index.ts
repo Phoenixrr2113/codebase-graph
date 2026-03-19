@@ -1,6 +1,11 @@
+#!/usr/bin/env node
 /**
  * CodeGraph MCP Server - Entry Point
- * Run with: pnpm --filter @codegraph/mcp-server dev
+ *
+ * Usage:
+ *   pnpm --filter @codegraph/mcp-server dev    # development
+ *   node dist/index.js                          # production
+ *   codegraph-mcp                               # via npm bin link
  */
 
 import { createMCPServer } from './server';

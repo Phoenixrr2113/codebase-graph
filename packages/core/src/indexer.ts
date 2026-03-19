@@ -31,6 +31,7 @@ import { createOperations, type GraphClient } from '@codegraph/graph';
 import type { ProjectEntity, ExtractedDocumentEntities } from '@codegraph/types';
 import type { EmbeddingConfig } from '@codegraph/plugin-nlp';
 import { getGraphClient } from './graphClient';
+import { loadGitignorePatterns } from './watchService';
 import { embedParsedEntities, embedAllParsedEntities } from './embed-pass';
 import { createLogger } from '@codegraph/logger';
 import { stat, readFile } from 'node:fs/promises';
@@ -207,7 +208,8 @@ export async function indexProject(
     await initParser();
 
     // Discover source files (git ls-files when available, glob fallback)
-    const ignoreList = [...DEFAULT_IGNORE_PATTERNS, ...(options.ignorePatterns ?? [])];
+    const gitignorePatterns = await loadGitignorePatterns(rootPath);
+    const ignoreList = [...DEFAULT_IGNORE_PATTERNS, ...(options.ignorePatterns ?? []), ...gitignorePatterns];
     let files: string[];
 
     if (options.includePatterns) {

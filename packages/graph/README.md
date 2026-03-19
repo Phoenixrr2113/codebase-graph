@@ -61,13 +61,6 @@ const client = await createClient({
   port: 6379,
   graphName: 'codegraph',
 });
-
-// Kuzu (legacy — not recommended for new projects)
-const client = await createClient({
-  driver: 'kuzu',
-  databasePath: '.codegraph/kuzu',
-  graphName: 'codegraph',
-});
 ```
 
 ## Drivers
@@ -90,13 +83,6 @@ const client = await createClient({
 - npm: `falkordblite` v0.2.0 (optional dependency)
 - API: `FalkorDB.open({ path })` → `db.selectGraph(name)` → same `Graph` type
 - Close: `db.close()` stops subprocess + saves RDB snapshot
-
-### Kuzu (`drivers/kuzu.ts`) — Legacy
-
-- Embedded, in-process (no Docker, no network)
-- **Deprecated**: Kuzu was acquired by Apple (Oct 2025), v0.11.3 is final
-- Has 12+ behavioral workarounds (`_pk` keys, no `ON CREATE SET`, etc.)
-- Kept for backward compatibility only; not recommended for new projects
 
 ## Vector Search
 

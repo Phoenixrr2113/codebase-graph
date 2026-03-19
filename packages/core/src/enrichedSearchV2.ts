@@ -52,6 +52,10 @@ export interface EnrichedV2Hit {
   callerCount?: number;
   callees?: string[];
   importerCount?: number;
+  /** Number of test files that reference this symbol (via CALLS or IMPORTS) */
+  testReferenceCount?: number;
+  /** Shortest dependency chain length from entry points to this symbol */
+  dependencyDepth?: number;
 }
 
 export interface EnrichedV2Options {
@@ -145,6 +149,8 @@ interface GraphEnrichment {
   callerCount: number;
   callees: string[];
   importerCount: number;
+  testReferenceCount: number;
+  dependencyDepth: number | null;
 }
 
 async function enrichFromGraph(
@@ -155,7 +161,8 @@ async function enrichFromGraph(
 
   const names = hits.map(h => h.name);
 
-  // Single batch query: for each hit, count callers, callees, importers
+  // Single batch query: for each hit, count callers, callees, importers,
+  // test references (files with test/spec in path), and dependency depth
   const cypher = `
     UNWIND $names AS symbolName
     OPTIONAL MATCH (n {name: symbolName})<-[:CALLS]-(caller)
@@ -163,7 +170,13 @@ async function enrichFromGraph(
     OPTIONAL MATCH (n)-[:CALLS]->(callee)
     WITH symbolName, n, callers, collect(DISTINCT callee.name)[0..5] AS calleeNames
     OPTIONAL MATCH (n)<-[:IMPORTS]-(importer)
-    RETURN symbolName, callers, calleeNames, count(DISTINCT importer) AS importers
+    WITH symbolName, n, callers, calleeNames, count(DISTINCT importer) AS importers
+    OPTIONAL MATCH (testFile:File)
+      WHERE (testFile.filePath CONTAINS '.test.' OR testFile.filePath CONTAINS '.spec.' OR testFile.filePath CONTAINS '__tests__')
+        AND ((testFile)-[:CONTAINS]->()-[:CALLS]->(n)
+          OR (testFile)-[:IMPORTS]->()-[:CONTAINS]->(n))
+    WITH symbolName, callers, calleeNames, importers, count(DISTINCT testFile) AS testRefs
+    RETURN symbolName, callers, calleeNames, importers, testRefs
   `;
 
   try {
@@ -177,8 +190,36 @@ async function enrichFromGraph(
         callerCount: (row['callers'] as number) ?? 0,
         callees: (row['calleeNames'] as string[]) ?? [],
         importerCount: (row['importers'] as number) ?? 0,
+        testReferenceCount: (row['testRefs'] as number) ?? 0,
+        dependencyDepth: null, // Computed separately (path query)
       });
     }
+
+    // Dependency depth: shortest path from any entry point (file with no importers)
+    // Run as a separate bounded query to avoid blowing up the main query
+    try {
+      const depthCypher = `
+        UNWIND $names AS symbolName
+        MATCH (n {name: symbolName})
+        OPTIONAL MATCH path = (entry)-[:CONTAINS|CALLS*1..6]->(n)
+          WHERE entry:File AND NOT ()-[:IMPORTS]->(entry)
+        WITH symbolName, CASE WHEN path IS NOT NULL THEN length(path) ELSE NULL END AS d
+        RETURN symbolName, min(d) AS minDepth
+      `;
+      const depthResult = await client.roQuery<Record<string, unknown>>(depthCypher, {
+        params: { names },
+      });
+      for (const row of depthResult.data) {
+        const name = row['symbolName'] as string;
+        const enrichment = map.get(name);
+        if (enrichment && row['minDepth'] != null) {
+          enrichment.dependencyDepth = row['minDepth'] as number;
+        }
+      }
+    } catch (err) {
+      logger.debug(`Dependency depth query failed (non-fatal): ${err}`);
+    }
+
     return map;
   } catch (err) {
     logger.warn(`Graph enrichment failed: ${err}`);
@@ -354,6 +395,8 @@ export async function enrichedSearchV2(
           callerCount: graphData.callerCount,
           callees: graphData.callees,
           importerCount: graphData.importerCount,
+          ...(graphData.testReferenceCount > 0 && { testReferenceCount: graphData.testReferenceCount }),
+          ...(graphData.dependencyDepth != null && { dependencyDepth: graphData.dependencyDepth }),
         }),
       };
     }),

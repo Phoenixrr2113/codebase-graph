@@ -16,6 +16,11 @@ import { loadGrammar, clearGrammarCache } from './grammar-loader';
 
 // Import all language configs
 
+// Tier-1 languages (formerly dedicated packages — always installed)
+import { javaConfig } from './configs/java';
+import { csharpConfig } from './configs/csharp';
+import { phpConfig } from './configs/php';
+
 // Batch 1: High-demand
 import { rubyConfig } from './configs/ruby';
 import { kotlinConfig } from './configs/kotlin';
@@ -69,13 +74,21 @@ import { protobufConfig } from './configs/protobuf';
 interface LanguageEntry {
   config: Omit<GenericLanguageConfig, 'grammar'>;
   grammarPackage: string;
+  /** Transform the raw module export into the grammar object (e.g., PHP exports { php, php_only }) */
+  grammarTransform?: (mod: unknown) => unknown;
 }
 
 /**
- * All tier-2 language configurations.
- * Each maps a config to its tree-sitter grammar npm package.
+ * All language configurations.
+ * Tier-1 (Java, C#, PHP) are listed first — their grammars are required dependencies.
+ * Tier-2 grammars are optionalDependencies — missing ones are silently skipped.
  */
 export const allLanguageEntries: LanguageEntry[] = [
+  // Tier-1 languages (formerly dedicated packages)
+  { config: javaConfig, grammarPackage: 'tree-sitter-java' },
+  { config: csharpConfig, grammarPackage: 'tree-sitter-c-sharp' },
+  { config: phpConfig, grammarPackage: 'tree-sitter-php', grammarTransform: (mod) => (mod as { php: unknown }).php },
+
   // Batch 1: High-demand
   { config: rubyConfig, grammarPackage: 'tree-sitter-ruby' },
   { config: kotlinConfig, grammarPackage: 'tree-sitter-kotlin' },
@@ -155,7 +168,8 @@ export async function registerAllLanguages(registry: PluginRegistry): Promise<{
   const skipped: string[] = [];
 
   for (const entry of allLanguageEntries) {
-    const grammar = await loadGrammar(entry.grammarPackage);
+    let grammar = await loadGrammar(entry.grammarPackage);
+    if (grammar && entry.grammarTransform) grammar = entry.grammarTransform(grammar);
 
     if (grammar) {
       const fullConfig: GenericLanguageConfig = {
@@ -199,8 +213,9 @@ export async function registerLanguage(registry: PluginRegistry, languageId: str
   const entry = allLanguageEntries.find(e => e.config.id === languageId);
   if (!entry) return false;
 
-  const grammar = await loadGrammar(entry.grammarPackage);
+  let grammar = await loadGrammar(entry.grammarPackage);
   if (!grammar) return false;
+  if (entry.grammarTransform) grammar = entry.grammarTransform(grammar);
 
   const fullConfig: GenericLanguageConfig = {
     ...(entry.config as GenericLanguageConfig),
@@ -252,3 +267,6 @@ export { crystalConfig } from './configs/crystal';
 export { groovyConfig } from './configs/groovy';
 export { verilogConfig } from './configs/verilog';
 export { protobufConfig } from './configs/protobuf';
+export { javaConfig } from './configs/java';
+export { csharpConfig } from './configs/csharp';
+export { phpConfig } from './configs/php';
