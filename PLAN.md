@@ -8,12 +8,12 @@
 - Graph: 2859 nodes (dropped 4369 non-exported variables, 60% smaller)
 - Clean 3-layer chain: MCP tool → codeGraphService.search() → enrichedSearchV2()
 
-### MCP Tools: PARTIALLY SIMPLIFIED
-- Search: ✅ stripped from 6 layers to 3, calls enrichedSearchV2 directly
-- Knowledge: ❌ still 8 actions (need: store + recall)
-- consolidated.ts: ❌ still needs rename to router.ts
-- repoMap.ts: ❌ still exists (dead weight)
-- Search persona `map` action: ❌ still exists
+### MCP Tools: SIMPLIFIED ✅
+- 4 persona tools: search (find + context), knowledge (store + recall), codebase, query
+- Search: 3-layer chain, calls enrichedSearchV2 directly
+- Knowledge: 2 actions with auto-detection (routes to 7 handlers internally)
+- Router: consolidated.ts → router.ts
+- Deleted: repoMap.ts, SearchRegistry, strategy wrappers, 4 dead service methods
 
 ### Infrastructure
 - FalkorDB (Docker) + FalkorDBLite (embedded local)
@@ -24,19 +24,15 @@
 
 ---
 
-## Phase 1: Finish MCP Simplification
+## Phase 1: MCP Simplification — DONE ✅
 
-### 1a. Done ✅
 - Stripped search: 6 layers → 3 layers (MCP → service → enrichedSearchV2)
-- Deleted: SearchRegistry, strategy wrappers, 4 dead service methods
+- Deleted: SearchRegistry, strategy wrappers, 4 dead service methods, repoMap.ts
+- Renamed: consolidated.ts → router.ts
+- Simplified knowledge persona: 8 actions → store + recall with auto-detection
+- Removed map action from search persona
 - Updated: CLI, API routes, benchmark
-
-### 1b. Remaining
-1. Rename `consolidated.ts` → `router.ts`
-2. Simplify knowledge persona: 8 actions → store + recall (auto-detect entity/relationship/fact/conversation)
-3. Delete `repoMap.ts`, remove `map` action from search persona
-4. Trace knowledge chain like we did search — find and strip indirection
-5. Clean up dead types/exports from core/index.ts
+- Remaining: trace knowledge chain for indirection, clean up dead types/exports
 
 ---
 
