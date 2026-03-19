@@ -118,7 +118,7 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
   // Skip Variables entirely — "const MAX_RETRIES: number" has zero semantic depth
   skippedVars = parsed.variables.length;
 
-  // Types — only embed if they have docstrings (otherwise "type Props" adds nothing)
+  // Types — only embed if they have docstrings (bare type aliases add noise to vector search)
   for (const t of parsed.types) {
     if (!t.docstring) {
       skippedTypes++;
