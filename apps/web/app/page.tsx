@@ -10,7 +10,7 @@ import { ArchitectureSection } from "@/components/landing/architecture-section"
 import { AgntkSection } from "@/components/landing/agntk-section"
 import { FullStackSection } from "@/components/landing/full-stack-section"
 import { PricingSection } from "@/components/landing/pricing-section"
-import { TechCredibilityBar, Footer } from "@/components/landing/footer-section"
+import { TechCredibilityBar, NewsletterSection, Footer } from "@/components/landing/footer-section"
 
 export default function LandingPage() {
   return (
@@ -32,6 +32,7 @@ export default function LandingPage() {
         <PricingSection />
       </div>
       <TechCredibilityBar />
+      <NewsletterSection />
       <Footer />
     </main>
   )

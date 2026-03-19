@@ -11,6 +11,10 @@
 // MCP stdio transport requires stdout to be clean JSON-RPC — force all logs to stderr
 process.env.CODEGRAPH_LOG_STDERR = 'true';
 
+// Prevent EPIPE crashes when MCP client disconnects while we're writing
+process.stdout.on('error', () => {});
+process.stderr.on('error', () => {});
+
 // Node 20+ required (global fetch, crypto.randomUUID, etc.)
 const [major] = process.versions.node.split('.').map(Number);
 if (major != null && major < 20) {

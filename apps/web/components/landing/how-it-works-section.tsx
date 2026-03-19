@@ -12,11 +12,12 @@ const steps = [
     icon: Download,
     title: "Install",
     description: "A single binary. No Docker, no cloud services, no complex setup. Just download and run.",
-    code: `# Download the binary
-curl -L https://codegraph.dev/download | sh
+    code: `# Install via npm
+npx codegraph-mcp
 
-# Or with Homebrew
-brew install codegraph/tap/codegraph`,
+# Or download the binary
+# macOS / Linux / Windows
+# → github.com/Phoenixrr2113/codebase-graph/releases`,
     language: "bash",
   },
   {

@@ -40,13 +40,15 @@ function formatPrefix(namespace: string | undefined, level: LogLevel): string {
   return `${levelStr} ${ns}`.trim();
 }
 
-/** Default configuration */
-const defaultConfig: LoggerConfig = {
-  level: getEnvLogLevel(),
-  colors: !isBrowser(),
-  timestamps: true,
-  stderr: shouldUseStderr(),
-};
+/** Build default config lazily so env vars set before createLogger() are respected */
+function getDefaultConfig(): LoggerConfig {
+  return {
+    level: getEnvLogLevel(),
+    colors: !isBrowser(),
+    timestamps: true,
+    stderr: shouldUseStderr(),
+  };
+}
 
 /** ANSI color codes for terminal output */
 const COLORS: Record<LogLevel, string> = {
@@ -59,7 +61,7 @@ const RESET = '\x1b[0m';
 
 /** Create a logger instance */
 export function createLogger(config: Partial<LoggerConfig> = {}): Logger {
-  const cfg: LoggerConfig = { ...defaultConfig, ...config };
+  const cfg: LoggerConfig = { ...getDefaultConfig(), ...config };
 
   function shouldLog(level: LogLevel): boolean {
     return LOG_LEVEL_ORDER[level] >= LOG_LEVEL_ORDER[cfg.level];
@@ -68,19 +70,22 @@ export function createLogger(config: Partial<LoggerConfig> = {}): Logger {
   function log(level: LogLevel, message: string, ...args: unknown[]): void {
     if (!shouldLog(level)) return;
 
+    // Check stderr at log time — env var may have been set after logger creation (ESM hoisting)
+    const useStderr = cfg.stderr || shouldUseStderr();
+
     const prefix = formatPrefix(cfg.namespace, level);
     const timestamp = cfg.timestamps ? `[${formatTimestamp()}]` : '';
-    
+
     let output = `${timestamp} ${prefix} ${message}`;
-    
+
     // Apply colors in Node.js (skip if forcing stderr to keep logs clean)
-    if (cfg.colors && !isBrowser() && !cfg.stderr) {
+    if (cfg.colors && !isBrowser() && !useStderr) {
       const color = COLORS[level];
       output = `${color}${output}${RESET}`;
     }
 
     // MCP stdio mode: ALL output must go to stderr to keep stdout clean for JSON-RPC
-    if (cfg.stderr && typeof process !== 'undefined' && process.stderr) {
+    if (useStderr && typeof process !== 'undefined' && process.stderr) {
       const extra = args.length > 0
         ? ' ' + args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')
         : '';
@@ -88,10 +93,10 @@ export function createLogger(config: Partial<LoggerConfig> = {}): Logger {
       return;
     }
 
-    const consoleFn = level === 'error' 
-      ? console.error 
-      : level === 'warn' 
-        ? console.warn 
+    const consoleFn = level === 'error'
+      ? console.error
+      : level === 'warn'
+        ? console.warn
         : level === 'debug'
           ? console.debug
           : console.log;
@@ -119,5 +124,5 @@ export function createLogger(config: Partial<LoggerConfig> = {}): Logger {
   return logger;
 }
 
-/** Default root logger */
+/** Default root logger (lazy so env vars can be set before first use) */
 export const logger = createLogger();

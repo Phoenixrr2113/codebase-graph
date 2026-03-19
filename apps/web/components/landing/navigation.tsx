@@ -11,6 +11,7 @@ const navLinks = [
   { label: "Languages", href: "#languages" },
   { label: "Pricing", href: "#pricing" },
   { label: "agntk", href: "#agntk" },
+  { label: "Docs", href: "https://github.com/Phoenixrr2113/codebase-graph#readme", external: true },
 ]
 
 export function Navigation() {
@@ -63,11 +64,13 @@ export function Navigation() {
         {/* Desktop Nav with animated indicator */}
         <nav className="hidden md:flex items-center gap-1 p-1 rounded-full bg-muted/50 border border-border" aria-label="Main navigation">
           {navLinks.map((link) => {
-            const isActive = activeSection === link.href.slice(1)
+            const isExternal = 'external' in link && link.external
+            const isActive = !isExternal && activeSection === link.href.slice(1)
             return (
               <a
                 key={link.label}
                 href={link.href}
+                {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "relative px-4 py-1.5 text-sm rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background",
@@ -90,7 +93,7 @@ export function Navigation() {
         {/* CTA Buttons */}
         <div className="hidden md:flex items-center gap-3">
           <Button variant="ghost" size="sm" className="group" asChild>
-            <a href="https://github.com/agntk" target="_blank" rel="noopener noreferrer">
+            <a href="https://github.com/Phoenixrr2113/codebase-graph" target="_blank" rel="noopener noreferrer">
               GitHub
             </a>
           </Button>
@@ -146,22 +149,26 @@ export function Navigation() {
             className="md:hidden border-b border-border bg-background/95 backdrop-blur-lg overflow-hidden"
           >
             <div className="px-4 py-4 space-y-1">
-              {navLinks.map((link, i) => (
-                <motion.a
-                  key={link.label}
-                  href={link.href}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.2, delay: i * 0.05 }}
-                  className={cn(
-                    "block py-3 px-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors",
-                    activeSection === link.href.slice(1) && "text-foreground bg-muted/50"
-                  )}
-                >
-                  {link.label}
-                </motion.a>
-              ))}
+              {navLinks.map((link, i) => {
+                const isExternal = 'external' in link && link.external
+                return (
+                  <motion.a
+                    key={link.label}
+                    href={link.href}
+                    {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.2, delay: i * 0.05 }}
+                    className={cn(
+                      "block py-3 px-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors",
+                      !isExternal && activeSection === link.href.slice(1) && "text-foreground bg-muted/50"
+                    )}
+                  >
+                    {link.label}
+                  </motion.a>
+                )
+              })}
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -169,7 +176,7 @@ export function Navigation() {
                 className="flex flex-col gap-2 pt-4 mt-2 border-t border-border"
               >
                 <Button variant="outline" size="sm" asChild>
-                  <a href="https://github.com/agntk" target="_blank" rel="noopener noreferrer">
+                  <a href="https://github.com/Phoenixrr2113/codebase-graph" target="_blank" rel="noopener noreferrer">
                     GitHub
                   </a>
                 </Button>

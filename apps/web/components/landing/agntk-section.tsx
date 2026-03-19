@@ -170,7 +170,7 @@ export function AgntkSection() {
           className="text-center"
         >
           <Button variant="outline" size="lg" className="group text-sm sm:text-base" asChild>
-            <a href="https://github.com/agntk" target="_blank" rel="noopener noreferrer">
+            <a href="https://github.com/Phoenixrr2113/codebase-graph" target="_blank" rel="noopener noreferrer">
               Install agntk
               <ArrowRight className="ml-2 h-3.5 w-3.5 sm:h-4 sm:w-4 transition-transform group-hover:translate-x-1" />
             </a>

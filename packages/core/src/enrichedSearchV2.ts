@@ -301,6 +301,21 @@ export function candidateKey(c: Candidate): string {
 }
 
 /**
+ * Check if a file path matches a single scope prefix.
+ * Handles both absolute paths (/Users/.../apps/web) and
+ * relative paths (apps/web) by using suffix matching with
+ * path separator awareness for relative scopes.
+ */
+function pathMatchesPrefix(filePath: string, prefix: string): boolean {
+  if (prefix.startsWith('/')) {
+    return filePath.startsWith(prefix);
+  }
+  // Relative scope: match against any path segment boundary
+  // e.g. scope "apps/web" matches "/Users/.../apps/web/components/foo.tsx"
+  return filePath.includes(`/${prefix}/`) || filePath.includes(`/${prefix}`);
+}
+
+/**
  * Check if a file path matches the scope filter.
  * Returns true if the path should be INCLUDED.
  */
@@ -310,9 +325,9 @@ function matchesScope(
   scopePaths: string[] | undefined,
 ): boolean {
   if (!filePath) return true; // No path to filter on — include
-  if (scope) return filePath.startsWith(scope);
+  if (scope) return pathMatchesPrefix(filePath, scope);
   if (scopePaths && scopePaths.length > 0) {
-    return scopePaths.some(sp => filePath.startsWith(sp));
+    return scopePaths.some(sp => pathMatchesPrefix(filePath, sp));
   }
   return true; // No scope — include all
 }
