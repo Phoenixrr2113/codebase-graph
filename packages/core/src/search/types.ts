@@ -17,12 +17,9 @@ import type { EmbeddingConfig } from '@codegraph/plugin-nlp';
 /**
  * Supported search strategies.
  *
- * - HYBRID: Vector + text + graph traversal (fallback)
- * - ENRICHED_V2: Vector retrieval + cross-encoder reranking (primary)
+ * - ENRICHED_V2: Vector retrieval + cross-encoder reranking
  */
-export type SearchType =
-  | 'HYBRID'
-  | 'ENRICHED_V2';
+export type SearchType = 'ENRICHED_V2';
 
 // ============================================================================
 // Search Context — shared dependencies passed to all strategies

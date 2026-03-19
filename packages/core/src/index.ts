@@ -40,17 +40,7 @@ export { embedAllNodes } from './embed-nodes';
 export type { EmbedNodesOptions, EmbedNodesResult } from './embed-nodes';
 export type { EmbeddableNodeType } from './embed-nodes';
 
-// Hybrid search orchestration
-export { hybridSearch, extractSearchTerms } from './hybridSearch';
-export type {
-  HybridSearchHit,
-  HybridSearchResult,
-  HybridSearchOptions,
-  RelatedHit,
-  CodeNodeType,
-} from './hybridSearch';
-
-// Enriched search V2 (vector + reranker)
+// Search (enrichedSearchV2 is the only search)
 export { enrichedSearchV2 } from './enrichedSearchV2';
 export type { EnrichedV2Result, EnrichedV2Hit, EnrichedV2Options } from './enrichedSearchV2';
 

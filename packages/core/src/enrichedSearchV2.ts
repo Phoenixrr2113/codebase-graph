@@ -17,7 +17,6 @@ import {
   rerank,
   type EmbeddingConfig,
 } from '@codegraph/plugin-nlp';
-import type { HybridSearchOptions } from './hybridSearch';
 
 const logger = createLogger({ namespace: 'core:enriched-v2' });
 
@@ -59,7 +58,10 @@ export interface EnrichedV2Hit {
   properties: Record<string, unknown>;
 }
 
-export interface EnrichedV2Options extends HybridSearchOptions {
+export interface EnrichedV2Options {
+  limit?: number;
+  scope?: string;
+  embeddings?: EmbeddingConfig;
   /** Disable the reranker (vector-only mode for testing) */
   skipReranker?: boolean;
 }

@@ -25,7 +25,7 @@
  *   pnpm build && npx tsx scripts/benchmark-search.ts [label] [--reindex] [--no-llm] [--fast-only] [--no-embeddings] [--analysis]
  */
 
-const { getGraphClient, closeGraphClient, indexProject, codeGraphService, enrichedSearchV2, hybridSearch, registerPlugins } =
+const { getGraphClient, closeGraphClient, indexProject, codeGraphService, enrichedSearchV2, registerPlugins } =
   await import('../packages/core/dist/index.js');
 const { createOperations } = await import('../packages/graph/dist/index.js');
 const { getLLMModel, getLLMComplexModel, isLLMAvailable, warmupLLM, getLLMConfigResolved, warmupEmbedding } =
@@ -156,7 +156,7 @@ const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
   {
     query: 'hybridSearch',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'hybridSearch', relevance: 3, reason: 'Exact match' },
     ],
@@ -165,7 +165,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'parseCode',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'parseCode', relevance: 3, reason: 'Exact match' },
     ],
@@ -174,7 +174,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'getGraphClient',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'getGraphClient', relevance: 3, reason: 'Exact match' },
     ],
@@ -183,7 +183,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'createOperations',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'createOperations', relevance: 3, reason: 'Exact match' },
     ],
@@ -192,7 +192,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'generateEmbedding',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'generateEmbedding', relevance: 3, reason: 'Exact match' },
     ],
@@ -201,7 +201,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'rrfFuse',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'rrfFuse', relevance: 3, reason: 'Exact match' },
     ],
@@ -210,7 +210,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'indexProject',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'indexProject', relevance: 3, reason: 'Exact match' },
     ],
@@ -223,7 +223,7 @@ const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
   {
     query: 'complexity calculation',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'calculateComplexity', relevance: 3, reason: 'Primary complexity function' },
       { namePattern: 'calculateCyclomatic', relevance: 2, reason: 'Specific metric' },
@@ -234,7 +234,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'search strategy',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'SearchStrategy', relevance: 3, reason: 'Interface definition' },
       { namePattern: 'HybridSearchStrategy', relevance: 2, reason: 'Strategy implementation' },
@@ -245,7 +245,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'graph operations',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'GraphOperations', relevance: 3, reason: 'Interface' },
       { namePattern: 'createOperations', relevance: 3, reason: 'Factory' },
@@ -256,7 +256,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'knowledge operations',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'createKnowledgeOperations', relevance: 3, reason: 'Factory' },
       { namePattern: 'KnowledgeOperations', relevance: 3, reason: 'Interface' },
@@ -270,7 +270,7 @@ const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
   {
     query: 'how does indexing work',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'indexProject', relevance: 3, reason: 'Main indexing entry point' },
       { namePattern: 'indexSingleFile', relevance: 2, reason: 'Single file indexing' },
@@ -281,7 +281,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'graph database connection',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'getGraphClient', relevance: 3, reason: 'Gets the client connection' },
       { namePattern: 'GraphClient', relevance: 3, reason: 'Connection interface' },
@@ -293,7 +293,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'embedding generation',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'generateEmbedding', relevance: 3, reason: 'Single embedding' },
       { namePattern: 'generateEmbeddings', relevance: 3, reason: 'Batch embeddings' },
@@ -304,7 +304,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'git history sync',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'syncGitHistory', relevance: 3, reason: 'Main git sync function' },
       { namePattern: 'getRepoInfo', relevance: 2, reason: 'Repo metadata' },
@@ -314,7 +314,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'logging setup',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'createLogger', relevance: 3, reason: 'Logger factory' },
       { namePattern: 'Logger', relevance: 2, reason: 'Logger interface' },
@@ -324,7 +324,7 @@ const HARD_CASES: HardTestCase[] = [
   },
   {
     query: 'code parsing pipeline',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
+    strategies: ['ENRICHED_V2'],
     expectedResults: [
       { namePattern: 'parseCode', relevance: 3, reason: 'Parse source code' },
       { namePattern: 'parseFile', relevance: 3, reason: 'Parse a file' },
@@ -608,29 +608,18 @@ async function main() {
 
   for (const tc of HARD_CASES) {
     for (const strategy of tc.strategies) {
-      // Only run strategies we support
-      if (strategy !== 'ENRICHED_V2' && strategy !== 'HYBRID') continue;
+      if (strategy !== 'ENRICHED_V2') continue;
 
       const start = Date.now();
       let response: SearchResponse;
 
       try {
-        if (strategy === 'ENRICHED_V2') {
-          const v2Result = await enrichedSearchV2(tc.query, client, { limit: 20, embeddings: embeddingConfig });
-          response = {
-            results: v2Result.hits.map((h: any) => ({ name: h.name, nodeType: h.nodeType, score: h.score, sources: h.sources ?? [], filePath: h.filePath, properties: h.properties })),
-            total: v2Result.hits.length,
-            meta: { searchType: 'ENRICHED_V2', durationMs: v2Result.meta.durationMs },
-          };
-        } else {
-          // HYBRID — direct call to hybridSearch
-          const hybridResult = await hybridSearch(tc.query, client, { limit: 20, embeddings: embeddingConfig });
-          response = {
-            results: hybridResult.hits.map((h: any) => ({ name: h.name, nodeType: h.nodeType, score: h.score, sources: h.sources ?? [], filePath: h.filePath })),
-            total: hybridResult.hits.length,
-            meta: { searchType: 'HYBRID', durationMs: hybridResult.meta.durationMs },
-          };
-        }
+        const v2Result = await enrichedSearchV2(tc.query, client, { limit: 20, embeddings: embeddingConfig });
+        response = {
+          results: v2Result.hits.map((h: any) => ({ name: h.name, nodeType: h.nodeType, score: h.score, sources: h.sources ?? [], filePath: h.filePath, properties: h.properties })),
+          total: v2Result.hits.length,
+          meta: { searchType: 'ENRICHED_V2', durationMs: v2Result.meta.durationMs },
+        };
       } catch (err) {
         const latency = Date.now() - start;
         allResults.push({
