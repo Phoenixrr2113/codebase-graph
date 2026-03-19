@@ -6,12 +6,14 @@
 - Pipeline: Voyage code-3 embeddings → FalkorDB HNSW → Jina reranker-v3
 - Pure reranker scoring (no manual text matching, no NODE_TYPE_BOOST)
 - Graph: 2859 nodes (dropped 4369 non-exported variables, 60% smaller)
+- Clean 3-layer chain: MCP tool → codeGraphService.search() → enrichedSearchV2()
 
-### MCP Tools: NOT YET SIMPLIFIED
-- 8 tool files + consolidated router, 4 personas
-- Knowledge has 8 actions (should be 2: store + recall)
-- Search persona has map action (should be removed)
-- configureProjects exposed as MCP tool (should be setup/CLI only)
+### MCP Tools: PARTIALLY SIMPLIFIED
+- Search: ✅ stripped from 6 layers to 3, calls enrichedSearchV2 directly
+- Knowledge: ❌ still 8 actions (need: store + recall)
+- consolidated.ts: ❌ still needs rename to router.ts
+- repoMap.ts: ❌ still exists (dead weight)
+- Search persona `map` action: ❌ still exists
 
 ### Infrastructure
 - FalkorDB (Docker) + FalkorDBLite (embedded local)
@@ -22,69 +24,62 @@
 
 ---
 
-## Phase 1: Simplify MCP Server (NEXT)
+## Phase 1: Finish MCP Simplification
 
-### What the MCP server actually needs from core:
-- `enrichedSearchV2()` — the search (called directly, NOT through service routing)
-- `knowledgeService` — store/recall knowledge
-- `indexProject()` / `indexSingleFile()` — indexing
-- `getGraphClient()` — raw Cypher escape hatch
-- `loadConfig()` / `setActiveProjects()` / `needsSetup()` — project setup
-- `WatchService` — auto-reindex on file changes
-- `readSourceFile()` — read source code
-- `codeGraphService.getFileSubgraph()` / `getEntityWithConnections()` — context
+### 1a. Done ✅
+- Stripped search: 6 layers → 3 layers (MCP → service → enrichedSearchV2)
+- Deleted: SearchRegistry, strategy wrappers, 4 dead service methods
+- Updated: CLI, API routes, benchmark
 
-### Target MCP tool surface:
-
-| Tool | Action | Core function called | LLM? |
-|------|--------|---------------------|------|
-| **search** | find | `enrichedSearchV2()` | No (reranker API only) |
-| **search** | context | `getFileSubgraph()`, `getEntityWithConnections()` | No |
-| **knowledge** | store | `storeEntity()`, `storeRelationship()` | No |
-| **knowledge** | store (extract) | `storeFact()`, `ingestConversation()` | Yes (LLM) |
-| **knowledge** | recall | `queryKnowledge()`, `recall()` | No |
-| **codebase** | configure | `setActiveProjects()`, `getProjects()` | No |
-| **codebase** | reindex | `indexProject()` | No |
-| **codebase** | status/stats | `getGraphStats()`, `getIndexSummary()` | No |
-| **codebase** | source | `readSourceFile()` | No |
-| **query** | (raw) | `getGraphClient().roQuery()` | No |
-
-### Files to change:
+### 1b. Remaining
 1. Rename `consolidated.ts` → `router.ts`
-2. Rewrite `searchCode.ts` — call `enrichedSearchV2()` directly instead of routing through 3 strategies
-3. Simplify `knowledge.ts` — collapse 8 actions into `store` + `recall` with auto-detection
-4. Delete `repoMap.ts`
-5. Update search persona — remove `map` action, simplify `find` to use enrichedSearchV2 directly
-6. Update knowledge persona — 2 actions instead of 8
-7. Keep `codebase` persona as-is (configure, reindex, status, stats, source, ping)
-8. Keep `query` persona as-is (raw Cypher)
+2. Simplify knowledge persona: 8 actions → store + recall (auto-detect entity/relationship/fact/conversation)
+3. Delete `repoMap.ts`, remove `map` action from search persona
+4. Trace knowledge chain like we did search — find and strip indirection
+5. Clean up dead types/exports from core/index.ts
 
 ---
 
-## Phase 2: Enrich Search Response
+## Phase 2: Codebase-Wide Deep Dive
 
-### To do:
-1. **Cache layer** — in-memory Map, invalidate on reindex or TTL (5 min), skip API calls on repeat queries
-2. **Richer reranker documents** — include params, returnType, callerCount in reranker input text
-3. **Dynamic CODE_NODE_TYPES** — query graph for labels with vector indexes instead of hardcoded list
+Do the same analysis we did on search across the ENTIRE codebase:
+- Trace every call chain from MCP tools through core to graph
+- Identify layers of indirection, dead code, unused exports
+- Map what each package actually does vs what it claims to do
+- Use our own search tools to explore and validate
+
+### Packages to audit:
+| Package | Status | Notes |
+|---------|--------|-------|
+| core/src/services/ | ❌ | search-service.ts cleaned, graph-data-service.ts + helpers.ts + types.ts need audit |
+| core/src/pipeline/ | ❌ | Is this all used by the indexer? Or dead? |
+| graph/src/ | ❌ | operations.ts is huge — what's actually called? |
+| plugin-nlp/src/ | ❌ | embeddings, reranker, LLM, bridge-linker — what's dead? |
+| plugin-common/ | ❌ | complexity.ts was deleted but package still exists |
+| api/ | ❌ | Do we even need this? MCP server is the primary interface |
+| web/ (packages/web) | ❌ | Old dashboard, build broken, possibly delete entirely |
+
+---
+
+## Phase 3: Enrich Search Response
+
+1. **Cache layer** — in-memory Map, invalidate on reindex or TTL (5 min)
+2. **Richer reranker documents** — include params, returnType, callerCount
+3. **Dynamic CODE_NODE_TYPES** — query graph for labels with vector indexes
 4. **More graph signals** (one at a time, benchmark each):
-   - Test coverage (does a test file reference this?)
-   - Change recency / churn (git metadata)
-   - Dependency depth (Cypher path query)
+   - Test coverage, change recency, dependency depth
 
 ---
 
-## Phase 3: Fix Remaining Weak Queries
+## Phase 4: Fix Remaining Weak Queries
 
 Two queries below MRR 1.0:
 - "graph database connection" → MRR 0.33 (semantic gap → expects `getGraphClient`)
 - "how does indexing work" → MRR 0.50 (expects `indexProject`, gets `IndexStats`)
 
-Diagnose: pool miss vs ranking miss. Fix accordingly.
-
 ---
 
-## Phase 4: Competitive Benchmarking
+## Phase 5: Competitive Benchmarking
 
 Research and benchmark against:
 - OpenViking (context database for AI agents)
@@ -96,14 +91,14 @@ Add results to landing page.
 
 ---
 
-## Phase 5: Generic Plugin Migration
+## Phase 6: Generic Plugin Migration
 
 Migrate 7 dedicated language plugins → generic configs + overrides.
 Delete 7 plugin packages (~5,400 lines → ~1,200 lines of configs).
 
 ---
 
-## Phase 6: Packaging
+## Phase 7: Packaging
 
 - Bun binary compilation (`bun build --compile`)
 - Polar.sh license integration
@@ -115,6 +110,7 @@ Delete 7 plugin packages (~5,400 lines → ~1,200 lines of configs).
 
 | Date | Config | MRR | S@1 | S@5 | Latency | Notes |
 |------|--------|-----|-----|-----|---------|-------|
+| 03-19 | Post-cleanup (3-layer chain) | **0.931** | 88% | 100% | 301ms median | Same as before, zero regression |
 | 03-19 | V2 + Jina v3 (no unexported vars) | **0.931** | 88% | 100% | 301ms median | 2859 nodes, 17 queries |
 | 03-18 | V2 + Jina v3 | 0.905 | 86% | 95% | 427ms | 7228 nodes, 22 queries |
 | 03-18 | V2 + Jina v2 | 0.858 | 82% | 86% | 401ms | |
