@@ -54,21 +54,11 @@ export type {
 export { enrichedSearchV2 } from './enrichedSearchV2';
 export type { EnrichedV2Result, EnrichedV2Hit, EnrichedV2Options } from './enrichedSearchV2';
 
-// Search strategy registry
-export {
-  SearchRegistry,
-  createSearchRegistry,
-  createDefaultSearchRegistry,
-  HybridSearchStrategy,
-} from './search';
+// Search types (strategy registry removed — enrichedSearchV2 is the only search)
 export type {
   SearchType,
-  SearchContext,
-  SearchRequest,
   SearchResponse,
   SearchResultItem,
-  SearchRelatedItem,
-  SearchStrategy,
 } from './search';
 
 // Git history sync
@@ -173,17 +163,9 @@ export type {
 export { codeGraphService, warmupSearch } from './service';
 export type { CodeGraphService } from './service';
 export type {
-  ServiceSearchResult,
-  ServiceSymbolResult,
-  ServiceCodeSearchResult,
   ServiceEntityContext,
   ServiceRelatedEntity,
-  ServiceDependencyInfo,
-  ServiceComplexityHotspot,
-  ServiceComplexitySummary,
   ServiceProjectInfo,
-  ServiceChangeInfo,
-  // API model replacement types
   EntityWithConnections,
   Pagination,
   PaginatedNodesResult,

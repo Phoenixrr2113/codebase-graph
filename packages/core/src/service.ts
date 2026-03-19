@@ -1,8 +1,8 @@
 /**
- * CodeGraphService — Thin Facade (QUAL.1)
+ * CodeGraphService — Thin Facade
  *
- * Delegates to focused sub-services:
- * - SearchService: search, findSymbol, searchCode, hybridSearchCode, strategySearch
+ * Delegates to:
+ * - SearchService: search (enrichedSearchV2)
  * - GraphDataService: graph traversal, entity access, project management
  *
  * Consumers: @codegraph/mcp-server, @codegraph/api, @codegraph/cli
@@ -10,9 +10,6 @@
 
 // Re-export all public types from services/types
 export type {
-  ServiceSearchResult,
-  ServiceSymbolResult,
-  ServiceCodeSearchResult,
   ServiceEntityContext,
   ServiceRelatedEntity,
   ServiceDependencyInfo,
@@ -31,14 +28,9 @@ export type {
 
 // Import sub-service implementations
 import {
-  searchEntities,
-  findSymbolImpl,
-  searchCodeImpl,
-  hybridSearchCodeImpl,
-  strategySearchImpl,
+  searchImpl,
   warmupSearch as warmupSearchImpl,
 } from './services/search-service';
-
 
 import {
   getGraphStatsImpl,
@@ -61,9 +53,6 @@ import {
 
 // Import types needed for method signatures
 import type {
-  ServiceSearchResult,
-  ServiceSymbolResult,
-  ServiceCodeSearchResult,
   EntityWithConnections,
   PaginatedNodesResult,
   NodesQueryOptions,
@@ -72,8 +61,7 @@ import type {
   CypherResult,
 } from './services/types';
 
-import type { HybridSearchResult, CodeNodeType } from './hybridSearch';
-import type { SearchResponse } from './search';
+import type { EnrichedV2Result } from './enrichedSearchV2';
 import type { GraphStats, GraphData, SubgraphData } from '@codegraph/types';
 import type { FileTreeOptions } from '@codegraph/graph';
 import type { ProjectEntity } from '@codegraph/types';
@@ -83,52 +71,13 @@ import type { ProjectEntity } from '@codegraph/types';
 // ============================================================================
 
 class CodeGraphServiceImpl {
-  // --- Search & Discovery ---
+  // --- Search ---
 
   async search(
     query: string,
-    options?: {
-      type?: 'all' | 'file' | 'function' | 'class' | 'interface' | 'component';
-      types?: string[];
-      limit?: number;
-      offset?: number;
-    },
-  ): Promise<{ results: ServiceSearchResult[]; total: number; project?: string }> {
-    return searchEntities(query, options);
-  }
-
-  async findSymbol(
-    name: string,
-    options?: { kind?: 'function' | 'class' | 'interface' | 'variable' | 'any'; file?: string },
-  ): Promise<{ symbol: ServiceSymbolResult | null; alternatives?: ServiceSymbolResult[] }> {
-    return findSymbolImpl(name, options);
-  }
-
-  async searchCode(
-    query: string,
-    options?: { type?: 'name' | 'fulltext' | 'pattern'; scope?: string },
-  ): Promise<ServiceCodeSearchResult[]> {
-    return searchCodeImpl(query, options);
-  }
-
-  async hybridSearchCode(
-    query: string,
-    options?: {
-      limit?: number;
-      nodeTypes?: CodeNodeType[];
-      includeKnowledge?: boolean;
-      scope?: string;
-    },
-  ): Promise<HybridSearchResult> {
-    return hybridSearchCodeImpl(query, options);
-  }
-
-  async strategySearch(
-    query: string,
-    strategy: string,
     options?: { limit?: number; scope?: string },
-  ): Promise<SearchResponse> {
-    return strategySearchImpl(query, strategy, options);
+  ): Promise<EnrichedV2Result> {
+    return searchImpl(query, options);
   }
 
   // --- Graph Stats ---

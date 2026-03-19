@@ -6,7 +6,7 @@
  */
 
 import type { ToolDefinition } from '../tools/consolidated';
-import { searchCode, type SearchCodeInput } from '../tools/searchCode';
+import { searchCode } from '../tools/searchCode';
 import { getContext, type GetContextInput } from '../tools/getContext';
 import { getRepoMap, type RepoMapInput } from '../tools/repoMap';
 import { checkSetupRequired } from '../tools/configureProjects';
@@ -152,13 +152,9 @@ export async function handleSearch(args: Record<string, unknown>): Promise<unkno
       const queryCheck = validateQueryLength(input.query);
       if (!queryCheck.valid) return { error: queryCheck.error };
 
-      const searchInput: SearchCodeInput = {
-        query: input.query,
-        type: (input.type as SearchCodeInput['type']) || 'semantic',
-        scope: input.scope || 'all',
-      };
-      if (input.strategy) searchInput.strategy = input.strategy as NonNullable<SearchCodeInput['strategy']>;
-      if (input.language) searchInput.language = input.language;
+      const searchInput: { query: string; scope?: string; limit?: number } = { query: input.query };
+      if (input.scope) searchInput.scope = input.scope;
+      if (input.limit) searchInput.limit = input.limit;
       result = await searchCode(searchInput);
       toolUsed = 'search_code';
       break;

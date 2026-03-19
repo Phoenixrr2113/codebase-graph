@@ -382,15 +382,9 @@ const rawHandlers: Record<string, ToolHandler> = {
   // ==== Symbol & code tools ====
 
   search_code: async (args) => {
-    const input = {
-      query: args.query as string,
-      type: (args.type as 'name' | 'fulltext' | 'pattern') || 'name',
-      scope: (args.scope as string) || 'all',
-    } as SearchCodeInput;
-    if (args.language != null) input.language = args.language as string;
-    if (typeof args.strategy === 'string') {
-      input.strategy = args.strategy as NonNullable<SearchCodeInput['strategy']>;
-    }
+    const input: SearchCodeInput = { query: args.query as string };
+    if (args.scope && args.scope !== 'all') input.scope = args.scope as string;
+    if (args.limit) input.limit = args.limit as number;
     return searchCode(input);
   },
 

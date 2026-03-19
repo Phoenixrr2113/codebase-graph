@@ -1,162 +1,56 @@
 /**
  * Search routes - /api/search
- * Full-text search and hybrid (vector + text + graph) search across graph entities
+ * Code search via enrichedSearchV2
  * @module routes/search
  */
 
 import { Hono } from 'hono';
 import type { SearchResult, NodeLabel } from '@codegraph/types';
 import { codeGraphService } from '@codegraph/core';
-import type { CodeNodeType } from '@codegraph/core';
 
 const search = new Hono();
 
 /**
  * GET /api/search
- * Search entities by name using fuzzy matching
+ * Search code by name or meaning.
  *
  * @query q - Search query string (required)
- * @query types - Comma-separated node types to filter (e.g., "Function,Class")
- * @query limit - Maximum results to return (default: 50)
- * @query page - Page number for pagination (default: 1)
- * @query projectId - Project ID to filter by
- * @returns Search results with query echo, count, and pagination
- *
- * @example
- * GET /api/search?q=processPayment&types=Function&limit=10&projectId=abc-123
+ * @query limit - Maximum results (default: 20)
+ * @query scope - Path prefix to scope search
  */
 search.get('/', async (c) => {
   const q = c.req.query('q') ?? '';
-  const typesParam = c.req.query('types');
   const limitParam = c.req.query('limit');
-  const pageParam = c.req.query('page');
-  const projectId = c.req.query('projectId');
+  const scope = c.req.query('scope');
 
   if (!q.trim()) {
-    return c.json({
-      query: q,
-      results: [] as SearchResult[],
-      count: 0,
-      pagination: {
-        page: 1,
-        limit: 50,
-        totalCount: 0,
-        totalPages: 0,
-        hasMore: false,
-      },
-    });
+    return c.json({ query: q, results: [] as SearchResult[], count: 0 });
   }
 
-  const types = typesParam
-    ? (typesParam.split(',') as NodeLabel[])
-    : undefined;
-  const limit = limitParam ? Math.min(parseInt(limitParam, 10), 100) : 50;
-  const page = pageParam ? parseInt(pageParam, 10) : 1;
+  const limit = limitParam ? Math.min(parseInt(limitParam, 10), 100) : 20;
 
-  // Resolve projectId to rootPath for filtering
-  let rootPath: string | undefined;
-  if (projectId) {
-    rootPath = await codeGraphService.resolveProjectRootPath(projectId);
-  }
-
-  // Map multi-type filter to service single-type (or 'all' with client-side filtering)
-  let serviceType: 'all' | 'file' | 'function' | 'class' | 'interface' | 'component' = 'all';
-  if (types && types.length === 1) {
-    serviceType = types[0]!.toLowerCase() as typeof serviceType;
-  }
-
-  // Server-side pagination via SKIP/LIMIT (QUAL.15)
-  const offset = (page - 1) * limit;
-  const searchOptions: Parameters<typeof codeGraphService.search>[1] = {
-    type: serviceType,
+  const result = await codeGraphService.search(q, {
     limit,
-    offset,
-  };
-  if (types && types.length > 1) {
-    searchOptions.types = types.map(t => t.toLowerCase());
-  }
-  const result = await codeGraphService.search(q, searchOptions);
+    ...(scope ? { scope } : {}),
+  });
 
-  // Map service results to SearchResult format (with generated id)
-  const results: SearchResult[] = result.results.map(r => {
+  const results: SearchResult[] = result.hits.map(h => {
     const sr: SearchResult = {
-      id: r.type === 'File' ? `File:${r.filePath}` : `${r.type}:${r.filePath}:${r.name}:${r.line ?? 0}`,
-      name: r.name,
-      type: r.type as NodeLabel,
-      filePath: r.filePath,
+      id: `${h.nodeType}:${h.filePath}:${h.name}:${h.startLine ?? 0}`,
+      name: h.name,
+      type: h.nodeType as NodeLabel,
+      filePath: h.filePath ?? '',
     };
-    if (r.line !== undefined) sr.line = r.line;
+    if (h.startLine != null) sr.line = h.startLine;
     return sr;
   });
 
-  // Filter by rootPath if specified (still client-side — path scope not in Cypher yet)
-  const filteredResults = rootPath
-    ? results.filter(r => r.filePath?.startsWith(rootPath!))
-    : results;
-
   return c.json({
     query: q,
-    results: filteredResults,
-    count: filteredResults.length,
-    pagination: {
-      page,
-      limit,
-      totalCount: result.total,
-      totalPages: Math.ceil(result.total / limit),
-      hasMore: filteredResults.length === limit,
-    },
+    results,
+    count: results.length,
+    durationMs: result.meta.durationMs,
   });
-});
-
-/**
- * GET /api/search/hybrid
- * Hybrid search combining vector similarity, text matching, and graph traversal
- *
- * @query q - Search query string (required)
- * @query limit - Maximum results to return (default: 30)
- * @query nodeTypes - Comma-separated code node types to filter (e.g., "Function,Class")
- * @query includeKnowledge - Include knowledge graph entities (default: false)
- * @query projectId - Project ID to scope results to
- * @returns HybridSearchResult with ranked hits, related nodes, and timing metadata
- *
- * @example
- * GET /api/search/hybrid?q=authentication&nodeTypes=Function,Class&limit=20&projectId=abc-123
- */
-search.get('/hybrid', async (c) => {
-  const q = c.req.query('q') ?? '';
-  const limitParam = c.req.query('limit');
-  const nodeTypesParam = c.req.query('nodeTypes');
-  const includeKnowledgeParam = c.req.query('includeKnowledge');
-  const projectId = c.req.query('projectId');
-
-  if (!q.trim()) {
-    return c.json({ hits: [], related: [], query: q, totalHits: 0, timing: {} });
-  }
-
-  const limit = limitParam ? Math.min(parseInt(limitParam, 10), 100) : 30;
-  const nodeTypes = nodeTypesParam
-    ? (nodeTypesParam.split(',') as CodeNodeType[])
-    : undefined;
-  const includeKnowledge = includeKnowledgeParam === 'true';
-
-  // Resolve projectId to rootPath for scope filtering
-  let scope: string | undefined;
-  if (projectId) {
-    scope = await codeGraphService.resolveProjectRootPath(projectId);
-  }
-
-  const options: {
-    limit: number;
-    nodeTypes?: CodeNodeType[];
-    includeKnowledge: boolean;
-    scope?: string;
-  } = { limit, includeKnowledge };
-  if (nodeTypes) options.nodeTypes = nodeTypes;
-  if (scope) options.scope = scope;
-
-  const result = await codeGraphService.hybridSearchCode(q, options);
-
-  return c.json(result);
 });
 
 export { search };

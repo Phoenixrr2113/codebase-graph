@@ -142,26 +142,28 @@ export async function getContext(input: GetContextInput): Promise<GetContextOutp
     // Symbol context — uses CodeGraphService
     if (input.symbol) {
       // Find the symbol and its file
-      const findOpts: { file?: string } = {};
-      if (input.file) findOpts.file = input.file;
-      const findResult = await codeGraphService.findSymbol(input.symbol, findOpts);
+      // Find symbol via direct Cypher lookup
+      const fileFilter = input.file ? 'AND n.filePath CONTAINS $file' : '';
+      const findResult = await codeGraphService.executeReadQuery(
+        `MATCH (n) WHERE n.name = $name ${fileFilter} AND (n:Function OR n:Class OR n:Interface OR n:Component OR n:Type) RETURN n.name AS name, labels(n)[0] AS kind, n.filePath AS file, n.startLine AS line, n.endLine AS endLine, n.complexity AS complexity LIMIT 1`,
+        { name: input.symbol, ...(input.file ? { file: input.file } : {}) },
+      );
 
-      if (!findResult.symbol) {
+      const sym = (findResult.results as Record<string, unknown>[])?.[0];
+      if (!sym) {
         return {
           relationships: [],
           error: `Symbol "${input.symbol}" not found${input.file ? ` in ${input.file}` : ''}`,
         };
       }
 
-      // Build entity from findSymbol result
-      const sym = findResult.symbol;
       const entity: EntityContext = {
-        name: sym.name,
-        type: sym.kind,
-        filePath: sym.file,
-        startLine: sym.line,
-        endLine: sym.endLine,
-        complexity: sym.complexity,
+        name: sym.name as string,
+        type: (sym.kind as string)?.toLowerCase() ?? 'unknown',
+        filePath: sym.file as string ?? '',
+        startLine: sym.line as number | undefined,
+        endLine: sym.endLine as number | undefined,
+        complexity: sym.complexity as number | undefined,
       };
 
       // Get relationships via graph queries

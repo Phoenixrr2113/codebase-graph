@@ -25,7 +25,7 @@
  *   pnpm build && npx tsx scripts/benchmark-search.ts [label] [--reindex] [--no-llm] [--fast-only] [--no-embeddings] [--analysis]
  */
 
-const { getGraphClient, closeGraphClient, indexProject, createDefaultSearchRegistry, codeGraphService, registerPlugins } =
+const { getGraphClient, closeGraphClient, indexProject, codeGraphService, enrichedSearchV2, hybridSearch, registerPlugins } =
   await import('../packages/core/dist/index.js');
 const { createOperations } = await import('../packages/graph/dist/index.js');
 const { getLLMModel, getLLMComplexModel, isLLMAvailable, warmupLLM, getLLMConfigResolved, warmupEmbedding } =
@@ -540,25 +540,9 @@ async function main() {
   console.log(`Graph: ${nodeCount} nodes\n`);
 
   // Step 2: Set up search context
-  const registry = createDefaultSearchRegistry();
-  const context: SearchContext = { client };
-
-  if (!noLlm && isLLMAvailable()) {
-    console.log('Warming up LLM...');
-    await warmupLLM();
-    context.llm = await getLLMModel();
-    if (fastOnly) {
-      context.complexLlm = context.llm;
-    } else {
-      const complexModel = await getLLMComplexModel();
-      if (complexModel) context.complexLlm = complexModel;
-    }
-  }
-
   if (useEmbeddings) {
     console.log('Warming up embedding model...');
     await warmupEmbedding(embeddingConfig);
-    context.embeddings = embeddingConfig;
     console.log(`Embeddings ready (${embeddingProvider})\n`);
   }
 
@@ -583,19 +567,29 @@ async function main() {
 
   for (const tc of HARD_CASES) {
     for (const strategy of tc.strategies) {
-      // Check strategy availability
-      const strat = registry.get(strategy);
-      if (!strat) continue;
-      if (strat.requiresLLM && !context.llm) continue;
+      // Only run strategies we support
+      if (strategy !== 'ENRICHED_V2' && strategy !== 'HYBRID') continue;
 
       const start = Date.now();
       let response: SearchResponse;
 
       try {
-        response = await registry.search(
-          { query: tc.query, type: strategy, limit: 20 },
-          context,
-        );
+        if (strategy === 'ENRICHED_V2') {
+          const v2Result = await enrichedSearchV2(tc.query, client, { limit: 20, embeddings: embeddingConfig });
+          response = {
+            results: v2Result.hits.map((h: any) => ({ name: h.name, nodeType: h.nodeType, score: h.score, sources: h.sources ?? [], filePath: h.filePath, properties: h.properties })),
+            total: v2Result.hits.length,
+            meta: { searchType: 'ENRICHED_V2', durationMs: v2Result.meta.durationMs },
+          };
+        } else {
+          // HYBRID — direct call to hybridSearch
+          const hybridResult = await hybridSearch(tc.query, client, { limit: 20, embeddings: embeddingConfig });
+          response = {
+            results: hybridResult.hits.map((h: any) => ({ name: h.name, nodeType: h.nodeType, score: h.score, sources: h.sources ?? [], filePath: h.filePath })),
+            total: hybridResult.hits.length,
+            meta: { searchType: 'HYBRID', durationMs: hybridResult.meta.durationMs },
+          };
+        }
       } catch (err) {
         const latency = Date.now() - start;
         allResults.push({
