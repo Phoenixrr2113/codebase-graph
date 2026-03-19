@@ -48,6 +48,7 @@ export interface EnrichedV2Hit {
   returnType?: string;
   signature?: string;
   docstring?: string;
+  bodySnippet?: string;
   complexity?: number;
   cognitiveComplexity?: number;
   loc?: number;
@@ -66,10 +67,33 @@ export interface EnrichedV2Options {
   skipReranker?: boolean;
 }
 
-// TODO: Replace with dynamic discovery via `CALL db.indexes()` to find all labels
-// with vector indexes. This hardcoded list is JS/TS-specific and misses File, Entity,
-// and any language-specific node types (e.g. Struct, Module, Decorator).
-const CODE_NODE_TYPES = ['Function', 'Class', 'Interface', 'Component', 'Type', 'Variable'] as const;
+// Dynamic discovery: find which node labels actually have embeddings.
+// Cached after first call — invalidated on reindex via clearEmbeddedLabelCache().
+let _embeddedLabelsCache: string[] | null = null;
+
+async function getEmbeddedLabels(client: GraphClient): Promise<string[]> {
+  if (_embeddedLabelsCache) return _embeddedLabelsCache;
+  try {
+    // Find which labels have nodes with embeddings
+    const result = await client.roQuery<{ label: string }>(
+      `MATCH (n) WHERE n.embedding IS NOT NULL
+       WITH labels(n)[0] AS label
+       RETURN DISTINCT label ORDER BY label`
+    );
+    _embeddedLabelsCache = result.data.map(r => r.label);
+    logger.info(`Discovered embedded labels: ${_embeddedLabelsCache.join(', ')}`);
+  } catch {
+    // Fallback: common labels that typically have embeddings
+    _embeddedLabelsCache = ['Function', 'Class', 'Interface', 'Component'];
+    logger.warn('Failed to discover embedded labels, using fallback');
+  }
+  return _embeddedLabelsCache;
+}
+
+/** Call after reindex to refresh the label cache */
+export function clearEmbeddedLabelCache(): void {
+  _embeddedLabelsCache = null;
+}
 
 // ============================================================================
 // Reciprocal Rank Fusion (generic)
@@ -209,12 +233,12 @@ async function retrieveCandidates(
   }
 
   const ops = createOperations(client);
+  const labels = await getEmbeddedLabels(client);
   // Wider pool = more candidates for the reranker to choose from.
-  // With 6 types and limit=20: ceil(20*3/6) = 10 per type = ~60 total candidates.
-  const perTypeLimit = Math.max(20, Math.ceil(limit * 5 / CODE_NODE_TYPES.length));
+  const perTypeLimit = Math.max(20, Math.ceil(limit * 5 / labels.length));
 
   const allResults = await Promise.all(
-    CODE_NODE_TYPES.map(nt => ops.searchByVector(nt, queryEmbedding, perTypeLimit)),
+    labels.map(nt => ops.searchByVector(nt as any, queryEmbedding, perTypeLimit)),
   );
 
   const candidates: Candidate[] = [];
@@ -330,6 +354,7 @@ export async function enrichedSearchV2(
         ...(props.returnType ? { returnType: props.returnType as string } : {}),
         ...(props.signature ? { signature: props.signature as string } : {}),
         ...(props.docstring ? { docstring: props.docstring as string } : {}),
+        ...(props.bodySnippet ? { bodySnippet: props.bodySnippet as string } : {}),
         ...(props.complexity != null ? { complexity: props.complexity as number } : {}),
         ...(props.cognitiveComplexity != null ? { cognitiveComplexity: props.cognitiveComplexity as number } : {}),
         ...(props.loc != null ? { loc: props.loc as number } : {}),
