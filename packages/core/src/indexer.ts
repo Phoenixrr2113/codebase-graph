@@ -446,6 +446,8 @@ export async function indexProject(
             { deepAnalysis, includeExternals },
             rootPath,
           );
+          // Skip non-exported variables — they're disconnected noise (62% of graph, zero edges)
+          built.variables = built.variables.filter(v => v.isExported);
           return { file: file.path, built, extracted };
         }),
       );
@@ -662,6 +664,8 @@ export async function indexSingleFile(
       { deepAnalysis: true },
       projectRoot,
     );
+    // Skip non-exported variables
+    parsed.variables = parsed.variables.filter(v => v.isExported);
 
     await ops.batchUpsert(parsed);
 

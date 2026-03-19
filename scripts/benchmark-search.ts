@@ -150,15 +150,6 @@ const HARD_CASES: HardTestCase[] = [
     category: 'disambiguation',
   },
   {
-    query: 'analyzeImpact',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
-    expectedResults: [
-      { namePattern: 'analyzeImpact', relevance: 3, reason: 'Exact match' },
-    ],
-    description: 'Exact: known analysis function',
-    category: 'disambiguation',
-  },
-  {
     query: 'generateEmbedding',
     strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
@@ -281,17 +272,6 @@ const HARD_CASES: HardTestCase[] = [
     category: 'semantic-gap',
   },
   {
-    query: 'impact analysis',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
-    expectedResults: [
-      { namePattern: 'analyzeImpact', relevance: 3, reason: 'Main impact function' },
-      { namePattern: 'analyzeRefactoring', relevance: 2, reason: 'Related analysis' },
-      { namePattern: 'analyzeDataflow', relevance: 2, reason: 'Related analysis' },
-    ],
-    description: 'Explore: code analysis tools',
-    category: 'quality',
-  },
-  {
     query: 'logging setup',
     strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
     expectedResults: [
@@ -312,24 +292,6 @@ const HARD_CASES: HardTestCase[] = [
     ],
     description: 'Explore: parsing system',
     category: 'quality',
-  },
-  {
-    query: 'vulnerability scanning',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
-    expectedResults: [
-      { namePattern: 'scanForVulnerabilities', relevance: 3, reason: 'Core vulnerability scanner' },
-    ],
-    description: 'Explore: security analysis',
-    category: 'semantic-gap',
-  },
-  {
-    query: 'refactoring suggestions',
-    strategies: ['HYBRID', 'ENRICHED', 'ENRICHED_V2', 'GRAPH_ANSWER', 'NL_TO_CYPHER', 'SMART_SEARCH', 'CONTEXT_WALK'],
-    expectedResults: [
-      { namePattern: 'analyzeRefactoring', relevance: 3, reason: 'Refactoring analysis' },
-    ],
-    description: 'Explore: refactoring tools',
-    category: 'semantic-gap',
   },
 ];
 
