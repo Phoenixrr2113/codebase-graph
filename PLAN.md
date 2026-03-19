@@ -63,11 +63,25 @@ Do the same analysis we did on search across the ENTIRE codebase:
 
 ## Phase 3: Enrich Search Response
 
-1. **Cache layer** — in-memory Map, invalidate on reindex or TTL (5 min)
-2. **Richer reranker documents** — include params, returnType, callerCount
-3. **Dynamic CODE_NODE_TYPES** — query graph for labels with vector indexes
-4. **More graph signals** (one at a time, benchmark each):
-   - Test coverage, change recency, dependency depth
+### Response enrichment (surface what's already in the graph):
+1. **Properties** — `properties` field returns `{}` for most hits. Surface: isExported, isAsync, params, returnType, complexity, cognitiveComplexity, loc
+2. **Graph signals** — callerCount, callees (top 5), importerCount, containingFile, testReferences
+3. **Code snippet** — include ~5 lines around function signature so the agent understands without a second read call
+4. **Docstring** — surface the function's docstring/JSDoc if it exists
+
+### Ranking improvements:
+5. **Richer reranker documents** — include params, returnType, callerCount, docstring in reranker input text
+6. **Dynamic CODE_NODE_TYPES** — query graph for labels with vector indexes instead of hardcoded JS list
+7. **Docstring in embedding text** — include docstring when generating embeddings at index time (helps semantic gap queries)
+
+### Performance:
+8. **Cache layer** — in-memory Map<queryHash, result>, invalidate on reindex or TTL (5 min), skip embedding + reranker API calls on repeat queries
+9. **Cold start warmup** — first query is ~600ms (embedding model init). Pre-warm on MCP server start.
+
+### Additional graph signals (one at a time, benchmark each):
+10. Test coverage (does a test file reference this?)
+11. Change recency / churn (git metadata)
+12. Dependency depth (Cypher path query)
 
 ---
 
@@ -76,6 +90,11 @@ Do the same analysis we did on search across the ENTIRE codebase:
 Two queries below MRR 1.0:
 - "graph database connection" → MRR 0.33 (semantic gap → expects `getGraphClient`)
 - "how does indexing work" → MRR 0.50 (expects `indexProject`, gets `IndexStats`)
+
+Root cause: embedding model doesn't bridge the gap between a *description* of what something does and its *name*. Potential fixes:
+- Include docstring in embedding text at index time (so `getGraphClient`'s embedding includes "database connection")
+- Richer reranker documents (so the cross-encoder can see the docstring)
+- Bigger candidate pool (give the reranker more options)
 
 ---
 
