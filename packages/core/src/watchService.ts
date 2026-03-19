@@ -109,8 +109,8 @@ export class WatchService extends EventEmitter {
       },
     });
 
-    // Also watch the project directory for new files
-    this.watcher.add(this.projectPath);
+    // Note: only watching known source files, not the project directory.
+    // New files are picked up on the next incremental reindex.
 
     // Set up event handlers
     this.watcher.on('add', (path) => this.handleFileEvent('add', path));

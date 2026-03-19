@@ -15,7 +15,7 @@ import { getTools, handleToolCall, staticTools } from './tools/consolidated';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { version: SERVER_VERSION } = require('../../package.json') as { version: string };
+const { version: SERVER_VERSION } = require('../package.json') as { version: string };
 
 const logger = createLogger({ namespace: 'MCP:Server' });
 

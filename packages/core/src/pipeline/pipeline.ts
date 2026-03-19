@@ -117,6 +117,7 @@ export const DEFAULT_IGNORE_PATTERNS: readonly string[] = [
   '**/__mocks__/**',
   '**/.next/**',
   '**/.turbo/**',
+  '**/.codegraph/**',
   '**/__pycache__/**',
   '**/.venv/**',
   '**/venv/**',
