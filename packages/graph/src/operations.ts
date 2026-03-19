@@ -100,6 +100,7 @@ const CYPHER = {
         fn.params = $params,
         fn.returnType = $returnType,
         fn.docstring = $docstring,
+        fn.bodySnippet = $bodySnippet,
         fn.complexity = $complexity,
         fn.cognitiveComplexity = $cognitiveComplexity,
         fn.nestingDepth = $nestingDepth,
@@ -468,6 +469,7 @@ const CYPHER = {
         fn.params = item.params,
         fn.returnType = item.returnType,
         fn.docstring = item.docstring,
+        fn.bodySnippet = item.bodySnippet,
         fn.complexity = item.complexity,
         fn.cognitiveComplexity = item.cognitiveComplexity,
         fn.nestingDepth = item.nestingDepth,
@@ -677,7 +679,7 @@ const CYPHER = {
     CREATE (fn:Function {name: item.name, filePath: item.filePath, startLine: item.startLine,
       endLine: item.endLine, isExported: item.isExported, isAsync: item.isAsync,
       isArrow: item.isArrow, params: item.params, returnType: item.returnType,
-      docstring: item.docstring, complexity: item.complexity,
+      docstring: item.docstring, bodySnippet: item.bodySnippet, complexity: item.complexity,
       cognitiveComplexity: item.cognitiveComplexity, nestingDepth: item.nestingDepth,
       sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
     WITH fn
@@ -1883,7 +1885,8 @@ class GraphOperationsImpl implements GraphOperations {
              node.loc AS loc,
              node.params AS params,
              node.returnType AS returnType,
-             node.signature AS signature
+             node.signature AS signature,
+             node.bodySnippet AS bodySnippet
     `;
 
     try {

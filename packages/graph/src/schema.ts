@@ -67,6 +67,7 @@ export interface FunctionNodeProps extends ProvenanceNodeProps {
   params: string; // JSON serialized params
   returnType: string | null;
   docstring: string | null;
+  bodySnippet: string | null;
   complexity: number | null;
   cognitiveComplexity: number | null;
   nestingDepth: number | null;
@@ -243,6 +244,7 @@ export function functionToNodeProps(entity: FunctionEntity): FunctionNodeProps {
     params: JSON.stringify(entity.params),
     returnType: entity.returnType ?? null,
     docstring: entity.docstring ?? null,
+    bodySnippet: entity.bodySnippet ?? null,
     complexity: entity.complexity ?? null,
     cognitiveComplexity: entity.cognitiveComplexity ?? null,
     nestingDepth: entity.nestingDepth ?? null,

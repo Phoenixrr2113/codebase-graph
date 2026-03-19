@@ -93,22 +93,15 @@ export function buildFunctionEmbeddingText(node: FunctionEntity): string {
   // Docstring (first ~200 chars to keep embedding focused)
   const doc = node.docstring?.slice(0, 200)?.trim();
 
-  // Body snippet — gives code-aware embedding models (e.g. voyage-code-3) actual code to understand.
-  // For functions WITH docstrings, use first ~300 chars of body (leave room for docstring).
-  // For functions WITHOUT docstrings, use full ~500 char body — body IS the semantic signal.
-  let bodyText: string | undefined;
-  if (node.bodySnippet) {
-    const maxBody = doc ? 300 : 500;
-    const snippet = node.bodySnippet.slice(0, maxBody).trim();
-    if (snippet.length > 10) { // Skip trivially short bodies
-      bodyText = snippet;
-    }
-  }
+  // NOTE: bodySnippet is stored in the graph for display but NOT included in embedding text.
+  // Testing showed body code adds noise that degrades vector similarity (MRR 0.941 → 0.676).
+  // Greptile research confirms: raw code needs NL translation before embedding.
+  // Docstrings + signature are sufficient for semantic search quality.
 
   // Location context
   const loc = `in ${shortPath(node.filePath)}`;
 
-  return joinParts([sig, mods ? `${mods}.` : undefined, doc ? `${doc}` : undefined, bodyText, loc]);
+  return joinParts([sig, mods ? `${mods}.` : undefined, doc ? `${doc}` : undefined, loc]);
 }
 
 /**
