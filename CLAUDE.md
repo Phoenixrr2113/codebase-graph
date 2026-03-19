@@ -15,11 +15,11 @@ codebase({ action: "configure", projectAction: "set", projects: ["/path/to/proje
 codebase({ action: "reindex", mode: "full" })
 ```
 
-## Tool Reference
+## Tool Reference (5 tools)
 
 ### 1. `search` — Find code
 
-Vector search + cross-encoder reranking. Returns enriched results with complexity, callers, callees.
+Vector search (Voyage code-3) + cross-encoder reranking (Jina reranker-v3). Returns enriched results with complexity, callers, callees, importerCount.
 
 | Action | Use When | Required Params |
 |--------|----------|-----------------|
@@ -34,16 +34,12 @@ search({ action: "context", file: "src/service.ts", includeRelationships: true }
 search({ action: "context", symbol: "hybridSearch" })
 ```
 
-### 2. `knowledge` — Knowledge graph
+### 2. `knowledge` — Knowledge graph (store + recall)
 
 | Action | Use When | Required Params |
 |--------|----------|-----------------|
-| `store_entity` | Record a concept, decision, person, project | `text`, `type` |
-| `store_relationship` | Connect two entities | `headText`, `headType`, `tailText`, `tailType`, `type` |
-| `store_fact` | Extract entities from text | `text` |
-| `query` | Search entities by type/text/semantic | (at least one filter) |
+| `store` | Store entities, relationships, facts, or ingest conversations | `text` |
 | `recall` | "What do I know about X?" | `text` |
-| `ingest` | Bulk-load conversations | `text` |
 
 ### 3. `codebase` — Index management
 
@@ -79,7 +75,7 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 3. `codebase({ action: "source", path: "<file>" })` — read the actual code
 
 ### Knowledge Capture
-1. `knowledge({ action: "ingest", text: "<conversation>", format: "chat" })` — extract entities
+1. `knowledge({ action: "store", text: "<conversation>" })` — extract and store entities
 2. `knowledge({ action: "recall", text: "<topic>" })` — retrieve what was captured
 
 ## Anti-Patterns
@@ -92,5 +88,6 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 ## Environment
 
 - **Graph DB**: FalkorDB (Docker) or FalkorDBLite (embedded)
+- **Search**: Voyage code-3 embeddings + Jina reranker-v3 (MRR 0.944)
 - **Build**: `pnpm turbo build` (monorepo with Turbo)
 - **Test**: `pnpm turbo test`
