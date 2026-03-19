@@ -33,6 +33,7 @@ import type { EmbeddingConfig } from '@codegraph/plugin-nlp';
 import { getGraphClient } from './graphClient';
 import { loadGitignorePatterns } from './watchService';
 import { embedParsedEntities, embedAllParsedEntities } from './embed-pass';
+import { syncGitHistory } from './gitSync';
 import { createLogger } from '@codegraph/logger';
 import { stat, readFile } from 'node:fs/promises';
 import { basename, extname, resolve } from 'node:path';
@@ -96,6 +97,10 @@ export interface IndexStats {
   embedded?: number;
   /** Number of files skipped because they were unchanged */
   skipped?: number;
+  /** Number of git commits synced */
+  commitsProcessed?: number;
+  /** Number of git edges created (MODIFIED_IN, INTRODUCED_IN, DELETED_IN) */
+  gitEdges?: number;
 }
 
 export interface IndexResult {
@@ -568,6 +573,26 @@ export async function indexProject(
       }
     }
 
+    // Git history sync — creates Commit nodes and temporal edges
+    let commitsProcessed = 0;
+    let gitEdges = 0;
+    try {
+      const gitResult = await syncGitHistory(rootPath, graphClient, {
+        maxCommits: 200,
+        includeStats: true,
+      });
+      commitsProcessed = gitResult.commitsProcessed;
+      gitEdges = gitResult.edgesCreated;
+      if (commitsProcessed > 0) {
+        logger.info(`Git sync: ${commitsProcessed} commits, ${gitEdges} edges in ${gitResult.durationMs}ms`);
+      }
+      if (gitResult.errors.length > 0) {
+        logger.warn(`Git sync warnings: ${gitResult.errors.length} errors`);
+      }
+    } catch (err) {
+      logger.warn(`Git sync failed (non-fatal): ${err instanceof Error ? err.message : err}`);
+    }
+
     // Update project metadata
     project.lastParsed = now;
     project.fileCount = totalFiles + skippedCount;
@@ -587,6 +612,8 @@ export async function indexProject(
     };
     if (totalEmbedded > 0) stats.embedded = totalEmbedded;
     if (skippedCount > 0) stats.skipped = skippedCount;
+    if (commitsProcessed > 0) stats.commitsProcessed = commitsProcessed;
+    if (gitEdges > 0) stats.gitEdges = gitEdges;
 
     return {
       success: true,

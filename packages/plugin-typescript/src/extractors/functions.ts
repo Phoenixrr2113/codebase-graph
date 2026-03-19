@@ -263,10 +263,10 @@ function getDocstring(node: Parser.SyntaxNode): string | undefined {
   // Look for comment node immediately before this node
   const parent = node.parent;
   if (!parent) return undefined;
-  
+
   const siblings = parent.children;
   const index = siblings.indexOf(node);
-  
+
   if (index > 0) {
     const prevSibling = siblings[index - 1];
     if (prevSibling && prevSibling.type === 'comment' &&
@@ -274,6 +274,6 @@ function getDocstring(node: Parser.SyntaxNode): string | undefined {
       return prevSibling.text;
     }
   }
-  
+
   return undefined;
 }

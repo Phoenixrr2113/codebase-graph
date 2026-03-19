@@ -23,6 +23,8 @@ export interface LoggerConfig {
   colors?: boolean;
   /** Enable timestamps (default: true) */
   timestamps?: boolean;
+  /** Force all output to stderr (required for MCP stdio transport) */
+  stderr?: boolean;
 }
 
 /** Trace configuration */

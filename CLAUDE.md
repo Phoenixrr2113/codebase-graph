@@ -31,7 +31,7 @@ Vector search (Voyage code-3) + cross-encoder reranking (Jina reranker-v3). Retu
 search({ action: "find", query: "parseProject" })
 search({ action: "find", query: "graph client connection" })
 search({ action: "context", file: "src/service.ts", includeRelationships: true })
-search({ action: "context", symbol: "hybridSearch" })
+search({ action: "context", symbol: "enrichedSearchV2" })
 ```
 
 ### 2. `knowledge` — Knowledge graph (store + recall)

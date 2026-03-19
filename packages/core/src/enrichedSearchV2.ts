@@ -56,6 +56,10 @@ export interface EnrichedV2Hit {
   testReferenceCount?: number;
   /** Shortest dependency chain length from entry points to this symbol */
   dependencyDepth?: number;
+  /** ISO date of the most recent commit modifying the file containing this symbol */
+  lastModified?: string;
+  /** Total number of commits that modified the file containing this symbol */
+  commitCount?: number;
 }
 
 export interface EnrichedV2Options {
@@ -79,7 +83,9 @@ async function getEmbeddedLabels(client: GraphClient): Promise<string[]> {
        WITH labels(n)[0] AS label
        RETURN DISTINCT label ORDER BY label`
     );
-    _embeddedLabelsCache = result.data.map(r => r.label);
+    // Only include code node types that support vector search
+    const validLabels = new Set(['Function', 'Class', 'Interface', 'Component', 'Variable', 'Type', 'File']);
+    _embeddedLabelsCache = result.data.map(r => r.label).filter(l => validLabels.has(l));
     logger.info(`Discovered embedded labels: ${_embeddedLabelsCache.join(', ')}`);
   } catch {
     // Fallback: common labels that typically have embeddings
@@ -151,6 +157,8 @@ interface GraphEnrichment {
   importerCount: number;
   testReferenceCount: number;
   dependencyDepth: number | null;
+  lastModified: string | null;
+  commitCount: number;
 }
 
 async function enrichFromGraph(
@@ -191,7 +199,9 @@ async function enrichFromGraph(
         callees: (row['calleeNames'] as string[]) ?? [],
         importerCount: (row['importers'] as number) ?? 0,
         testReferenceCount: (row['testRefs'] as number) ?? 0,
-        dependencyDepth: null, // Computed separately (path query)
+        dependencyDepth: null,
+        lastModified: null,
+        commitCount: 0,
       });
     }
 
@@ -218,6 +228,43 @@ async function enrichFromGraph(
       }
     } catch (err) {
       logger.debug(`Dependency depth query failed (non-fatal): ${err}`);
+    }
+
+    // Git churn: last modified date and commit count per file
+    // Uses MODIFIED_IN edges from File→Commit (created by syncGitHistory)
+    try {
+      const filePaths = hits.map(h => h.filePath).filter(Boolean) as string[];
+      if (filePaths.length > 0) {
+        const gitCypher = `
+          UNWIND $filePaths AS fp
+          MATCH (f:File {filePath: fp})-[:MODIFIED_IN]->(c:Commit)
+          WITH fp, max(c.date) AS lastMod, count(c) AS commits
+          RETURN fp, lastMod, commits
+        `;
+        const gitResult = await client.roQuery<Record<string, unknown>>(gitCypher, {
+          params: { filePaths },
+        });
+        // Build filePath→git data map, then assign to hits by filePath
+        const gitByFile = new Map<string, { lastModified: string; commitCount: number }>();
+        for (const row of gitResult.data) {
+          gitByFile.set(row['fp'] as string, {
+            lastModified: row['lastMod'] as string,
+            commitCount: row['commits'] as number,
+          });
+        }
+        for (const hit of hits) {
+          if (hit.filePath) {
+            const gitData = gitByFile.get(hit.filePath);
+            const enrichment = map.get(hit.name);
+            if (gitData && enrichment) {
+              enrichment.lastModified = gitData.lastModified;
+              enrichment.commitCount = gitData.commitCount;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      logger.debug(`Git churn query failed (non-fatal): ${err}`);
     }
 
     return map;
@@ -328,17 +375,33 @@ export async function enrichedSearchV2(
   // Sort by vector score for reranker pool selection
   candidates.sort((a, b) => b.score - a.score);
 
+  // Enrich reranker pool with graph data BEFORE reranking
+  // so the cross-encoder can see importance signals (callers, importers, exports)
+  const prerankEnrichments = candidates.length >= 3
+    ? await enrichFromGraph(client, candidates.slice(0, Math.max(limit * 2, 30)))
+    : new Map<string, GraphEnrichment>();
+
   // Reranker: cross-encoder re-scores top candidates
   if (!options.skipReranker && candidates.length >= 3) {
     const rerankPool = candidates.slice(0, Math.max(limit * 2, 30));
     const docs = rerankPool.map(c => {
       const parts: string[] = [`${c.nodeType}: ${c.name}`];
       if (c.filePath) {
-        const relPath = c.filePath.replace(/^.*\/packages\//, 'packages/');
+        const relPath = c.filePath.replace(/^.*\/packages\//, 'packages/').replace(/^.*\/apps\//, 'apps/');
         parts.push(`File: ${relPath}`);
       }
+      if (c.properties.isExported) parts.push('Exported: yes');
       if (c.properties.signature) parts.push(`Signature: ${String(c.properties.signature).slice(0, 200)}`);
       if (c.properties.docstring) parts.push(String(c.properties.docstring).slice(0, 300));
+      // Graph signals help the reranker distinguish core code from leaf/UI code
+      const ge = prerankEnrichments.get(c.name);
+      if (ge) {
+        const signals: string[] = [];
+        if (ge.callerCount > 0) signals.push(`called by ${ge.callerCount} functions`);
+        if (ge.importerCount > 0) signals.push(`imported by ${ge.importerCount} files`);
+        if (ge.callees.length > 0) signals.push(`calls ${ge.callees.join(', ')}`);
+        if (signals.length > 0) parts.push(`Graph: ${signals.join(', ')}`);
+      }
       return parts.join('\n');
     });
 
@@ -360,8 +423,13 @@ export async function enrichedSearchV2(
 
   const topHits = candidates.slice(0, limit);
 
-  // Enrich top hits with graph relationship data (single batch query)
-  const enrichments = await enrichFromGraph(client, topHits);
+  // Reuse pre-rank enrichments; fetch any missing (e.g., if reranker was skipped)
+  let enrichments = prerankEnrichments;
+  const missingHits = topHits.filter(h => !enrichments.has(h.name));
+  if (missingHits.length > 0) {
+    const extra = await enrichFromGraph(client, missingHits);
+    for (const [k, v] of extra) enrichments.set(k, v);
+  }
 
   const durationMs = Date.now() - start;
 
@@ -397,6 +465,8 @@ export async function enrichedSearchV2(
           importerCount: graphData.importerCount,
           ...(graphData.testReferenceCount > 0 && { testReferenceCount: graphData.testReferenceCount }),
           ...(graphData.dependencyDepth != null && { dependencyDepth: graphData.dependencyDepth }),
+          ...(graphData.lastModified && { lastModified: graphData.lastModified }),
+          ...(graphData.commitCount > 0 && { commitCount: graphData.commitCount }),
         }),
       };
     }),

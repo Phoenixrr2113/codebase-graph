@@ -56,3 +56,4 @@ scripts/benchmark-coir/
 
 # MCPB build artifacts
 *.mcpb
+search-query-response.json

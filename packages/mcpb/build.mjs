@@ -95,9 +95,21 @@ const esbuildCmd = [
 console.log('Running esbuild...');
 execSync(esbuildCmd, { stdio: 'inherit', cwd: ROOT });
 
-console.log('Bundle created. Copying native modules...');
+console.log('Bundle created. Installing MCP SDK dependencies...');
 
-// Copy tree-sitter and grammar native modules
+// Install MCP SDK + all transitive deps FIRST (before copying native modules)
+const sdkPkg = { dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' } };
+writeFileSync(resolve(SERVER_DIR, 'package.json'), JSON.stringify(sdkPkg));
+execSync('npm install --production --no-optional --no-audit --no-fund 2>&1', {
+  cwd: SERVER_DIR,
+  stdio: 'pipe',
+});
+rmSync(resolve(SERVER_DIR, 'package.json'), { force: true });
+rmSync(resolve(SERVER_DIR, 'package-lock.json'), { force: true });
+
+console.log('Copying native modules...');
+
+// Copy tree-sitter and grammar native modules ON TOP of the installed deps
 const nmDest = resolve(SERVER_DIR, 'node_modules');
 mkdirSync(nmDest, { recursive: true });
 
@@ -181,11 +193,13 @@ bundleContent = bundleContent.replace(
 );
 writeFileSync(bundlePath, bundleContent);
 
-// Copy MCP SDK's runtime dependencies
-for (const sdkDep of ['zod', 'zod-to-json-schema', 'content-type', 'raw-body', 'eventsource', 'pkce-challenge', 'express-rate-limit']) {
-  const src = resolveRealPath(sdkDep);
-  if (src) {
-    cpSync(src, resolve(nmDest, sdkDep), { recursive: true, dereference: true });
+// MCP SDK already installed above — just copy if not present
+const mcpSdkDest = resolve(nmDest, '@modelcontextprotocol/sdk');
+if (!existsSync(mcpSdkDest)) {
+  const mcpSdkSrc = resolveRealPath('@modelcontextprotocol/sdk');
+  if (mcpSdkSrc) {
+    mkdirSync(resolve(nmDest, '@modelcontextprotocol'), { recursive: true });
+    cpSync(mcpSdkSrc, mcpSdkDest, { recursive: true, dereference: true });
   }
 }
 
@@ -197,8 +211,14 @@ for (const dep of ['node-addon-api', 'prebuild-install', 'node-gyp-build']) {
   }
 }
 
-// Copy manifest.json to dist root
+// Copy manifest.json and create package.json for the bundle
 cpSync(resolve(__dirname, 'manifest.json'), resolve(OUT, 'manifest.json'));
+writeFileSync(resolve(OUT, 'package.json'), JSON.stringify({
+  name: 'codegraph-mcpb',
+  version: '0.1.0',
+  type: 'module',
+  private: true,
+}));
 
 // Copy icon if it exists
 const iconSrc = resolve(__dirname, 'icon.png');

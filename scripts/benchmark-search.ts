@@ -2,9 +2,9 @@
 /**
  * Benchmark: Search Relevance Stress Test
  *
- * Stress-tests HYBRID vs ENRICHED search with ranking-sensitive metrics
- * (MRR, NDCG@5, NDCG@10) on hard queries designed to discriminate between
- * basic search and enrichment-augmented search.
+ * Stress-tests ENRICHED_V2 search with ranking-sensitive metrics
+ * (MRR, NDCG@5, NDCG@10) on hard queries designed to validate
+ * vector + cross-encoder reranking quality.
  *
  * Query categories (from code search literature — CodeSearchNet, CoIR, CoSQA+):
  *   1. Disambiguation: ambiguous terms with many matches, importance should break ties
@@ -34,7 +34,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 // Types for reference (actual values come from dynamic imports)
-type SearchType = 'VECTOR' | 'HYBRID' | 'ENRICHED' | 'GRAPH_ANSWER' | 'NL_TO_CYPHER' | 'SMART_SEARCH' | 'CONTEXT_WALK';
+type SearchType = 'ENRICHED_V2';
 interface SearchContext { client: any; llm?: any; complexLlm?: any; embeddings?: any; }
 interface SearchResponse { results: Array<{ name: string; nodeType: string; score: number; sources: string[]; filePath?: string; properties?: Record<string, unknown> }>; total: number; meta: { searchType: string; durationMs: number; [key: string]: unknown }; answer?: string; routedTo?: SearchType; error?: string; }
 
@@ -125,7 +125,7 @@ const embeddingConfig = useEmbeddings ? { provider: embeddingProvider } : undefi
  */
 interface HardTestCase {
   query: string;
-  /** Run against both HYBRID and ENRICHED for head-to-head */
+  /** Which strategy to run */
   strategies: SearchType[];
   /** Ordered list of expected results with graded relevance */
   expectedResults: Array<{
@@ -154,15 +154,6 @@ const HARD_CASES: HardTestCase[] = [
   // ═══════════════════════════════════════════════════════════════════
   // EXACT: Agent knows the symbol name or close to it
   // ═══════════════════════════════════════════════════════════════════
-  {
-    query: 'hybridSearch',
-    strategies: ['ENRICHED_V2'],
-    expectedResults: [
-      { namePattern: 'hybridSearch', relevance: 3, reason: 'Exact match' },
-    ],
-    description: 'Exact: known function name',
-    category: 'disambiguation',
-  },
   {
     query: 'parseCode',
     strategies: ['ENRICHED_V2'],
@@ -233,14 +224,13 @@ const HARD_CASES: HardTestCase[] = [
     category: 'disambiguation',
   },
   {
-    query: 'search strategy',
+    query: 'search reranking',
     strategies: ['ENRICHED_V2'],
     expectedResults: [
-      { namePattern: 'SearchStrategy', relevance: 3, reason: 'Interface definition' },
-      { namePattern: 'HybridSearchStrategy', relevance: 2, reason: 'Strategy implementation' },
-      { namePattern: 'EnrichedSearchStrategy', relevance: 2, reason: 'Strategy implementation' },
+      { namePattern: 'rerank', relevance: 3, reason: 'Reranker function' },
+      { namePattern: 'enrichedSearchV2', relevance: 2, reason: 'Main search function' },
     ],
-    description: 'Partial: concept with multiple implementations',
+    description: 'Partial: search reranking pipeline',
     category: 'disambiguation',
   },
   {
@@ -588,7 +578,7 @@ async function main() {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // STRESS TEST: Run each query against both HYBRID and ENRICHED
+  // STRESS TEST: Run each query against ENRICHED_V2
   // ══════════════════════════════════════════════════════════════════════════
 
   console.log(`${'═'.repeat(100)}`);

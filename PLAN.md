@@ -198,4 +198,4 @@ Research showed these cannot be consolidated:
 | 03-18 | V2 + Jina v2 | 0.858 | 82% | 86% | 401ms | |
 | 03-18 | V2 + Voyage rerank-2 | 0.808 | 73% | 95% | 394ms | |
 | 03-18 | V1 ENRICHED | 0.802 | 73% | 91% | 213ms | |
-| 03-18 | HYBRID | 0.619 | 55% | 77% | 329ms | |
+| 03-18 | HYBRID (deleted) | 0.619 | 55% | 77% | 329ms | Removed — V2 is the only search |
