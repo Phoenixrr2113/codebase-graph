@@ -247,6 +247,10 @@ async function loadConfigFile(): Promise<Partial<GraphConfig>> {
  * when the package is installed; falls back to FalkorDB (remote) otherwise.
  */
 async function detectDefaultDriver(): Promise<'falkordb' | 'falkordblite'> {
+  // If remote connection is configured, use the remote driver
+  if (process.env['FALKORDB_URL'] || process.env['FALKORDB_HOST']) {
+    return 'falkordb';
+  }
   try {
     await import('falkordblite');
     return 'falkordblite';

@@ -20,6 +20,21 @@ try {
   }
 } catch { /* no .env file */ }
 
+// Validate environment
+{
+  const host = process.env['FALKORDB_HOST'];
+  const driver = process.env['CODEGRAPH_DRIVER'];
+  if (driver === 'falkordblite') {
+    console.error('❌ CODEGRAPH_DRIVER=falkordblite — reindex must run against FalkorDB Docker');
+    process.exit(1);
+  }
+  if (!host && !process.env['FALKORDB_URL']) {
+    console.error('❌ FALKORDB_HOST not set — may connect to wrong database');
+    process.exit(1);
+  }
+  console.log(`✅ Environment: driver=${driver ?? `auto (host=${host})`}`);
+}
+
 import { getGraphClient, closeGraphClient, indexProject, registerPlugins } from '../packages/core/src/index.js';
 import { warmupEmbedding, isEmbeddingAvailable } from '../packages/plugin-nlp/src/index.js';
 

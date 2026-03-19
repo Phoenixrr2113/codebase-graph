@@ -93,15 +93,13 @@ export function buildFunctionEmbeddingText(node: FunctionEntity): string {
   // Docstring (first ~200 chars to keep embedding focused)
   const doc = node.docstring?.slice(0, 200)?.trim();
 
-  // NOTE: bodySnippet is stored in the graph for display but NOT included in embedding text.
-  // Testing showed body code adds noise that degrades vector similarity (MRR 0.941 → 0.676).
-  // Greptile research confirms: raw code needs NL translation before embedding.
-  // Docstrings + signature are sufficient for semantic search quality.
+  // Body snippet (first ~300 chars — gives embedding model context about what the function does)
+  const body = node.bodySnippet?.slice(0, 300)?.trim();
 
   // Location context
   const loc = `in ${shortPath(node.filePath)}`;
 
-  return joinParts([sig, mods ? `${mods}.` : undefined, doc ? `${doc}` : undefined, loc]);
+  return joinParts([sig, mods ? `${mods}.` : undefined, doc ? `${doc}` : undefined, body, loc]);
 }
 
 /**

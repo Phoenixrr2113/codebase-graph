@@ -56,6 +56,47 @@ if (existsSync(envPath)) {
   }
 }
 
+// ============================================================================
+// Environment validation — fail fast if misconfigured
+// ============================================================================
+{
+  const errors: string[] = [];
+
+  // Driver: must connect to FalkorDB Docker, not FalkorDBLite
+  const driver = process.env['CODEGRAPH_DRIVER'];
+  const host = process.env['FALKORDB_HOST'];
+  if (driver === 'falkordblite') {
+    errors.push('CODEGRAPH_DRIVER=falkordblite — benchmark must run against FalkorDB Docker');
+  }
+  if (!host && !process.env['FALKORDB_URL']) {
+    errors.push('FALKORDB_HOST not set — benchmark may connect to wrong database');
+  }
+
+  // Embeddings
+  const embProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'voyage';
+  if (embProvider === 'voyage' && !process.env['VOYAGE_API_KEY']) {
+    errors.push('VOYAGE_API_KEY not set — Voyage embeddings will fail');
+  }
+
+  // Reranker
+  const rerankProvider = process.env['CODEGRAPH_RERANK_PROVIDER'];
+  if (rerankProvider === 'jina' && !process.env['JINA_API_KEY']) {
+    errors.push('JINA_API_KEY not set — Jina reranker will fail');
+  }
+  if (rerankProvider === 'voyage' && !process.env['VOYAGE_API_KEY']) {
+    errors.push('VOYAGE_API_KEY not set — Voyage reranker will fail');
+  }
+
+  if (errors.length > 0) {
+    console.error('\n❌ BENCHMARK ENVIRONMENT ERRORS:');
+    for (const e of errors) console.error(`  • ${e}`);
+    console.error('\nFix your .env or export the variables before running.\n');
+    process.exit(1);
+  }
+
+  console.log(`✅ Environment: driver=${driver ?? `auto (host=${host})`}, embeddings=${embProvider}, reranker=${rerankProvider ?? 'default'}`);
+}
+
 // Parse args
 const args = process.argv.slice(2);
 const reindex = args.includes('--reindex');
