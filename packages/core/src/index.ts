@@ -57,63 +57,30 @@ export type { GitSyncResult, GitSyncOptions } from './gitSync';
 
 
 
-// Pipeline module (moved from @codegraph/parser in Phase 3B-3)
-
-// Pipeline orchestration (WS13)
-export { Task, PipelineRunner, createExtractionPipeline, createParseTask, createExtractTask } from './pipeline';
-export type { ParsedFile, ExtractionPipelineConfig } from './pipeline';
-export type {
-  TaskConfig,
-  TaskResult,
-  PipelineResult,
-  PipelineEvent,
-  PipelineEventType,
-  PipelineRunConfig,
-  ProvenanceMetadata,
-  Provenanceable,
-} from './pipeline';
-
-// Parser core
+// Pipeline — parser, extraction, language registry
 export {
   initParser,
-  isInitialized,
   parseCode,
   parseFile,
-  parseFiles,
   disposeParser,
   getLanguageForExtension,
-} from './pipeline';
-
-export type { SyntaxTree, LanguageType } from './pipeline';
-
-// Extraction pipeline
-export {
   registerPlugins,
   registerTier2Languages,
   createFileEntity,
+  createFileEntityFromContent,
   extractEntitiesForFile,
-  enrichFunctionsWithComplexity,
   buildParsedFileEntities,
   countEntities,
   countEdges,
   getLanguageCategory,
   getSupportedExtensions,
-  getExtensionsForLanguage,
-  isPythonFile,
-  isCSharpFile,
   isMarkdownFile,
-  SUPPORTED_EXTENSIONS,
   DEFAULT_IGNORE_PATTERNS,
-  PYTHON_EXTENSIONS,
-  CSHARP_EXTENSIONS,
   MARKDOWN_EXTENSIONS,
+  languageRegistry,
 } from './pipeline';
 
-export type { PipelineOptions } from './pipeline';
-
-// Language registry
-export { languageRegistry } from './pipeline';
-export type { LanguageRegistry } from './pipeline';
+export type { SyntaxTree, LanguageType, LanguageRegistry } from './pipeline';
 
 // Markdown document processing (via @codegraph/plugin-markdown)
 export {

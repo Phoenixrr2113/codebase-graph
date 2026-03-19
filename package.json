@@ -7,8 +7,6 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --concurrency 22",
-    "dev:api": "turbo run dev --filter=@codegraph/api",
-    "dev:web": "turbo run dev --filter=@codegraph/web",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:e2e": "playwright test",

@@ -26,7 +26,7 @@ export const searchCommand = new Command('search')
           console.log(`\nFound ${result.hits.length} results (${result.meta.durationMs}ms):\n`);
           for (const h of result.hits) {
             const loc = h.startLine ? `:${h.startLine}` : '';
-            console.log(`  [${h.nodeType.padEnd(10)}] ${h.name} (${h.score.toFixed(3)})`);
+            console.log(`  [${h.nodeType.padEnd(10)}] ${h.name}`);
             if (h.filePath) {
               console.log(`              ${h.filePath}${loc}`);
             }
