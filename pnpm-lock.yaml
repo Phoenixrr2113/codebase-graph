@@ -501,6 +501,9 @@ importers:
       tree-sitter-json:
         specifier: ^0.24.0
         version: 0.24.8
+      tree-sitter-julia:
+        specifier: ^0.23.0
+        version: 0.23.1
       tree-sitter-kotlin:
         specifier: ^0.3.0
         version: 0.3.8
@@ -510,6 +513,12 @@ importers:
       tree-sitter-ocaml:
         specifier: ^0.23.0
         version: 0.23.2
+      tree-sitter-powershell:
+        specifier: ^0.25.0
+        version: 0.25.10
+      tree-sitter-ruby:
+        specifier: ^0.23.0
+        version: 0.23.1
       tree-sitter-scala:
         specifier: ^0.22.0
         version: 0.22.1
@@ -519,6 +528,9 @@ importers:
       tree-sitter-verilog:
         specifier: ^0.2.0
         version: 0.2.0
+      tree-sitter-yaml:
+        specifier: ^0.5.0
+        version: 0.5.0
       tree-sitter-zig:
         specifier: ^0.1.0
         version: 0.1.0
@@ -4025,6 +4037,14 @@ packages:
       tree-sitter:
         optional: true
 
+  tree-sitter-julia@0.23.1:
+    resolution: {integrity: sha512-3vShY0GIu8ajR6hXzE0pyUk6kkfg4pGx3Bfzm6lGmR9aC3fe+LgoBMlaFJ7JY+t0fNFccc77J8HVP67ukuDMxQ==}
+    peerDependencies:
+      tree-sitter: ^0.21.1
+    peerDependenciesMeta:
+      tree-sitter:
+        optional: true
+
   tree-sitter-kotlin@0.3.8:
     resolution: {integrity: sha512-A4obq6bjzmYrA+F0JLLoheFPcofFkctNaZSpnDd+GPn1SfVZLY4/GG4C0cYVBTOShuPBGGAOPLM1JWLZQV4m1g==}
     peerDependencies:
@@ -4058,6 +4078,14 @@ packages:
       tree-sitter:
         optional: true
 
+  tree-sitter-powershell@0.25.10:
+    resolution: {integrity: sha512-bEt8QoySpGFnU3aa8WedQyNMaN6aTwy/WUbvIVt0JSKF+BbJoSHNHu+wCbhj7xLMsfB0AuffmiJm+B8gzva8Lg==}
+    peerDependencies:
+      tree-sitter: ^0.25.0
+    peerDependenciesMeta:
+      tree-sitter:
+        optional: true
+
   tree-sitter-python@0.21.0:
     resolution: {integrity: sha512-IUKx7JcTVbByUx1iHGFS/QsIjx7pqwTMHL9bl/NGyhyyydbfNrpruo2C7W6V4KZrbkkCOlX8QVrCoGOFW5qecg==}
     peerDependencies:
@@ -4071,6 +4099,14 @@ packages:
     resolution: {integrity: sha512-yIM9z0oxKIxT7bAtPOhgoVl6gTXlmlIhue7liFT4oBPF/lha7Ha4dQBS82Av6hMMRZoVnFJI8M6mL+SwWoLD3A==}
     peerDependencies:
       tree-sitter: ^0.22.1
+    peerDependenciesMeta:
+      tree-sitter:
+        optional: true
+
+  tree-sitter-ruby@0.23.1:
+    resolution: {integrity: sha512-d9/RXgWjR6HanN7wTYhS5bpBQLz1VkH048Vm3CodPGyJVnamXMGb8oEhDypVCBq4QnHui9sTXuJBBP3WtCw5RA==}
+    peerDependencies:
+      tree-sitter: ^0.21.1
     peerDependenciesMeta:
       tree-sitter:
         optional: true
@@ -4119,6 +4155,9 @@ packages:
 
   tree-sitter-verilog@0.2.0:
     resolution: {integrity: sha512-pRaMHKsiNe9ytEoh3pnJX5IYlu/Nv0B7SX5h0QIx6jW6fyKzmjfS7Cj/YxxsiVNB2ppakbu7ofq80/4GqTs9XQ==}
+
+  tree-sitter-yaml@0.5.0:
+    resolution: {integrity: sha512-POJ4ZNXXSWIG/W4Rjuyg36MkUD4d769YRUGKRqN+sVaj/VCo6Dh6Pkssn1Rtewd5kybx+jT1BWMyWN0CijXnMA==}
 
   tree-sitter-zig@0.1.0:
     resolution: {integrity: sha512-Ky5+72K6sYCqCIkYixqCkoRQX/RGk6L/MpQvdDyau9BeB8Cd16SoEDW6nmef4LGVhs0xIhhN2MkZ/62/tPF/tA==}
@@ -7799,6 +7838,12 @@ snapshots:
       node-gyp-build: 4.8.4
     optional: true
 
+  tree-sitter-julia@0.23.1:
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+    optional: true
+
   tree-sitter-kotlin@0.3.8:
     dependencies:
       node-addon-api: 7.1.1
@@ -7825,6 +7870,12 @@ snapshots:
     optionalDependencies:
       tree-sitter: 0.22.4
 
+  tree-sitter-powershell@0.25.10:
+    dependencies:
+      node-addon-api: 7.1.1
+      node-gyp-build: 4.8.4
+    optional: true
+
   tree-sitter-python@0.21.0(tree-sitter@0.22.4):
     dependencies:
       node-addon-api: 7.1.1
@@ -7837,6 +7888,12 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.22.4
+
+  tree-sitter-ruby@0.23.1:
+    dependencies:
+      node-addon-api: 8.5.0
+      node-gyp-build: 4.8.4
+    optional: true
 
   tree-sitter-rust@0.23.1(tree-sitter@0.22.4):
     dependencies:
@@ -7875,6 +7932,11 @@ snapshots:
       tree-sitter: 0.22.4
 
   tree-sitter-verilog@0.2.0:
+    dependencies:
+      nan: 2.25.0
+    optional: true
+
+  tree-sitter-yaml@0.5.0:
     dependencies:
       nan: 2.25.0
     optional: true
