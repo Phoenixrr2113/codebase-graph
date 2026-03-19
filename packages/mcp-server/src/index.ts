@@ -8,6 +8,9 @@
  *   codegraph-mcp                               # via npm bin link
  */
 
+// MCP stdio transport requires stdout to be clean JSON-RPC — force all logs to stderr
+process.env.CODEGRAPH_LOG_STDERR = 'true';
+
 import { createMCPServer } from './server';
 import {
   closeGraphClient,

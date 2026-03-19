@@ -38,7 +38,7 @@ import { createLogger } from '@codegraph/logger';
 import { stat, readFile } from 'node:fs/promises';
 import { basename, extname, resolve } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
-import { availableParallelism } from 'node:os';
+import { cpus } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { glob } from 'glob';
@@ -50,7 +50,7 @@ const logger = createLogger({ namespace: 'Core:Indexer' });
 const MAX_FILE_SIZE_BYTES = 512 * 1024;
 
 /** Default concurrency scales with available CPUs (min 4) */
-const DEFAULT_CONCURRENCY = Math.max(4, availableParallelism());
+const DEFAULT_CONCURRENCY = Math.max(4, cpus().length);
 
 // ============================================================================
 // Embedding backpressure — bounded concurrency for deferred embeddings

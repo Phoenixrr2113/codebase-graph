@@ -10,6 +10,7 @@
  * to the remote FalkorDBDriver.
  */
 
+import { resolve } from 'node:path';
 import type { Graph } from 'falkordb';
 import type { DatabaseDriver, DriverConfig, CypherDialect } from '../driver';
 import type { QueryParams } from '../client';
@@ -44,10 +45,11 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
     // Lazy-import falkordblite so we don't require it at module load time
     const { FalkorDB: FalkorDBLite } = await import('falkordblite');
 
-    // Determine the data path for persistence
-    const dataPath = config.databasePath
+    // Determine the data path for persistence (resolve relative paths against cwd)
+    const rawPath = config.databasePath
       ?? process.env['CODEGRAPH_DB_PATH']
       ?? '.codegraph/falkordb';
+    const dataPath = resolve(rawPath);
 
     // Open embedded FalkorDB instance
     this.db = await FalkorDBLite.open({ path: dataPath });
