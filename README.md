@@ -1,6 +1,6 @@
 # CodeGraph
 
-**Understand your codebase at a glance.** CodeGraph parses your source code, builds a knowledge graph of every function, class, and relationship, then lets you explore, analyze, and query it — visually or through AI assistants.
+**Understand your codebase at a glance.** CodeGraph parses your source code, builds a knowledge graph of every function, class, and relationship, then lets you explore, analyze, and query it through AI assistants.
 
 ![FalkorDB](https://img.shields.io/badge/FalkorDB-Graph%20Database-blue)
 ![FalkorDBLite](https://img.shields.io/badge/FalkorDBLite-Embedded-blue)
@@ -73,16 +73,17 @@ For development or team/enterprise deployments with a shared graph server:
 ```bash
 # Clone and install
 git clone https://github.com/your-org/codegraph.git
-cd codegraph && pnpm install
+cd codegraph && pnpm install && pnpm build
 
 # Start FalkorDB via Docker
 pnpm docker:db
 
-# Start everything (API + Web)
-pnpm start
-```
+# Extract your codebase
+pnpm codegraph extract ./src
 
-Open [http://localhost:3000](http://localhost:3000), add a project, and start exploring.
+# Search your codebase
+pnpm codegraph search "auth"
+```
 
 ## Usage with AI Assistants (MCP)
 
@@ -173,37 +174,30 @@ Tier 2 languages use the generic plugin system with declarative configs. They ex
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Frontend (Next.js 16)                  │
-│     Interactive Graph  •  Entity Detail  •  Source Preview  │
-└───────────────────────────────────────────────────────────┬─┘
-                                                            │ REST + WebSocket
-┌───────────────────────────────────────────────────────────┴─┐
-│                      API (Hono)                             │
-│   Parse Service  •  Search Engine  •  File Watcher         │
+│                    MCP Server (stdio)                        │
+│         4 persona tools  •  raw tools available             │
 └───────────────────────────────────────────────────────────┬─┘
                                                             │
 ┌───────────────────────────────────────────────────────────┴─┐
-│              Graph Database (Driver Abstraction)            │
-│   ┌──────────────────┐  ┌──────────────────┐               │
-│   │ FalkorDB (Docker) │  │ FalkorDBLite     │               │
-│   │ Team / Enterprise │  │ Local / Embedded │               │
-│   └──────────────────┘  └──────────────────┘               │
-│   Nodes: File, Function, Class, Component, Entity, Commit  │
-│   Edges: CALLS, IMPORTS, EXTENDS, RENDERS, RELATES_TO      │
-│   Vector: HNSW indexes on all node types + RELATES_TO       │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                    MCP Server (stdio)                        │
-│         4 persona tools  •  raw tools available             │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                    NLP Pipeline                              │
-│   Entity Extraction  •  Embeddings  •  Bridge Linking       │
-│   Conversation Ingestion  •  Entity Resolution              │
-│   Local: nomic-embed-text-v1.5  •  Cloud: Voyage code-3     │
-└─────────────────────────────────────────────────────────────┘
+│                    Core Service Layer                        │
+│   Indexer  •  Search (enrichedSearchV2)  •  File Watcher   │
+│   Parser Pipeline  •  Git Sync  •  Config Management       │
+└───────────────────────────────────────────────────────────┬─┘
+                                                            │
+┌──────────────────────────┐  ┌─────────────────────────────┴─┐
+│     NLP Pipeline         │  │    Graph Database              │
+│  Entity Extraction       │  │  ┌──────────┐  ┌───────────┐  │
+│  Embeddings (3 tiers)    │  │  │ FalkorDB │  │FalkorDBLite│  │
+│  Reranker (Jina/Voyage)  │  │  │ (Docker) │  │(Embedded) │  │
+│  Bridge Linking          │  │  └──────────┘  └───────────┘  │
+│  Conversation Ingestion  │  │  Nodes: File, Function, Class │
+└──────────────────────────┘  │  Edges: CALLS, IMPORTS, ...   │
+                              │  Vector: HNSW on all types    │
+┌──────────────────────────┐  └───────────────────────────────┘
+│     CLI (codegraph)      │
+│  extract • search • serve│
+│  status • query • embed  │
+└──────────────────────────┘
 ```
 
 ## Packages
@@ -212,21 +206,19 @@ Tier 2 languages use the generic plugin system with declarative configs. They ex
 |---------|-------------|
 | [`@codegraph/core`](packages/core/) | Main orchestrator — parsing, indexing, search, embedding, service layer |
 | [`@codegraph/graph`](packages/graph/) | Driver-agnostic graph database client (FalkorDB, FalkorDBLite) |
-| [`@codegraph/plugin-nlp`](packages/plugin-nlp/) | NLP extraction, embeddings, knowledge graph operations |
+| [`@codegraph/plugin-nlp`](packages/plugin-nlp/) | NLP pipeline — embeddings, reranking, entity extraction, knowledge graph |
 | [`@codegraph/mcp-server`](packages/mcp-server/) | MCP server — 4 persona tools for AI assistants |
-| [`@codegraph/api`](packages/api/) | REST API + WebSocket server (Hono) |
-| [`@codegraph/cli`](packages/cli/) | CLI for extracting and querying code graphs |
-| [`@codegraph/web`](packages/web/) | Next.js 16 frontend with interactive graph visualization |
-| [`@codegraph/logger`](packages/logger/) | Centralized structured logging with OpenTelemetry tracing |
-| [`@codegraph/types`](packages/types/) | Shared TypeScript types |
-| [`@codegraph/plugin-generic`](packages/plugin-generic/) | Generic language plugin factory (`createLanguagePlugin()`) |
-| [`@codegraph/plugin-common`](packages/plugin-common/) | Shared plugin utilities (language registry, extension maps) |
-| [`@codegraph/plugin-languages`](packages/plugin-languages/) | 37 language configs (Java, C#, PHP + 34 tier-2) with lazy grammar loading |
-| `@codegraph/plugin-typescript` | TypeScript/JavaScript language extractor |
-| `@codegraph/plugin-python` | Python language extractor |
-| `@codegraph/plugin-go` | Go language extractor |
-| `@codegraph/plugin-rust` | Rust language extractor |
-| `@codegraph/plugin-markdown` | Markdown document extractor |
+| [`@codegraph/cli`](packages/cli/) | CLI for extracting, searching, and querying code graphs |
+| [`@codegraph/logger`](packages/logger/) | Structured logging with namespace support and stderr mode |
+| [`@codegraph/types`](packages/types/) | Shared TypeScript type definitions for all packages |
+| [`@codegraph/plugin-typescript`](packages/plugin-typescript/) | TypeScript/JavaScript/JSX language plugin |
+| [`@codegraph/plugin-python`](packages/plugin-python/) | Python language plugin |
+| [`@codegraph/plugin-go`](packages/plugin-go/) | Go language plugin |
+| [`@codegraph/plugin-rust`](packages/plugin-rust/) | Rust language plugin |
+| [`@codegraph/plugin-markdown`](packages/plugin-markdown/) | Markdown document parser (sections, code blocks, links) |
+| [`@codegraph/plugin-generic`](packages/plugin-generic/) | Config-driven language plugin factory |
+| [`@codegraph/plugin-common`](packages/plugin-common/) | Shared plugin utilities — complexity metrics, AST helpers |
+| [`@codegraph/plugin-languages`](packages/plugin-languages/) | 34 tier-2 language configs with lazy grammar loading |
 
 ## Configuration
 
@@ -261,12 +253,19 @@ FALKORDB_GRAPH=codegraph
 # FalkorDBLite (when using falkordblite driver)
 CODEGRAPH_DB_PATH=.codegraph/falkordb
 
-# LLM (for AI-powered search and knowledge extraction)
-OPENROUTER_API_KEY=your-key    # OpenRouter (recommended)
-CEREBRAS_API_KEY=your-key      # Cerebras (fastest, used for search routing)
+# Embeddings
+CODEGRAPH_EMBEDDING_PROVIDER=voyage    # voyage | local
+VOYAGE_API_KEY=your-key
+
+# Reranking
+CODEGRAPH_RERANK_PROVIDER=jina         # jina | voyage
+JINA_API_KEY=your-key
+
+# LLM (for knowledge extraction)
+OPENROUTER_API_KEY=your-key            # OpenRouter
 
 # MCP persona mode (default) vs raw tools
-CODEGRAPH_RAW_TOOLS=1          # Set to expose individual tools instead of 4 personas
+CODEGRAPH_RAW_TOOLS=1                  # Set to expose individual tools
 ```
 
 ### Auto-Detection Priority
@@ -287,8 +286,8 @@ Explicit arguments > .codegraph/config.json > Environment variables > Default (f
 
 ```bash
 pnpm install        # Install dependencies
-pnpm build          # Build all 21 packages
-pnpm dev            # Start dev servers (API:3001, Web:3000)
+pnpm build          # Build all packages
+pnpm dev            # Start dev mode
 pnpm test           # Run all tests
 pnpm docker:db      # Start FalkorDB via Docker
 pnpm docker:reset   # Reset FalkorDB (wipe data)
@@ -296,14 +295,14 @@ pnpm docker:reset   # Reset FalkorDB (wipe data)
 
 ## Tech Stack
 
-- **Frontend**: Next.js 16, React 19, Cytoscape.js, Tailwind CSS 4
-- **API**: Hono, WebSocket, Node.js
 - **Parsing**: Tree-sitter — 42 languages (8 tier-1 + 34 tier-2)
-- **Graph DB**: FalkorDB (Docker) or FalkorDBLite (embedded)
-- **Embeddings**: Local (nomic-embed-text-v1.5) + Cloud (Voyage code-3)
-- **LLM**: Vercel AI SDK v6, multi-provider (OpenRouter, Cerebras, Ollama)
-- **Build**: Turborepo, pnpm workspaces, ESM
-- **Testing**: Vitest (36 test files)
+- **Graph DB**: FalkorDB (Docker/Cloud) or FalkorDBLite (embedded)
+- **Search**: Voyage code-3 embeddings + Jina reranker-v3 (MRR 0.944)
+- **Embeddings**: Local (nomic-embed-text-v1.5, 768-dim) + Cloud (Voyage code-3)
+- **LLM**: Vercel AI SDK v6, multi-provider (OpenRouter, Ollama)
+- **Build**: Turborepo, pnpm workspaces, TypeScript 5.7, ESM
+- **Testing**: Vitest, Playwright (e2e)
+- **MCP**: Model Context Protocol SDK for AI assistant integration
 
 ## Roadmap
 
