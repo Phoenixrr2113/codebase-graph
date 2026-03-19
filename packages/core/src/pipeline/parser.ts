@@ -10,7 +10,7 @@
 import TreeSitter from 'tree-sitter';
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
-import { withTrace, createLogger, toErrorMessage } from '@codegraph/logger';
+import { withTrace, createLogger } from '@codegraph/logger';
 import { languageRegistry } from './registry';
 
 const logger = createLogger({ namespace: 'Parser' });
@@ -113,13 +113,6 @@ export async function initParser(): Promise<void> {
 }
 
 /**
- * Check if the parser has been initialized.
- */
-export function isInitialized(): boolean {
-  return initialized;
-}
-
-/**
  * Get the language for a file extension.
  * Queries the language registry dynamically.
  */
@@ -214,39 +207,6 @@ export async function parseFile(filePath: string): Promise<SyntaxTree> {
     syntaxTree.filePath = filePath;
 
     return syntaxTree;
-  });
-}
-
-/**
- * Parse multiple files.
- *
- * @param filePaths - Paths to files to parse
- * @returns Array of parsed syntax trees (or errors)
- */
-export async function parseFiles(
-  filePaths: string[]
-): Promise<Array<{ filePath: string; tree?: SyntaxTree; error?: string }>> {
-  return withTrace('parseFiles', async () => {
-    if (!initialized) {
-      await initParser();
-    }
-
-    logger.info(`Parsing ${filePaths.length} files`);
-    const results: Array<{ filePath: string; tree?: SyntaxTree; error?: string }> = [];
-
-    for (const filePath of filePaths) {
-      try {
-        const tree = await parseFile(filePath);
-        results.push({ filePath, tree });
-      } catch (error) {
-        results.push({
-          filePath,
-          error: toErrorMessage(error),
-        });
-      }
-    }
-
-    return results;
   });
 }
 

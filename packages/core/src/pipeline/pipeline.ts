@@ -9,14 +9,13 @@
  */
 
 import Parser from 'tree-sitter';
-import type { FileEntity, FunctionEntity, ParsedFileEntities, InheritanceReference, CallReference, LanguagePlugin, SyntaxNode as GenericSyntaxNode } from '@codegraph/types';
+import type { FileEntity, ParsedFileEntities, InheritanceReference, CallReference, LanguagePlugin, SyntaxNode as GenericSyntaxNode } from '@codegraph/types';
 import {
   extractAllEntities,
   type ExtractedEntities,
   extractCalls as extractTsCalls,
   extractRenders,
   extractInheritance as extractTsInheritance,
-  calculateComplexity,
   typescriptPlugin,
 } from '@codegraph/plugin-typescript';
 import { resolvePythonImport, pythonPlugin } from '@codegraph/plugin-python';
@@ -133,29 +132,6 @@ export function getSupportedExtensions(): string[] {
   return [...languageRegistry.getSupportedExtensions(), ...MARKDOWN_EXTENSIONS];
 }
 
-/**
- * Get extensions registered for a specific language plugin.
- * @param languageId - Plugin ID (e.g., 'python', 'typescript')
- * @returns Extensions or empty array if language not found
- */
-export function getExtensionsForLanguage(languageId: string): string[] {
-  const plugin = languageRegistry.getById(languageId);
-  return plugin ? [...plugin.extensions] : [];
-}
-
-// Backward-compatible aliases (derived from registry at call time)
-/** @deprecated Use getSupportedExtensions() or languageRegistry.getForExtension() instead */
-export const SUPPORTED_EXTENSIONS: readonly string[] = [
-  // Will be populated after registerPlugins() — for backward compat only
-  '.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs',
-  '.py', '.pyw', '.pyi', '.cs', '.java', '.go', '.rs', '.php',
-  '.md', '.mdx', '.mdc',
-];
-
-/** @deprecated Use getExtensionsForLanguage('python') instead */
-export const PYTHON_EXTENSIONS: readonly string[] = ['.py', '.pyw', '.pyi'];
-/** @deprecated Use getExtensionsForLanguage('csharp') instead */
-export const CSHARP_EXTENSIONS: readonly string[] = ['.cs'];
 
 // ============================================================================
 // Language Detection (Registry-Based)
@@ -165,18 +141,6 @@ export const CSHARP_EXTENSIONS: readonly string[] = ['.cs'];
 export function isMarkdownFile(filePath: string): boolean {
   const ext = extname(filePath).toLowerCase();
   return MARKDOWN_EXTENSIONS.includes(ext as typeof MARKDOWN_EXTENSIONS[number]);
-}
-
-/** @deprecated Use languageRegistry.getForExtension() instead */
-export function isPythonFile(filePath: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  return languageRegistry.getForExtension(ext)?.id === 'python';
-}
-
-/** @deprecated Use languageRegistry.getForExtension() instead */
-export function isCSharpFile(filePath: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  return languageRegistry.getForExtension(ext)?.id === 'csharp';
 }
 
 /**
@@ -245,54 +209,6 @@ export function extractEntitiesForFile(
 
   // Fallback: use TypeScript extractors (default)
   return extractAllEntities(rootNode, filePath);
-}
-
-// ============================================================================
-// Complexity Enrichment
-// ============================================================================
-
-/** Node types that represent function declarations */
-const FUNCTION_TYPES = [
-  'function_declaration',
-  'function_expression',
-  'arrow_function',
-  'method_definition',
-  'generator_function_declaration',
-];
-
-/**
- * Calculate and attach complexity metrics to all functions in extracted entities.
- * Walks the AST to find function nodes and matches them by startLine.
- * Mutates the function entities in place.
- */
-export function enrichFunctionsWithComplexity(
-  rootNode: Parser.SyntaxNode,
-  functions: FunctionEntity[],
-): void {
-  // Build a map of startLine -> function entity for quick lookup
-  const functionsByLine = new Map<number, FunctionEntity>();
-  for (const fn of functions) {
-    functionsByLine.set(fn.startLine, fn);
-  }
-
-  // Walk the AST to find function nodes
-  function walk(node: Parser.SyntaxNode): void {
-    if (FUNCTION_TYPES.includes(node.type)) {
-      const startLine = node.startPosition.row + 1; // Convert to 1-indexed
-      const functionEntity = functionsByLine.get(startLine);
-      if (functionEntity) {
-        const metrics = calculateComplexity(node);
-        functionEntity.complexity = metrics.cyclomatic;
-        functionEntity.cognitiveComplexity = metrics.cognitive;
-        functionEntity.nestingDepth = metrics.nestingDepth;
-      }
-    }
-    for (const child of node.children) {
-      walk(child);
-    }
-  }
-
-  walk(rootNode);
 }
 
 // ============================================================================

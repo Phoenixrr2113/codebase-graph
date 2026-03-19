@@ -114,16 +114,6 @@ export async function clearGraphImpl(): Promise<void> {
 }
 
 /**
- * Delete a file and all its contained entities from the graph.
- * @deprecated Use removeFileAndCleanupImpl for edge-preserving removal (PERF.4)
- */
-export async function deleteFileEntitiesImpl(filePath: string): Promise<void> {
-  const client = await getGraphClient();
-  const ops = createOperations(client);
-  await ops.deleteFileEntities(filePath);
-}
-
-/**
  * Smart file removal (PERF.4) — removes file and its entities while
  * preserving incoming cross-file edges (CALLS, EXTENDS, IMPLEMENTS).
  */

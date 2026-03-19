@@ -77,36 +77,6 @@ describe('Knowledge Graph Operations (FalkorDB)', () => {
     expect(id2).toBe(id1);
   });
 
-  it('should get entity by ID', async () => {
-    const id = await ops.createEntity({
-      text: 'PaymentGateway',
-      type: 'Concept',
-      confidence: 0.85,
-    });
-
-    const entity = await ops.getEntity(id);
-    expect(entity).toBeTruthy();
-    expect(entity!.text).toBe('PaymentGateway');
-    expect(entity!.type).toBe('Concept');
-  });
-
-  it('should get entity by text+type', async () => {
-    await ops.createEntity({
-      text: 'Sprint Planning Meeting',
-      type: 'Event',
-      confidence: 0.9,
-    });
-
-    const entity = await ops.getEntityByText('Sprint Planning Meeting', 'Event');
-    expect(entity).toBeTruthy();
-    expect(entity!.text).toBe('Sprint Planning Meeting');
-  });
-
-  it('should return null for non-existent entity', async () => {
-    const entity = await ops.getEntity('non-existent-id');
-    expect(entity).toBeNull();
-  });
-
   it('should search entities by type', async () => {
     await ops.createEntity({ text: 'Alice', type: 'Person' });
     await ops.createEntity({ text: 'Bob', type: 'Person' });
@@ -272,28 +242,4 @@ describe('Knowledge Graph Operations (FalkorDB)', () => {
     }
   });
 
-  // ============================
-  // Sample Deletion
-  // ============================
-
-  it('should delete entities by sampleId', async () => {
-    const sampleId = 'delete-test-sample';
-    await ops.createEntity({ text: 'DeleteMe1', type: 'Temp', sampleId });
-    await ops.createEntity({ text: 'DeleteMe2', type: 'Temp', sampleId });
-
-    await ops.deleteSample(sampleId);
-
-    const results = await ops.searchEntities({ textContains: 'DeleteMe' });
-    expect(results.length).toBe(0);
-  });
-
-  // ============================
-  // Cleanup
-  // ============================
-
-  it('should delete all knowledge data', async () => {
-    await ops.deleteAllKnowledge();
-    const stats = await ops.getMemoryStats();
-    expect(stats.totalEntities).toBe(0);
-  });
 });

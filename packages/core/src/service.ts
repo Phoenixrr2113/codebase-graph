@@ -10,13 +10,6 @@
 
 // Re-export all public types from services/types
 export type {
-  ServiceEntityContext,
-  ServiceRelatedEntity,
-  ServiceDependencyInfo,
-  ServiceComplexityHotspot,
-  ServiceComplexitySummary,
-  ServiceProjectInfo,
-  ServiceChangeInfo,
   EntityWithConnections,
   Pagination,
   PaginatedNodesResult,
@@ -42,7 +35,6 @@ import {
   getProjectsImpl,
   deleteProjectImpl,
   clearGraphImpl,
-  deleteFileEntitiesImpl,
   removeFileAndCleanupImpl,
   resolveProjectRootPathImpl,
   executeReadQueryImpl,
@@ -122,10 +114,6 @@ class CodeGraphServiceImpl {
 
   async clearGraph(): Promise<void> {
     return clearGraphImpl();
-  }
-
-  async deleteFileEntities(filePath: string): Promise<void> {
-    return deleteFileEntitiesImpl(filePath);
   }
 
   async removeFileAndCleanup(filePath: string): Promise<void> {

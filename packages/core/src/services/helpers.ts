@@ -11,9 +11,7 @@ export function labelOr(dialect: CypherDialect, alias: string, labels: string[])
   return labels.map(l => dialect.labelCheckExpr(alias, l)).join(' OR ');
 }
 
-/** Standard code entity labels */
-export const CODE_LABELS = ['Function', 'Class', 'Interface', 'Variable', 'Component', 'Type'];
-export const ALL_LABELS = ['File', ...CODE_LABELS];
+export const ALL_LABELS = ['File', 'Function', 'Class', 'Interface', 'Variable', 'Component', 'Type'];
 
 export const VALID_LABELS: NodeLabel[] = [
   'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Import',

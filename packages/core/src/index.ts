@@ -120,9 +120,6 @@ export type {
 export { codeGraphService, warmupSearch } from './service';
 export type { CodeGraphService } from './service';
 export type {
-  ServiceEntityContext,
-  ServiceRelatedEntity,
-  ServiceProjectInfo,
   EntityWithConnections,
   Pagination,
   PaginatedNodesResult,

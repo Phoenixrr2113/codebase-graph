@@ -6,7 +6,7 @@
  * helper functions across 6+ language plugins.
  */
 
-import type { SyntaxNode, ExtractedEntities } from '@codegraph/types';
+import type { SyntaxNode } from '@codegraph/types';
 
 // ============================================================================
 // Complexity Analysis (universal, all languages)
@@ -91,23 +91,3 @@ export function createGrammarHelpers(extensionToGrammar: Record<string, unknown>
   return { getGrammarForExtension, getSupportedExtensions, isSupported };
 }
 
-// ============================================================================
-// Empty Entities Helper
-// ============================================================================
-
-/**
- * Create an empty ExtractedEntities with all arrays initialized.
- * Useful for languages that don't support certain entity types
- * (e.g., Python doesn't have interfaces or React components).
- */
-export function emptyEntities(): ExtractedEntities {
-  return {
-    imports: [],
-    functions: [],
-    classes: [],
-    interfaces: [],
-    variables: [],
-    types: [],
-    components: [],
-  };
-}

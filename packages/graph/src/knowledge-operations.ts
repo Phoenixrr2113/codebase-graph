@@ -148,8 +148,6 @@ const DEFAULT_DECAY_CONFIG: DecayConfig = {
 export interface KnowledgeOperations {
   // --- Entity CRUD ---
   createEntity(entity: KnowledgeEntity): Promise<string>;
-  getEntity(entityId: string): Promise<KnowledgeEntity | null>;
-  getEntityByText(text: string, type: string): Promise<KnowledgeEntity | null>;
   searchEntities(query: { type?: string; textContains?: string; limit?: number }): Promise<EntitySearchResult[]>;
 
   // --- Relationship CRUD ---
@@ -177,19 +175,10 @@ export interface KnowledgeOperations {
   // --- ABOUT Edges (Entity → Code Node bridge) ---
   createAboutEdge(input: AboutEdgeInput): Promise<boolean>;
   getAboutEdgesForEntity(entityText: string, entityType: string, limit?: number): Promise<AboutEdgeResult[]>;
-  getAboutEdgesForCodeNode(targetLabel: string, targetValue: string, limit?: number): Promise<AboutEdgeResult[]>;
-  deleteAboutEdge(entityText: string, entityType: string, targetLabel: string, targetValue: string): Promise<boolean>;
-  countAboutEdges(): Promise<number>;
-
   // --- Entity Resolution ---
-  /** Delete a single entity and all its relationships by text+type */
-  deleteEntity(text: string, type: string): Promise<boolean>;
   /** Merge duplicate entity into canonical: transfer relationships, ABOUT edges, then delete */
   mergeEntities(canonicalText: string, canonicalType: string, duplicateText: string, duplicateType: string): Promise<{ transferredRelationships: number; transferredAboutEdges: number }>;
 
-  // --- Cleanup ---
-  deleteSample(sampleId: string): Promise<void>;
-  deleteAllKnowledge(): Promise<void>;
 }
 
 // ============================================================================
@@ -198,18 +187,6 @@ export interface KnowledgeOperations {
 
 const KG_CYPHER = {
   // --- Entity operations ---
-
-  /** Check if entity exists by text + type */
-  /** Find entity by text+type (used for lookups) */
-  FIND_ENTITY: `
-    MATCH (n:Entity)
-    WHERE n.text = $text AND n.type = $type
-    RETURN n.id as id, n.text as text, n.type as type,
-           n.confidence as confidence, n.relevanceScore as relevanceScore,
-           n.createdAt as createdAt, n.lastAccessedAt as lastAccessedAt,
-           n.accessCount as accessCount
-    LIMIT 1
-  `,
 
   /**
    * Upsert entity — atomic MERGE replaces check-then-insert (QUAL.2).
@@ -245,14 +222,6 @@ const KG_CYPHER = {
     MATCH (n:Entity {text: $text, type: $type})
     SET n.embedding = vecf32($embedding)
     RETURN n.id as id
-  `,
-
-  /** Get entity by ID */
-  GET_ENTITY: `
-    MATCH (n:Entity {id: $id})
-    RETURN n.id as id, n.text as text, n.type as type,
-           n.confidence as confidence, n.relevanceScore as relevanceScore,
-           n.createdAt as createdAt, n.lastAccessedAt as lastAccessedAt
   `,
 
   /** Search entities with optional type/text filters */
@@ -527,21 +496,6 @@ const KG_CYPHER = {
     SET r.sampleIds = coalesce(r.sampleIds, []) + [rel.sampleId]
   `,
 
-  // --- Cleanup ---
-
-  /** Delete all entities from a sample */
-  DELETE_SAMPLE_ENTITIES: `
-    MATCH (n:Entity)
-    WHERE $sampleId IN coalesce(n.sampleIds, [])
-    DETACH DELETE n
-  `,
-
-  /** Delete all knowledge graph data */
-  DELETE_ALL_KNOWLEDGE: `
-    MATCH (n:Entity)
-    DETACH DELETE n
-  `,
-
   // --- Vector Search (FalkorDB native HNSW) ---
 
   /** Vector similarity search on Entity using FalkorDB native HNSW index */
@@ -574,49 +528,6 @@ const KG_CYPHER = {
     LIMIT $limit
   `,
 
-  /** Get all ABOUT edges pointing to a code node (code node ← entities) */
-  GET_ABOUT_FOR_CODE_NODE: `
-    MATCH (e:Entity)-[r:ABOUT]->(t)
-    WHERE labels(t)[0] = $targetLabel
-      AND CASE
-            WHEN $targetLabel = 'File' THEN t.filePath = $targetValue
-            ELSE t.name = $targetValue
-          END
-    RETURN e.text AS entityText, e.type AS entityType,
-           labels(t)[0] AS targetLabel,
-           CASE
-             WHEN t:File THEN t.filePath
-             ELSE t.name
-           END AS targetValue,
-           r.confidence AS confidence, r.method AS method,
-           r.created_at AS createdAt
-    ORDER BY r.confidence DESC
-    LIMIT $limit
-  `,
-
-  /** Delete a specific ABOUT edge */
-  DELETE_ABOUT: `
-    MATCH (e:Entity)-[r:ABOUT]->(t)
-    WHERE e.text = $entityText AND e.type = $entityType
-      AND CASE
-            WHEN $targetLabel = 'File' THEN t.filePath = $targetValue AND t:File
-            WHEN $targetLabel = 'Function' THEN t.name = $targetValue AND t:Function
-            WHEN $targetLabel = 'Class' THEN t.name = $targetValue AND t:Class
-            WHEN $targetLabel = 'Interface' THEN t.name = $targetValue AND t:Interface
-            WHEN $targetLabel = 'Component' THEN t.name = $targetValue AND t:Component
-            WHEN $targetLabel = 'Type' THEN t.name = $targetValue AND t:Type
-            WHEN $targetLabel = 'Variable' THEN t.name = $targetValue AND t:Variable
-            ELSE false
-          END
-    DELETE r
-    RETURN count(r) AS deleted
-  `,
-
-  /** Count all ABOUT edges */
-  COUNT_ABOUT_EDGES: `
-    MATCH (:Entity)-[r:ABOUT]->()
-    RETURN count(r) AS count
-  `,
 };
 
 // ============================================================================
@@ -667,46 +578,6 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
     }
 
     return entityId;
-  }
-
-  @trace()
-  async getEntity(entityId: string): Promise<KnowledgeEntity | null> {
-    const result = await this.client.roQuery<{
-      id: string;
-      text: string;
-      type: string;
-      confidence: number;
-    }>(KG_CYPHER.GET_ENTITY, { params: { id: entityId } });
-
-    if (result.data.length === 0) return null;
-
-    const row = result.data[0]!;
-    return {
-      id: row.id,
-      text: row.text,
-      type: row.type,
-      confidence: row.confidence,
-    };
-  }
-
-  @trace()
-  async getEntityByText(text: string, type: string): Promise<KnowledgeEntity | null> {
-    const result = await this.client.roQuery<{
-      id: string;
-      text: string;
-      type: string;
-      confidence: number;
-    }>(KG_CYPHER.FIND_ENTITY, { params: { text, type } });
-
-    if (result.data.length === 0) return null;
-
-    const row = result.data[0]!;
-    return {
-      id: row.id,
-      text: row.text,
-      type: row.type,
-      confidence: row.confidence,
-    };
   }
 
   @trace()
@@ -1036,56 +907,7 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
     return result.data;
   }
 
-  @trace()
-  async getAboutEdgesForCodeNode(
-    targetLabel: string,
-    targetValue: string,
-    limit = 50,
-  ): Promise<AboutEdgeResult[]> {
-    const result = await this.client.roQuery<AboutEdgeResult>(
-      KG_CYPHER.GET_ABOUT_FOR_CODE_NODE,
-      { params: { targetLabel, targetValue, limit } },
-    );
-    return result.data;
-  }
-
-  @trace()
-  async deleteAboutEdge(
-    entityText: string,
-    entityType: string,
-    targetLabel: string,
-    targetValue: string,
-  ): Promise<boolean> {
-    const result = await this.client.query<{ deleted: number }>(
-      KG_CYPHER.DELETE_ABOUT,
-      { params: { entityText, entityType, targetLabel, targetValue } },
-    );
-    return (result.data[0]?.deleted ?? 0) > 0;
-  }
-
-  @trace()
-  async countAboutEdges(): Promise<number> {
-    const result = await this.client.roQuery<{ count: number }>(
-      KG_CYPHER.COUNT_ABOUT_EDGES,
-      { params: {} },
-    );
-    return result.data[0]?.count ?? 0;
-  }
-
   // --- Entity Resolution ---
-
-  @trace()
-  async deleteEntity(text: string, type: string): Promise<boolean> {
-    const cypher = `
-      MATCH (e:Entity { text: $text, type: $type })
-      DETACH DELETE e
-      RETURN count(e) AS deleted
-    `;
-    const result = await this.client.query<{ deleted: number }>(cypher, {
-      params: { text, type },
-    });
-    return (result.data[0]?.deleted ?? 0) > 0;
-  }
 
   @trace()
   async mergeEntities(
@@ -1182,22 +1004,14 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
     }
 
     // 4. Delete the duplicate entity
-    await this.deleteEntity(duplicateText, duplicateType);
+    await this.client.query(`
+      MATCH (e:Entity { text: $text, type: $type })
+      DETACH DELETE e
+    `, { params: { text: duplicateText, type: duplicateType } });
 
     return { transferredRelationships, transferredAboutEdges };
   }
 
-  // --- Cleanup ---
-
-  @trace()
-  async deleteSample(sampleId: string): Promise<void> {
-    await this.client.query(KG_CYPHER.DELETE_SAMPLE_ENTITIES, { params: { sampleId } });
-  }
-
-  @trace()
-  async deleteAllKnowledge(): Promise<void> {
-    await this.client.query(KG_CYPHER.DELETE_ALL_KNOWLEDGE, { params: {} });
-  }
 }
 
 // ============================================================================

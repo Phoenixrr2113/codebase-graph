@@ -38,24 +38,31 @@
 
 ---
 
-## Phase 2: Codebase-Wide Deep Dive
+## Phase 2: Codebase-Wide Deep Dive — DONE ✅
 
-Do the same analysis we did on search across the ENTIRE codebase:
-- Trace every call chain from MCP tools through core to graph
-- Identify layers of indirection, dead code, unused exports
-- Map what each package actually does vs what it claims to do
-- Use our own search tools to explore and validate
+Audited all packages with 5 parallel agents. Results:
 
-### Packages to audit:
-| Package | Status | Notes |
-|---------|--------|-------|
-| core/src/services/ | ❌ | search-service.ts cleaned, graph-data-service.ts + helpers.ts + types.ts need audit |
-| core/src/pipeline/ | ❌ | Is this all used by the indexer? Or dead? |
-| graph/src/ | ❌ | operations.ts is huge — what's actually called? |
-| plugin-nlp/src/ | ❌ | embeddings, reranker, LLM, bridge-linker — what's dead? |
-| plugin-common/ | ❌ | complexity.ts was deleted but package still exists |
-| api/ | ❌ | Do we even need this? MCP server is the primary interface |
-| web/ (packages/web) | ❌ | Old dashboard, build broken, possibly delete entirely |
+### Deleted entirely:
+- **packages/api/** — old REST API, zero consumers (-2,800 lines)
+- **packages/web/** — old dashboard, zero consumers, build broken (-5,400 lines)
+- **core/src/pipeline/{task,runner,pipeline-tasks,types}.ts** — unused orchestration layer (-820 lines)
+
+### Dead exports removed:
+- **services/types.ts** — 18 dead interfaces (analysis module remnants)
+- **services/graph-data-service.ts** — `deleteFileEntitiesImpl` (deprecated)
+- **services/helpers.ts** — `CODE_LABELS` (unused)
+- **operations.ts** — 2 dead methods + Cypher templates
+- **knowledge-operations.ts** — 8 dead methods + Cypher templates
+- **pipeline/pipeline.ts** — 7 dead exports (deprecated language helpers)
+- **pipeline/parser.ts** — 2 dead exports
+- **plugin-common/index.ts** — `emptyEntities`
+- **core/src/index.ts** — 25+ dead re-exports cleaned
+
+### Kept (all alive):
+- plugin-nlp — all files needed (search infra + knowledge pipeline)
+- plugin-common — used by 7 language plugins
+- pipeline/{pipeline,parser,registry}.ts — indexer uses all
+- services/{search-service,graph-data-service,helpers,types}.ts — used by MCP + service layer
 
 ---
 
@@ -105,13 +112,43 @@ Get FalkorDBLite working so users don't need Docker:
 
 ## Phase 5: Competitive Benchmarking
 
-Research and benchmark against:
-- OpenViking (context database for AI agents)
-- Greptile (code search MCP)
-- Sourcegraph Cody (code context)
-- Continue.dev (code context for LLMs)
+### Approach (inspired by Cognee + Greptile benchmarks)
+Build a code search benchmark similar to Cognee's evaluation methodology:
+- 50+ realistic queries across 3-5 open source repos (not just our own)
+- Mix of exact-name (40%), conceptual (40%), and multi-hop (20%) queries
+- Multiple runs per system for statistical stability
+- Open-source the dataset and eval script
 
-Add results to landing page.
+### Metrics
+- MRR, S@1, S@5 (search quality)
+- Latency (p50, p95)
+- Token cost (input tokens consumed)
+- Setup complexity (time to first search)
+
+### Competitors to benchmark against:
+
+**Code Search:**
+- Greptile MCP — cloud-based, indexes repos, MCP server for agents
+- Sourcegraph Cody MCP — code search + navigation
+- mcp-vector-search — generic vector MCP
+- Repomix / code2prompt — context packing (no search, baseline)
+
+**Knowledge / Memory:**
+- OpenViking — context database for AI agents (LoCoMo benchmark)
+- Cognee — knowledge graph with HotPotQA eval
+- MemO, Graphiti, LightRAG — memory frameworks
+
+### Test Repos (diverse languages/sizes)
+- TypeScript: Cal.com (~500 files)
+- Python: Sentry (~2000 files)
+- Go: Grafana (~3000 files)
+- Small: our own codebase (~340 files)
+
+### Deliverables
+- Public benchmark dataset (queries + expected results)
+- Eval script that runs any MCP tool
+- Results table for landing page
+- Blog post / writeup
 
 ---
 

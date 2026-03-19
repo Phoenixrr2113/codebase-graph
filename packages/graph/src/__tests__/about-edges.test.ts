@@ -209,44 +209,6 @@ describe('ABOUT Edges (Entity → Code Node)', () => {
     expect(labels).toContain('File');
   });
 
-  // ---------- Query: code node → entities ----------
-
-  it('should get entities linked to a function', async () => {
-    const edges = await kg.getAboutEdgesForCodeNode('Function', 'processPayment');
-    expect(edges.length).toBeGreaterThanOrEqual(1);
-    expect(edges[0]!.entityText).toBe('Payment Bug #1234');
-  });
-
-  it('should get entities linked to a file', async () => {
-    const edges = await kg.getAboutEdgesForCodeNode('File', '/src/payment.ts');
-    expect(edges.length).toBeGreaterThanOrEqual(1);
-    expect(edges[0]!.entityText).toBe('Payment Bug #1234');
-  });
-
-  // ---------- Count ----------
-
-  it('should count all ABOUT edges', async () => {
-    const count = await kg.countAboutEdges();
-    expect(count).toBeGreaterThanOrEqual(4); // 3 for Bug + 1 for Decision
-  });
-
-  // ---------- Delete ----------
-
-  it('should delete a specific ABOUT edge', async () => {
-    const deleted = await kg.deleteAboutEdge(
-      'Payment Bug #1234',
-      'Bug',
-      'File',
-      '/src/payment.ts',
-    );
-    expect(deleted).toBe(true);
-
-    // Verify it's gone
-    const edges = await kg.getAboutEdgesForCodeNode('File', '/src/payment.ts');
-    const bugEdges = edges.filter(e => e.entityText === 'Payment Bug #1234');
-    expect(bugEdges).toHaveLength(0);
-  });
-
   // ---------- Edge cases ----------
 
   it('should return false when entity or target does not exist', async () => {

@@ -370,21 +370,6 @@ const CYPHER = {
     DETACH DELETE e
   `,
 
-  // Periodic cleanup: remove entities that have no CONTAINS edge from any File
-  // and no incoming edges from other files (orphans from line number changes)
-  CLEANUP_STALE_ENTITIES: `
-    MATCH (e)
-    WHERE e.filePath IS NOT NULL
-    OPTIONAL MATCH (f:File)-[:CONTAINS]->(e)
-    WITH e, f
-    WHERE f IS NULL
-    OPTIONAL MATCH (other)-[r]->(e)
-    WITH e, r
-    WHERE r IS NULL
-    DETACH DELETE e
-    RETURN count(e) as cleaned
-  `,
-
   // Count nodes for a file
   COUNT_FILE_ENTITIES: `
     MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(e)
@@ -600,12 +585,6 @@ const CYPHER = {
     WITH l, item
     MATCH (d:MarkdownDocument {path: item.filePath})
     MERGE (d)-[:CONTAINS]->(l)
-  `,
-
-  DELETE_DOCUMENT_ENTITIES: `
-    MATCH (d:MarkdownDocument {path: $path})
-    OPTIONAL MATCH (d)-[:CONTAINS]->(child)
-    DETACH DELETE child, d
   `,
 
   // Edge queries use OPTIONAL MATCH + WHERE to avoid FalkorDB crashes on
@@ -1031,12 +1010,6 @@ export interface GraphOperations {
    */
   removeFileAndCleanup(filePath: string): Promise<void>;
 
-  /**
-   * Remove stale entities that are no longer contained by any File node
-   * and have no incoming edges. Useful for periodic cleanup after line shifts.
-   */
-  cleanupStaleEntities(): Promise<{ cleaned: number }>;
-
   clearAll(): Promise<void>;
 
   batchUpsert(entities: ParsedFileEntities): Promise<void>;
@@ -1052,9 +1025,6 @@ export interface GraphOperations {
 
   /** Batch upsert document entities (markdown files: document + sections + codeBlocks + links) */
   batchUpsertDocuments(docsList: ExtractedDocumentEntities[]): Promise<void>;
-
-  /** Delete a markdown document and all its contained entities */
-  deleteDocumentEntities(filePath: string): Promise<void>;
 
   /** Batch update embeddings for multiple entities using UNWIND (7 queries max instead of N) */
   batchUpdateEmbeddings(items: Array<{
@@ -1254,15 +1224,6 @@ class GraphOperationsImpl implements GraphOperations {
     // Step 2: Remove entities from this file that have NO incoming edges from other files
     // Entities with incoming cross-file edges (CALLS, EXTENDS, etc.) are preserved
     await this.client.query(CYPHER.CLEANUP_FILE_ORPHANS, { params: { filePath } });
-  }
-
-  @trace()
-  async cleanupStaleEntities(): Promise<{ cleaned: number }> {
-    const result = await this.client.query<{ cleaned: number }>(
-      CYPHER.CLEANUP_STALE_ENTITIES,
-      { params: {} },
-    );
-    return { cleaned: result.data[0]?.cleaned ?? 0 };
   }
 
   @trace()
@@ -1604,11 +1565,6 @@ class GraphOperationsImpl implements GraphOperations {
       );
     }
     await Promise.all(childOps);
-  }
-
-  @trace()
-  async deleteDocumentEntities(filePath: string): Promise<void> {
-    await this.client.query(CYPHER.DELETE_DOCUMENT_ENTITIES, { params: { filePath } });
   }
 
   @trace()
