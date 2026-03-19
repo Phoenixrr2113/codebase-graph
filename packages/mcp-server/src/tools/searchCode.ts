@@ -5,7 +5,7 @@
  * Delegates to codeGraphService.search() → enrichedSearchV2.
  */
 
-import { codeGraphService } from '@codegraph/core';
+import { codeGraphService, type EnrichedV2Hit } from '@codegraph/core';
 import type { ToolDefinition } from './router';
 
 export interface SearchCodeInput {
@@ -15,14 +15,7 @@ export interface SearchCodeInput {
 }
 
 export interface SearchCodeOutput {
-  results: Array<{
-    name: string;
-    nodeType: string;
-    score: number;
-    filePath?: string;
-    startLine?: number;
-    properties?: Record<string, unknown>;
-  }>;
+  results: EnrichedV2Hit[];
   total: number;
   durationMs: number;
   error?: string;
@@ -65,14 +58,7 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
     const result = await codeGraphService.search(input.query, opts);
 
     return {
-      results: result.hits.map((h) => ({
-        name: h.name,
-        nodeType: h.nodeType,
-        score: h.score,
-        ...(h.filePath ? { filePath: h.filePath } : {}),
-        ...(h.startLine != null ? { startLine: h.startLine } : {}),
-        ...(h.properties ? { properties: h.properties } : {}),
-      })),
+      results: result.hits,
       total: result.hits.length,
       durationMs: result.meta.durationMs,
     };

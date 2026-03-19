@@ -39,9 +39,6 @@ export interface EnrichedV2Hit {
   filePath?: string;
   startLine?: number;
   endLine?: number;
-  score: number;
-  sources: string[];
-  // Node properties (already indexed)
   isExported?: boolean;
   isAsync?: boolean;
   params?: string;
@@ -52,11 +49,9 @@ export interface EnrichedV2Hit {
   complexity?: number;
   cognitiveComplexity?: number;
   loc?: number;
-  // Graph traversal (batch query)
   callerCount?: number;
   callees?: string[];
   importerCount?: number;
-  properties: Record<string, unknown>;
 }
 
 export interface EnrichedV2Options {
@@ -341,12 +336,8 @@ export async function enrichedSearchV2(
       return {
         name: c.name,
         nodeType: c.nodeType,
-        score: c.score,
-        sources: ['vector'],
-        properties: props,
         ...(c.filePath && { filePath: c.filePath }),
         ...(c.startLine != null && { startLine: c.startLine }),
-        // Node properties (already fetched, just surface them)
         ...(props.endLine != null ? { endLine: props.endLine as number } : {}),
         ...(props.isExported != null ? { isExported: props.isExported as boolean } : {}),
         ...(props.isAsync != null ? { isAsync: props.isAsync as boolean } : {}),

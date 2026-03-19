@@ -616,7 +616,7 @@ async function main() {
       try {
         const v2Result = await enrichedSearchV2(tc.query, client, { limit: 20, embeddings: embeddingConfig });
         response = {
-          results: v2Result.hits.map((h: any) => ({ name: h.name, nodeType: h.nodeType, score: h.score, sources: h.sources ?? [], filePath: h.filePath, properties: h.properties })),
+          results: v2Result.hits.map((h: any) => ({ name: h.name, nodeType: h.nodeType, score: 0, sources: [], filePath: h.filePath })),
           total: v2Result.hits.length,
           meta: { searchType: 'ENRICHED_V2', durationMs: v2Result.meta.durationMs },
         };
