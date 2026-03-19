@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
-import { handleToolCall } from '../tools/consolidated';
+import { handleToolCall } from '../tools/router';
 import { registerPlugins } from '@codegraph/core';
 import {
   SRC_DIR,

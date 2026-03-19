@@ -15,7 +15,7 @@
 import { knowledgeService, getKnowledgeOps } from '@codegraph/core';
 import { generateEmbedding, isEmbeddingAvailable } from '@codegraph/plugin-nlp';
 import { createLogger, toErrorMessage } from '@codegraph/logger';
-import type { ToolDefinition } from './consolidated';
+import type { ToolDefinition } from './router';
 
 const logger = createLogger({ namespace: 'MCP:Knowledge' });
 

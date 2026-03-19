@@ -7,7 +7,7 @@
  *   - true: Raw tools exposed alongside personas
  */
 
-import type { ToolDefinition } from '../tools/consolidated';
+import type { ToolDefinition } from '../tools/router';
 import { searchPersonaDefinition, handleSearch } from './search';
 import { knowledgePersonaDefinition, handleKnowledge } from './knowledge';
 import { indexPersonaDefinition, handleIndex } from './codebase';

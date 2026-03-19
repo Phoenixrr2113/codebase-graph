@@ -5,7 +5,7 @@
 
 import { codeGraphService } from '@codegraph/core';
 import { toErrorMessage } from '@codegraph/logger';
-import type { ToolDefinition } from './consolidated';
+import type { ToolDefinition } from './router';
 
 // ============================================================================
 // Schema

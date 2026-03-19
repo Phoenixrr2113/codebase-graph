@@ -1,27 +1,8 @@
 /**
- * MCP Consolidated Tool Registry
+ * MCP Tool Router
  *
- * Exposes ALL tools for LLM codebase context:
- *
- * Core Tools:
- * - ping: Test connectivity
- * - configure_projects: Setup and manage active projects
- * - search: Find files and symbols
- * - get_context: Get detailed context for file/symbol
- * - query: Advanced raw Cypher queries
- * - trigger_reindex: Re-index codebase
- *
- * Additional Tools:
- * - get_index_status: Index health and stats
- * - find_symbol: Find symbol by name with source location
- * - search_code: Search code by name/pattern
- * - explain_code: Code with dependencies, tests, complexity
- * - get_repo_map: Ranked symbol map for context
- * - get_stats: Graph-wide statistics
- * - get_source: Read source code with line ranges
- *
- * Tool descriptions include schema + file tree for LLM context.
- * First-use triggers setup prompt for project selection.
+ * Default mode (4 persona tools): search, knowledge, codebase, query
+ * Raw mode (CODEGRAPH_RAW_TOOLS=true): adds individual tools for power users
  */
 
 import { getContextToolDefinition, getContext, type GetContextInput } from './getContext';
@@ -38,9 +19,8 @@ import {
   type ReindexInput,
 } from './reindex';
 
-// Analysis tools
+// Search tool
 import { searchCodeToolDefinition, searchCode, type SearchCodeInput } from './searchCode';
-import { repoMapToolDefinition, getRepoMap, type RepoMapInput } from './repoMap';
 
 // Knowledge graph tools
 import { knowledgeToolDefinitions, knowledgeHandlers } from './knowledge';
@@ -207,9 +187,8 @@ ${fileTree}
     getStatsToolDefinition,
     getSourceToolDefinition,
 
-    // ---- Symbol & code tools ----
+    // ---- Search tools ----
     searchCodeToolDefinition,
-    repoMapToolDefinition,
 
     // ---- Knowledge graph tools ----
     ...knowledgeToolDefinitions,
@@ -236,7 +215,6 @@ export const staticTools: ToolDefinition[] = useRawTools()
       getStatsToolDefinition,
       getSourceToolDefinition,
       searchCodeToolDefinition,
-      repoMapToolDefinition,
       ...knowledgeToolDefinitions,
     ]
   : personaToolDefinitions;
@@ -386,15 +364,6 @@ const rawHandlers: Record<string, ToolHandler> = {
     if (args.scope && args.scope !== 'all') input.scope = args.scope as string;
     if (args.limit) input.limit = args.limit as number;
     return searchCode(input);
-  },
-
-  get_repo_map: async (args) => {
-    const input = {
-      maxTokens: (args.maxTokens as number) || 2048,
-    } as RepoMapInput;
-    if (args.focusFiles != null) input.focusFiles = args.focusFiles as string[];
-    if (args.focusSymbols != null) input.focusSymbols = args.focusSymbols as string[];
-    return getRepoMap(input);
   },
 
   // ==== Knowledge graph tools ====

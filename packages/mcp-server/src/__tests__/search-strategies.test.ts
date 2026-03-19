@@ -9,7 +9,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { handleToolCall } from '../tools/consolidated';
+import { handleToolCall } from '../tools/router';
 import { searchCode } from '../tools/searchCode';
 import { teardownGraphClient } from './helpers';
 

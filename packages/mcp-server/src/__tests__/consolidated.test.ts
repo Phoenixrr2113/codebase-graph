@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, afterAll } from 'vitest';
-import { handleToolCall } from '../tools/consolidated';
+import { handleToolCall } from '../tools/router';
 import {
   SRC_DIR,
   KNOWN_SYMBOL,

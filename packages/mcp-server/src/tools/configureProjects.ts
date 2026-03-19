@@ -12,7 +12,7 @@ import {
   needsSetup, type ProjectInfo,
 } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
-import type { ToolDefinition } from './consolidated';
+import type { ToolDefinition } from './router';
 
 const logger = createLogger({ namespace: 'MCP:ConfigureProjects' });
 

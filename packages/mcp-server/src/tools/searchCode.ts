@@ -6,7 +6,7 @@
  */
 
 import { codeGraphService } from '@codegraph/core';
-import type { ToolDefinition } from './consolidated';
+import type { ToolDefinition } from './router';
 
 export interface SearchCodeInput {
   query: string;

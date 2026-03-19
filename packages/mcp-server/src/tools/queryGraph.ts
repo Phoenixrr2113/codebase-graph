@@ -5,7 +5,7 @@
  */
 
 import { getGraphClient } from '@codegraph/core';
-import type { ToolDefinition } from './consolidated';
+import type { ToolDefinition } from './router';
 
 // Input schema
 export interface QueryGraphInput {

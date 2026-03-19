@@ -18,7 +18,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { MockLanguageModelV3 } from 'ai/test';
 import { extractAndStore } from '@codegraph/plugin-nlp';
-import { handleToolCall } from '../tools/consolidated';
+import { handleToolCall } from '../tools/router';
 import { teardownGraphClient, assertNoError } from './helpers';
 import { resetKnowledgeOps, getKnowledgeOps } from '@codegraph/core';
 

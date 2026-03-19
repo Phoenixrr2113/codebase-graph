@@ -11,7 +11,7 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types';
 import { createLogger, toErrorMessage } from '@codegraph/logger';
-import { getTools, handleToolCall, staticTools } from './tools/consolidated';
+import { getTools, handleToolCall, staticTools } from './tools/router';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);

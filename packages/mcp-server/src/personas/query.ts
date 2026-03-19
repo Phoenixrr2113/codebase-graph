@@ -4,7 +4,7 @@
  * Consolidates: query_graph
  */
 
-import type { ToolDefinition } from '../tools/consolidated';
+import type { ToolDefinition } from '../tools/router';
 import { queryGraph, type QueryGraphInput } from '../tools/queryGraph';
 import { createLogger } from '@codegraph/logger';
 

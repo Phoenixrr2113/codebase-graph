@@ -5,7 +5,7 @@
  *               get_stats, get_source, ping
  */
 
-import type { ToolDefinition } from '../tools/consolidated';
+import type { ToolDefinition } from '../tools/router';
 import { configureProjects, type ConfigureProjectsInput } from '../tools/configureProjects';
 import { triggerReindex, type ReindexInput } from '../tools/reindex';
 import { codeGraphService, readSourceFile } from '@codegraph/core';

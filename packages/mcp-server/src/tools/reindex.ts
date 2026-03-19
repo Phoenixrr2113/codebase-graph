@@ -9,7 +9,7 @@ import { stat } from 'node:fs/promises';
 import { indexProject, indexSingleFile, getActiveProjectPaths, syncGitHistory } from '@codegraph/core';
 import { getGraphClient } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
-import type { ToolDefinition } from './consolidated';
+import type { ToolDefinition } from './router';
 
 const logger = createLogger({ namespace: 'MCP:Reindex' });
 
