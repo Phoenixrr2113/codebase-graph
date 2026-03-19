@@ -209,7 +209,7 @@ async function retrieveCandidates(
   const ops = createOperations(client);
   // Wider pool = more candidates for the reranker to choose from.
   // With 6 types and limit=20: ceil(20*3/6) = 10 per type = ~60 total candidates.
-  const perTypeLimit = Math.max(10, Math.ceil(limit * 3 / CODE_NODE_TYPES.length));
+  const perTypeLimit = Math.max(20, Math.ceil(limit * 5 / CODE_NODE_TYPES.length));
 
   const allResults = await Promise.all(
     CODE_NODE_TYPES.map(nt => ops.searchByVector(nt, queryEmbedding, perTypeLimit)),
