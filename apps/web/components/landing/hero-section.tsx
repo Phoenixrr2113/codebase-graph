@@ -12,6 +12,7 @@ import { PuzzleTabs } from "@/components/ui/puzzle-tabs"
 const stats = [
   { value: 42, suffix: "", label: "languages" },
   { value: 100, suffix: "%", label: "local & private" },
+  { value: 5, suffix: "", label: "MCP tools" },
 ]
 
 export function HeroSection() {
@@ -174,7 +175,7 @@ export AGNTK_MCP_SERVERS="codegraph"`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.5 }}
-          className="mt-12 sm:mt-14 grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 md:gap-6 max-w-2xl mx-auto"
+          className="mt-12 sm:mt-14 grid grid-cols-3 gap-3 sm:gap-4 md:gap-6 max-w-2xl mx-auto"
           role="list"
           aria-label="Product statistics"
         >
