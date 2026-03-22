@@ -418,9 +418,15 @@ export async function enrichedSearchV2(
     };
   }
 
-  // Check if any nodes have embeddings yet
-  const labels = await getEmbeddedLabels(client);
-  if (labels.length === 0) {
+  // Check if any nodes have embeddings yet (fresh query, not cached)
+  let embeddedCount = 0;
+  try {
+    const countResult = await client.roQuery<{ count: number }>(
+      'MATCH (n) WHERE n.embedding IS NOT NULL RETURN count(n) AS count'
+    );
+    embeddedCount = countResult.data?.[0]?.count ?? 0;
+  } catch { /* non-fatal */ }
+  if (embeddedCount === 0) {
     return {
       hits: [],
       meta: {
