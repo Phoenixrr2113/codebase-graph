@@ -7,7 +7,7 @@
 import type { ToolDefinition } from '../tools/router';
 import { configureProjects, type ConfigureProjectsInput } from '../tools/configureProjects';
 import { triggerReindex, type ReindexInput } from '../tools/reindex';
-import { codeGraphService, readSourceFile } from '@codegraph/core';
+import { codeGraphService, readSourceFile, getGraphClient } from '@codegraph/core';
 import { validateFilePath } from './validation';
 import { createLogger } from '@codegraph/logger';
 
@@ -129,11 +129,25 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
     case 'status': {
       try {
         const stats = await codeGraphService.getGraphStats();
+        // Query embedding coverage per node type
+        let embeddingCoverage: Record<string, number> = {};
+        try {
+          const client = await getGraphClient();
+          const embResult = await client.roQuery<{ label: string; count: number }>(
+            `MATCH (n) WHERE n.embedding IS NOT NULL
+             WITH labels(n)[0] AS label, count(*) AS count
+             RETURN label, count ORDER BY count DESC`
+          );
+          for (const row of embResult.data ?? []) {
+            embeddingCoverage[row.label] = row.count;
+          }
+        } catch { /* non-fatal */ }
         result = {
           totalNodes: stats.totalNodes,
           totalEdges: stats.totalEdges,
           nodesByType: stats.nodesByType,
           edgesByType: stats.edgesByType,
+          embeddingCoverage,
         };
       } catch (error) {
         result = { error: error instanceof Error ? error.message : 'Unknown error getting status' };

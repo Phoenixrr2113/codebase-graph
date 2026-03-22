@@ -30,6 +30,8 @@ export interface EnrichedV2Result {
     query: string;
     vectorHits: number;
     durationMs: number;
+    /** Set when search cannot run — explains why and what to do instead */
+    notice?: string;
   };
 }
 
@@ -402,6 +404,33 @@ export async function enrichedSearchV2(
   const limit = options.limit ?? 20;
   const scope = options.scope;
   const scopePaths = options.scopePaths;
+
+  // Check if embeddings are available before attempting vector search
+  if (!isEmbeddingAvailable(options.embeddings)) {
+    return {
+      hits: [],
+      meta: {
+        query,
+        vectorHits: 0,
+        durationMs: Date.now() - start,
+        notice: 'Embedding provider is not configured. Set VOYAGE_API_KEY or CODEGRAPH_EMBEDDING_PROVIDER. Use the query tool for graph-based searches in the meantime.',
+      },
+    };
+  }
+
+  // Check if any nodes have embeddings yet
+  const labels = await getEmbeddedLabels(client);
+  if (labels.length === 0) {
+    return {
+      hits: [],
+      meta: {
+        query,
+        vectorHits: 0,
+        durationMs: Date.now() - start,
+        notice: 'No embeddings found in the graph yet. Embeddings are generated in the background after reindex — try again shortly. Use the query tool for graph-based searches in the meantime.',
+      },
+    };
+  }
 
   const candidates = await retrieveCandidates(client, query, limit, scope, scopePaths, options.embeddings);
 

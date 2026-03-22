@@ -11,6 +11,19 @@ import { getGraphClient } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
 import type { ToolDefinition } from './router';
 
+/** Query current embedding count from the graph */
+async function getEmbeddedCount(): Promise<number> {
+  try {
+    const client = await getGraphClient();
+    const result = await client.roQuery<{ count: number }>(
+      'MATCH (n) WHERE n.embedding IS NOT NULL RETURN count(n) AS count'
+    );
+    return result.data?.[0]?.count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 const logger = createLogger({ namespace: 'MCP:Reindex' });
 
 // Input schema
@@ -29,6 +42,10 @@ export interface ReindexOutput {
   gitEdgesCreated: number;
   duration: number;
   errors: string[];
+  /** When true, embeddings are generating in the background after this response */
+  embeddingsDeferred?: boolean;
+  /** Current count of nodes that have embeddings (may increase as background embedding runs) */
+  embeddedCount?: number;
 }
 
 // Tool definition for MCP
@@ -84,6 +101,8 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           gitEdgesCreated: 0,
           duration: Date.now() - startTime,
           errors: result.error ? [result.error] : [],
+          embeddingsDeferred: true,
+          embeddedCount: await getEmbeddedCount(),
         };
 
       } else if (scopeStat.isDirectory()) {
@@ -109,6 +128,8 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           gitEdgesCreated: totalGitEdges,
           duration: Date.now() - startTime,
           errors: [...result.errorMessages, ...errors],
+          embeddingsDeferred: true,
+          embeddedCount: await getEmbeddedCount(),
         };
 
       } else {
@@ -175,6 +196,8 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
       gitEdgesCreated: totalGitEdges,
       duration: Date.now() - startTime,
       errors,
+      embeddingsDeferred: true,
+      embeddedCount: await getEmbeddedCount(),
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error during reindex';

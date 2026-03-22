@@ -44,9 +44,6 @@ export type { EmbeddableNodeType } from './embed-nodes';
 export { enrichedSearchV2 } from './enrichedSearchV2';
 export type { EnrichedV2Result, EnrichedV2Hit, EnrichedV2Options } from './enrichedSearchV2';
 
-// Search types (only ENRICHED_V2 exists)
-export type { SearchType } from './search';
-
 // Git history sync
 export { syncGitHistory, getRepoInfo } from './gitSync';
 export type { GitSyncResult, GitSyncOptions } from './gitSync';

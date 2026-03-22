@@ -19,6 +19,7 @@ export interface SearchCodeOutput {
   total: number;
   durationMs: number;
   error?: string;
+  notice?: string;
 }
 
 export const searchCodeToolDefinition: ToolDefinition = {
@@ -61,6 +62,7 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
       results: result.hits,
       total: result.hits.length,
       durationMs: result.meta.durationMs,
+      ...(result.meta.notice && { notice: result.meta.notice }),
     };
   } catch (error) {
     return {
