@@ -15,11 +15,11 @@ codebase({ action: "configure", projectAction: "set", projects: ["/path/to/proje
 codebase({ action: "reindex", mode: "full" })
 ```
 
-## Tool Reference (5 tools)
+## Tool Reference (4 tools)
 
 ### 1. `search` — Find code
 
-Vector search (Voyage code-3) + cross-encoder reranking (Jina reranker-v3). Returns enriched results with complexity, callers, callees, importerCount.
+Vector search + cross-encoder reranking. Returns enriched results with complexity, callers, callees, importerCount.
 
 | Action | Use When | Required Params |
 |--------|----------|-----------------|
@@ -88,6 +88,6 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 ## Environment
 
 - **Graph DB**: FalkorDB (Docker) or FalkorDBLite (embedded)
-- **Search**: Voyage code-3 embeddings + Jina reranker-v3 (MRR 0.944)
+- **Search**: Vector embeddings (local/Voyage/OpenRouter) + cross-encoder reranking (Jina/Voyage) — MRR 0.944
 - **Build**: `pnpm turbo build` (monorepo with Turbo)
 - **Test**: `pnpm turbo test`

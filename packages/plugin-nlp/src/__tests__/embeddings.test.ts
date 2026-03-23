@@ -32,9 +32,17 @@ describe('Embedding config resolution', () => {
     }
   });
 
-  it('defaults to local provider', () => {
+  it('defaults to none when no env set', () => {
     delete process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
-    expect(getEmbeddingProvider()).toBe('local');
+    expect(getEmbeddingProvider()).toBe('none');
+  });
+
+  it('returns none dimensions as 0', () => {
+    expect(getEmbeddingDimensions({ provider: 'none' })).toBe(0);
+  });
+
+  it('none provider is not available', () => {
+    expect(isEmbeddingAvailable({ provider: 'none' })).toBe(false);
   });
 
   it('respects explicit config over env', () => {

@@ -212,10 +212,11 @@ The CLI connects to FalkorDB and uses embedding/reranking providers configured v
 | `FALKORDB_HOST` | FalkorDB host (default: `localhost`) |
 | `FALKORDB_PORT` | FalkorDB port (default: `6379`) |
 | `FALKORDB_GRAPH` | Graph name (default: `codegraph`) |
-| `CODEGRAPH_EMBEDDING_PROVIDER` | Embedding provider: `voyage` or `local` |
-| `VOYAGE_API_KEY` | API key for Voyage embeddings |
-| `CODEGRAPH_RERANK_PROVIDER` | Reranker provider: `jina` or `voyage` |
-| `JINA_API_KEY` | API key for Jina reranker |
+| `VOYAGE_API_KEY` | API key for Voyage embeddings (auto-detects provider) |
+| `OPENROUTER_API_KEY` | API key for OpenRouter embeddings (auto-detects provider) |
+| `JINA_API_KEY` | API key for Jina reranker (auto-detects provider) |
+| `CODEGRAPH_EMBEDDING_PROVIDER` | Optional override: `voyage`, `openrouter`, or `local` |
+| `CODEGRAPH_RERANK_PROVIDER` | Optional override: `jina` or `voyage` |
 | `LOG_LEVEL` | Log verbosity: `debug`, `info`, `warn`, `error` |
 
 ## Dependencies

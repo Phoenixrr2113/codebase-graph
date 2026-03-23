@@ -7,8 +7,6 @@
         "CODEGRAPH_DRIVER": "falkordblite",
         "CODEGRAPH_DB_PATH": ".codegraph/falkordb",
         "VOYAGE_API_KEY": "YOUR_VOYAGE_API_KEY",
-        "CODEGRAPH_RERANK_PROVIDER": "jina",
-        "CODEGRAPH_RERANK_MODEL": "jina-reranker-v3",
         "JINA_API_KEY": "YOUR_JINA_API_KEY"
       }
     }

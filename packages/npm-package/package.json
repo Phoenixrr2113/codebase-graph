@@ -1,0 +1,45 @@
+{
+  "name": "@codegraph/mcp",
+  "version": "0.1.0",
+  "description": "CodeGraph MCP Server — Index any codebase into a graph database. Search by meaning, trace relationships, and manage project knowledge.",
+  "type": "module",
+  "bin": {
+    "codegraph-mcp": "./bin/codegraph-mcp.mjs"
+  },
+  "main": "./server/index.mjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "postinstall": "node postinstall.mjs || true"
+  },
+  "keywords": [
+    "mcp",
+    "code-search",
+    "graph-database",
+    "tree-sitter",
+    "code-index",
+    "falkordb",
+    "embeddings",
+    "semantic-search",
+    "knowledge-graph"
+  ],
+  "author": {
+    "name": "Randy Wilson",
+    "url": "https://codegraph.dev"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://codegraph.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/randywilson/codegraph"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "bin/",
+    "server/",
+    "LICENSE",
+    "README.md",
+    "postinstall.mjs"
+  ]
+}

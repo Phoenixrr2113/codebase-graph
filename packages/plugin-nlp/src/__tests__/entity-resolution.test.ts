@@ -9,7 +9,10 @@
  * Prerequisites: docker compose up -d falkordb
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+
+// These tests use local embeddings
+vi.stubEnv('CODEGRAPH_EMBEDDING_PROVIDER', 'local');
 import { MockLanguageModelV3 } from 'ai/test';
 import {
   createClient,

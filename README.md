@@ -253,13 +253,12 @@ FALKORDB_GRAPH=codegraph
 # FalkorDBLite (when using falkordblite driver)
 CODEGRAPH_DB_PATH=.codegraph/falkordb
 
-# Embeddings
-CODEGRAPH_EMBEDDING_PROVIDER=voyage    # voyage | local
-VOYAGE_API_KEY=your-key
+# Embeddings (auto-detected from API keys)
+VOYAGE_API_KEY=your-key                # → voyage embeddings (1024-dim)
+# OPENROUTER_API_KEY=your-key          # → openrouter embeddings (1536-dim)
 
-# Reranking
-CODEGRAPH_RERANK_PROVIDER=jina         # jina | voyage
-JINA_API_KEY=your-key
+# Reranking (auto-detected from API keys)
+JINA_API_KEY=your-key                  # → jina reranker
 
 # LLM (for knowledge extraction)
 OPENROUTER_API_KEY=your-key            # OpenRouter

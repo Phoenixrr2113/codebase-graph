@@ -8,6 +8,10 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+
+// These tests use local embeddings
+vi.stubEnv('CODEGRAPH_EMBEDDING_PROVIDER', 'local');
+
 import { createClient, createOperations, createKnowledgeOperations } from '@codegraph/graph';
 import type { GraphClient, GraphOperations, KnowledgeOperations } from '@codegraph/graph';
 import type { FileEntity, FunctionEntity, ClassEntity, InterfaceEntity } from '@codegraph/types';

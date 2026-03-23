@@ -397,6 +397,11 @@ export async function indexProject(
         if (useCreatePath) {
           await ops.batchCreateBulk(chunk.map(r => r.built));
         } else {
+          // Incremental: clean up old entities before re-upserting.
+          // removeFileAndCleanup removes the File node + CONTAINS edges, then
+          // deletes orphaned entities that have no incoming cross-file edges.
+          // This prevents stale nodes when functions move lines or get deleted.
+          await Promise.all(chunk.map(r => ops.removeFileAndCleanup(r.file)));
           await ops.batchUpsertBulk(chunk.map(r => r.built));
         }
         await ops.linkProjectFiles(project.id, chunk.map(r => r.file));
@@ -696,6 +701,8 @@ export async function indexSingleFile(
     // Skip non-exported variables
     parsed.variables = parsed.variables.filter(v => v.isExported);
 
+    // Clean up old entities before re-upserting (prevents stale nodes when code moves/deletes)
+    await ops.removeFileAndCleanup(filePath);
     await ops.batchUpsert(parsed);
 
     // Embedding pass — deferred (background) or blocking

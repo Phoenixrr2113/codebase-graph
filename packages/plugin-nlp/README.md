@@ -51,7 +51,7 @@ Cross-encoder reranking for search results. Auto-detects provider from available
 - **`rerank`** — Rerank documents by relevance to a query
 - **`isRerankAvailable`** — Check if a reranker provider is available
 - Graceful degradation: returns original order if no provider is configured or API fails
-- Provider/model overridable via `CODEGRAPH_RERANK_PROVIDER` and `CODEGRAPH_RERANK_MODEL` env vars
+- Auto-detects from API keys; overridable via `CODEGRAPH_RERANK_PROVIDER` and `CODEGRAPH_RERANK_MODEL` env vars
 - Disable entirely with `CODEGRAPH_RERANK=false`
 
 ### Bridge Linking
@@ -128,23 +128,26 @@ COMPLEX_LLM_MODEL=             # override model for complex tier
 
 ### Embeddings
 
-```env
-CODEGRAPH_EMBEDDING_PROVIDER=local   # local | openrouter | voyage (default: local)
-CODEGRAPH_EMBEDDING_MODEL=           # model override for cloud/voyage
-VOYAGE_API_KEY=your-key              # required for voyage provider
-OPENROUTER_API_KEY=your-key          # required for openrouter provider
-```
+Auto-detects provider from API keys. Set `CODEGRAPH_EMBEDDING_PROVIDER` only to override.
 
-Embeddings work without any configuration (local model auto-downloads on first use).
+```env
+VOYAGE_API_KEY=your-key              # → voyage embeddings (1024-dim)
+OPENROUTER_API_KEY=your-key          # → openrouter embeddings (1536-dim)
+# No API key                         # → set CODEGRAPH_EMBEDDING_PROVIDER=local for local (768-dim)
+CODEGRAPH_EMBEDDING_PROVIDER=        # optional override: local | openrouter | voyage
+CODEGRAPH_EMBEDDING_MODEL=           # optional model override
+```
 
 ### Reranker
 
+Auto-detects provider from API keys. Set `CODEGRAPH_RERANK_PROVIDER` only to override.
+
 ```env
-CODEGRAPH_RERANK_PROVIDER=jina  # voyage | jina (default: auto-detect from API keys)
-CODEGRAPH_RERANK_MODEL=         # model override
+JINA_API_KEY=your-key           # → jina reranker
+VOYAGE_API_KEY=your-key         # → voyage reranker (if no JINA_API_KEY)
+CODEGRAPH_RERANK_PROVIDER=      # optional override: jina | voyage
+CODEGRAPH_RERANK_MODEL=         # optional model override
 CODEGRAPH_RERANK=false          # set to disable reranking entirely
-VOYAGE_API_KEY=your-key         # for voyage reranker
-JINA_API_KEY=your-key           # for jina reranker
 ```
 
 ## Tests

@@ -25,6 +25,7 @@ if (major != null && major < 20) {
   process.exit(1);
 }
 
+import { requireLicense } from './license.js';
 import { createMCPServer } from './server';
 import {
   closeGraphClient,
@@ -103,6 +104,11 @@ async function startAutoReindex(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // Validate license before starting (skip in development)
+  if (process.env.NODE_ENV !== 'development' && process.env.CODEGRAPH_LICENSE_SKIP !== 'true') {
+    await requireLicense();
+  }
+
   const server = createMCPServer();
 
   // Handle graceful shutdown

@@ -93,13 +93,10 @@ export function createLogger(config: Partial<LoggerConfig> = {}): Logger {
       return;
     }
 
-    const consoleFn = level === 'error'
-      ? console.error
-      : level === 'warn'
-        ? console.warn
-        : level === 'debug'
-          ? console.debug
-          : console.log;
+    // Always use console.error (writes to stderr) — never console.log (writes to stdout).
+    // This prevents accidental stdout pollution in MCP stdio transport where
+    // CODEGRAPH_LOG_STDERR may not be set yet due to ESM import hoisting.
+    const consoleFn = console.error;
 
     if (args.length > 0) {
       consoleFn(output, ...args);

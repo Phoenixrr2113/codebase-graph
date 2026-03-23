@@ -1,24 +1,15 @@
 /**
- * Three-tier Embedding Generation Utility
+ * Embedding Generation — auto-detects provider from API keys.
  *
- * Tier 1 — LOCAL (default, free, always available):
- *   Uses @huggingface/transformers with nomic-embed-text-v1.5 (768-dim).
- *   Model auto-downloads ~140MB to ~/.cache/huggingface on first use.
- *   No API key needed. Runs on CPU via ONNX runtime. ~10ms/embedding.
+ * Provider resolution order:
+ *   1. Explicit CODEGRAPH_EMBEDDING_PROVIDER env var (override)
+ *   2. VOYAGE_API_KEY present → voyage (voyage-code-3, 1024-dim)
+ *   3. OPENROUTER_API_KEY present → openrouter (text-embedding-3-small, 1536-dim)
+ *   4. CODEGRAPH_EMBEDDING_PROVIDER=local → nomic-embed-text-v1.5 (768-dim, CPU)
  *
- * Tier 2 — CLOUD (opt-in, requires OPENROUTER_API_KEY):
- *   Uses OpenRouter with openai/text-embedding-3-small (1536-dim).
- *   Higher quality for production, costs ~$0.02/1M tokens.
- *   Activated via config: { provider: "openrouter" }
- *
- * Tier 3 — VOYAGE (opt-in, requires VOYAGE_API_KEY):
- *   Uses Voyage AI's voyage-code-3 (1024-dim), optimized for code retrieval.
- *   Outperforms general-purpose models by ~14% on code search benchmarks.
- *   Supports query/document input types for better retrieval accuracy.
- *   First 200M tokens free. Activated via config: { provider: "voyage" }
- *
- * The provider is selected via EmbeddingConfig. Dimensions are determined
- * by the provider (768 local, 1536 cloud, 1024 voyage).
+ * Set CODEGRAPH_EMBEDDING_PROVIDER only to override auto-detection.
+ * If no API key is present and no explicit provider is set, embeddings are
+ * disabled and search will not work.
  */
 
 import { createLogger } from '@codegraph/logger';
@@ -29,10 +20,10 @@ const logger = createLogger({ namespace: 'nlp:embeddings' });
 // Types
 // ---------------------------------------------------------------------------
 
-export type EmbeddingProvider = 'local' | 'openrouter' | 'voyage';
+export type EmbeddingProvider = 'local' | 'openrouter' | 'voyage' | 'none';
 
 export interface EmbeddingConfig {
-  /** Which provider to use. Default: 'local' */
+  /** Which provider to use. Auto-detected from API keys; set CODEGRAPH_EMBEDDING_PROVIDER only to override. */
   provider?: EmbeddingProvider;
   /** Override for local model name (default: 'nomic-ai/nomic-embed-text-v1.5') */
   localModel?: string;
@@ -277,12 +268,19 @@ function resolveProvider(config?: EmbeddingConfig): EmbeddingProvider {
   // Explicit config takes priority
   if (config?.provider) return config.provider;
 
-  // Env var override
+  // Explicit env var takes priority
   const envProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
   if (envProvider === 'openrouter') return 'openrouter';
   if (envProvider === 'voyage') return 'voyage';
+  if (envProvider === 'local') return 'local';
+  if (envProvider === 'none') return 'none';
 
-  return 'local';
+  // Auto-detect from API keys — if you have the key, that's the provider
+  if (process.env['VOYAGE_API_KEY']) return 'voyage';
+  if (process.env['OPENROUTER_API_KEY']) return 'openrouter';
+
+  // Nothing configured — embeddings disabled
+  return 'none';
 }
 
 function resolveLocalModel(config?: EmbeddingConfig): string {
@@ -330,15 +328,20 @@ export function clearEmbeddingCache(): void {
 /**
  * Generate an embedding for a single text.
  *
- * Uses local model (768-dim) by default. Set `config.provider = 'openrouter'`
- * or env `CODEGRAPH_EMBEDDING_PROVIDER=openrouter` for cloud (1536-dim).
- * Set `config.provider = 'voyage'` for code-optimized embeddings (1024-dim).
+ * Auto-detects provider from API keys. Set CODEGRAPH_EMBEDDING_PROVIDER only to override.
+ * Providers: 'local' (768-dim), 'voyage' (1024-dim), 'openrouter' (1536-dim).
  */
 export async function generateEmbedding(
   text: string,
   config?: EmbeddingConfig,
 ): Promise<EmbeddingResult> {
   const provider = resolveProvider(config);
+
+  if (provider === 'none') {
+    throw new Error(
+      'No embedding provider configured. Set VOYAGE_API_KEY, OPENROUTER_API_KEY, or CODEGRAPH_EMBEDDING_PROVIDER=local'
+    );
+  }
 
   if (provider === 'voyage') {
     const model = resolveVoyageModel(config);
@@ -380,6 +383,12 @@ export async function generateEmbeddings(
   config?: EmbeddingConfig,
 ): Promise<EmbeddingBatchResult> {
   const provider = resolveProvider(config);
+
+  if (provider === 'none') {
+    throw new Error(
+      'No embedding provider configured. Set VOYAGE_API_KEY, OPENROUTER_API_KEY, or CODEGRAPH_EMBEDDING_PROVIDER=local'
+    );
+  }
 
   if (texts.length === 0) {
     const dims = provider === 'voyage' ? VOYAGE_DIMENSIONS
@@ -424,6 +433,7 @@ export async function generateEmbeddings(
  */
 export function getEmbeddingDimensions(config?: EmbeddingConfig): number {
   const provider = resolveProvider(config);
+  if (provider === 'none') return 0;
   if (provider === 'voyage') return VOYAGE_DIMENSIONS;
   return provider === 'openrouter' ? CLOUD_DIMENSIONS : LOCAL_DIMENSIONS;
 }
@@ -441,6 +451,7 @@ export function getEmbeddingProvider(config?: EmbeddingConfig): EmbeddingProvide
  */
 export function isEmbeddingAvailable(config?: EmbeddingConfig): boolean {
   const provider = resolveProvider(config);
+  if (provider === 'none') return false;
   if (provider === 'local') return true;
   if (provider === 'voyage') return !!process.env['VOYAGE_API_KEY'];
   return !!process.env['OPENROUTER_API_KEY'];
@@ -455,6 +466,10 @@ export function isEmbeddingAvailable(config?: EmbeddingConfig): boolean {
  */
 export async function warmupEmbedding(config?: EmbeddingConfig): Promise<void> {
   const provider = resolveProvider(config);
+  if (provider === 'none') {
+    logger.warn('No embedding provider configured — set VOYAGE_API_KEY or OPENROUTER_API_KEY. Search will not work.');
+    return;
+  }
   if (provider !== 'local') {
     logger.debug('Embedding warmup skipped (using cloud provider)');
     return;

@@ -22,7 +22,8 @@
     "start": "docker-compose up -d falkordb && turbo run dev --concurrency 15",
     "stop": "docker-compose down",
     "typecheck": "turbo run build --filter=@codegraph/types",
-    "build:mcpb": "turbo run build && node packages/mcpb/build.mjs && cd packages/mcpb/dist && mcpb pack"
+    "build:mcpb": "turbo run build && node packages/mcpb/build.mjs && cd packages/mcpb/dist && mcpb pack",
+    "build:npm": "turbo run build && node packages/mcpb/build.mjs && node packages/npm-package/build.mjs"
   },
   "devDependencies": {
     "@huggingface/transformers": "^3.8.1",
