@@ -3,14 +3,18 @@
 import { useState, useCallback } from 'react'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { GraphCanvas, type GraphNode } from './graph-canvas'
+import { GraphLegend } from './graph-legend'
 import { SearchPanel } from './search-panel'
 import { EntityDetail } from './entity-detail'
+import { QueryPanel } from './query-panel'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
 export function AppShell() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [highlightedNames, setHighlightedNames] = useState<Set<string>>(new Set())
+  const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(new Set())
+  const [showQuery, setShowQuery] = useState(false)
 
   const handleNodeSelect = useCallback((node: GraphNode | null) => {
     setSelectedNode(node)
@@ -20,10 +24,22 @@ export function AppShell() {
     setHighlightedNames(new Set(names))
   }, [])
 
+  const handleToggleEdgeType = useCallback((edgeType: string) => {
+    setHiddenEdgeTypes(prev => {
+      const next = new Set(prev)
+      if (next.has(edgeType)) {
+        next.delete(edgeType)
+      } else {
+        next.add(edgeType)
+      }
+      return next
+    })
+  }, [])
+
   return (
     <ResizablePanelGroup direction="horizontal" className="h-full min-h-0">
       {/* Left: Search Panel */}
-      <ResizablePanel defaultSize={20} minSize={15} maxSize={35}>
+      <ResizablePanel defaultSize={18} minSize={12} maxSize={30}>
         <SearchPanel
           apiUrl={API_URL}
           onHighlight={handleSearchHighlight}
@@ -35,19 +51,48 @@ export function AppShell() {
 
       <ResizableHandle withHandle />
 
-      {/* Center: Graph */}
-      <ResizablePanel defaultSize={55}>
-        <GraphCanvas
-          apiUrl={API_URL}
-          onNodeSelect={handleNodeSelect}
-          highlightedNames={highlightedNames}
-        />
+      {/* Center: Graph + optional Query Panel */}
+      <ResizablePanel defaultSize={57}>
+        <ResizablePanelGroup direction="vertical">
+          <ResizablePanel defaultSize={showQuery ? 65 : 100} minSize={30}>
+            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+              <GraphCanvas
+                apiUrl={API_URL}
+                onNodeSelect={handleNodeSelect}
+                highlightedNames={highlightedNames}
+                hiddenEdgeTypes={hiddenEdgeTypes}
+              />
+              <GraphLegend
+                hiddenEdgeTypes={hiddenEdgeTypes}
+                onToggleEdgeType={handleToggleEdgeType}
+              />
+              {/* Query toggle button */}
+              <button
+                onClick={() => setShowQuery(!showQuery)}
+                className={`absolute top-4 left-4 z-10 rounded-lg border border-border px-2 py-1 text-xs backdrop-blur-sm transition-colors ${
+                  showQuery ? 'bg-primary/20 text-primary' : 'bg-card/90 text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Query
+              </button>
+            </div>
+          </ResizablePanel>
+
+          {showQuery && (
+            <>
+              <ResizableHandle withHandle />
+              <ResizablePanel defaultSize={35} minSize={20} maxSize={60}>
+                <QueryPanel apiUrl={API_URL} />
+              </ResizablePanel>
+            </>
+          )}
+        </ResizablePanelGroup>
       </ResizablePanel>
 
       <ResizableHandle withHandle />
 
       {/* Right: Detail Panel */}
-      <ResizablePanel defaultSize={25} minSize={15} maxSize={40}>
+      <ResizablePanel defaultSize={25} minSize={15} maxSize={35}>
         <EntityDetail node={selectedNode} />
       </ResizablePanel>
     </ResizablePanelGroup>

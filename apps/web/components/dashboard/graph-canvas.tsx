@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type cytoscape from 'cytoscape'
 import { GraphControls } from './graph-controls'
+import { cytoscapeStylesheet, LAYOUT_OPTIONS, type LayoutName } from '@/lib/cytoscape-config'
 
 export interface GraphNode {
   id: string
@@ -11,37 +12,20 @@ export interface GraphNode {
   properties: Record<string, unknown>
 }
 
-interface GraphEdge {
-  id: string
-  source: string
-  target: string
-  label: string
-}
-
 interface GraphCanvasProps {
   apiUrl: string
   onNodeSelect: (node: GraphNode | null) => void
   highlightedNames: Set<string>
+  hiddenEdgeTypes: Set<string>
 }
 
-/** Color map for node types */
-const NODE_COLORS: Record<string, string> = {
-  File: '#6366f1',        // indigo
-  Function: '#22c55e',    // green
-  Class: '#f59e0b',       // amber
-  Interface: '#06b6d4',   // cyan
-  Component: '#ec4899',   // pink
-  Variable: '#8b5cf6',    // violet
-  Type: '#14b8a6',        // teal
-  Entity: '#f97316',      // orange (knowledge)
-}
-
-export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames }: GraphCanvasProps) {
+export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdgeTypes }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<cytoscape.Core | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [nodeCount, setNodeCount] = useState(0)
+  const [layout, setLayout] = useState<LayoutName>('cose')
 
   // Initialize Cytoscape and load data
   useEffect(() => {
@@ -50,11 +34,10 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames }: GraphCan
     async function init() {
       if (!containerRef.current) return
 
-      // Dynamic import to avoid SSR issues
       const cy = (await import('cytoscape')).default
 
       try {
-        const res = await fetch(`${apiUrl}/api/graph/full?limit=200`)
+        const res = await fetch(`${apiUrl}/api/graph/full?limit=300`)
         if (!res.ok) throw new Error(`API error: ${res.status}`)
         const data = await res.json()
 
@@ -89,67 +72,13 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames }: GraphCan
         const instance = cy({
           container: containerRef.current,
           elements: [...nodes, ...edges],
-          style: [
-            {
-              selector: 'node',
-              style: {
-                label: 'data(label)',
-                'font-size': '10px',
-                'text-valign': 'bottom',
-                'text-margin-y': 4,
-                color: '#a1a1aa',
-                'background-color': (ele: cytoscape.NodeSingular) => {
-                  const type = ele.data('type') as string
-                  return NODE_COLORS[type] ?? '#71717a'
-                },
-                width: 24,
-                height: 24,
-                'border-width': 0,
-              } as cytoscape.Css.Node,
-            },
-            {
-              selector: 'node.highlighted',
-              style: {
-                'border-width': 3,
-                'border-color': '#fbbf24',
-                width: 32,
-                height: 32,
-              } as cytoscape.Css.Node,
-            },
-            {
-              selector: 'node:selected',
-              style: {
-                'border-width': 3,
-                'border-color': '#3b82f6',
-              } as cytoscape.Css.Node,
-            },
-            {
-              selector: 'edge',
-              style: {
-                width: 1,
-                'line-color': '#3f3f46',
-                'target-arrow-color': '#3f3f46',
-                'target-arrow-shape': 'triangle',
-                'arrow-scale': 0.6,
-                'curve-style': 'bezier',
-                label: 'data(label)',
-                'font-size': '8px',
-                color: '#52525b',
-                'text-rotation': 'autorotate',
-              } as cytoscape.Css.Edge,
-            },
-          ],
-          layout: {
-            name: 'cose',
-            animate: false,
-            nodeRepulsion: () => 8000,
-            idealEdgeLength: () => 80,
-            gravity: 0.3,
-          } as cytoscape.LayoutOptions,
+          style: cytoscapeStylesheet as cytoscape.Stylesheet[],
+          layout: LAYOUT_OPTIONS.cose as cytoscape.LayoutOptions,
           minZoom: 0.1,
           maxZoom: 5,
         })
 
+        // Node click → select + show detail
         instance.on('tap', 'node', (evt) => {
           const node = evt.target
           onNodeSelect({
@@ -158,11 +87,26 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames }: GraphCan
             type: node.data('type'),
             properties: node.data(),
           })
+
+          // Highlight neighbors
+          instance.elements().removeClass('neighbor dimmed')
+          const neighborhood = node.neighborhood().add(node)
+          instance.elements().not(neighborhood).addClass('dimmed')
+          neighborhood.nodes().not(node).addClass('neighbor')
         })
 
+        // Node double-click → focus on neighborhood
+        instance.on('dbltap', 'node', (evt) => {
+          const node = evt.target
+          const neighborhood = node.neighborhood().add(node)
+          instance.animate({ fit: { eles: neighborhood, padding: 60 }, duration: 400 })
+        })
+
+        // Click on background → deselect
         instance.on('tap', (evt) => {
           if (evt.target === instance) {
             onNodeSelect(null)
+            instance.elements().removeClass('neighbor dimmed highlighted')
           }
         })
 
@@ -184,36 +128,65 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames }: GraphCan
     }
   }, [apiUrl, onNodeSelect])
 
-  // Handle highlight changes
+  // Handle search highlight changes
   useEffect(() => {
     const cy = cyRef.current
     if (!cy) return
 
-    cy.nodes().removeClass('highlighted')
+    cy.nodes().removeClass('highlighted dimmed')
+    cy.edges().removeClass('dimmed')
     if (highlightedNames.size > 0) {
       cy.nodes().forEach((node) => {
         if (highlightedNames.has(node.data('label'))) {
           node.addClass('highlighted')
+        } else {
+          node.addClass('dimmed')
         }
       })
+      cy.edges().addClass('dimmed')
     }
   }, [highlightedNames])
 
+  // Handle edge type filter changes
+  useEffect(() => {
+    const cy = cyRef.current
+    if (!cy) return
+
+    cy.edges().forEach((edge) => {
+      const edgeType = edge.data('label') as string
+      if (hiddenEdgeTypes.has(edgeType)) {
+        edge.addClass('hidden')
+      } else {
+        edge.removeClass('hidden')
+      }
+    })
+  }, [hiddenEdgeTypes])
+
   const handleZoomIn = useCallback(() => {
-    cyRef.current?.zoom({ level: (cyRef.current.zoom() ?? 1) * 1.3, renderedPosition: { x: containerRef.current?.clientWidth ?? 0 / 2, y: containerRef.current?.clientHeight ?? 0 / 2 } })
+    const cy = cyRef.current
+    if (!cy) return
+    const w = containerRef.current?.clientWidth ?? 600
+    const h = containerRef.current?.clientHeight ?? 400
+    cy.zoom({ level: cy.zoom() * 1.3, renderedPosition: { x: w / 2, y: h / 2 } })
   }, [])
 
   const handleZoomOut = useCallback(() => {
-    cyRef.current?.zoom({ level: (cyRef.current.zoom() ?? 1) / 1.3, renderedPosition: { x: containerRef.current?.clientWidth ?? 0 / 2, y: containerRef.current?.clientHeight ?? 0 / 2 } })
+    const cy = cyRef.current
+    if (!cy) return
+    const w = containerRef.current?.clientWidth ?? 600
+    const h = containerRef.current?.clientHeight ?? 400
+    cy.zoom({ level: cy.zoom() / 1.3, renderedPosition: { x: w / 2, y: h / 2 } })
   }, [])
 
   const handleFit = useCallback(() => {
     cyRef.current?.fit(undefined, 40)
   }, [])
 
-  const handleRelayout = useCallback(() => {
-    cyRef.current?.layout({ name: 'cose', animate: true, animationDuration: 500, nodeRepulsion: () => 8000, idealEdgeLength: () => 80, gravity: 0.3 } as cytoscape.LayoutOptions).run()
-  }, [])
+  const handleRelayout = useCallback((newLayout?: LayoutName) => {
+    const l = newLayout ?? layout
+    if (newLayout) setLayout(l)
+    cyRef.current?.layout(LAYOUT_OPTIONS[l] as cytoscape.LayoutOptions).run()
+  }, [layout])
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }} data-testid="graph-canvas" data-loading={loading ? 'true' : 'false'}>
@@ -248,6 +221,7 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames }: GraphCan
         onFit={handleFit}
         onRelayout={handleRelayout}
         nodeCount={nodeCount}
+        layout={layout}
       />
     </div>
   )

@@ -1,18 +1,26 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
+import type { LayoutName } from '@/lib/cytoscape-config'
 
 interface GraphControlsProps {
   onZoomIn: () => void
   onZoomOut: () => void
   onFit: () => void
-  onRelayout: () => void
+  onRelayout: (layout?: LayoutName) => void
   nodeCount: number
+  layout: LayoutName
 }
 
-export function GraphControls({ onZoomIn, onZoomOut, onFit, onRelayout, nodeCount }: GraphControlsProps) {
+const LAYOUTS: { value: LayoutName; label: string }[] = [
+  { value: 'cose', label: 'Force' },
+  { value: 'breadthfirst', label: 'Tree' },
+  { value: 'concentric', label: 'Ring' },
+]
+
+export function GraphControls({ onZoomIn, onZoomOut, onFit, onRelayout, nodeCount, layout }: GraphControlsProps) {
   return (
-    <div className="graph-controls absolute bottom-4 right-4 z-10 flex items-center gap-1 rounded-lg border border-border bg-card/90 p-1 backdrop-blur-sm" data-testid="graph-controls">
+    <div className="graph-controls flex items-center gap-1 rounded-lg border border-border bg-card/90 p-1 backdrop-blur-sm" style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }} data-testid="graph-controls">
       <Button variant="ghost" size="sm" onClick={onZoomIn} data-testid="zoom-in" aria-label="Zoom in" className="h-7 w-7 p-0 text-xs">
         +
       </Button>
@@ -22,11 +30,23 @@ export function GraphControls({ onZoomIn, onZoomOut, onFit, onRelayout, nodeCoun
       <Button variant="ghost" size="sm" onClick={onFit} aria-label="Fit to screen" className="h-7 px-2 text-xs">
         Fit
       </Button>
-      <Button variant="ghost" size="sm" onClick={onRelayout} aria-label="Re-layout" className="h-7 px-2 text-xs">
-        Layout
-      </Button>
+      <div className="mx-1 h-4 w-px bg-border" />
+      {LAYOUTS.map((l) => (
+        <Button
+          key={l.value}
+          variant={layout === l.value ? 'secondary' : 'ghost'}
+          size="sm"
+          onClick={() => onRelayout(l.value)}
+          className="h-7 px-2 text-xs"
+        >
+          {l.label}
+        </Button>
+      ))}
       {nodeCount > 0 && (
-        <span className="px-2 text-xs text-muted-foreground">{nodeCount} nodes</span>
+        <>
+          <div className="mx-1 h-4 w-px bg-border" />
+          <span className="px-1 text-xs text-muted-foreground">{nodeCount}</span>
+        </>
       )}
     </div>
   )
