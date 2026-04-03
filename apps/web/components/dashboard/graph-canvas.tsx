@@ -60,21 +60,27 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames }: GraphCan
 
         if (!mounted) return
 
-        const nodes = (data.nodes ?? []).map((n: GraphNode) => ({
-          data: {
-            id: n.id ?? n.label,
-            label: n.label ?? n.id,
-            type: n.type,
-            ...n.properties,
-          },
-        }))
+        const nodes = (data.nodes ?? []).map((n: Record<string, unknown>) => {
+          const nodeData = (typeof n.data === 'object' && n.data != null ? n.data : {}) as Record<string, unknown>
+          const displayName = (n.displayName ?? nodeData.name ?? n.id) as string
+          const nodeType = (n.label ?? nodeData.type ?? 'Unknown') as string
+          return {
+            data: {
+              id: n.id as string,
+              label: displayName,
+              type: nodeType,
+              filePath: n.filePath as string | undefined,
+              ...nodeData,
+            },
+          }
+        })
 
-        const edges = (data.edges ?? []).map((e: GraphEdge, i: number) => ({
+        const edges = (data.edges ?? []).map((e: Record<string, unknown>, i: number) => ({
           data: {
-            id: e.id ?? `edge-${i}`,
-            source: e.source,
-            target: e.target,
-            label: e.label ?? '',
+            id: (e.id ?? `edge-${i}`) as string,
+            source: e.source as string,
+            target: e.target as string,
+            label: (e.label ?? '') as string,
           },
         }))
 
@@ -210,14 +216,14 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames }: GraphCan
   }, [])
 
   return (
-    <div className="relative h-full min-h-0 w-full" data-testid="graph-canvas" data-loading={loading ? 'true' : 'false'}>
+    <div style={{ position: 'relative', width: '100%', height: '100%' }} data-testid="graph-canvas" data-loading={loading ? 'true' : 'false'}>
       {loading && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)' }}>
           <div className="text-sm text-muted-foreground">Loading graph...</div>
         </div>
       )}
       {error && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/90">
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(0,0,0,0.9)' }}>
           <div className="text-sm text-red-400">{error}</div>
           {error.includes('fetch') && (
             <div className="max-w-sm text-center text-xs text-muted-foreground">
@@ -227,20 +233,15 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames }: GraphCan
               </code>
             </div>
           )}
-          {!error.includes('fetch') && nodeCount === 0 && (
-            <div className="max-w-sm text-center text-xs text-muted-foreground">
-              No graph data found. Index a codebase first via MCP or CLI.
-            </div>
-          )}
         </div>
       )}
       {!loading && !error && nodeCount === 0 && (
-        <div className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2">
+        <div style={{ position: 'absolute', inset: 0, zIndex: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <div className="text-sm text-muted-foreground">Empty graph</div>
           <div className="text-xs text-muted-foreground/70">Index a codebase to see nodes and edges here.</div>
         </div>
       )}
-      <div ref={containerRef} id="cy" className="cytoscape-container absolute inset-0" />
+      <div ref={containerRef} id="cy" className="cytoscape-container" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
       <GraphControls
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
