@@ -74,6 +74,18 @@ export type {
   EmbeddingBatchResult,
 } from './embeddings';
 
+// File-to-text loaders (PDF, DOCX, HTML, CSV)
+export {
+  getLoaderForExtension,
+  registerLoader,
+  getSupportedExtensions,
+  PDFLoader,
+  DOCXLoader,
+  HTMLLoader,
+  CSVLoader,
+} from './loaders/index';
+export type { TextLoader, LoaderResult } from './loaders/index';
+
 // Text chunker (token-aware, sentence/paragraph boundary)
 export { chunkText, estimateTokens } from './chunker';
 export type { ChunkConfig, TextChunk } from './chunker';
