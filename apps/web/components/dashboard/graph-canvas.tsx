@@ -59,14 +59,19 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdge
           }
         })
 
-        const edges = (data.edges ?? []).map((e: Record<string, unknown>, i: number) => ({
-          data: {
-            id: (e.id ?? `edge-${i}`) as string,
-            source: e.source as string,
-            target: e.target as string,
-            label: (e.label ?? '') as string,
-          },
-        }))
+        // Build valid node ID set to filter orphan edges
+        const nodeIds = new Set(nodes.map((n: { data: { id: string } }) => n.data.id))
+
+        const edges = (data.edges ?? [])
+          .filter((e: Record<string, unknown>) => nodeIds.has(e.source as string) && nodeIds.has(e.target as string))
+          .map((e: Record<string, unknown>, i: number) => ({
+            data: {
+              id: (e.id ?? `edge-${i}`) as string,
+              source: e.source as string,
+              target: e.target as string,
+              label: (e.label ?? '') as string,
+            },
+          }))
 
         setNodeCount(nodes.length)
 
