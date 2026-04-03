@@ -193,6 +193,10 @@ export const recallToolDefinition: ToolDefinition = {
         type: 'number',
         description: 'Minimum relevance score (0-1) for relevance-weighted entity search',
       },
+      speaker: {
+        type: 'string',
+        description: 'Query by speaker — returns entities mentioned by this person during conversation ingestion (e.g., "Alice")',
+      },
     },
     required: ['text'],
   },
@@ -581,6 +585,23 @@ export async function handleRecall(args: Record<string, unknown>) {
           validAt: r.validAt ? new Date(r.validAt).toISOString() : null,
           invalidAt: r.invalidAt ? new Date(r.invalidAt).toISOString() : null,
           isActive: r.isActive,
+        })),
+      };
+    }
+
+    // --- Speaker query: what did this person say? ---
+    if (args.speaker != null) {
+      const results = await knowledgeService.queryBySpeaker(args.speaker as string, (args.limit as number | undefined) ?? 50);
+      return {
+        mode: 'speaker',
+        speaker: args.speaker,
+        count: results.length,
+        entities: results.map(e => ({
+          text: e.text,
+          type: e.type,
+          confidence: e.confidence,
+          relevance: e.relevanceScore,
+          createdAt: new Date(e.createdAt).toISOString(),
         })),
       };
     }

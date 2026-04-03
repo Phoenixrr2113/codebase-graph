@@ -404,6 +404,15 @@ class KnowledgeServiceImpl {
   }
 
   /**
+   * Get entities mentioned by a specific speaker.
+   * Follows SAID relationships created during conversation ingestion.
+   */
+  async queryBySpeaker(speakerText: string, limit?: number): Promise<EntitySearchResult[]> {
+    const ops = await getKnowledgeOps();
+    return ops.getEntitiesBySpeaker(speakerText, limit);
+  }
+
+  /**
    * Get knowledge graph memory statistics.
    */
   async getKnowledgeStats(): Promise<KnowledgeStatsResult> {

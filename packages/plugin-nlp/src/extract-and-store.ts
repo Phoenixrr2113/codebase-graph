@@ -472,6 +472,34 @@ export async function extractConversation(
       if (epResult.embedded) result.embedded += epResult.embedded;
       if (epResult.bridgeLinked) result.bridgeLinked += epResult.bridgeLinked.linked;
       if (epResult.entities > 0) result.episodesWithEntities++;
+
+      // Speaker attribution: create Person entity + SAID relationships
+      if (episode.speaker && epResult.entities > 0) {
+        try {
+          await ops.createEntity({
+            text: episode.speaker,
+            type: 'Person',
+            confidence: 0.85,
+            sampleId: epResult.sampleId,
+          });
+
+          // Link speaker to each extracted entity via SAID
+          for (const entity of epResult.annotated.entities) {
+            await ops.createRelationship({
+              headText: episode.speaker,
+              headType: 'Person',
+              tailText: entity.text,
+              tailType: entity.type,
+              type: 'SAID',
+              confidence: 0.8,
+              fact: `${episode.speaker} mentioned ${entity.text}`,
+              sampleId: epResult.sampleId,
+            });
+          }
+        } catch {
+          // Speaker attribution is best-effort — don't fail the episode
+        }
+      }
     } catch (error) {
       logger.warn(
         `Failed to extract episode ${i} (${episode.speaker ?? 'unknown'}): ${error}`,

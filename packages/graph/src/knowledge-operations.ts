@@ -232,6 +232,10 @@ export interface KnowledgeOperations {
   /** Merge duplicate entity into canonical: transfer relationships, ABOUT edges, then delete */
   mergeEntities(canonicalText: string, canonicalType: string, duplicateText: string, duplicateType: string): Promise<{ transferredRelationships: number; transferredAboutEdges: number }>;
 
+  // --- Speaker Queries ---
+  /** Get entities mentioned by a speaker (via SAID relationships) */
+  getEntitiesBySpeaker(speakerText: string, limit?: number): Promise<Array<EntitySearchResult & { fact?: string | null }>>;
+
   // --- Fact Search ---
   /** Search relationships by fact embedding similarity */
   searchFactsByVector(embedding: number[], limit?: number): Promise<FactSearchResult[]>;
@@ -632,6 +636,18 @@ const KG_CYPHER = {
     LIMIT $limit
   `,
 
+  /** Get entities mentioned by a speaker (via SAID relationship) */
+  GET_ENTITIES_BY_SPEAKER: `
+    MATCH (speaker:Entity {text: $speakerText, type: 'Person'})-[r:RELATES_TO]->(entity:Entity)
+    WHERE r.type = 'SAID' AND r.invalid_at IS NULL
+    RETURN entity.id AS id, entity.text AS text, entity.type AS type,
+           entity.confidence AS confidence, entity.relevanceScore AS relevanceScore,
+           entity.createdAt AS createdAt, entity.lastAccessedAt AS lastAccessedAt,
+           r.fact AS fact
+    ORDER BY entity.relevanceScore DESC
+    LIMIT $limit
+  `,
+
   /** Search entities by sampleId prefix (provenance filter) */
   SEARCH_ENTITIES_BY_SOURCE: `
     MATCH (n:Entity)
@@ -1006,6 +1022,17 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
       oldestAccess: stats?.oldest ?? null,
       newestAccess: stats?.newest ?? null,
     };
+  }
+
+  // --- Speaker Queries ---
+
+  @trace()
+  async getEntitiesBySpeaker(speakerText: string, limit: number = 50): Promise<Array<EntitySearchResult & { fact?: string | null }>> {
+    const result = await this.client.roQuery<EntitySearchResult & { fact: string | null }>(
+      KG_CYPHER.GET_ENTITIES_BY_SPEAKER,
+      { params: { speakerText, limit } },
+    );
+    return result.data;
   }
 
   // --- Fact Search ---
