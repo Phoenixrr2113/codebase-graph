@@ -141,6 +141,9 @@ export type {
 export { unifiedSearch } from './unifiedSearch';
 // Chain-of-Thought search (iterative refinement)
 export { cotSearch } from './cotSearch';
+// Dual-path consensus scoring (DRCE Phase 0)
+export { dualRetrieve, computeConsensus } from './consensus';
+export type { ConsensusResult, ConsensusOptions } from './consensus';
 export type { CotSearchOptions, CotSearchResult } from './cotSearch';
 export type { UnifiedSearchResult, UnifiedSearchOptions, UnifiedSearchResponse } from './unifiedSearch';
 
