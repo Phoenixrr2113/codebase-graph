@@ -21,7 +21,7 @@ export function AppShell() {
   }, [])
 
   return (
-    <ResizablePanelGroup direction="horizontal" className="h-full">
+    <ResizablePanelGroup direction="horizontal" className="h-full min-h-0">
       {/* Left: Search Panel */}
       <ResizablePanel defaultSize={20} minSize={15} maxSize={35}>
         <SearchPanel

@@ -23,7 +23,7 @@ export default function DashboardPage() {
         </Tabs>
       </header>
 
-      <main className="flex-1 overflow-hidden">
+      <main className="min-h-0 flex-1 overflow-hidden">
         {activeTab === 'explorer' && <AppShell />}
         {activeTab === 'operations' && <OperationsTab />}
       </main>

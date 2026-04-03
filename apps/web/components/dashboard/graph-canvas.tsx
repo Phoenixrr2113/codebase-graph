@@ -210,18 +210,37 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames }: GraphCan
   }, [])
 
   return (
-    <div className="relative h-full w-full" data-testid="graph-canvas" data-loading={loading ? 'true' : 'false'}>
+    <div className="relative h-full min-h-0 w-full" data-testid="graph-canvas" data-loading={loading ? 'true' : 'false'}>
       {loading && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">
           <div className="text-sm text-muted-foreground">Loading graph...</div>
         </div>
       )}
       {error && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/90">
           <div className="text-sm text-red-400">{error}</div>
+          {error.includes('fetch') && (
+            <div className="max-w-sm text-center text-xs text-muted-foreground">
+              API server is not running. Start it with:<br />
+              <code className="mt-1 inline-block rounded bg-muted px-2 py-1 font-mono text-xs">
+                pnpm --filter @codegraph/api dev
+              </code>
+            </div>
+          )}
+          {!error.includes('fetch') && nodeCount === 0 && (
+            <div className="max-w-sm text-center text-xs text-muted-foreground">
+              No graph data found. Index a codebase first via MCP or CLI.
+            </div>
+          )}
         </div>
       )}
-      <div ref={containerRef} id="cy" className="cytoscape-container h-full w-full" />
+      {!loading && !error && nodeCount === 0 && (
+        <div className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2">
+          <div className="text-sm text-muted-foreground">Empty graph</div>
+          <div className="text-xs text-muted-foreground/70">Index a codebase to see nodes and edges here.</div>
+        </div>
+      )}
+      <div ref={containerRef} id="cy" className="cytoscape-container absolute inset-0" />
       <GraphControls
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}

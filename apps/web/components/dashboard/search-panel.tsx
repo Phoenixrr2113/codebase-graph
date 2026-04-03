@@ -50,7 +50,7 @@ export function SearchPanel({ apiUrl, onHighlight, onSelectResult }: SearchPanel
   }, [apiUrl, onHighlight])
 
   return (
-    <div className="flex h-full flex-col border-r border-border bg-card">
+    <div className="flex h-full min-h-0 flex-col border-r border-border bg-card">
       <div className="border-b border-border p-3">
         <Input
           type="search"

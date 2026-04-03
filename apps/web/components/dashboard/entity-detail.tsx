@@ -30,7 +30,7 @@ const DISPLAY_PROPS: Record<string, string> = {
 export function EntityDetail({ node }: EntityDetailProps) {
   if (!node) {
     return (
-      <div className="entity-detail flex h-full items-center justify-center bg-card p-4" data-testid="entity-detail">
+      <div className="entity-detail flex h-full min-h-0 items-center justify-center border-l border-border bg-card p-4" data-testid="entity-detail">
         <p className="text-sm text-muted-foreground">Select a node to view details</p>
       </div>
     )
