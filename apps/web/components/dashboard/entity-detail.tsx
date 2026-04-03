@@ -244,16 +244,27 @@ function MetricsAndProperties({ props }: { props: Record<string, unknown> }) {
   const importerCount = props.importerCount as number | undefined
   const params = props.params
 
-  // Metric pills
-  const metrics: Array<{ label: string; value: string | number; color: string }> = []
+  // Metric pills with inline styles (Tailwind can't handle dynamic class names)
+  const metrics: Array<{ label: string; value: string | number; style: { color: string; background: string; borderColor: string } }> = []
   if (complexity != null) {
-    const c = complexity > 10 ? 'text-red-400 bg-red-500/10 border-red-500/20' : complexity > 5 ? 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-    metrics.push({ label: 'Complexity', value: complexity, color: c })
+    const s = complexity > 10
+      ? { color: '#f87171', background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.2)' }
+      : complexity > 5
+      ? { color: '#facc15', background: 'rgba(234,179,8,0.1)', borderColor: 'rgba(234,179,8,0.2)' }
+      : { color: '#34d399', background: 'rgba(16,185,129,0.1)', borderColor: 'rgba(16,185,129,0.2)' }
+    metrics.push({ label: 'Complexity', value: complexity, style: s })
   }
-  if (cognitiveComplexity != null) metrics.push({ label: 'Cognitive', value: cognitiveComplexity, color: 'text-muted-foreground bg-muted/50 border-border' })
-  if (nestingDepth != null) metrics.push({ label: 'Depth', value: nestingDepth, color: 'text-muted-foreground bg-muted/50 border-border' })
-  if (callerCount != null) metrics.push({ label: 'Callers', value: callerCount, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' })
-  if (importerCount != null) metrics.push({ label: 'Importers', value: importerCount, color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' })
+  if (cognitiveComplexity != null) {
+    const s = cognitiveComplexity > 15
+      ? { color: '#f87171', background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.2)' }
+      : cognitiveComplexity > 5
+      ? { color: '#facc15', background: 'rgba(234,179,8,0.1)', borderColor: 'rgba(234,179,8,0.2)' }
+      : { color: '#a1a1aa', background: 'rgba(161,161,170,0.08)', borderColor: 'rgba(161,161,170,0.15)' }
+    metrics.push({ label: 'Cognitive', value: cognitiveComplexity, style: s })
+  }
+  if (nestingDepth != null) metrics.push({ label: 'Depth', value: nestingDepth, style: { color: '#a1a1aa', background: 'rgba(161,161,170,0.08)', borderColor: 'rgba(161,161,170,0.15)' } })
+  if (callerCount != null) metrics.push({ label: 'Callers', value: callerCount, style: { color: '#60a5fa', background: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.2)' } })
+  if (importerCount != null) metrics.push({ label: 'Importers', value: importerCount, style: { color: '#818cf8', background: 'rgba(99,102,241,0.1)', borderColor: 'rgba(99,102,241,0.2)' } })
 
   // Params as structured list
   const parsedParams = parseParams(params)
@@ -268,8 +279,12 @@ function MetricsAndProperties({ props }: { props: Record<string, unknown> }) {
       {metrics.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {metrics.map((m) => (
-            <span key={m.label} className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium ${m.color}`}>
-              <span className="opacity-70">{m.label}</span>
+            <span
+              key={m.label}
+              className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium"
+              style={{ color: m.style.color, backgroundColor: m.style.background, borderColor: m.style.borderColor }}
+            >
+              <span style={{ opacity: 0.7 }}>{m.label}</span>
               <span className="font-bold">{m.value}</span>
             </span>
           ))}
