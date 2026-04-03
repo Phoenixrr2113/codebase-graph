@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
@@ -14,36 +15,81 @@ interface EmbeddingLabel {
 
 export function EmbeddingBadge() {
   const [stats, setStats] = useState<{ total: number; embedded: number; pct: number } | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [genResult, setGenResult] = useState<string | null>(null)
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/embeddings/status`)
+      if (!res.ok) return
+      const data = await res.json()
+      const labels = (data.labels ?? []) as EmbeddingLabel[]
+      const total = labels.reduce((s, l) => s + l.total, 0)
+      const embedded = labels.reduce((s, l) => s + l.withEmbedding, 0)
+      const pct = total > 0 ? Math.round((embedded / total) * 100) : 0
+      setStats({ total, embedded, pct })
+    } catch {
+      // non-fatal
+    }
+  }, [])
 
   useEffect(() => {
-    async function fetch_stats() {
-      try {
-        const res = await fetch(`${API_URL}/api/embeddings/status`)
-        if (!res.ok) return
-        const data = await res.json()
-        const labels = (data.labels ?? []) as EmbeddingLabel[]
-        const total = labels.reduce((s, l) => s + l.total, 0)
-        const embedded = labels.reduce((s, l) => s + l.withEmbedding, 0)
-        const pct = total > 0 ? Math.round((embedded / total) * 100) : 0
-        setStats({ total, embedded, pct })
-      } catch {
-        // non-fatal
-      }
-    }
-    fetch_stats()
-    const interval = setInterval(fetch_stats, 30_000)
+    fetchStats()
+    const interval = setInterval(fetchStats, 30_000)
     return () => clearInterval(interval)
-  }, [])
+  }, [fetchStats])
+
+  const handleGenerate = useCallback(async () => {
+    setGenerating(true)
+    setGenResult(null)
+    try {
+      const res = await fetch(`${API_URL}/api/embeddings/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setGenResult(data.hint ?? data.error ?? 'Failed')
+      } else {
+        setGenResult(`${data.embedded} embedded`)
+        fetchStats() // refresh badge
+      }
+    } catch (err) {
+      setGenResult(err instanceof Error ? err.message : 'Failed')
+    } finally {
+      setGenerating(false)
+      setTimeout(() => setGenResult(null), 5000)
+    }
+  }, [fetchStats])
 
   if (!stats || stats.total === 0) return null
 
-  const color = stats.pct >= 90 ? 'text-emerald-400 border-emerald-400/30'
-    : stats.pct >= 50 ? 'text-yellow-400 border-yellow-400/30'
-    : 'text-red-400 border-red-400/30'
+  const badgeColor = stats.pct >= 90
+    ? { color: '#34d399', borderColor: 'rgba(16,185,129,0.3)' }
+    : stats.pct >= 50
+    ? { color: '#facc15', borderColor: 'rgba(234,179,8,0.3)' }
+    : { color: '#f87171', borderColor: 'rgba(239,68,68,0.3)' }
 
   return (
-    <Badge variant="outline" className={`text-[10px] ${color}`}>
-      Embeddings: {stats.pct}% ({stats.embedded}/{stats.total})
-    </Badge>
+    <div className="flex items-center gap-1.5">
+      <Badge variant="outline" className="text-[10px]" style={badgeColor}>
+        Embeddings: {stats.pct}% ({stats.embedded}/{stats.total})
+      </Badge>
+      {stats.pct < 100 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleGenerate}
+          disabled={generating}
+          className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+        >
+          {generating ? 'Generating...' : 'Generate'}
+        </Button>
+      )}
+      {genResult && (
+        <span className="text-[10px] text-muted-foreground">{genResult}</span>
+      )}
+    </div>
   )
 }

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { codeGraphService, knowledgeService, getGraphClient } from '@codegraph/core';
+import { codeGraphService, knowledgeService, getGraphClient, embedAllNodes } from '@codegraph/core';
 
 export const statsRoutes = new Hono();
 
@@ -53,5 +53,29 @@ statsRoutes.get('/api/embeddings/status', async (c) => {
     return c.json({ labels });
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : 'Failed to fetch embedding status' }, 500);
+  }
+});
+
+/** POST /api/embeddings/generate — generate embeddings for all nodes */
+statsRoutes.post('/api/embeddings/generate', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const force = (body as Record<string, unknown>).force === true;
+
+    const result = await embedAllNodes({ force });
+
+    return c.json({
+      ...result,
+      message: `Embedded ${result.embedded} nodes in ${(result.durationMs / 1000).toFixed(1)}s (${result.skipped} skipped, ${result.errors} errors)`,
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to generate embeddings';
+    if (msg.includes('not configured') || msg.includes('not available')) {
+      return c.json({
+        error: msg,
+        hint: 'Set CODEGRAPH_EMBEDDING_PROVIDER=local for free local embeddings, or set VOYAGE_API_KEY for cloud embeddings.',
+      }, 400);
+    }
+    return c.json({ error: msg }, 500);
   }
 });
