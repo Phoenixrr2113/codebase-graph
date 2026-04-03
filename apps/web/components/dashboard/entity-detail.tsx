@@ -1,11 +1,13 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { GraphNode } from './graph-canvas'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { NODE_COLORS } from '@/lib/cytoscape-config'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
 interface EntityDetailProps {
   node: GraphNode | null
@@ -130,22 +132,26 @@ export function EntityDetail({ node }: EntityDetailProps) {
           <PropertiesDisplay props={props} />
         </Section>
 
-        {/* Code Preview */}
-        {bodySnippet && (
+        {/* Code Preview with syntax highlighting */}
+        {filePath && startLine != null && (
           <Section title="Code Preview">
+            <CodePreview
+              apiUrl={API_URL}
+              filePath={filePath}
+              startLine={startLine}
+              endLine={endLine}
+              nodeId={node.id}
+            />
+          </Section>
+        )}
+
+        {!filePath && bodySnippet && (
+          <Section title="Code">
             <div className="bg-background rounded-lg border border-border overflow-hidden">
               <pre className="text-xs font-mono p-3 overflow-x-auto max-h-[250px] overflow-y-auto">
                 <code className="text-muted-foreground">{bodySnippet}</code>
               </pre>
             </div>
-          </Section>
-        )}
-
-        {signature && !bodySnippet && (
-          <Section title="Signature">
-            <code className="text-xs font-mono block bg-background p-2 rounded border border-border text-muted-foreground" style={{ overflowWrap: 'anywhere' }}>
-              {signature}
-            </code>
           </Section>
         )}
 
@@ -238,6 +244,115 @@ function formatParams(params: unknown): string {
     ).join(', ')
   }
   return String(params)
+}
+
+function CodePreview({ apiUrl, filePath, startLine, endLine, nodeId }: {
+  apiUrl: string
+  filePath: string
+  startLine: number
+  endLine?: number
+  nodeId: string
+}) {
+  const [lines, setLines] = useState<Array<{ number: number; content: string }> | null>(null)
+  const [highlightedHtml, setHighlightedHtml] = useState<string[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [entityStart, setEntityStart] = useState(startLine)
+  const [entityEnd, setEntityEnd] = useState(endLine ?? startLine)
+  const highlightRef = useRef<HTMLDivElement>(null)
+
+  // Fetch source code
+  useEffect(() => {
+    setLoading(true)
+    setLines(null)
+    setHighlightedHtml(null)
+
+    const el = endLine ?? startLine
+    fetch(`${apiUrl}/api/source?path=${encodeURIComponent(filePath)}&startLine=${startLine}&endLine=${el}&context=5`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.lines) {
+          setLines(data.lines)
+          setEntityStart(data.entityStartLine ?? startLine)
+          setEntityEnd(data.entityEndLine ?? el)
+
+          // Syntax highlight with shiki
+          const ext = filePath.split('.').pop()?.toLowerCase() ?? 'text'
+          const langMap: Record<string, string> = {
+            ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
+            py: 'python', go: 'go', rs: 'rust', css: 'css', json: 'json',
+            html: 'html', md: 'markdown', yaml: 'yaml', yml: 'yaml',
+          }
+          const lang = langMap[ext] ?? 'text'
+          const fullCode = data.lines.map((l: { content: string }) => l.content).join('\n')
+
+          import('shiki').then(({ codeToHtml }) => {
+            codeToHtml(fullCode, { lang, theme: 'github-dark' }).then(html => {
+              const parser = new DOMParser()
+              const doc = parser.parseFromString(html, 'text/html')
+              const lineSpans = doc.querySelectorAll('.line')
+              const htmlLines: string[] = []
+              lineSpans.forEach(span => htmlLines.push(span.innerHTML))
+              setHighlightedHtml(htmlLines)
+            }).catch(() => setHighlightedHtml(null))
+          }).catch(() => setHighlightedHtml(null))
+        }
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [apiUrl, filePath, startLine, endLine, nodeId])
+
+  // Scroll to highlighted entity
+  useEffect(() => {
+    if (highlightRef.current) {
+      requestAnimationFrame(() => {
+        highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+    }
+  }, [highlightedHtml, nodeId])
+
+  if (loading) {
+    return <div className="text-xs text-muted-foreground/50 animate-pulse p-3">Loading code...</div>
+  }
+
+  if (!lines || lines.length === 0) {
+    return <div className="text-xs text-muted-foreground/50 italic p-3">No source code available</div>
+  }
+
+  const useHighlighting = highlightedHtml != null && highlightedHtml.length === lines.length
+
+  return (
+    <div className="bg-background rounded-lg border border-border overflow-hidden">
+      <div className="max-h-[350px] overflow-y-auto overflow-x-auto">
+        <pre className="text-xs min-w-max font-mono">
+          <code>
+            {lines.map((line, idx) => {
+              const isEntity = line.number >= entityStart && line.number <= entityEnd
+              const isFirst = line.number === entityStart
+              return (
+                <div
+                  key={line.number}
+                  ref={isFirst ? highlightRef : undefined}
+                  className={`flex hover:bg-accent/30 ${isEntity ? 'bg-indigo-900/30 border-l-2 border-indigo-500' : ''}`}
+                >
+                  <span className={`w-10 shrink-0 text-right pr-3 select-none border-r border-border ${isEntity ? 'text-indigo-400 font-medium' : 'text-muted-foreground/40'}`}>
+                    {line.number}
+                  </span>
+                  {useHighlighting ? (
+                    <span
+                      className="pl-3 whitespace-pre [&>span]:!bg-transparent"
+                      dangerouslySetInnerHTML={{ __html: highlightedHtml[idx] ?? '' }}
+                    />
+                  ) : (
+                    <span className="pl-3 text-muted-foreground whitespace-pre">{line.content}</span>
+                  )}
+                </div>
+              )
+            })}
+          </code>
+        </pre>
+      </div>
+    </div>
+  )
 }
 
 function formatValue(key: string, value: unknown): string {
