@@ -139,6 +139,9 @@ export type {
 
 // Unified search (code + knowledge via RRF)
 export { unifiedSearch } from './unifiedSearch';
+// Chain-of-Thought search (iterative refinement)
+export { cotSearch } from './cotSearch';
+export type { CotSearchOptions, CotSearchResult } from './cotSearch';
 export type { UnifiedSearchResult, UnifiedSearchOptions, UnifiedSearchResponse } from './unifiedSearch';
 
 // Document ingestion (unified add)

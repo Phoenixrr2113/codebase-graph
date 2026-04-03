@@ -5,7 +5,7 @@
  * Delegates to codeGraphService.search() → enrichedSearchV2.
  */
 
-import { codeGraphService, unifiedSearch, getGraphClient, type EnrichedV2Hit, type UnifiedSearchResult } from '@codegraph/core';
+import { codeGraphService, unifiedSearch, cotSearch, getGraphClient, type EnrichedV2Hit, type UnifiedSearchResult } from '@codegraph/core';
 import type { ToolDefinition } from './router';
 
 export interface SearchCodeInput {
@@ -14,6 +14,8 @@ export interface SearchCodeInput {
   limit?: number;
   /** Search scope: 'code' (default), 'knowledge', or 'all' */
   searchScope?: 'code' | 'knowledge' | 'all';
+  /** Search mode: 'standard' (default) or 'cot' (chain-of-thought iterative) */
+  mode?: 'standard' | 'cot';
 }
 
 export interface SearchCodeOutput {
@@ -23,6 +25,9 @@ export interface SearchCodeOutput {
   error?: string;
   notice?: string;
   searchScope?: string;
+  mode?: string;
+  iterations?: number;
+  queries?: string[];
 }
 
 export const searchCodeToolDefinition: ToolDefinition = {
@@ -50,6 +55,11 @@ export const searchCodeToolDefinition: ToolDefinition = {
         description: 'Search scope: "code" (default, code symbols only), "knowledge" (knowledge entities only), or "all" (both via RRF fusion)',
         enum: ['code', 'knowledge', 'all'],
       },
+      mode: {
+        type: 'string',
+        description: 'Search mode: "standard" (default) or "cot" (chain-of-thought — iteratively refines the search with LLM validation, best for complex multi-hop questions)',
+        enum: ['standard', 'cot'],
+      },
     },
     required: ['query'],
   },
@@ -62,6 +72,26 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
     }
 
     const searchScope = input.searchScope ?? 'code';
+    const mode = input.mode ?? 'standard';
+
+    // Chain-of-Thought mode: iterative refinement with LLM
+    if (mode === 'cot') {
+      const client = await getGraphClient();
+      const opts: Parameters<typeof cotSearch>[2] = {
+        limit: input.limit ?? 20,
+        searchScope: searchScope === 'code' ? 'all' : searchScope,
+      };
+      if (input.scope) opts.scope = input.scope;
+      const result = await cotSearch(input.query, client, opts);
+      return {
+        results: result.results,
+        total: result.results.length,
+        durationMs: result.durationMs,
+        mode: 'cot',
+        iterations: result.iterations,
+        queries: result.queries,
+      };
+    }
 
     // Unified search: code + knowledge or knowledge-only
     if (searchScope === 'all' || searchScope === 'knowledge') {
