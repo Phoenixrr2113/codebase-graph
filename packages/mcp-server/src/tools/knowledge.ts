@@ -270,6 +270,41 @@ export const resolveEntitiesToolDefinition: ToolDefinition = {
   },
 };
 
+export const addDocumentToolDefinition: ToolDefinition = {
+  name: 'add',
+  description:
+    'Ingest any content into the knowledge graph. Accepts file paths (PDF, DOCX, HTML, CSV, ' +
+    'or any text file), URLs (fetches and extracts), or raw text. Auto-detects format, ' +
+    'chunks into LLM-friendly pieces, extracts entities/relationships, and stores with provenance.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      input: {
+        type: 'string',
+        description: 'File path, URL, or raw text to ingest',
+      },
+      inputType: {
+        type: 'string',
+        description: 'Override auto-detection: "file", "url", or "text"',
+        enum: ['file', 'url', 'text'],
+      },
+      source: {
+        type: 'string',
+        description: 'Source label for provenance tracking (e.g., "quarterly-report-q1")',
+      },
+      maxTokens: {
+        type: 'number',
+        description: 'Max tokens per chunk (default: 512)',
+      },
+      model: {
+        type: 'string',
+        description: 'LLM model for entity extraction',
+      },
+    },
+    required: ['input'],
+  },
+};
+
 export const getKnowledgeStatsToolDefinition: ToolDefinition = {
   name: 'get_knowledge_stats',
   description: 'Get statistics about the knowledge graph: total entities, average relevance, low-relevance count, oldest/newest access timestamps.',
@@ -287,6 +322,7 @@ export const knowledgeToolDefinitions: ToolDefinition[] = [
   storeEntityToolDefinition,
   storeRelationshipToolDefinition,
   storeFactToolDefinition,
+  addDocumentToolDefinition,
   ingestConversationToolDefinition,
   queryKnowledgeToolDefinition,
   recallToolDefinition,
@@ -629,6 +665,35 @@ export async function handleIngestConversation(args: Record<string, unknown>): P
   }
 }
 
+export async function handleAdd(args: Record<string, unknown>) {
+  try {
+    const { add } = await import('@codegraph/core');
+    const input = args.input as string;
+    if (!input || input.trim().length === 0) {
+      return { error: 'Input is required (file path, URL, or text)' };
+    }
+
+    const opts: { inputType?: 'file' | 'url' | 'text'; source?: string; maxTokens?: number; model?: string } = {};
+    if (args.inputType != null) opts.inputType = args.inputType as 'file' | 'url' | 'text';
+    if (args.source != null) opts.source = args.source as string;
+    if (args.maxTokens != null) opts.maxTokens = args.maxTokens as number;
+    if (args.model != null) opts.model = args.model as string;
+
+    const result = await add(input, opts);
+    return {
+      ...result,
+      message: `Ingested ${result.entities} entities and ${result.relationships} relationships from ${result.chunks} chunks (${result.inputType}: ${result.metadata.format ?? 'text'})`,
+    };
+  } catch (error) {
+    const msg = toErrorMessage(error);
+    if (msg.includes('API key') || msg.includes('API_KEY') || msg.includes('not configured')) {
+      return { error: 'LLM provider is not configured. Set CEREBRAS_API_KEY (recommended) or OPENROUTER_API_KEY to use document ingestion.' };
+    }
+    logger.error('add failed', error);
+    return { error: msg };
+  }
+}
+
 export async function handleResolveEntities(args: Record<string, unknown>) {
   try {
     // Dynamic import to avoid requiring @codegraph/plugin-nlp when not using this tool
@@ -680,6 +745,7 @@ export const knowledgeHandlers: Record<string, (args: Record<string, unknown>) =
   store_entity: handleStoreEntity,
   store_relationship: handleStoreRelationship,
   store_fact: handleStoreFact,
+  add: handleAdd,
   ingest_conversation: handleIngestConversation,
   query_knowledge: handleQueryKnowledge,
   recall: handleRecall,

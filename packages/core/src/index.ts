@@ -137,6 +137,10 @@ export type {
   ExtractAndStoreFn,
 } from './knowledgeService';
 
+// Document ingestion (unified add)
+export { add } from './documentIngestion';
+export type { AddOptions, AddResult } from './documentIngestion';
+
 // Re-export knowledge graph types from @codegraph/graph
 export type {
   KnowledgeEntity,
