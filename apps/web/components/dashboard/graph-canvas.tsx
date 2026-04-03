@@ -17,9 +17,10 @@ interface GraphCanvasProps {
   onNodeSelect: (node: GraphNode | null) => void
   highlightedNames: Set<string>
   hiddenEdgeTypes: Set<string>
+  hiddenNodeTypes: Set<string>
 }
 
-export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdgeTypes }: GraphCanvasProps) {
+export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdgeTypes, hiddenNodeTypes }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<cytoscape.Core | null>(null)
   const [loading, setLoading] = useState(true)
@@ -161,6 +162,35 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdge
       }
     })
   }, [hiddenEdgeTypes])
+
+  // Handle node type filter changes
+  useEffect(() => {
+    const cy = cyRef.current
+    if (!cy) return
+
+    cy.nodes().forEach((node) => {
+      const nodeType = node.data('type') as string
+      if (hiddenNodeTypes.has(nodeType)) {
+        node.addClass('hidden')
+        // Also hide edges connected to hidden nodes
+        node.connectedEdges().addClass('hidden')
+      } else {
+        node.removeClass('hidden')
+        // Restore edges that aren't edge-type-filtered
+        node.connectedEdges().forEach((edge) => {
+          const edgeType = edge.data('label') as string
+          if (!hiddenEdgeTypes.has(edgeType)) {
+            // Only show if both source and target are visible
+            const src = edge.source()
+            const tgt = edge.target()
+            if (!hiddenNodeTypes.has(src.data('type')) && !hiddenNodeTypes.has(tgt.data('type'))) {
+              edge.removeClass('hidden')
+            }
+          }
+        })
+      }
+    })
+  }, [hiddenNodeTypes, hiddenEdgeTypes])
 
   const handleZoomIn = useCallback(() => {
     const cy = cyRef.current

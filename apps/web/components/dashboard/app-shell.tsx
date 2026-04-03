@@ -14,6 +14,7 @@ export function AppShell() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [highlightedNames, setHighlightedNames] = useState<Set<string>>(new Set())
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(new Set())
+  const [hiddenNodeTypes, setHiddenNodeTypes] = useState<Set<string>>(new Set())
   const [showQuery, setShowQuery] = useState(false)
 
   const handleNodeSelect = useCallback((node: GraphNode | null) => {
@@ -27,11 +28,17 @@ export function AppShell() {
   const handleToggleEdgeType = useCallback((edgeType: string) => {
     setHiddenEdgeTypes(prev => {
       const next = new Set(prev)
-      if (next.has(edgeType)) {
-        next.delete(edgeType)
-      } else {
-        next.add(edgeType)
-      }
+      if (next.has(edgeType)) next.delete(edgeType)
+      else next.add(edgeType)
+      return next
+    })
+  }, [])
+
+  const handleToggleNodeType = useCallback((nodeType: string) => {
+    setHiddenNodeTypes(prev => {
+      const next = new Set(prev)
+      if (next.has(nodeType)) next.delete(nodeType)
+      else next.add(nodeType)
       return next
     })
   }, [])
@@ -43,9 +50,7 @@ export function AppShell() {
         <SearchPanel
           apiUrl={API_URL}
           onHighlight={handleSearchHighlight}
-          onSelectResult={(name) => {
-            setHighlightedNames(new Set([name]))
-          }}
+          onSelectResult={(name) => setHighlightedNames(new Set([name]))}
         />
       </ResizablePanel>
 
@@ -61,8 +66,9 @@ export function AppShell() {
                 onNodeSelect={handleNodeSelect}
                 highlightedNames={highlightedNames}
                 hiddenEdgeTypes={hiddenEdgeTypes}
+                hiddenNodeTypes={hiddenNodeTypes}
               />
-              {/* Toolbar: Query toggle + Legend side by side */}
+              {/* Toolbar: Query toggle + Legend */}
               <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', alignItems: 'start', gap: 8 }}>
                 <button
                   onClick={() => setShowQuery(!showQuery)}
@@ -75,6 +81,8 @@ export function AppShell() {
                 <GraphLegend
                   hiddenEdgeTypes={hiddenEdgeTypes}
                   onToggleEdgeType={handleToggleEdgeType}
+                  hiddenNodeTypes={hiddenNodeTypes}
+                  onToggleNodeType={handleToggleNodeType}
                 />
               </div>
             </div>

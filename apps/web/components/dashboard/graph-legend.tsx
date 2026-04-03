@@ -6,6 +6,8 @@ import { NODE_COLORS, NODE_SHAPES, EDGE_COLORS } from '@/lib/cytoscape-config'
 interface GraphLegendProps {
   hiddenEdgeTypes: Set<string>
   onToggleEdgeType: (edgeType: string) => void
+  hiddenNodeTypes: Set<string>
+  onToggleNodeType: (nodeType: string) => void
 }
 
 const NODE_LEGEND = [
@@ -34,16 +36,15 @@ function shapeClass(shape: string) {
     case 'diamond': return 'rotate-45 scale-75'
     case 'round-rectangle': return 'rounded-sm'
     case 'rectangle': return 'rounded-none'
-    case 'hexagon': return 'rounded-sm' // approximate
     default: return 'rounded-full'
   }
 }
 
-export function GraphLegend({ hiddenEdgeTypes, onToggleEdgeType }: GraphLegendProps) {
+export function GraphLegend({ hiddenEdgeTypes, onToggleEdgeType, hiddenNodeTypes, onToggleNodeType }: GraphLegendProps) {
   const [collapsed, setCollapsed] = useState(false)
 
   return (
-    <div className="rounded-lg border border-border bg-card/90 backdrop-blur-sm overflow-hidden" style={{ maxWidth: 180 }}>
+    <div className="rounded-lg border border-border bg-card/90 backdrop-blur-sm overflow-hidden" style={{ maxWidth: 200 }}>
       <button
         onClick={() => setCollapsed(!collapsed)}
         className="w-full px-3 py-1.5 flex items-center justify-between text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
@@ -57,29 +58,40 @@ export function GraphLegend({ hiddenEdgeTypes, onToggleEdgeType }: GraphLegendPr
 
       {!collapsed && (
         <div className="px-3 pb-2 space-y-2">
-          {/* Nodes */}
+          {/* Nodes (clickable to filter) */}
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Nodes</div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">
+              Nodes <span className="normal-case">(click to filter)</span>
+            </div>
             <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
-              {NODE_LEGEND.map((item) => (
-                <div key={item.label} className="flex items-center gap-1.5">
-                  <div
-                    className={`w-2.5 h-2.5 shrink-0 ${shapeClass(item.shape)}`}
-                    style={{
-                      backgroundColor: item.dashed ? 'transparent' : item.color,
-                      borderColor: item.color,
-                      ...(item.dashed ? { border: '1.5px dashed' } : {}),
-                    }}
-                  />
-                  <span className="text-[10px] text-muted-foreground">{item.label}</span>
-                </div>
-              ))}
+              {NODE_LEGEND.map((item) => {
+                const hidden = hiddenNodeTypes.has(item.label)
+                return (
+                  <button
+                    key={item.label}
+                    onClick={() => onToggleNodeType(item.label)}
+                    className={`flex items-center gap-1.5 transition-opacity ${hidden ? 'opacity-30' : ''}`}
+                  >
+                    <div
+                      className={`w-2.5 h-2.5 shrink-0 ${shapeClass(item.shape)}`}
+                      style={{
+                        backgroundColor: item.dashed ? 'transparent' : item.color,
+                        borderColor: item.color,
+                        ...(item.dashed ? { border: '1.5px dashed' } : {}),
+                      }}
+                    />
+                    <span className={`text-[10px] text-muted-foreground ${hidden ? 'line-through' : ''}`}>{item.label}</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
-          {/* Edges (clickable to toggle) */}
+          {/* Edges (clickable to filter) */}
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Edges <span className="normal-case">(click to filter)</span></div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">
+              Edges <span className="normal-case">(click to filter)</span>
+            </div>
             <div className="space-y-0.5">
               {EDGE_LEGEND.map((item) => {
                 const color = EDGE_COLORS[item.type] ?? '#64748b'

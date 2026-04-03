@@ -191,7 +191,11 @@ export const cytoscapeStylesheet = [
     selector: 'edge:selected',
     style: { width: 3, 'line-color': '#ffffff', 'target-arrow-color': '#ffffff' },
   },
-  // Hidden edges (via edge type filter)
+  // Hidden elements (via type filters)
+  {
+    selector: 'node.hidden',
+    style: { display: 'none' as const },
+  },
   {
     selector: 'edge.hidden',
     style: { display: 'none' as const },
