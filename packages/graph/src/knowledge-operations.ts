@@ -86,6 +86,46 @@ export interface RelationshipResult {
   fact: string | null;
 }
 
+// --- Temporal Query Result Types ---
+
+export interface TemporalQueryResult {
+  headText: string;
+  headType: string;
+  tailText: string;
+  tailType: string;
+  relationType: string;
+  confidence: number;
+  fact: string | null;
+  validAt: number | null;
+  invalidAt: number | null;
+}
+
+export interface TemporalChangeResult {
+  change: 'established' | 'superseded';
+  headText: string;
+  headType: string;
+  tailText: string;
+  tailType: string;
+  relationType: string;
+  confidence: number;
+  fact: string | null;
+  validAt: number | null;
+  invalidAt: number | null;
+}
+
+export interface TimelineEntry {
+  headText: string;
+  headType: string;
+  tailText: string;
+  tailType: string;
+  relationType: string;
+  confidence: number;
+  fact: string | null;
+  validAt: number | null;
+  invalidAt: number | null;
+  isActive: boolean;
+}
+
 /**
  * ABOUT edge linking method — how the bridge was created.
  */
@@ -178,6 +218,16 @@ export interface KnowledgeOperations {
   // --- Entity Resolution ---
   /** Merge duplicate entity into canonical: transfer relationships, ABOUT edges, then delete */
   mergeEntities(canonicalText: string, canonicalType: string, duplicateText: string, duplicateType: string): Promise<{ transferredRelationships: number; transferredAboutEdges: number }>;
+
+  // --- Temporal Queries ---
+  /** Reconstruct knowledge state at a specific point in time */
+  queryAtPointInTime(timestamp: number): Promise<TemporalQueryResult[]>;
+  /** Find facts established or superseded within a time range */
+  queryChangesInRange(from: number, to: number): Promise<TemporalChangeResult[]>;
+  /** Get full chronological history of an entity's relationships */
+  getEntityTimeline(entityText: string, entityType?: string): Promise<TimelineEntry[]>;
+  /** Search entities by relevance score and last access time */
+  searchByRelevance(opts: { minRelevance?: number; since?: number; limit?: number }): Promise<EntitySearchResult[]>;
 
 }
 
@@ -494,6 +544,83 @@ const KG_CYPHER = {
       AND t.text = rel.tailText AND t.type = rel.tailType
       AND r.type = rel.relType
     SET r.sampleIds = coalesce(r.sampleIds, []) + [rel.sampleId]
+  `,
+
+  // --- Temporal Queries ---
+
+  /** Point-in-time: return only facts valid at a given timestamp */
+  QUERY_AT_POINT_IN_TIME: `
+    MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
+    WHERE r.valid_at <= $timestamp
+      AND (r.invalid_at IS NULL OR r.invalid_at > $timestamp)
+    RETURN h.text AS headText, h.type AS headType,
+           t.text AS tailText, t.type AS tailType,
+           r.type AS relationType, r.confidence AS confidence,
+           r.fact AS fact, r.valid_at AS validAt, r.invalid_at AS invalidAt
+    ORDER BY r.valid_at DESC
+    LIMIT $limit
+  `,
+
+  /** Range query: facts established within a period */
+  QUERY_ESTABLISHED_IN_RANGE: `
+    MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
+    WHERE r.valid_at >= $from AND r.valid_at <= $to
+    RETURN 'established' AS change,
+           h.text AS headText, h.type AS headType,
+           t.text AS tailText, t.type AS tailType,
+           r.type AS relationType, r.confidence AS confidence,
+           r.fact AS fact, r.valid_at AS validAt, r.invalid_at AS invalidAt
+    ORDER BY r.valid_at ASC
+  `,
+
+  /** Range query: facts superseded (invalidated) within a period */
+  QUERY_SUPERSEDED_IN_RANGE: `
+    MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
+    WHERE r.invalid_at >= $from AND r.invalid_at <= $to
+    RETURN 'superseded' AS change,
+           h.text AS headText, h.type AS headType,
+           t.text AS tailText, t.type AS tailType,
+           r.type AS relationType, r.confidence AS confidence,
+           r.fact AS fact, r.valid_at AS validAt, r.invalid_at AS invalidAt
+    ORDER BY r.invalid_at ASC
+  `,
+
+  /** Entity timeline: full history of relationships for an entity (both directions) */
+  GET_ENTITY_TIMELINE: `
+    MATCH (h:Entity)-[r:RELATES_TO]-(t:Entity)
+    WHERE h.text = $entityText
+    RETURN h.text AS headText, h.type AS headType,
+           t.text AS tailText, t.type AS tailType,
+           r.type AS relationType, r.confidence AS confidence,
+           r.fact AS fact, r.valid_at AS validAt, r.invalid_at AS invalidAt,
+           CASE WHEN r.invalid_at IS NULL THEN true ELSE false END AS isActive
+    ORDER BY r.valid_at ASC
+    LIMIT $limit
+  `,
+
+  /** Entity timeline filtered by type */
+  GET_ENTITY_TIMELINE_BY_TYPE: `
+    MATCH (h:Entity)-[r:RELATES_TO]-(t:Entity)
+    WHERE h.text = $entityText AND h.type = $entityType
+    RETURN h.text AS headText, h.type AS headType,
+           t.text AS tailText, t.type AS tailType,
+           r.type AS relationType, r.confidence AS confidence,
+           r.fact AS fact, r.valid_at AS validAt, r.invalid_at AS invalidAt,
+           CASE WHEN r.invalid_at IS NULL THEN true ELSE false END AS isActive
+    ORDER BY r.valid_at ASC
+    LIMIT $limit
+  `,
+
+  /** Relevance-weighted search: entities above relevance threshold accessed since a time */
+  SEARCH_BY_RELEVANCE: `
+    MATCH (n:Entity)
+    WHERE n.relevanceScore >= $minRelevance
+      AND n.lastAccessedAt >= $since
+    RETURN n.id AS id, n.text AS text, n.type AS type,
+           n.confidence AS confidence, n.relevanceScore AS relevanceScore,
+           n.createdAt AS createdAt, n.lastAccessedAt AS lastAccessedAt
+    ORDER BY n.relevanceScore DESC
+    LIMIT $limit
   `,
 
   // --- Vector Search (FalkorDB native HNSW) ---
@@ -834,6 +961,76 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
       oldestAccess: stats?.oldest ?? null,
       newestAccess: stats?.newest ?? null,
     };
+  }
+
+  // --- Temporal Queries ---
+
+  @trace()
+  async queryAtPointInTime(timestamp: number): Promise<TemporalQueryResult[]> {
+    const result = await this.client.roQuery<TemporalQueryResult>(
+      KG_CYPHER.QUERY_AT_POINT_IN_TIME,
+      { params: { timestamp, limit: 100 } },
+    );
+    return result.data;
+  }
+
+  @trace()
+  async queryChangesInRange(from: number, to: number): Promise<TemporalChangeResult[]> {
+    // Run both queries and merge results
+    const [established, superseded] = await Promise.all([
+      this.client.roQuery<TemporalChangeResult>(
+        KG_CYPHER.QUERY_ESTABLISHED_IN_RANGE,
+        { params: { from, to } },
+      ),
+      this.client.roQuery<TemporalChangeResult>(
+        KG_CYPHER.QUERY_SUPERSEDED_IN_RANGE,
+        { params: { from, to } },
+      ),
+    ]);
+
+    // Merge and sort by timestamp (validAt for established, invalidAt for superseded)
+    const all = [...established.data, ...superseded.data];
+    all.sort((a, b) => {
+      const timeA = a.change === 'established' ? (a.validAt ?? 0) : (a.invalidAt ?? 0);
+      const timeB = b.change === 'established' ? (b.validAt ?? 0) : (b.invalidAt ?? 0);
+      return timeA - timeB;
+    });
+    return all;
+  }
+
+  @trace()
+  async getEntityTimeline(entityText: string, entityType?: string): Promise<TimelineEntry[]> {
+    if (entityType) {
+      const result = await this.client.roQuery<TimelineEntry>(
+        KG_CYPHER.GET_ENTITY_TIMELINE_BY_TYPE,
+        { params: { entityText, entityType, limit: 200 } },
+      );
+      return result.data;
+    }
+    const result = await this.client.roQuery<TimelineEntry>(
+      KG_CYPHER.GET_ENTITY_TIMELINE,
+      { params: { entityText, limit: 200 } },
+    );
+    return result.data;
+  }
+
+  @trace()
+  async searchByRelevance(opts: {
+    minRelevance?: number;
+    since?: number;
+    limit?: number;
+  }): Promise<EntitySearchResult[]> {
+    const result = await this.client.roQuery<EntitySearchResult>(
+      KG_CYPHER.SEARCH_BY_RELEVANCE,
+      {
+        params: {
+          minRelevance: opts.minRelevance ?? 0.5,
+          since: opts.since ?? 0,
+          limit: opts.limit ?? 50,
+        },
+      },
+    );
+    return result.data;
   }
 
   // --- Vector Search ---

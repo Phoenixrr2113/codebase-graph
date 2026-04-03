@@ -52,6 +52,9 @@ export {
   type AboutEdgeInput,
   type AboutEdgeResult,
   type AboutLinkMethod,
+  type TemporalQueryResult,
+  type TemporalChangeResult,
+  type TimelineEntry,
 } from './knowledge-operations';
 
 // File tree exports

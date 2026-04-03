@@ -72,10 +72,14 @@ if (existsSync(envPath)) {
     errors.push('FALKORDB_HOST not set — benchmark may connect to wrong database');
   }
 
-  // Embeddings
-  const embProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'voyage';
+  // Embeddings — auto-detect from API keys
+  const embProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER']
+    ?? (process.env['VOYAGE_API_KEY'] ? 'voyage' : process.env['OPENROUTER_API_KEY'] ? 'openrouter' : 'none');
   if (embProvider === 'voyage' && !process.env['VOYAGE_API_KEY']) {
     errors.push('VOYAGE_API_KEY not set — Voyage embeddings will fail');
+  }
+  if (embProvider === 'none') {
+    errors.push('No embedding provider configured — set VOYAGE_API_KEY or OPENROUTER_API_KEY');
   }
 
   // Reranker
@@ -107,10 +111,11 @@ const useEmbeddings = !noEmbeddings; // ON by default — embeddings are core fu
 const runAnalysis = args.includes('--analysis');
 const label = args.filter(a => !a.startsWith('--'))[0] ?? 'unlabeled';
 
-// Embedding config for vector search — uses .env provider (voyage-code-3 1024d by default)
+// Embedding config for vector search — auto-detects from API keys
 // Enabled by default since nodes have embeddings — testing without them
 // doesn't reflect how the system actually runs.
-const embeddingProvider = (process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'voyage') as 'local' | 'openrouter' | 'voyage';
+const embeddingProvider = (process.env['CODEGRAPH_EMBEDDING_PROVIDER']
+  ?? (process.env['VOYAGE_API_KEY'] ? 'voyage' : process.env['OPENROUTER_API_KEY'] ? 'openrouter' : 'local')) as 'local' | 'openrouter' | 'voyage';
 const embeddingConfig = useEmbeddings ? { provider: embeddingProvider } : undefined;
 
 // ============================================================================

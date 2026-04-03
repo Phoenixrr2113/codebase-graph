@@ -51,7 +51,8 @@ console.log('Nodes after clear:', countResult.data[0]?.cnt);
 
 // Warmup embeddings
 console.log('\nWarming up embedding model...');
-const provider = (process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'voyage') as 'local' | 'openrouter' | 'voyage';
+const provider = (process.env['CODEGRAPH_EMBEDDING_PROVIDER']
+  ?? (process.env['VOYAGE_API_KEY'] ? 'voyage' : process.env['OPENROUTER_API_KEY'] ? 'openrouter' : 'local')) as 'local' | 'openrouter' | 'voyage';
 const embeddingConfig = { provider };
 console.log(`Provider: ${provider}, available: ${isEmbeddingAvailable(embeddingConfig)}, VOYAGE_API_KEY set: ${!!process.env['VOYAGE_API_KEY']}`);
 await warmupEmbedding(embeddingConfig);
