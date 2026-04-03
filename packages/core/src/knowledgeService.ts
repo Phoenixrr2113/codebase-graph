@@ -12,6 +12,9 @@ import type {
   EntitySearchResult,
   KnowledgeOperations,
   DecayConfig,
+  TemporalQueryResult,
+  TemporalChangeResult,
+  TimelineEntry,
 } from '@codegraph/graph';
 import { getKnowledgeOps } from './knowledgeClient';
 
@@ -356,6 +359,48 @@ class KnowledgeServiceImpl {
       format: result.format,
       source: options?.source ?? null,
     };
+  }
+
+  // --- Temporal Queries ---
+
+  /**
+   * Reconstruct knowledge state at a specific point in time.
+   * Returns only facts that were valid at the given timestamp.
+   */
+  async queryAtPointInTime(timestamp: number): Promise<TemporalQueryResult[]> {
+    const ops = await getKnowledgeOps();
+    return ops.queryAtPointInTime(timestamp);
+  }
+
+  /**
+   * Find facts established or superseded within a time range.
+   * Returns both new facts and what they replaced.
+   */
+  async queryChangesInRange(from: number, to: number): Promise<TemporalChangeResult[]> {
+    const ops = await getKnowledgeOps();
+    return ops.queryChangesInRange(from, to);
+  }
+
+  /**
+   * Get full chronological history of an entity's relationships.
+   * Includes both active and superseded facts.
+   */
+  async getEntityTimeline(entityText: string, entityType?: string): Promise<TimelineEntry[]> {
+    const ops = await getKnowledgeOps();
+    return ops.getEntityTimeline(entityText, entityType);
+  }
+
+  /**
+   * Search entities by relevance score and last access time.
+   * Surfaces "hot" vs "cold" knowledge.
+   */
+  async searchByRelevance(opts?: {
+    minRelevance?: number;
+    since?: number;
+    limit?: number;
+  }): Promise<EntitySearchResult[]> {
+    const ops = await getKnowledgeOps();
+    return ops.searchByRelevance(opts ?? {});
   }
 
   /**

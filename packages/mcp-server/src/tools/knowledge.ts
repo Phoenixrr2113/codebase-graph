@@ -141,7 +141,7 @@ export const queryKnowledgeToolDefinition: ToolDefinition = {
 
 export const recallToolDefinition: ToolDefinition = {
   name: 'recall',
-  description: 'Recall everything known about an entity — returns all currently-valid relationships where the entity appears as head or tail. Like asking "what do I know about X?" By default, superseded/invalidated facts are excluded. Set includeHistory=true to see the full timeline including invalidated facts.',
+  description: 'Recall everything known about an entity — returns all currently-valid relationships where the entity appears as head or tail. Like asking "what do I know about X?" Supports temporal queries: use `at` for point-in-time, `from`/`to` for range queries, `timeline` for full history, `minRelevance` for relevance-weighted search.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -164,6 +164,26 @@ export const recallToolDefinition: ToolDefinition = {
       includeHistory: {
         type: 'boolean',
         description: 'If true, also return invalidated/superseded facts (default: false — only current facts)',
+      },
+      at: {
+        type: 'string',
+        description: 'ISO timestamp for point-in-time query — returns only facts valid at this moment (e.g., "2026-03-01T00:00:00Z")',
+      },
+      from: {
+        type: 'string',
+        description: 'ISO timestamp for range query start — used with `to` to find facts established or superseded in this period',
+      },
+      to: {
+        type: 'string',
+        description: 'ISO timestamp for range query end — used with `from`',
+      },
+      timeline: {
+        type: 'boolean',
+        description: 'If true, return the full chronological timeline of this entity including superseded facts with timestamps',
+      },
+      minRelevance: {
+        type: 'number',
+        description: 'Minimum relevance score (0-1) for relevance-weighted entity search',
       },
     },
     required: ['text'],
@@ -387,6 +407,94 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
 
 export async function handleRecall(args: Record<string, unknown>) {
   try {
+    // --- Temporal query: point-in-time ---
+    if (args.at != null) {
+      const timestamp = new Date(args.at as string).getTime();
+      const results = await knowledgeService.queryAtPointInTime(timestamp);
+      return {
+        mode: 'point_in_time',
+        at: args.at,
+        count: results.length,
+        facts: results.map(r => ({
+          head: `${r.headText} (${r.headType})`,
+          tail: `${r.tailText} (${r.tailType})`,
+          type: r.relationType,
+          confidence: r.confidence,
+          fact: r.fact,
+          validAt: r.validAt ? new Date(r.validAt).toISOString() : null,
+        })),
+      };
+    }
+
+    // --- Temporal query: range ---
+    if (args.from != null && args.to != null) {
+      const from = new Date(args.from as string).getTime();
+      const to = new Date(args.to as string).getTime();
+      const results = await knowledgeService.queryChangesInRange(from, to);
+      return {
+        mode: 'range',
+        from: args.from,
+        to: args.to,
+        count: results.length,
+        changes: results.map(r => ({
+          change: r.change,
+          head: `${r.headText} (${r.headType})`,
+          tail: `${r.tailText} (${r.tailType})`,
+          type: r.relationType,
+          confidence: r.confidence,
+          fact: r.fact,
+          validAt: r.validAt ? new Date(r.validAt).toISOString() : null,
+          invalidAt: r.invalidAt ? new Date(r.invalidAt).toISOString() : null,
+        })),
+      };
+    }
+
+    // --- Temporal query: entity timeline ---
+    if (args.timeline === true) {
+      const results = await knowledgeService.getEntityTimeline(
+        args.text as string,
+        args.type as string | undefined,
+      );
+      return {
+        mode: 'timeline',
+        entity: args.text,
+        count: results.length,
+        timeline: results.map(r => ({
+          head: `${r.headText} (${r.headType})`,
+          tail: `${r.tailText} (${r.tailType})`,
+          type: r.relationType,
+          confidence: r.confidence,
+          fact: r.fact,
+          validAt: r.validAt ? new Date(r.validAt).toISOString() : null,
+          invalidAt: r.invalidAt ? new Date(r.invalidAt).toISOString() : null,
+          isActive: r.isActive,
+        })),
+      };
+    }
+
+    // --- Relevance-weighted search ---
+    if (args.minRelevance != null) {
+      const results = await knowledgeService.searchByRelevance({
+        minRelevance: args.minRelevance as number,
+        limit: (args.limit as number | undefined) ?? 50,
+      });
+      return {
+        mode: 'relevance',
+        minRelevance: args.minRelevance,
+        count: results.length,
+        entities: results.map(e => ({
+          id: e.id,
+          text: e.text,
+          type: e.type,
+          confidence: e.confidence,
+          relevance: e.relevanceScore,
+          createdAt: new Date(e.createdAt).toISOString(),
+          lastAccessed: new Date(e.lastAccessedAt).toISOString(),
+        })),
+      };
+    }
+
+    // --- Default: standard recall (unchanged behavior) ---
     const opts: { type?: string; relationType?: string; limit?: number; includeHistory?: boolean } = {};
     if (args.type != null) opts.type = args.type as string;
     if (args.relationType != null) opts.relationType = args.relationType as string;
