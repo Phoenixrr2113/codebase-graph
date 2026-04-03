@@ -12,11 +12,15 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState('explorer')
+  const [projectId, setProjectId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   const handleProjectParsed = useCallback(() => {
-    // Force re-render of graph explorer to reload data
     setRefreshKey(k => k + 1)
+  }, [])
+
+  const handleProjectChange = useCallback((project: { id: string; name: string } | null) => {
+    setProjectId(project?.id ?? null)
   }, [])
 
   return (
@@ -25,7 +29,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold tracking-tight">CodeGraph</h1>
           <span className="text-muted-foreground/30">|</span>
-          <ProjectSelector />
+          <ProjectSelector onProjectChange={handleProjectChange} />
           <EmbeddingBadge />
         </div>
         <div className="flex items-center gap-3">
@@ -40,7 +44,7 @@ export default function DashboardPage() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === 'explorer' && <AppShell key={refreshKey} />}
+        {activeTab === 'explorer' && <AppShell key={`${projectId}-${refreshKey}`} projectId={projectId} />}
         {activeTab === 'operations' && <OperationsTab />}
       </main>
     </div>

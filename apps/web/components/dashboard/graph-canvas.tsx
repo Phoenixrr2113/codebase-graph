@@ -18,9 +18,10 @@ interface GraphCanvasProps {
   highlightedNames: Set<string>
   hiddenEdgeTypes: Set<string>
   hiddenNodeTypes: Set<string>
+  projectId?: string | null
 }
 
-export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdgeTypes, hiddenNodeTypes }: GraphCanvasProps) {
+export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdgeTypes, hiddenNodeTypes, projectId }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<cytoscape.Core | null>(null)
   const [loading, setLoading] = useState(true)
@@ -38,7 +39,10 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdge
       const cy = (await import('cytoscape')).default
 
       try {
-        const res = await fetch(`${apiUrl}/api/graph/full?limit=300`)
+        const graphUrl = projectId
+          ? `${apiUrl}/api/graph/full?limit=300&projectId=${encodeURIComponent(projectId)}`
+          : `${apiUrl}/api/graph/full?limit=300`
+        const res = await fetch(graphUrl)
         if (!res.ok) throw new Error(`API error: ${res.status}`)
         const data = await res.json()
 
@@ -132,7 +136,7 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdge
       mounted = false
       cyRef.current?.destroy()
     }
-  }, [apiUrl, onNodeSelect])
+  }, [apiUrl, onNodeSelect, projectId])
 
   // Handle search highlight changes
   useEffect(() => {

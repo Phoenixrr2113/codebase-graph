@@ -1,12 +1,33 @@
 import { Hono } from 'hono';
-import { codeGraphService } from '@codegraph/core';
+import { codeGraphService, getGraphClient } from '@codegraph/core';
 
 export const graphRoutes = new Hono();
 
-/** GET /api/graph/full?limit=N — returns { nodes, edges } */
+/** GET /api/graph/full?limit=N&projectId=X — returns { nodes, edges } optionally filtered by project */
 graphRoutes.get('/api/graph/full', async (c) => {
   try {
     const limit = Number(c.req.query('limit') ?? 100);
+    const projectId = c.req.query('projectId');
+
+    // If projectId given, resolve rootPath and filter
+    if (projectId) {
+      const client = await getGraphClient();
+
+      // Get project rootPath
+      const projectResult = await client.roQuery<{ rootPath: string | null }>(
+        `MATCH (p:Project {id: $id}) RETURN p.rootPath AS rootPath`,
+        { params: { id: projectId } },
+      );
+      const rootPath = projectResult.data[0]?.rootPath;
+
+      if (rootPath) {
+        // Fetch only nodes belonging to this project (by file path prefix)
+        const data = await codeGraphService.getFullGraph(limit, rootPath);
+        return c.json({ nodes: data.nodes, edges: data.edges });
+      }
+    }
+
+    // No project filter — return all
     const rootPath = c.req.query('rootPath') ?? undefined;
     const data = await codeGraphService.getFullGraph(limit, rootPath);
     return c.json({ nodes: data.nodes, edges: data.edges });

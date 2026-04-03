@@ -10,7 +10,7 @@ import { QueryPanel } from './query-panel'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
-export function AppShell() {
+export function AppShell({ projectId }: { projectId?: string | null }) {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [highlightedNames, setHighlightedNames] = useState<Set<string>>(new Set())
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(new Set())
@@ -67,6 +67,7 @@ export function AppShell() {
                 highlightedNames={highlightedNames}
                 hiddenEdgeTypes={hiddenEdgeTypes}
                 hiddenNodeTypes={hiddenNodeTypes}
+                projectId={projectId}
               />
               {/* Toolbar: Query toggle + Legend */}
               <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', alignItems: 'start', gap: 8 }}>
