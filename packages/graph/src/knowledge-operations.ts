@@ -219,6 +219,10 @@ export interface KnowledgeOperations {
   /** Merge duplicate entity into canonical: transfer relationships, ABOUT edges, then delete */
   mergeEntities(canonicalText: string, canonicalType: string, duplicateText: string, duplicateType: string): Promise<{ transferredRelationships: number; transferredAboutEdges: number }>;
 
+  // --- Provenance ---
+  /** Search entities by sampleId prefix */
+  searchEntitiesBySource(sourcePrefix: string, limit?: number): Promise<EntitySearchResult[]>;
+
   // --- Temporal Queries ---
   /** Reconstruct knowledge state at a specific point in time */
   queryAtPointInTime(timestamp: number): Promise<TemporalQueryResult[]>;
@@ -611,6 +615,17 @@ const KG_CYPHER = {
     LIMIT $limit
   `,
 
+  /** Search entities by sampleId prefix (provenance filter) */
+  SEARCH_ENTITIES_BY_SOURCE: `
+    MATCH (n:Entity)
+    WHERE any(sid IN coalesce(n.sampleIds, []) WHERE sid STARTS WITH $sourcePrefix)
+    RETURN n.id AS id, n.text AS text, n.type AS type,
+           n.confidence AS confidence, n.relevanceScore AS relevanceScore,
+           n.createdAt AS createdAt, n.lastAccessedAt AS lastAccessedAt
+    ORDER BY n.relevanceScore DESC
+    LIMIT $limit
+  `,
+
   /** Relevance-weighted search: entities above relevance threshold accessed since a time */
   SEARCH_BY_RELEVANCE: `
     MATCH (n:Entity)
@@ -961,6 +976,17 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
       oldestAccess: stats?.oldest ?? null,
       newestAccess: stats?.newest ?? null,
     };
+  }
+
+  // --- Provenance ---
+
+  @trace()
+  async searchEntitiesBySource(sourcePrefix: string, limit: number = 50): Promise<EntitySearchResult[]> {
+    const result = await this.client.roQuery<EntitySearchResult>(
+      KG_CYPHER.SEARCH_ENTITIES_BY_SOURCE,
+      { params: { sourcePrefix, limit } },
+    );
+    return result.data;
   }
 
   // --- Temporal Queries ---

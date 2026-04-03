@@ -111,8 +111,8 @@ export const storeFactToolDefinition: ToolDefinition = {
 export const queryKnowledgeToolDefinition: ToolDefinition = {
   name: 'query_knowledge',
   description:
-    'Search the knowledge graph for entities. Filter by type, text content, or use ' +
-    'semantic search to find entities by meaning. Returns matching entities with their ' +
+    'Search the knowledge graph for entities. Filter by type, text content, source/provenance, ' +
+    'or use semantic search to find entities by meaning. Returns matching entities with their ' +
     'confidence and relevance scores.',
   inputSchema: {
     type: 'object',
@@ -130,6 +130,10 @@ export const queryKnowledgeToolDefinition: ToolDefinition = {
         description:
           'Natural language query for semantic search — finds entities by meaning, ' +
           'not just exact text. Requires embeddings to be available.',
+      },
+      source: {
+        type: 'string',
+        description: 'Filter by provenance — returns only entities whose sampleIds contain this prefix (e.g., "meeting-2024-01-15", "slack-engineering")',
       },
       limit: {
         type: 'number',
@@ -248,6 +252,24 @@ export const ingestConversationToolDefinition: ToolDefinition = {
   },
 };
 
+export const resolveEntitiesToolDefinition: ToolDefinition = {
+  name: 'resolve_entities',
+  description: 'Run on-demand entity resolution (deduplication) on the knowledge graph. Uses 3-tier matching: exact text → embedding similarity → LLM verification. Merges duplicate entities by transferring relationships and ABOUT edges to the canonical entity.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      autoMergeThreshold: {
+        type: 'number',
+        description: 'Minimum similarity for automatic merge without LLM (default: 0.95)',
+      },
+      candidateThreshold: {
+        type: 'number',
+        description: 'Minimum similarity to consider as candidate for LLM verification (default: 0.85)',
+      },
+    },
+  },
+};
+
 export const getKnowledgeStatsToolDefinition: ToolDefinition = {
   name: 'get_knowledge_stats',
   description: 'Get statistics about the knowledge graph: total entities, average relevance, low-relevance count, oldest/newest access timestamps.',
@@ -268,6 +290,7 @@ export const knowledgeToolDefinitions: ToolDefinition[] = [
   ingestConversationToolDefinition,
   queryKnowledgeToolDefinition,
   recallToolDefinition,
+  resolveEntitiesToolDefinition,
   decayAndPruneToolDefinition,
   getKnowledgeStatsToolDefinition,
 ];
@@ -378,6 +401,30 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
       } catch (err) {
         logger.warn(`Semantic search failed, falling back to text: ${err}`);
         // Fall through to text search below
+      }
+    }
+
+    // Source/provenance filter path: query entities by sampleId prefix
+    if (args.source != null) {
+      const sourcePrefix = args.source as string;
+      try {
+        const kgOps = await getKnowledgeOps();
+        const results = await kgOps.searchEntitiesBySource(sourcePrefix, limit);
+        return {
+          count: results.length,
+          source: sourcePrefix,
+          entities: results.map(e => ({
+            id: e.id,
+            text: e.text,
+            type: e.type,
+            confidence: e.confidence,
+            relevance: e.relevanceScore,
+            createdAt: new Date(e.createdAt).toISOString(),
+            lastAccessed: new Date(e.lastAccessedAt).toISOString(),
+          })),
+        };
+      } catch {
+        // Fall through to standard search
       }
     }
 
@@ -494,13 +541,37 @@ export async function handleRecall(args: Record<string, unknown>) {
       };
     }
 
-    // --- Default: standard recall (unchanged behavior) ---
+    // --- Default: standard recall with ABOUT edge enrichment ---
     const opts: { type?: string; relationType?: string; limit?: number; includeHistory?: boolean } = {};
     if (args.type != null) opts.type = args.type as string;
     if (args.relationType != null) opts.relationType = args.relationType as string;
     if (args.limit != null) opts.limit = args.limit as number;
     if (args.includeHistory != null) opts.includeHistory = args.includeHistory as boolean;
-    return await knowledgeService.recall(args.text as string, opts);
+    const result = await knowledgeService.recall(args.text as string, opts);
+
+    // Enrich with ABOUT edges (knowledge → code bridges) if entity type is known
+    if (args.type != null) {
+      try {
+        const kgOps = await getKnowledgeOps();
+        const aboutEdges = await kgOps.getAboutEdgesForEntity(args.text as string, args.type as string);
+        if (aboutEdges.length > 0) {
+          return {
+            ...result,
+            bridges: aboutEdges.map(a => ({
+              targetLabel: a.targetLabel,
+              targetValue: a.targetValue,
+              confidence: a.confidence,
+              method: a.method,
+              createdAt: a.createdAt,
+            })),
+          };
+        }
+      } catch {
+        // ABOUT edge query failed — return standard result
+      }
+    }
+
+    return result;
   } catch (error) {
     logger.error('recall failed', error);
     return { error: toErrorMessage(error) };
@@ -558,6 +629,40 @@ export async function handleIngestConversation(args: Record<string, unknown>): P
   }
 }
 
+export async function handleResolveEntities(args: Record<string, unknown>) {
+  try {
+    // Dynamic import to avoid requiring @codegraph/plugin-nlp when not using this tool
+    const { resolveEntities } = await import('@codegraph/plugin-nlp');
+    const kgOps = await getKnowledgeOps();
+    const config: Record<string, unknown> = {};
+    if (args.autoMergeThreshold != null) config.autoMergeThreshold = args.autoMergeThreshold as number;
+    if (args.candidateThreshold != null) config.candidateThreshold = args.candidateThreshold as number;
+    const result = await resolveEntities(kgOps, config);
+    return {
+      total: result.total,
+      merged: result.merged,
+      kept: result.kept,
+      tier1Merges: result.tier1Merges,
+      tier2Merges: result.tier2Merges,
+      tier3Merges: result.tier3Merges,
+      llmCalls: result.llmCalls,
+      merges: result.merges.map((m: { canonical: string; duplicate: string; tier: number; similarity?: number | undefined }) => ({
+        canonical: m.canonical,
+        duplicate: m.duplicate,
+        tier: m.tier,
+        similarity: m.similarity ?? null,
+      })),
+    };
+  } catch (error) {
+    const msg = toErrorMessage(error);
+    if (msg.includes('API key') || msg.includes('API_KEY') || msg.includes('not configured')) {
+      return { error: 'LLM provider is not configured. Entity resolution tier 3 (LLM verification) requires CEREBRAS_API_KEY or OPENROUTER_API_KEY. Tiers 1-2 (exact + embedding) may still work.' };
+    }
+    logger.error('resolve_entities failed', error);
+    return { error: msg };
+  }
+}
+
 export async function handleGetKnowledgeStats() {
   try {
     return await knowledgeService.getKnowledgeStats();
@@ -578,6 +683,7 @@ export const knowledgeHandlers: Record<string, (args: Record<string, unknown>) =
   ingest_conversation: handleIngestConversation,
   query_knowledge: handleQueryKnowledge,
   recall: handleRecall,
+  resolve_entities: handleResolveEntities,
   decay_and_prune: handleDecayAndPrune,
   get_knowledge_stats: handleGetKnowledgeStats,
 };
