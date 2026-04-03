@@ -3,6 +3,26 @@ import { codeGraphService, knowledgeService, getGraphClient, embedAllNodes } fro
 
 export const statsRoutes = new Hono();
 
+/** GET /api/projects — list indexed projects */
+statsRoutes.get('/api/projects', async (c) => {
+  try {
+    const client = await getGraphClient();
+    const result = await client.roQuery<{
+      id: string;
+      name: string;
+      rootPath: string | null;
+      indexedAt: string | null;
+    }>(
+      `MATCH (p:Project)
+       RETURN p.id AS id, p.name AS name, p.rootPath AS rootPath, p.indexedAt AS indexedAt
+       ORDER BY p.name`,
+    );
+    return c.json({ projects: result.data });
+  } catch (error) {
+    return c.json({ projects: [], error: error instanceof Error ? error.message : 'Failed to list projects' });
+  }
+});
+
 /** GET /api/stats — code graph statistics */
 statsRoutes.get('/api/stats', async (c) => {
   try {
