@@ -55,6 +55,7 @@ export {
   type TemporalQueryResult,
   type TemporalChangeResult,
   type TimelineEntry,
+  type FactSearchResult,
 } from './knowledge-operations';
 
 // File tree exports

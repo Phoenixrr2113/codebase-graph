@@ -135,6 +135,10 @@ export const queryKnowledgeToolDefinition: ToolDefinition = {
         type: 'string',
         description: 'Filter by provenance — returns only entities whose sampleIds contain this prefix (e.g., "meeting-2024-01-15", "slack-engineering")',
       },
+      searchFacts: {
+        type: 'string',
+        description: 'Semantic search on relationship facts/explanations (not entity names). Finds relationships by meaning, e.g. "who decided to use JWT?" searches the fact embeddings on RELATES_TO edges.',
+      },
       limit: {
         type: 'number',
         description: 'Maximum results to return (default: 20)',
@@ -437,6 +441,32 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
       } catch (err) {
         logger.warn(`Semantic search failed, falling back to text: ${err}`);
         // Fall through to text search below
+      }
+    }
+
+    // Fact embedding search: search by relationship meaning
+    if (args.searchFacts != null && isEmbeddingAvailable()) {
+      const factQuery = args.searchFacts as string;
+      try {
+        const { embedding } = await generateEmbedding(factQuery);
+        const kgOps = await getKnowledgeOps();
+        const facts = await kgOps.searchFactsByVector(embedding, limit);
+        return {
+          count: facts.length,
+          searchFacts: factQuery,
+          facts: facts.map(f => ({
+            head: `${f.headText} (${f.headType})`,
+            tail: `${f.tailText} (${f.tailType})`,
+            type: f.relationType,
+            confidence: f.confidence,
+            fact: f.fact,
+            validAt: f.validAt ? new Date(f.validAt).toISOString() : null,
+            score: f.score,
+          })),
+        };
+      } catch (err) {
+        logger.warn(`Fact search failed: ${err}`);
+        // Fall through to standard search
       }
     }
 

@@ -113,6 +113,19 @@ export interface TemporalChangeResult {
   invalidAt: number | null;
 }
 
+export interface FactSearchResult {
+  headText: string;
+  headType: string;
+  tailText: string;
+  tailType: string;
+  relationType: string;
+  confidence: number;
+  fact: string | null;
+  validAt: number | null;
+  invalidAt: number | null;
+  score: number;
+}
+
 export interface TimelineEntry {
   headText: string;
   headType: string;
@@ -218,6 +231,10 @@ export interface KnowledgeOperations {
   // --- Entity Resolution ---
   /** Merge duplicate entity into canonical: transfer relationships, ABOUT edges, then delete */
   mergeEntities(canonicalText: string, canonicalType: string, duplicateText: string, duplicateType: string): Promise<{ transferredRelationships: number; transferredAboutEdges: number }>;
+
+  // --- Fact Search ---
+  /** Search relationships by fact embedding similarity */
+  searchFactsByVector(embedding: number[], limit?: number): Promise<FactSearchResult[]>;
 
   // --- Provenance ---
   /** Search entities by sampleId prefix */
@@ -650,6 +667,19 @@ const KG_CYPHER = {
            score
   `,
 
+  /** Vector similarity search on RELATES_TO fact embeddings */
+  SEARCH_FACTS_BY_VECTOR: `
+    CALL db.idx.vector.queryEdges('RELATES_TO', 'fact_embedding', $k, vecf32($queryVec))
+    YIELD edge, score
+    MATCH (h:Entity)-[edge]->(t:Entity)
+    RETURN h.text AS headText, h.type AS headType,
+           t.text AS tailText, t.type AS tailType,
+           edge.type AS relationType, edge.confidence AS confidence,
+           edge.fact AS fact, edge.valid_at AS validAt, edge.invalid_at AS invalidAt,
+           score
+    ORDER BY score ASC
+  `,
+
   // --- ABOUT Edge Operations (Entity → Code Node bridge) ---
   // Individual CREATE_ABOUT_* templates replaced by
   // KnowledgeOperationsImpl.buildCreateAboutQuery() (QUAL.11)
@@ -976,6 +1006,22 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
       oldestAccess: stats?.oldest ?? null,
       newestAccess: stats?.newest ?? null,
     };
+  }
+
+  // --- Fact Search ---
+
+  @trace()
+  async searchFactsByVector(embedding: number[], limit: number = 10): Promise<FactSearchResult[]> {
+    try {
+      const result = await this.client.roQuery<FactSearchResult>(
+        KG_CYPHER.SEARCH_FACTS_BY_VECTOR,
+        { params: { queryVec: embedding, k: limit } },
+      );
+      return result.data;
+    } catch {
+      // If fact_embedding vector index doesn't exist or has no data, return empty
+      return [];
+    }
   }
 
   // --- Provenance ---
