@@ -14,6 +14,7 @@ import { searchRoutes } from './routes/search';
 import { queryRoutes } from './routes/query';
 import { parseRoutes } from './routes/parse';
 import { statsRoutes } from './routes/stats';
+import { naturalRoutes } from './routes/natural';
 
 const app = new Hono();
 
@@ -31,6 +32,7 @@ app.route('/', searchRoutes);
 app.route('/', queryRoutes);
 app.route('/', parseRoutes);
 app.route('/', statsRoutes);
+app.route('/', naturalRoutes);
 
 // Start server
 const port = Number(process.env.PORT ?? 3001);
