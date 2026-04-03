@@ -43,7 +43,7 @@ export function GraphLegend({ hiddenEdgeTypes, onToggleEdgeType }: GraphLegendPr
   const [collapsed, setCollapsed] = useState(false)
 
   return (
-    <div className="rounded-lg border border-border bg-card/90 backdrop-blur-sm overflow-hidden" style={{ position: 'absolute', top: 48, left: 16, zIndex: 10, maxWidth: 180 }}>
+    <div className="rounded-lg border border-border bg-card/90 backdrop-blur-sm overflow-hidden" style={{ maxWidth: 180 }}>
       <button
         onClick={() => setCollapsed(!collapsed)}
         className="w-full px-3 py-1.5 flex items-center justify-between text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"

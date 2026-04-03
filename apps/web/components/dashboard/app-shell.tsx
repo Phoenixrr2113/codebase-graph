@@ -62,19 +62,21 @@ export function AppShell() {
                 highlightedNames={highlightedNames}
                 hiddenEdgeTypes={hiddenEdgeTypes}
               />
-              <GraphLegend
-                hiddenEdgeTypes={hiddenEdgeTypes}
-                onToggleEdgeType={handleToggleEdgeType}
-              />
-              {/* Query toggle button */}
-              <button
-                onClick={() => setShowQuery(!showQuery)}
-                className={`absolute top-4 left-4 z-10 rounded-lg border border-border px-2 py-1 text-xs backdrop-blur-sm transition-colors ${
-                  showQuery ? 'bg-primary/20 text-primary' : 'bg-card/90 text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Query
-              </button>
+              {/* Toolbar: Query toggle + Legend side by side */}
+              <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', alignItems: 'start', gap: 8 }}>
+                <button
+                  onClick={() => setShowQuery(!showQuery)}
+                  className={`rounded-lg border border-border px-3 py-1.5 text-xs font-medium backdrop-blur-sm transition-colors ${
+                    showQuery ? 'bg-primary/20 text-primary border-primary/40' : 'bg-card/90 text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Query
+                </button>
+                <GraphLegend
+                  hiddenEdgeTypes={hiddenEdgeTypes}
+                  onToggleEdgeType={handleToggleEdgeType}
+                />
+              </div>
             </div>
           </ResizablePanel>
 
