@@ -87,49 +87,64 @@ export function EntityDetail({ node }: EntityDetailProps) {
 
         {/* Location */}
         {filePath && (
-          <Section title="Location">
-            <div className="text-xs text-muted-foreground font-mono" style={{ overflowWrap: 'anywhere' }}>
-              {filePath}
+          <Section title="Location" icon={<LocationIcon />}>
+            <div className="rounded-lg border border-border bg-background/50 p-2.5">
+              <div className="text-xs font-mono text-muted-foreground" style={{ overflowWrap: 'anywhere' }}>
+                {filePath.replace(/^.*\/packages\//, 'packages/').replace(/^.*\/src\//, 'src/')}
+              </div>
+              {startLine != null && endLine != null && (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                    L{startLine}–{endLine}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/50">{endLine - startLine + 1} lines</span>
+                </div>
+              )}
             </div>
-            {startLine != null && endLine != null && (
-              <div className="text-xs text-muted-foreground/60 mt-1">Lines {startLine} - {endLine}</div>
-            )}
           </Section>
         )}
 
         {/* Signature */}
         {(node.type === 'Function' || node.type === 'Component') && (
-          <Section title="Signature">
-            <code className="text-xs text-emerald-400 font-mono block bg-background p-2 rounded border border-border" style={{ overflowWrap: 'anywhere' }}>
+          <Section title="Signature" icon={<FnIcon />}>
+            <div className="rounded-lg border border-border bg-background/50 p-2.5 font-mono text-xs" style={{ overflowWrap: 'anywhere' }}>
               {isAsync && <span className="text-purple-400">async </span>}
-              {node.label}({formatParams(params)}): {returnType ?? 'void'}
-            </code>
+              <span className="text-emerald-400 font-semibold">{node.label}</span>
+              <span className="text-muted-foreground">(</span>
+              <ParamsDisplay params={params} />
+              <span className="text-muted-foreground">)</span>
+              <span className="text-muted-foreground">: </span>
+              <span className="text-cyan-400">{returnType ?? 'void'}</span>
+            </div>
           </Section>
         )}
 
         {node.type === 'Class' && (
-          <Section title="Signature">
-            <code className="text-xs text-amber-400 font-mono block bg-background p-2 rounded border border-border" style={{ overflowWrap: 'anywhere' }}>
+          <Section title="Signature" icon={<FnIcon />}>
+            <div className="rounded-lg border border-border bg-background/50 p-2.5 font-mono text-xs" style={{ overflowWrap: 'anywhere' }}>
               {props.isAbstract && <span className="text-purple-400">abstract </span>}
-              class {node.label}
-              {props.extends && <span className="text-muted-foreground"> extends {String(props.extends)}</span>}
-            </code>
+              <span className="text-amber-400 font-semibold">class {node.label}</span>
+              {props.extends && <span className="text-muted-foreground"> extends <span className="text-cyan-400">{String(props.extends)}</span></span>}
+            </div>
           </Section>
         )}
 
         {/* Docstring */}
         {docstring && docstring.trim() && (
-          <div className="bg-background/50 border-l-2 border-cyan-500/50 rounded-r p-2">
-            <div className="text-[10px] uppercase tracking-wider text-cyan-500/70 mb-1">Documentation</div>
-            <p className="text-xs text-muted-foreground italic leading-relaxed" style={{ overflowWrap: 'anywhere' }}>
+          <div className="rounded-lg bg-cyan-500/5 border border-cyan-500/15 p-2.5">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <DocIcon />
+              <span className="text-[10px] uppercase tracking-wider text-cyan-500/70 font-medium">Documentation</span>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed" style={{ overflowWrap: 'anywhere' }}>
               {docstring}
             </p>
           </div>
         )}
 
-        {/* Properties */}
-        <Section title="Properties" defaultCollapsed>
-          <PropertiesDisplay props={props} />
+        {/* Metrics + Properties */}
+        <Section title="Details" icon={<MetricIcon />}>
+          <MetricsAndProperties props={props} />
         </Section>
 
         {/* Code Preview with syntax highlighting */}
@@ -180,18 +195,21 @@ export function EntityDetail({ node }: EntityDetailProps) {
 
 // --- Helper Components ---
 
-function Section({ title, children, defaultCollapsed = false }: { title: string; children: React.ReactNode; defaultCollapsed?: boolean }) {
+function Section({ title, children, defaultCollapsed = false, icon }: { title: string; children: React.ReactNode; defaultCollapsed?: boolean; icon?: React.ReactNode }) {
   const [open, setOpen] = useState(!defaultCollapsed)
 
   return (
     <div>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full group"
+        className="flex items-center justify-between w-full group py-0.5"
       >
-        <h3 className="text-xs uppercase tracking-wider text-muted-foreground/60">{title}</h3>
+        <div className="flex items-center gap-1.5">
+          {icon && <span className="text-muted-foreground/40">{icon}</span>}
+          <h3 className="text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider">{title}</h3>
+        </div>
         <svg
-          className={`w-3 h-3 text-muted-foreground/40 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`w-3.5 h-3.5 text-muted-foreground/30 transition-transform ${open ? 'rotate-180' : ''}`}
           fill="none" stroke="currentColor" viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -202,48 +220,127 @@ function Section({ title, children, defaultCollapsed = false }: { title: string;
   )
 }
 
-function PropertiesDisplay({ props }: { props: Record<string, unknown> }) {
-  const skipKeys = new Set(['id', 'label', 'type', 'filePath', 'startLine', 'endLine', 'isExported', 'isAsync', 'isArrow', 'docstring', 'bodySnippet', 'signature', 'embedding'])
-
-  const entries = Object.entries(props).filter(
-    ([key, value]) => !skipKeys.has(key) && value != null && value !== '' && value !== '{}',
+function ParamsDisplay({ params }: { params: unknown }) {
+  const parsed = parseParams(params)
+  if (parsed.length === 0) return null
+  return (
+    <>
+      {parsed.map((p, i) => (
+        <span key={i}>
+          {i > 0 && <span className="text-muted-foreground">, </span>}
+          <span className="text-orange-300">{p.name}</span>
+          {p.type && <span className="text-muted-foreground/60">: <span className="text-cyan-400">{p.type}</span></span>}
+        </span>
+      ))}
+    </>
   )
+}
 
-  if (entries.length === 0) {
-    return <div className="text-xs text-muted-foreground/50 italic">No additional properties</div>
+function MetricsAndProperties({ props }: { props: Record<string, unknown> }) {
+  const complexity = props.complexity as number | undefined
+  const cognitiveComplexity = props.cognitiveComplexity as number | undefined
+  const nestingDepth = props.nestingDepth as number | undefined
+  const callerCount = props.callerCount as number | undefined
+  const importerCount = props.importerCount as number | undefined
+  const params = props.params
+
+  // Metric pills
+  const metrics: Array<{ label: string; value: string | number; color: string }> = []
+  if (complexity != null) {
+    const c = complexity > 10 ? 'text-red-400 bg-red-500/10 border-red-500/20' : complexity > 5 ? 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+    metrics.push({ label: 'Complexity', value: complexity, color: c })
   }
+  if (cognitiveComplexity != null) metrics.push({ label: 'Cognitive', value: cognitiveComplexity, color: 'text-muted-foreground bg-muted/50 border-border' })
+  if (nestingDepth != null) metrics.push({ label: 'Depth', value: nestingDepth, color: 'text-muted-foreground bg-muted/50 border-border' })
+  if (callerCount != null) metrics.push({ label: 'Callers', value: callerCount, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' })
+  if (importerCount != null) metrics.push({ label: 'Importers', value: importerCount, color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' })
+
+  // Params as structured list
+  const parsedParams = parseParams(params)
+
+  // Other props
+  const skipKeys = new Set(['id', 'label', 'type', 'filePath', 'startLine', 'endLine', 'isExported', 'isAsync', 'isArrow', 'docstring', 'bodySnippet', 'signature', 'embedding', 'complexity', 'cognitiveComplexity', 'nestingDepth', 'callerCount', 'importerCount', 'params', 'returnType', 'name'])
+  const otherProps = Object.entries(props).filter(([key, value]) => !skipKeys.has(key) && value != null && value !== '' && value !== '{}')
 
   return (
-    <div className="space-y-1.5">
-      {entries.map(([key, value]) => (
-        <div key={key} className="text-xs">
-          <span className="text-muted-foreground/60">{key}: </span>
-          <span className="text-muted-foreground">{formatValue(key, value)}</span>
+    <div className="space-y-3">
+      {/* Metric pills */}
+      {metrics.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {metrics.map((m) => (
+            <span key={m.label} className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium ${m.color}`}>
+              <span className="opacity-70">{m.label}</span>
+              <span className="font-bold">{m.value}</span>
+            </span>
+          ))}
         </div>
-      ))}
+      )}
+
+      {/* Parameters */}
+      {parsedParams.length > 0 && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground/50 mb-1.5">Parameters</div>
+          <div className="space-y-1 pl-0.5">
+            {parsedParams.map((p, i) => (
+              <div key={i} className="flex items-baseline gap-1.5 text-xs">
+                <span className="text-orange-300 font-mono">{p.name}</span>
+                {p.type && (
+                  <>
+                    <span className="text-muted-foreground/30">:</span>
+                    <span className="text-cyan-400/80 font-mono text-[11px]">{p.type}</span>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Other properties */}
+      {otherProps.length > 0 && (
+        <div className="space-y-1">
+          {otherProps.map(([key, value]) => (
+            <div key={key} className="flex items-baseline justify-between gap-2 text-xs">
+              <span className="text-muted-foreground/50">{key}</span>
+              <span className="text-muted-foreground font-mono text-[11px] text-right truncate max-w-[60%]">
+                {typeof value === 'boolean'
+                  ? <span className={value ? 'text-emerald-400' : 'text-muted-foreground/40'}>{String(value)}</span>
+                  : String(value)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {metrics.length === 0 && parsedParams.length === 0 && otherProps.length === 0 && (
+        <div className="text-xs text-muted-foreground/40 italic">No additional properties</div>
+      )}
     </div>
   )
 }
 
-function formatParams(params: unknown): string {
-  if (!params) return ''
+function parseParams(params: unknown): Array<{ name: string; type?: string }> {
+  if (!params) return []
+  let parsed = params
   if (typeof params === 'string') {
-    try {
-      const parsed = JSON.parse(params)
-      if (Array.isArray(parsed)) {
-        return parsed.map((p: { name: string; type?: string }) =>
-          `${p.name}${p.type ? `: ${p.type}` : ''}`
-        ).join(', ')
-      }
-    } catch { /* not JSON */ }
-    return params
+    try { parsed = JSON.parse(params) } catch { return [] }
   }
-  if (Array.isArray(params)) {
-    return params.map((p: { name: string; type?: string }) =>
-      `${p.name}${p.type ? `: ${p.type}` : ''}`
-    ).join(', ')
-  }
-  return String(params)
+  if (!Array.isArray(parsed)) return []
+  return parsed.map((p: { name: string; type?: string }) => ({ name: p.name, type: p.type }))
+}
+
+// Section icons (tiny inline SVGs)
+function LocationIcon() {
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+}
+function FnIcon() {
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+}
+function DocIcon() {
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+}
+function MetricIcon() {
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
 }
 
 function CodePreview({ apiUrl, filePath, startLine, endLine, nodeId }: {
@@ -357,23 +454,6 @@ function CodePreview({ apiUrl, filePath, startLine, endLine, nodeId }: {
       </div>
     </div>
   )
-}
-
-function formatValue(key: string, value: unknown): string {
-  if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  if (Array.isArray(value)) {
-    if (value.length === 0) return 'none'
-    if (key === 'params') {
-      return value.map((p: { name: string; type?: string }) =>
-        `${p.name}${p.type ? `: ${p.type}` : ''}`
-      ).join(', ')
-    }
-    return value.join(', ')
-  }
-  if (typeof value === 'object' && value !== null) {
-    try { return JSON.stringify(value) } catch { return String(value) }
-  }
-  return String(value)
 }
 
 export default EntityDetail
