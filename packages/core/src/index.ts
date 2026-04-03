@@ -137,6 +137,10 @@ export type {
   ExtractAndStoreFn,
 } from './knowledgeService';
 
+// Unified search (code + knowledge via RRF)
+export { unifiedSearch } from './unifiedSearch';
+export type { UnifiedSearchResult, UnifiedSearchOptions, UnifiedSearchResponse } from './unifiedSearch';
+
 // Document ingestion (unified add)
 export { add } from './documentIngestion';
 export type { AddOptions, AddResult } from './documentIngestion';
