@@ -332,9 +332,13 @@ function CodePreview({ apiUrl, filePath, startLine, endLine, nodeId }: {
                 <div
                   key={line.number}
                   ref={isFirst ? highlightRef : undefined}
-                  className={`flex hover:bg-accent/30 ${isEntity ? 'bg-indigo-900/30 border-l-2 border-indigo-500' : ''}`}
+                  style={isEntity ? { backgroundColor: 'rgba(99, 102, 241, 0.15)', borderLeft: '3px solid #6366f1' } : undefined}
+                  className={`flex ${isEntity ? '' : 'hover:bg-accent/30'}`}
                 >
-                  <span className={`w-10 shrink-0 text-right pr-3 select-none border-r border-border ${isEntity ? 'text-indigo-400 font-medium' : 'text-muted-foreground/40'}`}>
+                  <span
+                    style={isEntity ? { color: '#818cf8', fontWeight: 600 } : { color: 'rgba(161,161,170,0.3)' }}
+                    className="w-10 shrink-0 text-right pr-3 select-none border-r border-border"
+                  >
                     {line.number}
                   </span>
                   {useHighlighting ? (
