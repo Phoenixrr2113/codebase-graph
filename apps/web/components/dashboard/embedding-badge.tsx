@@ -24,8 +24,11 @@ export function EmbeddingBadge() {
       if (!res.ok) return
       const data = await res.json()
       const labels = (data.labels ?? []) as EmbeddingLabel[]
-      const total = labels.reduce((s, l) => s + l.total, 0)
-      const embedded = labels.reduce((s, l) => s + l.withEmbedding, 0)
+      // Only count embeddable node types (code symbols, not git/markdown structure)
+      const embeddable = new Set(['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Entity'])
+      const relevant = labels.filter(l => embeddable.has(l.label))
+      const total = relevant.reduce((s, l) => s + l.total, 0)
+      const embedded = relevant.reduce((s, l) => s + l.withEmbedding, 0)
       const pct = total > 0 ? Math.round((embedded / total) * 100) : 0
       setStats({ total, embedded, pct })
     } catch {
