@@ -35,6 +35,13 @@ export interface EnrichedV2Result {
   };
 }
 
+export interface LinkedKnowledgeEntry {
+  entityText: string;
+  entityType: string;
+  confidence: number;
+  fact?: string | undefined;
+}
+
 export interface EnrichedV2Hit {
   name: string;
   nodeType: string;
@@ -62,6 +69,8 @@ export interface EnrichedV2Hit {
   lastModified?: string;
   /** Total number of commits that modified the file containing this symbol */
   commitCount?: number;
+  /** Knowledge entities linked to this code node via ABOUT edges */
+  linkedKnowledge?: LinkedKnowledgeEntry[];
 }
 
 export interface EnrichedV2Options {
@@ -395,6 +404,54 @@ async function retrieveCandidates(
 // Main search function
 // ============================================================================
 
+/**
+ * Batch lookup: find knowledge entities linked to code nodes via ABOUT edges (reverse direction).
+ * Returns a map of code node name → linked knowledge entities.
+ */
+async function getLinkedKnowledge(
+  client: GraphClient,
+  names: string[],
+): Promise<Map<string, LinkedKnowledgeEntry[]>> {
+  const result = new Map<string, LinkedKnowledgeEntry[]>();
+  if (names.length === 0) return result;
+
+  try {
+    // Reverse ABOUT: (Entity)-[ABOUT]->(CodeNode) — find entities pointing at these code nodes
+    const rows = await client.roQuery<{
+      targetName: string;
+      entityText: string;
+      entityType: string;
+      confidence: number;
+      fact: string | null;
+    }>(
+      `UNWIND $names AS targetName
+       MATCH (e:Entity)-[r:ABOUT]->(t)
+       WHERE t.name = targetName
+       OPTIONAL MATCH (e)-[rel:RELATES_TO]-()
+       WHERE rel.invalid_at IS NULL
+       RETURN targetName, e.text AS entityText, e.type AS entityType,
+              r.confidence AS confidence, rel.fact AS fact
+       LIMIT 100`,
+      { params: { names } },
+    );
+
+    for (const row of rows.data) {
+      const existing = result.get(row.targetName) ?? [];
+      existing.push({
+        entityText: row.entityText,
+        entityType: row.entityType,
+        confidence: row.confidence,
+        ...(row.fact != null ? { fact: row.fact } : {}),
+      });
+      result.set(row.targetName, existing);
+    }
+  } catch {
+    // ABOUT edges may not exist — non-fatal
+  }
+
+  return result;
+}
+
 export async function enrichedSearchV2(
   query: string,
   client: GraphClient,
@@ -503,6 +560,9 @@ export async function enrichedSearchV2(
     for (const [k, v] of extra) enrichments.set(k, v);
   }
 
+  // Enrich with linked knowledge (ABOUT edges: knowledge → code)
+  const knowledgeLinks = await getLinkedKnowledge(client, topHits.map(h => h.name));
+
   const durationMs = Date.now() - start;
 
   logger.info(
@@ -540,6 +600,8 @@ export async function enrichedSearchV2(
           ...(graphData.lastModified && { lastModified: graphData.lastModified }),
           ...(graphData.commitCount > 0 && { commitCount: graphData.commitCount }),
         }),
+        // Knowledge graph enrichment (ABOUT edges)
+        ...(knowledgeLinks.has(c.name) ? { linkedKnowledge: knowledgeLinks.get(c.name)! } : {}),
       };
     }),
     meta: {
