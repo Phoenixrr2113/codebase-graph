@@ -74,6 +74,10 @@ export type {
   EmbeddingBatchResult,
 } from './embeddings';
 
+// Text chunker (token-aware, sentence/paragraph boundary)
+export { chunkText, estimateTokens } from './chunker';
+export type { ChunkConfig, TextChunk } from './chunker';
+
 // Conversation chunking (episodic processing)
 export { chunkConversation } from './conversation';
 export type { Episode, ConversationFormat, ChunkOptions, ChunkResult } from './conversation';
