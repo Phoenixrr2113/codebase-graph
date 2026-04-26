@@ -11,7 +11,7 @@
  * Graceful degradation: if no API key is available, returns original order.
  */
 
-import { createLogger } from '@codegraph/logger';
+import { createLogger, traced } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'nlp:reranker' });
 
@@ -125,7 +125,7 @@ export function isRerankAvailable(): boolean {
  * Graceful degradation: if no provider is available or API fails,
  * returns original order with synthetic scores.
  */
-export async function rerank(
+async function rerankImpl(
   query: string,
   documents: string[],
   options?: RerankOptions,
@@ -177,6 +177,8 @@ export async function rerank(
     return fallbackScores(documents.length, topK);
   }
 }
+
+export const rerank = traced('rerank', rerankImpl);
 
 // ---------------------------------------------------------------------------
 // Fallback

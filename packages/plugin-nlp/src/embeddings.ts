@@ -12,7 +12,7 @@
  * disabled and search will not work.
  */
 
-import { createLogger } from '@codegraph/logger';
+import { createLogger, traced } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'nlp:embeddings' });
 
@@ -331,7 +331,7 @@ export function clearEmbeddingCache(): void {
  * Auto-detects provider from API keys. Set CODEGRAPH_EMBEDDING_PROVIDER only to override.
  * Providers: 'local' (768-dim), 'voyage' (1024-dim), 'openrouter' (1536-dim).
  */
-export async function generateEmbedding(
+async function generateEmbeddingImpl(
   text: string,
   config?: EmbeddingConfig,
 ): Promise<EmbeddingResult> {
@@ -370,6 +370,8 @@ export async function generateEmbedding(
   const embedding = await embedLocal(text, model);
   return { embedding, dimensions: embedding.length, provider: 'local' };
 }
+
+export const generateEmbedding = traced('generateEmbedding', generateEmbeddingImpl);
 
 /**
  * Generate embeddings for multiple texts.

@@ -8,7 +8,7 @@
  * Pipeline: query → embed → vector search (wide pool) → reranker → results
  */
 
-import { createLogger } from '@codegraph/logger';
+import { createLogger, traced } from '@codegraph/logger';
 import type { GraphClient } from '@codegraph/graph';
 import { createOperations } from '@codegraph/graph';
 import {
@@ -452,7 +452,7 @@ async function getLinkedKnowledge(
   return result;
 }
 
-export async function enrichedSearchV2(
+async function enrichedSearchV2Impl(
   query: string,
   client: GraphClient,
   options: EnrichedV2Options = {},
@@ -611,3 +611,5 @@ export async function enrichedSearchV2(
     },
   };
 }
+
+export const enrichedSearchV2 = traced('enrichedSearchV2', enrichedSearchV2Impl);

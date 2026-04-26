@@ -8,7 +8,7 @@
  * if LLM is unavailable.
  */
 
-import { createLogger, toErrorMessage } from '@codegraph/logger';
+import { createLogger, toErrorMessage, traced } from '@codegraph/logger';
 import type { GraphClient } from '@codegraph/graph';
 import { unifiedSearch, type UnifiedSearchResult, type UnifiedSearchOptions } from './unifiedSearch';
 
@@ -82,7 +82,7 @@ async function generateFollowUp(
 // Chain-of-Thought Search
 // ============================================================================
 
-export async function cotSearch(
+async function cotSearchImpl(
   query: string,
   client: GraphClient,
   options: CotSearchOptions = {},
@@ -149,3 +149,5 @@ export async function cotSearch(
     durationMs,
   };
 }
+
+export const cotSearch = traced('cotSearch', cotSearchImpl);
