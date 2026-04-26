@@ -15,7 +15,7 @@ codebase({ action: "configure", projectAction: "set", projects: ["/path/to/proje
 codebase({ action: "reindex", mode: "full" })
 ```
 
-## Tool Reference (4 tool groups, 12 actions)
+## Tool Reference (4 tool groups, 17 actions)
 
 ### 1. `search` — Find code and knowledge
 
@@ -37,7 +37,7 @@ search({ action: "context", file: "src/service.ts", includeRelationships: true }
 search({ action: "context", symbol: "enrichedSearchV2" })
 ```
 
-### 2. `knowledge` — Knowledge graph (12 actions)
+### 2. `knowledge` — Knowledge graph (8 actions)
 
 | Action | Use When | Required Params |
 |--------|----------|-----------------|
@@ -143,7 +143,7 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 ## Environment
 
 - **Graph DB**: FalkorDB (Docker) or FalkorDBLite (embedded)
-- **Search**: Vector embeddings (local/Voyage/OpenRouter) + cross-encoder reranking (Jina/Voyage) — MRR 0.944
+- **Search**: Vector embeddings (local/Voyage/OpenRouter) + cross-encoder reranking (Jina/Voyage) — MRR 0.969, S@1 94%, S@5 100%, ~450ms latency (v6 Chunk 1 baseline, 2026-04-26)
 - **Dashboard**: `http://localhost:3000/dashboard` (Graph Explorer + Operations tabs)
 - **API**: `http://localhost:3001` (REST endpoints for dashboard)
 - **Build**: `pnpm turbo build` (monorepo with Turbo)
