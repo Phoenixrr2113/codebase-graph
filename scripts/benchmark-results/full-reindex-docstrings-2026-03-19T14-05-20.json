@@ -1,0 +1,599 @@
+{
+  "label": "full-reindex-docstrings",
+  "timestamp": "2026-03-19T14:05:20.309Z",
+  "nodeCount": 3029,
+  "embeddings": true,
+  "llm": true,
+  "results": [
+    {
+      "query": "parseCode",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 424,
+      "mrr": 1,
+      "ndcg5": 1,
+      "ndcg10": 1,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "parseCode",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "extractCodeBlocks",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "ContainsCodeEdge",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "CodeBlockEntity",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "LanguageType",
+          "score": 0,
+          "nodeType": "Type"
+        }
+      ]
+    },
+    {
+      "query": "getGraphClient",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 401,
+      "mrr": 1,
+      "ndcg5": 1.6309297535714575,
+      "ndcg10": 1.6309297535714575,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "getGraphClient",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "GraphClient",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "QueryParams",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "GraphConfig",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "GraphClientError",
+          "score": 0,
+          "nodeType": "Class"
+        }
+      ]
+    },
+    {
+      "query": "createOperations",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 344,
+      "mrr": 1,
+      "ndcg5": 1,
+      "ndcg10": 1,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "createOperations",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "GraphOperations",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "ExtractAndStoreFn",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "CypherDialect",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "IngestConversationFn",
+          "score": 0,
+          "nodeType": "Type"
+        }
+      ]
+    },
+    {
+      "query": "generateEmbedding",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 307,
+      "mrr": 1,
+      "ndcg5": 1,
+      "ndcg10": 1,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "generateEmbedding",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "EmbeddableNodeType",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "TooltipTrigger",
+          "score": 0,
+          "nodeType": "Component"
+        },
+        {
+          "name": "Skeleton",
+          "score": 0,
+          "nodeType": "Component"
+        }
+      ]
+    },
+    {
+      "query": "rrfFuse",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 380,
+      "mrr": 0,
+      "ndcg5": 0,
+      "ndcg10": 0,
+      "success1": false,
+      "success5": false,
+      "recall10": 0,
+      "top5": [
+        {
+          "name": "WatchService",
+          "score": 0,
+          "nodeType": "Class"
+        },
+        {
+          "name": "FileRemovedHandler",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "Skeleton",
+          "score": 0,
+          "nodeType": "Component"
+        }
+      ]
+    },
+    {
+      "query": "indexProject",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 335,
+      "mrr": 0,
+      "ndcg5": 0,
+      "ndcg10": 0,
+      "success1": false,
+      "success5": false,
+      "recall10": 0,
+      "top5": [
+        {
+          "name": "isProjectIndexed",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "getProjectsImpl",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "ProjectSelectorProps",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "QueryParams",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "Home",
+          "score": 0,
+          "nodeType": "Component"
+        }
+      ]
+    },
+    {
+      "query": "complexity calculation",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 369,
+      "mrr": 1,
+      "ndcg5": 0.47078692139073114,
+      "ndcg10": 0.47078692139073114,
+      "success1": true,
+      "success5": true,
+      "recall10": 0.6666666666666666,
+      "top5": [
+        {
+          "name": "calculateCyclomatic",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "calculateCognitive",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "calculateNestingDepth",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "ComplexityMetrics",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "ComplexityResult",
+          "score": 0,
+          "nodeType": "Interface"
+        }
+      ]
+    },
+    {
+      "query": "search reranking",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 356,
+      "mrr": 1,
+      "ndcg5": 0.7871546029909718,
+      "ndcg10": 0.7871546029909718,
+      "success1": true,
+      "success5": true,
+      "recall10": 0.5,
+      "top5": [
+        {
+          "name": "rerank",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "SearchType",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "SelectGroup",
+          "score": 0,
+          "nodeType": "Component"
+        },
+        {
+          "name": "Skeleton",
+          "score": 0,
+          "nodeType": "Component"
+        }
+      ]
+    },
+    {
+      "query": "graph operations",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 392,
+      "mrr": 1,
+      "ndcg5": 0.6317929155434615,
+      "ndcg10": 0.6317929155434615,
+      "success1": true,
+      "success5": true,
+      "recall10": 0.6666666666666666,
+      "top5": [
+        {
+          "name": "GraphOperations",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "GraphQueries",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "GraphClient",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "QueryParams",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "Edge",
+          "score": 0,
+          "nodeType": "Type"
+        }
+      ]
+    },
+    {
+      "query": "knowledge operations",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 304,
+      "mrr": 0,
+      "ndcg5": 0,
+      "ndcg10": 0,
+      "success1": false,
+      "success5": false,
+      "recall10": 0,
+      "top5": [
+        {
+          "name": "ExtractAndStoreFn",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "IngestConversationFn",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "KnowledgeService",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "DialogPortal",
+          "score": 0,
+          "nodeType": "Component"
+        },
+        {
+          "name": "Skeleton",
+          "score": 0,
+          "nodeType": "Component"
+        }
+      ]
+    },
+    {
+      "query": "how does indexing work",
+      "strategy": "ENRICHED_V2",
+      "category": "quality",
+      "latencyMs": 161,
+      "mrr": 0,
+      "ndcg5": 0,
+      "ndcg10": 0,
+      "success1": false,
+      "success5": false,
+      "recall10": 0,
+      "top5": [
+        {
+          "name": "SearchType",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "Home",
+          "score": 0,
+          "nodeType": "Component"
+        }
+      ]
+    },
+    {
+      "query": "graph database connection",
+      "strategy": "ENRICHED_V2",
+      "category": "semantic-gap",
+      "latencyMs": 341,
+      "mrr": 0.5,
+      "ndcg5": 0.3308943668822459,
+      "ndcg10": 0.3308943668822459,
+      "success1": false,
+      "success5": true,
+      "recall10": 0.75,
+      "top5": [
+        {
+          "name": "GraphConfig",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "GraphClient",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "GraphOperations",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "GraphQueries",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "QueryParams",
+          "score": 0,
+          "nodeType": "Type"
+        }
+      ]
+    },
+    {
+      "query": "embedding generation",
+      "strategy": "ENRICHED_V2",
+      "category": "quality",
+      "latencyMs": 307,
+      "mrr": 1,
+      "ndcg5": 0.5874203951744313,
+      "ndcg10": 0.5874203951744313,
+      "success1": true,
+      "success5": true,
+      "recall10": 0.6666666666666666,
+      "top5": [
+        {
+          "name": "generateEmbedding",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "EmbeddableNodeType",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "Skeleton",
+          "score": 0,
+          "nodeType": "Component"
+        }
+      ]
+    },
+    {
+      "query": "git history sync",
+      "strategy": "ENRICHED_V2",
+      "category": "semantic-gap",
+      "latencyMs": 485,
+      "mrr": 1,
+      "ndcg5": 1,
+      "ndcg10": 1,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "syncGitHistory",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "getRepoInfo",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "CommitEntity",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "FileChangedHandler",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "Home",
+          "score": 0,
+          "nodeType": "Component"
+        }
+      ]
+    },
+    {
+      "query": "logging setup",
+      "strategy": "ENRICHED_V2",
+      "category": "quality",
+      "latencyMs": 519,
+      "mrr": 1,
+      "ndcg5": 0.3373519727104165,
+      "ndcg10": 0.3373519727104165,
+      "success1": true,
+      "success5": true,
+      "recall10": 0.5,
+      "top5": [
+        {
+          "name": "LoggerConfig",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "PipelineRunner",
+          "score": 0,
+          "nodeType": "Class"
+        },
+        {
+          "name": "DialogPortal",
+          "score": 0,
+          "nodeType": "Component"
+        },
+        {
+          "name": "Task",
+          "score": 0,
+          "nodeType": "Class"
+        },
+        {
+          "name": "AnalyticsScheduler",
+          "score": 0,
+          "nodeType": "Class"
+        }
+      ]
+    },
+    {
+      "query": "code parsing pipeline",
+      "strategy": "ENRICHED_V2",
+      "category": "quality",
+      "latencyMs": 427,
+      "mrr": 1,
+      "ndcg5": 0.571725787048549,
+      "ndcg10": 0.571725787048549,
+      "success1": true,
+      "success5": true,
+      "recall10": 0.5,
+      "top5": [
+        {
+          "name": "parseCode",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "initParser",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "SyntaxTree",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "LanguageType",
+          "score": 0,
+          "nodeType": "Type"
+        },
+        {
+          "name": "createParseTask",
+          "score": 0,
+          "nodeType": "Function"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "ENRICHED_V2": {
+      "avgMRR": 0.71875,
+      "avgNDCG5": 0.5842535447070166,
+      "avgNDCG10": 0.5842535447070166,
+      "successAt1": 0.6875,
+      "successAt5": 0.75,
+      "avgRecall10": 0.578125,
+      "avgLatencyMs": 365.75
+    }
+  }
+}

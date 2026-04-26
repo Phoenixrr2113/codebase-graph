@@ -41,6 +41,12 @@ temp/
 .codebase-graph
 .codegraph
 
+# Worktrees (subagent-driven development)
+.worktrees/
+
+# Internal/non-public docs
+docs/internal/
+
 # Agent
 .agent
 v2-tasks.yaml
