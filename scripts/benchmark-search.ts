@@ -23,6 +23,11 @@
  *
  * Usage:
  *   pnpm build && npx tsx scripts/benchmark-search.ts [label] [--reindex] [--no-llm] [--fast-only] [--no-embeddings] [--analysis]
+ *
+ * NOTE: The index must exclude scripts/ when running this benchmark.
+ * Benchmark internal symbols (calculateMRR, HardTestCase, generateKnowledgeEmbeddings)
+ * pollute code search results when indexed and depress MRR by ~0.05.
+ * See docs/regression-analysis-2026-03-19.md "Operational requirement" section.
  */
 
 const { getGraphClient, closeGraphClient, indexProject, codeGraphService, enrichedSearchV2, registerPlugins } =
