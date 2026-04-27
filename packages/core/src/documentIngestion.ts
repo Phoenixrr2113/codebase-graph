@@ -90,7 +90,7 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
   const nlp = await import('@codegraph/plugin-nlp');
 
   const inputType = options?.inputType ?? detectInputType(input);
-  let text: string;
+  let text = '';
   let metadata: Record<string, unknown> = {};
 
   // Step 1: Load content
@@ -119,22 +119,68 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
       metadata = { format: ext || 'text' };
     }
   } else if (inputType === 'url') {
-    // Use HTML loader for URLs
     logger.info(`Fetching URL: ${input}`);
-    if (options?._fetch) {
-      // DI hook: use injected fetch (test mode)
-      const fetcher = options._fetch;
-      const res = await fetcher(input);
-      if (!res.ok) throw new Error(`URL fetch failed: ${input} (${res.status})`);
-      const html = await res.text();
-      const htmlLoader = options._loader ?? nlp.HTMLLoader;
-      const result = await htmlLoader.extract(html);
-      text = result.text;
-      metadata = result.metadata;
+    const fetcher = options?._fetch ?? globalThis.fetch;
+    const fetchedAt = Date.now();
+    const res = await fetcher(input, {
+      headers: { 'user-agent': 'CodeGraph/0.1' },
+      redirect: 'follow',
+    });
+    if (!res.ok) {
+      throw new Error(`URL fetch failed: ${input} (HTTP ${res.status})`);
+    }
+    const contentType = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
+
+    // Dispatch by content-type to the right loader
+    type Loader = { extract: (input: string | Buffer | Uint8Array) => Promise<{ text: string; metadata: Record<string, unknown> }> };
+    let loader: Loader | null = null;
+    let payload: string | Buffer | Uint8Array;
+
+    if (contentType === 'application/pdf') {
+      loader = nlp.PDFLoader as Loader;
+      payload = Buffer.from(await res.arrayBuffer());
+    } else if (contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      || contentType === 'application/msword') {
+      loader = nlp.DOCXLoader as Loader;
+      payload = Buffer.from(await res.arrayBuffer());
+    } else if (contentType === 'text/csv' || contentType === 'application/csv') {
+      loader = nlp.CSVLoader as Loader;
+      payload = await res.text();
+    } else if (contentType === 'text/markdown' || contentType === 'text/plain') {
+      // Plain text path: no loader, just text
+      text = await res.text();
+      metadata = {
+        format: contentType.split('/')[1],
+        url: input,
+        fetchedAt,
+        contentType,
+      };
+      // Skip the loader-dispatch branch below
+      loader = null;
+      payload = '';
     } else {
-      const result = await nlp.HTMLLoader.extract(input);
-      text = result.text;
-      metadata = result.metadata;
+      // Default: treat as HTML
+      loader = (options?._loader ?? nlp.HTMLLoader) as Loader;
+      payload = await res.text();
+    }
+
+    if (loader) {
+      try {
+        const result = await loader.extract(payload);
+        text = result.text;
+        // Merge loader metadata; URL provenance fields take precedence
+        metadata = {
+          ...result.metadata,
+          url: input,
+          fetchedAt,
+          contentType,
+        };
+      } catch (err) {
+        // Loader failed (e.g. corrupt binary payload) — preserve provenance metadata
+        logger.warn(`Loader extraction failed for ${contentType} URL: ${toErrorMessage(err)}`);
+        text = '';
+        metadata = { url: input, fetchedAt, contentType };
+      }
     }
   } else {
     // Raw text

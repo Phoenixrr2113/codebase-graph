@@ -51,11 +51,10 @@ describe('add()', () => {
   });
 
   it('detects URL prefix and routes through fetch + html loader', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () => '<html><body><p>Hello world from URL</p></body></html>',
-    }) as unknown as typeof globalThis.fetch;
+    const mockFetch = vi.fn(async () => new Response(
+      '<html><body><p>Hello world from URL</p></body></html>',
+      { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } },
+    )) as unknown as typeof globalThis.fetch;
 
     const mockExtract = makeExtractAndStore();
 
@@ -64,7 +63,7 @@ describe('add()', () => {
       _extractAndStore: mockExtract,
     });
 
-    expect(mockFetch).toHaveBeenCalledWith('https://example.com/page');
+    expect(mockFetch).toHaveBeenCalledWith('https://example.com/page', expect.any(Object));
     expect(mockExtract).toHaveBeenCalled();
     expect(result.inputType).toBe('url');
     expect(result.chunks).toBeGreaterThanOrEqual(1);
