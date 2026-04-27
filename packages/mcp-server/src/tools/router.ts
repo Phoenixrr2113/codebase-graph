@@ -25,6 +25,13 @@ import { searchCodeToolDefinition, searchCode, type SearchCodeInput } from './se
 // Knowledge graph tools
 import { knowledgeToolDefinitions, knowledgeHandlers } from './knowledge';
 
+// Graph Explorer App UI tools
+import {
+  graphExplorerToolDefinition,
+  fetchGraphDataToolDefinition,
+  fetchGraphData,
+} from './graphExplorer';
+
 // Persona tools
 import { personaToolDefinitions, personaHandlers, useRawTools } from '../personas';
 
@@ -192,6 +199,10 @@ ${fileTree}
 
     // ---- Knowledge graph tools ----
     ...knowledgeToolDefinitions,
+
+    // ---- App UI tools ----
+    graphExplorerToolDefinition,
+    fetchGraphDataToolDefinition,
   ];
 }
 
@@ -216,6 +227,8 @@ export const staticTools: ToolDefinition[] = useRawTools()
       getSourceToolDefinition,
       searchCodeToolDefinition,
       ...knowledgeToolDefinitions,
+      graphExplorerToolDefinition,
+      fetchGraphDataToolDefinition,
     ]
   : personaToolDefinitions;
 
@@ -368,6 +381,31 @@ const rawHandlers: Record<string, ToolHandler> = {
 
   // ==== Knowledge graph tools ====
   ...knowledgeHandlers,
+
+  // ==== App UI tools ====
+
+  graph_explorer: async (args) => {
+    // App UI clients render the HTML panel inline; non-App-UI clients get a
+    // text response describing the tool.
+    return {
+      message: 'Graph Explorer panel registered. Requires an App-UI-capable MCP client (e.g. Claude Desktop) to render.',
+      resourceUri: 'ui://codegraph/graph-explorer.html',
+      projectPath: args.projectPath ?? null,
+    };
+  },
+
+  fetch_graph_data: async (args) => {
+    try {
+      const { getGraphClient } = await import('@codegraph/core');
+      const client = await getGraphClient();
+      return fetchGraphData(client as Parameters<typeof fetchGraphData>[0], {
+        projectPath: typeof args.projectPath === 'string' ? args.projectPath : undefined,
+        limit: typeof args.limit === 'number' ? args.limit : undefined,
+      });
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to fetch graph data', nodes: [], edges: [] };
+    }
+  },
 };
 
 // Combined handlers: raw tools + persona tools (persona takes precedence for shared names)

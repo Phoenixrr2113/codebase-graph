@@ -26,6 +26,7 @@
     "@codegraph/core": "workspace:*",
     "@codegraph/logger": "workspace:*",
     "@codegraph/plugin-nlp": "workspace:*",
+    "@modelcontextprotocol/ext-apps": "^1.7.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "glob": "^10.3.10"
   },

@@ -379,6 +379,9 @@ importers:
       '@codegraph/plugin-nlp':
         specifier: workspace:*
         version: link:../plugin-nlp
+      '@modelcontextprotocol/ext-apps':
+        specifier: ^1.7.0
+        version: 1.7.0(@modelcontextprotocol/sdk@1.25.3(hono@4.11.4)(zod@4.3.5))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(zod@4.3.5)
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.0
         version: 1.25.3(hono@4.11.4)(zod@4.3.5)
@@ -1144,6 +1147,20 @@ packages:
 
   '@kwsites/promise-deferred@1.1.1':
     resolution: {integrity: sha512-GaHYm+c0O9MjZRu0ongGBRbinu8gVAMd2UZjji6jVmqKtZluZnptXGWhz1E8j8D2HJ3f/yMxKAUC0b+57wncIw==}
+
+  '@modelcontextprotocol/ext-apps@1.7.0':
+    resolution: {integrity: sha512-gs8rYVx6a8pyCvSpXq7TyVLTERCC94JLrcmJgBs0+3p4jp3iQdJPu1IU+2ovVdFZ1sW8JgmvTkRnxAlIizKINg==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@modelcontextprotocol/sdk': ^1.29.0
+      react: ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^17.0.0 || ^18.0.0 || ^19.0.0
+      zod: ^3.25.0 || ^4.0.0
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
 
   '@modelcontextprotocol/sdk@1.25.3':
     resolution: {integrity: sha512-vsAMBMERybvYgKbg/l4L1rhS7VXV1c0CtyJg72vwxONVX0l4ZfKVAnZEWTQixJGTzKnELjQ59e4NbdFDALRiAQ==}
@@ -5136,6 +5153,15 @@ snapshots:
       - supports-color
 
   '@kwsites/promise-deferred@1.1.1': {}
+
+  '@modelcontextprotocol/ext-apps@1.7.0(@modelcontextprotocol/sdk@1.25.3(hono@4.11.4)(zod@4.3.5))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(zod@4.3.5)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.25.3(hono@4.11.4)(zod@4.3.5)
+      '@standard-schema/spec': 1.1.0
+      zod: 4.3.5
+    optionalDependencies:
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
 
   '@modelcontextprotocol/sdk@1.25.3(hono@4.11.4)(zod@4.3.5)':
     dependencies:
