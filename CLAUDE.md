@@ -26,16 +26,17 @@ Vector search + cross-encoder reranking. Returns enriched results with complexit
 | `find` | Looking for files, functions, classes, symbols | `query` |
 | `context` | Need relationships and structure for a file or symbol | `file` or `symbol` |
 
-**Search modes:** `searchScope: 'code'` (default), `'knowledge'`, `'all'` (RRF fusion). `mode: 'cot'` for chain-of-thought iterative search.
+**Search modes:** `searchScope: 'code'` (default), `'knowledge'`, `'all'` (RRF fusion).
 
 **Examples:**
 ```
 search({ action: "find", query: "parseProject" })
 search({ action: "find", query: "authentication", searchScope: "all" })
-search({ action: "find", query: "why does payment retry 3 times?", mode: "cot" })
 search({ action: "context", file: "src/service.ts", includeRelationships: true })
 search({ action: "context", symbol: "enrichedSearchV2" })
 ```
+
+**Multi-step questions:** for complex queries that need iterative refinement, chain `search` calls in your agent — examine results, refine the query, search again. CodeGraph stays focused on per-call retrieval quality; orchestration is the agent's job.
 
 ### 2. `knowledge` — Knowledge graph (8 actions)
 
@@ -67,7 +68,6 @@ search({ action: "context", symbol: "enrichedSearchV2" })
 ```
 knowledge({ action: "store", text: "We decided to use JWT for auth because..." })
 knowledge({ action: "add", input: "/path/to/spec.pdf", source: "product-spec-v2" })
-knowledge({ action: "add", input: "https://docs.example.com/api", source: "api-docs" })
 knowledge({ action: "recall", text: "AuthModule", timeline: true })
 knowledge({ action: "recall", text: "payment system", at: "2026-03-01T00:00:00Z" })
 knowledge({ action: "recall", text: "decisions", from: "2026-03-01", to: "2026-03-31" })
@@ -116,13 +116,9 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 1. `search({ action: "find", query: "retry logic", searchScope: "all" })` — search both code and knowledge
 2. Results include both code symbols and knowledge entities, ranked by RRF fusion
 
-### Chain-of-Thought Search (Complex Questions)
-1. `search({ action: "find", query: "why does payment retry 3 times?", mode: "cot" })` — iterative LLM refinement
-2. System searches → validates → generates follow-up queries → merges results
-
 ### Ingest Documents
 1. `knowledge({ action: "add", input: "/path/to/spec.pdf" })` — auto-detects format, chunks, extracts entities
-2. Supported: PDF, DOCX, HTML, CSV, URLs, raw text
+2. Supported: PDF, DOCX, HTML, CSV, raw text
 
 ### Temporal Knowledge Queries
 1. `knowledge({ action: "recall", text: "auth system", at: "2026-01-15T00:00:00Z" })` — point-in-time reconstruction
