@@ -9,6 +9,7 @@
 
 import { getKnowledgeOps } from './knowledgeClient';
 import { createLogger, toErrorMessage } from '@codegraph/logger';
+import type { TextLoader } from '@codegraph/plugin-nlp';
 
 const logger = createLogger({ namespace: 'DocumentIngestion' });
 
@@ -132,9 +133,9 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
     const contentType = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
 
     // Dispatch by content-type to the right loader
-    type Loader = { extract: (input: string | Buffer | Uint8Array) => Promise<{ text: string; metadata: Record<string, unknown> }> };
+    type Loader = TextLoader;
     let loader: Loader | null = null;
-    let payload: string | Buffer | Uint8Array;
+    let payload: string | Buffer;
 
     if (contentType === 'application/pdf') {
       loader = nlp.PDFLoader as Loader;
