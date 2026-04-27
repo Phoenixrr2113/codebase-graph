@@ -30,6 +30,9 @@ import type {
   InheritanceReference,
   CallReference,
   SyntaxNode,
+  HasMethodEdgeDescriptor,
+  HasPropertyEdgeDescriptor,
+  Visibility,
 } from '@codegraph/types';
 import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
@@ -807,5 +810,312 @@ export const rustPlugin = createLanguagePlugin({
   },
 });
 
-// Re-export extractAllEntities for backward compatibility
-export const extractAllEntities = rustPlugin.extractAllEntities;
+// ============================================================================
+// Struct Extraction with HAS_METHOD / HAS_PROPERTY edges
+// ============================================================================
+
+/** Result of extractStructsWithEdges */
+export interface RustClassExtractionResult {
+  classes: ClassEntity[];
+  methodEntities: FunctionEntity[];
+  propertyEntities: VariableEntity[];
+  hasMethodEdges: HasMethodEdgeDescriptor[];
+  hasPropertyEdges: HasPropertyEdgeDescriptor[];
+}
+
+/**
+ * Rust visibility: 'public' if the node has a `pub` (visibility_modifier),
+ * 'private' otherwise (Rust's default-private convention).
+ */
+function rustVisibility(node: SyntaxNode): Visibility {
+  return node.children.some((c: SyntaxNode) => c.type === 'visibility_modifier')
+    ? 'public'
+    : 'private';
+}
+
+/**
+ * Detect whether a Rust function_item is a static method.
+ *
+ * A method is instance (isStatic=false) when the first real parameter is a
+ * self_parameter node (handles `self`, `&self`, `&mut self`).
+ * Any other first parameter (or no parameters) means isStatic=true.
+ */
+function isRustStaticMethod(funcNode: SyntaxNode): boolean {
+  const paramList = funcNode.childForFieldName('parameters');
+  if (!paramList) return true; // no params → no self → static
+
+  for (const child of paramList.children) {
+    if (child.type === 'self_parameter') return false;
+    // Skip punctuation/whitespace nodes that are just punctuation
+    if (child.type === '(' || child.type === ')' || child.type === ',') continue;
+    // First real parameter is not a self_parameter → static
+    return true;
+  }
+  return true;
+}
+
+/**
+ * Resolve the impl target type name from an impl_item node.
+ *
+ * Handles both:
+ *   impl SomeStruct { ... }             → "SomeStruct"
+ *   impl SomeTrait for SomeStruct { ... } → "SomeStruct"
+ *
+ * Uses the `type` field (the struct type), not the `trait` field.
+ * Strips generic parameters for v1 (e.g., `Vec<T>` → "Vec").
+ */
+function resolveImplTargetName(implNode: SyntaxNode): string | undefined {
+  const typeNode = implNode.childForFieldName('type');
+  if (!typeNode) return undefined;
+
+  const rawName = typeNode.text;
+  // Strip generic params: "Foo<T, U>" → "Foo"
+  const angleBracket = rawName.indexOf('<');
+  return angleBracket >= 0 ? rawName.slice(0, angleBracket) : rawName;
+}
+
+/**
+ * Extract struct declarations together with their field-Variable entities,
+ * method-Function entities, and HAS_PROPERTY / HAS_METHOD edge descriptors.
+ *
+ * Rust-specific notes:
+ *  - Structs (struct_item) are the Class analog.
+ *  - Struct fields (field_declaration inside field_declaration_list) → VariableEntity
+ *    with id `<classId>::prop::<fieldName>`.
+ *  - Methods are function_item nodes inside impl_item blocks (top-level, not nested
+ *    in the struct definition).
+ *  - `isStatic` is true when the first parameter is NOT self/&self/&mut self.
+ *  - Visibility: `pub` modifier → 'public'; no modifier → 'private'.
+ *  - `isReadonly` is always false (mutability is bind-site in Rust, not field-level).
+ *  - impl blocks for trait implementations (impl Trait for Struct) also produce
+ *    HAS_METHOD edges pointing to the struct.
+ *  - impl on an externally-defined type (not declared in this file) → skip edges,
+ *    standalone FunctionEntity still extracted by extractFunctions.
+ *
+ * Rust AST shape for struct:
+ *   struct_item
+ *     visibility_modifier?
+ *     name: type_identifier
+ *     type_parameters?
+ *     field_declaration_list
+ *       field_declaration+
+ *         visibility_modifier?
+ *         field_identifier
+ *         ':'
+ *         type
+ *
+ * Rust AST shape for impl block:
+ *   impl_item
+ *     type_parameters?
+ *     trait?: type_identifier | generic_type | scoped_identifier
+ *     'for'?
+ *     type: type_identifier | generic_type | ...
+ *     body: declaration_list
+ *       function_item+
+ */
+export function extractStructsWithEdges(
+  root: SyntaxNode,
+  filePath: string,
+): RustClassExtractionResult {
+  const classes: ClassEntity[] = [];
+  const methodEntities: FunctionEntity[] = [];
+  const propertyEntities: VariableEntity[] = [];
+  const hasMethodEdges: HasMethodEdgeDescriptor[] = [];
+  const hasPropertyEdges: HasPropertyEdgeDescriptor[] = [];
+
+  // ---- Pass 1: collect structs and their fields ----
+  const structItems = findNodesOfType(root, ['struct_item']);
+
+  // Map from struct name → classId for impl-block lookup in pass 2
+  const structIdByName = new Map<string, string>();
+
+  for (const node of structItems) {
+    const nameNode = node.childForFieldName('name');
+    if (!nameNode) continue;
+
+    const name = nameNode.text;
+    const startLine = node.startPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
+    const isExported = isPublic(node);
+    const docstring = extractDocComment(node);
+    const classId = generateEntityId(filePath, 'class', name, startLine);
+    structIdByName.set(name, classId);
+
+    const entity: ClassEntity = {
+      id: classId,
+      name,
+      filePath,
+      startLine,
+      endLine,
+      isExported,
+      isAbstract: false,
+    };
+    if (docstring) entity.docstring = docstring;
+    classes.push(entity);
+
+    // ---- Extract field declarations → HAS_PROPERTY ----
+    const fieldList = node.children.find(
+      (c: SyntaxNode) => c.type === 'field_declaration_list',
+    );
+    if (!fieldList) continue;
+
+    for (const field of fieldList.children) {
+      if (field.type !== 'field_declaration') continue;
+
+      const fieldNameNode = field.children.find(
+        (c: SyntaxNode) => c.type === 'field_identifier',
+      );
+      if (!fieldNameNode) continue;
+
+      const fieldName = fieldNameNode.text;
+      const fieldLine = field.startPosition.row + 1;
+      const fieldVisibility = rustVisibility(field);
+
+      // Extract field type (the node after ':')
+      const colonIdx = field.children.findIndex((c: SyntaxNode) => c.type === ':');
+      let fieldType: string | undefined;
+      if (colonIdx >= 0 && colonIdx + 1 < field.children.length) {
+        const typeNode = field.children[colonIdx + 1];
+        if (typeNode && typeNode.type !== ',') {
+          fieldType = typeNode.text;
+        }
+      }
+
+      const propId = `${classId}::prop::${fieldName}`;
+
+      const propEntity: VariableEntity = {
+        id: propId,
+        name: fieldName,
+        filePath,
+        line: fieldLine,
+        kind: 'let',
+        isExported: fieldVisibility === 'public',
+      };
+      if (fieldType) propEntity.type = fieldType;
+
+      propertyEntities.push(propEntity);
+      hasPropertyEdges.push({
+        fromId: classId,
+        toId: propId,
+        isStatic: false,
+        visibility: fieldVisibility,
+        isReadonly: false,
+      });
+    }
+  }
+
+  // ---- Pass 2: walk impl_item blocks, resolve target type → struct ----
+  const implItems = findNodesOfType(root, ['impl_item']);
+  const methodNameCountByClass = new Map<string, Map<string, number>>();
+
+  for (const impl of implItems) {
+    const targetName = resolveImplTargetName(impl);
+    if (!targetName) continue;
+
+    const classId = structIdByName.get(targetName);
+    if (!classId) {
+      // impl on a type not declared in this file — skip edges,
+      // standalone FunctionEntity still extracted by extractFunctions.
+      continue;
+    }
+
+    const bodyNode = impl.childForFieldName('body');
+    if (!bodyNode) continue;
+
+    for (const child of bodyNode.children) {
+      if (child.type !== 'function_item') continue;
+
+      const fnNameNode = child.childForFieldName('name');
+      if (!fnNameNode) continue;
+
+      const methodName = fnNameNode.text;
+
+      // Track overload suffixes per class
+      if (!methodNameCountByClass.has(classId)) {
+        methodNameCountByClass.set(classId, new Map());
+      }
+      const nameCount = methodNameCountByClass.get(classId)!;
+      const count = nameCount.get(methodName) ?? 0;
+      nameCount.set(methodName, count + 1);
+      const suffix = count > 0 ? `:${count}` : '';
+
+      const methodId = `${classId}::method::${methodName}${suffix}`;
+      const startLine = child.startPosition.row + 1;
+      const endLine = child.endPosition.row + 1;
+      const isExported = isPublic(child);
+      const visibility = rustVisibility(child);
+      const isStatic = isRustStaticMethod(child);
+
+      const params = extractRustParams(child);
+      const returnType = extractRustReturnType(child);
+      const docstring = extractDocComment(child);
+      const metrics = calculateComplexity(child);
+
+      const methodEntity: FunctionEntity = {
+        id: methodId,
+        name: methodName,
+        filePath,
+        startLine,
+        endLine,
+        isExported,
+        isAsync: child.children.some(
+          (c: SyntaxNode) => c.type === 'function_modifiers' && c.text.includes('async'),
+        ),
+        isArrow: false,
+        params,
+        complexity: metrics.cyclomatic,
+        cognitiveComplexity: metrics.cognitive,
+        nestingDepth: metrics.nestingDepth,
+      };
+      if (returnType) methodEntity.returnType = returnType;
+      if (docstring) methodEntity.docstring = docstring;
+
+      methodEntities.push(methodEntity);
+      hasMethodEdges.push({
+        fromId: classId,
+        toId: methodId,
+        isStatic,
+        visibility,
+      });
+    }
+  }
+
+  return { classes, methodEntities, propertyEntities, hasMethodEdges, hasPropertyEdges };
+}
+
+// ============================================================================
+// extractAllEntities override
+// ============================================================================
+
+/**
+ * Extract all entities from a Rust AST, including HAS_METHOD and HAS_PROPERTY
+ * edge descriptors produced by extractStructsWithEdges.
+ *
+ * Overrides the generic factory's extractAllEntities so the edge fields are populated.
+ * The pipeline picks them up automatically via ParsedFileEntities.
+ *
+ * Function entities appear in two forms:
+ *  - generateEntityId style (from extractFunctions) — targets for CALLS/CONTAINS edges
+ *  - ::method:: style (from extractStructsWithEdges) — targets for HAS_METHOD edges
+ * This matches the TypeScript, Python, and Go plugin patterns.
+ */
+export function extractAllEntities(root: SyntaxNode, filePath: string) {
+  const allFunctions = extractFunctions(root, filePath);
+  const structExtraction = extractStructsWithEdges(root, filePath);
+
+  return {
+    // Merge: generateEntityId-style functions + ::method:: entities from struct extraction
+    functions: [...allFunctions, ...structExtraction.methodEntities],
+    classes: structExtraction.classes,
+    interfaces: extractInterfaces(root, filePath),
+    variables: [
+      ...extractVariables(root, filePath),
+      ...structExtraction.propertyEntities,
+    ],
+    imports: extractImports(root, filePath),
+    types: extractTypes(root, filePath),
+    components: [],
+    hasMethodEdges: structExtraction.hasMethodEdges,
+    hasPropertyEdges: structExtraction.hasPropertyEdges,
+  };
+}

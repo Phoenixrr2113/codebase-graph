@@ -16,6 +16,7 @@ import {
   extractInheritance,
   extractCalls,
   extractAllEntities,
+  extractStructsWithEdges,
 } from '../src';
 
 const TEST_FILE = '/test/main.rs';
@@ -743,6 +744,199 @@ describe('Rust Extractors', () => {
       const newRouter = entities.functions.find((f) => f.name === 'new_router');
       expect(newRouter?.isExported).toBe(true);
       expect(newRouter?.docstring).toContain('Creates a new Router');
+    });
+  });
+
+  // ==========================================================================
+  // HAS_METHOD / HAS_PROPERTY Edges
+  // ==========================================================================
+
+  describe('Rust: HAS_METHOD / HAS_PROPERTY', () => {
+    it('emits HAS_METHOD from impl block to struct', () => {
+      const code = `
+pub struct User {
+    pub name: String,
+    age: u32,
+}
+
+impl User {
+    pub fn new(name: String) -> Self {
+        User { name, age: 0 }
+    }
+
+    pub fn greet(&self) -> String {
+        format!("hi {}", self.name)
+    }
+}
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+      const userStruct = result.classes.find((e) => e.name === 'User');
+      expect(userStruct).toBeDefined();
+
+      const methodEdges = (result.hasMethodEdges ?? []).filter(
+        (e) => e.fromId === userStruct!.id,
+      );
+      expect(methodEdges).toHaveLength(2);
+
+      const newEdge = methodEdges.find((e) => {
+        const target = result.functions.find((f) => f.id === e.toId);
+        return target?.name === 'new';
+      });
+      expect(newEdge).toBeDefined();
+      expect(newEdge!.isStatic).toBe(true); // no self → static
+
+      const greetEdge = methodEdges.find((e) => {
+        const target = result.functions.find((f) => f.id === e.toId);
+        return target?.name === 'greet';
+      });
+      expect(greetEdge).toBeDefined();
+      expect(greetEdge!.isStatic).toBe(false); // has &self
+    });
+
+    it('emits HAS_PROPERTY edges for struct fields with correct visibility', () => {
+      const code = `
+pub struct User {
+    pub name: String,
+    age: u32,
+}
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+      const userStruct = result.classes.find((e) => e.name === 'User');
+      expect(userStruct).toBeDefined();
+
+      const fieldEdges = (result.hasPropertyEdges ?? []).filter(
+        (e) => e.fromId === userStruct!.id,
+      );
+      expect(fieldEdges).toHaveLength(2);
+
+      const nameField = result.variables.find(
+        (v) => v.name === 'name' && v.id.includes('::prop::'),
+      );
+      const ageField = result.variables.find(
+        (v) => v.name === 'age' && v.id.includes('::prop::'),
+      );
+      expect(nameField).toBeDefined();
+      expect(ageField).toBeDefined();
+
+      const nameEdge = fieldEdges.find((e) => e.toId === nameField!.id);
+      const ageEdge = fieldEdges.find((e) => e.toId === ageField!.id);
+      expect(nameEdge?.visibility).toBe('public');
+      expect(ageEdge?.visibility).toBe('private');
+      expect(nameEdge?.isReadonly).toBe(false);
+      expect(ageEdge?.isStatic).toBe(false);
+    });
+
+    it('handles impl Trait for Struct', () => {
+      const code = `
+pub trait Greeter {
+    fn greet(&self) -> String;
+}
+
+pub struct Bot;
+
+impl Greeter for Bot {
+    fn greet(&self) -> String { "hi".to_string() }
+}
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+      const botStruct = result.classes.find((e) => e.name === 'Bot');
+      expect(botStruct).toBeDefined();
+
+      const methodEdges = (result.hasMethodEdges ?? []).filter(
+        (e) => e.fromId === botStruct!.id,
+      );
+      expect(methodEdges.length).toBeGreaterThanOrEqual(1);
+      expect(methodEdges[0]!.toId).toBeTruthy();
+
+      // greet has &self → isStatic = false
+      expect(methodEdges[0]!.isStatic).toBe(false);
+    });
+
+    it('skips impl on external type without crashing', () => {
+      const code = `
+impl SomeExternalType {
+    pub fn local_method(&self) {}
+}
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+      // No struct named SomeExternalType in this file → no HAS_METHOD edges
+      const externalEdges = (result.hasMethodEdges ?? []).filter((e) => {
+        const target = result.functions.find((f) => f.id === e.toId);
+        return target?.name === 'local_method';
+      });
+      expect(externalEdges).toHaveLength(0);
+    });
+
+    it('extractStructsWithEdges returns correct shape for struct with both fields and methods', () => {
+      const code = `
+pub struct Counter {
+    pub count: u64,
+    step: u64,
+}
+
+impl Counter {
+    pub fn new(step: u64) -> Self {
+        Counter { count: 0, step }
+    }
+
+    pub fn increment(&mut self) {
+        self.count += self.step;
+    }
+
+    fn reset(&mut self) {
+        self.count = 0;
+    }
+}
+`;
+      const rootNode = parseCode(code);
+      const result = extractStructsWithEdges(rootNode as any, TEST_FILE);
+
+      expect(result.classes).toHaveLength(1);
+      expect(result.classes[0]!.name).toBe('Counter');
+
+      expect(result.hasMethodEdges).toHaveLength(3); // new, increment, reset
+      expect(result.hasPropertyEdges).toHaveLength(2); // count, step
+
+      // new → static (no self)
+      const newEdge = result.hasMethodEdges.find((e) => {
+        const fn_ = result.methodEntities.find((f) => f.id === e.toId);
+        return fn_?.name === 'new';
+      });
+      expect(newEdge?.isStatic).toBe(true);
+
+      // increment → instance (&mut self)
+      const incrEdge = result.hasMethodEdges.find((e) => {
+        const fn_ = result.methodEntities.find((f) => f.id === e.toId);
+        return fn_?.name === 'increment';
+      });
+      expect(incrEdge?.isStatic).toBe(false);
+
+      // reset → private visibility
+      const resetEdge = result.hasMethodEdges.find((e) => {
+        const fn_ = result.methodEntities.find((f) => f.id === e.toId);
+        return fn_?.name === 'reset';
+      });
+      expect(resetEdge?.visibility).toBe('private');
+
+      // count → public property
+      const countProp = result.propertyEntities.find((v) => v.name === 'count');
+      expect(countProp).toBeDefined();
+      const countEdge = result.hasPropertyEdges.find((e) => e.toId === countProp!.id);
+      expect(countEdge?.visibility).toBe('public');
+
+      // step → private property
+      const stepProp = result.propertyEntities.find((v) => v.name === 'step');
+      expect(stepProp).toBeDefined();
+      const stepEdge = result.hasPropertyEdges.find((e) => e.toId === stepProp!.id);
+      expect(stepEdge?.visibility).toBe('private');
     });
   });
 });
