@@ -17,6 +17,7 @@ import {
   rerank,
   type EmbeddingConfig,
 } from '@codegraph/plugin-nlp';
+import { searchCache, searchCacheKey } from './searchCache';
 
 const logger = createLogger({ namespace: 'core:enriched-v2' });
 
@@ -475,6 +476,21 @@ async function enrichedSearchV2Impl(
     };
   }
 
+  // LRU cache check — avoids duplicate calls during multi-tool-call agent turns.
+  // Keyed on query + scope + limit (fields that fully determine the result set).
+  // scopePaths is included via JSON to handle multi-project filtering.
+  const cacheKeyParts: Parameters<typeof searchCacheKey>[0] = { query };
+  if (options.scope !== undefined) cacheKeyParts.scope = options.scope;
+  if (options.limit !== undefined) cacheKeyParts.limit = options.limit;
+  const cacheKey = searchCacheKey(cacheKeyParts) +
+    (options.scopePaths ? '\x00' + JSON.stringify(options.scopePaths) : '');
+
+  const cached = searchCache.get(cacheKey) as EnrichedV2Result | undefined;
+  if (cached) {
+    logger.debug(`Cache hit for query "${query.slice(0, 60)}"`);
+    return cached;
+  }
+
   // Check if any nodes have embeddings yet (fresh query, not cached)
   let embeddedCount = 0;
   try {
@@ -570,7 +586,7 @@ async function enrichedSearchV2Impl(
     `(${candidates.length} vector) in ${durationMs}ms`,
   );
 
-  return {
+  const result: EnrichedV2Result = {
     hits: topHits.map(c => {
       const graphData = enrichments.get(c.name);
       const props = c.properties;
@@ -610,6 +626,9 @@ async function enrichedSearchV2Impl(
       durationMs,
     },
   };
+
+  searchCache.set(cacheKey, result);
+  return result;
 }
 
 export const enrichedSearchV2 = traced('enrichedSearchV2', enrichedSearchV2Impl);
