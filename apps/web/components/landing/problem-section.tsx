@@ -7,33 +7,34 @@ import { GlowCard } from "@/components/ui/moving-border"
 const painPoints = [
   {
     icon: AlertTriangle,
-    title: "Impact blindness",
-    description: '"What breaks if I change this function?" Your agent greps and hopes.',
+    title: "Embeddings miss structure",
+    description: "Vector search returns lexically similar tokens, not the call graph or import chain that explains how code actually fits together.",
   },
   {
     icon: ShieldX,
-    title: "No structural awareness",
-    description: '"What calls this function? What does it depend on?" Your agent can\'t see relationships.',
+    title: "Grep misses semantics",
+    description: "String match doesn't know what a symbol means or which call site is the relevant one. Your agent reads ten files to answer one question.",
   },
   {
     icon: Brain,
-    title: "No structural memory",
-    description: "Your agent re-reads the same files every session. It never builds a map.",
+    title: "Context windows lose the thread",
+    description: "Large codebases blow past the limit. Sessions lose architectural understanding mid-task and re-read the same files every time.",
   },
 ]
 
 const beforeItems = [
   "grep -r 'processPayment' ./src",
-  "??? relationships unknown",
-  "??? which files call which?",
-  "??? safe to refactor?",
+  "?  callers unknown",
+  "?  what does this depend on",
+  "?  no structural answer",
 ]
 
+// source: CLAUDE.md "Returns enriched results with complexity, callers, callees, importerCount, linkedKnowledge"
 const afterItems = [
-  "Direct callers: 3 functions",
-  "Transitive deps: 12 across 5 files",
-  "Test coverage: 6 tests, 2 files",
-  "Risk score: MEDIUM",
+  "search({ action: 'context', symbol: 'processPayment' })",
+  "callers: 3 (checkout.ts, orders.ts, subscriptions.ts)",
+  "callees: 7 (validateCard, ledger.write, ...)",
+  "linkedKnowledge: 2 entities, 1 SAID fact",
 ]
 
 export function ProblemSection() {
