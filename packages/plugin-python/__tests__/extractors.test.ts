@@ -538,4 +538,122 @@ async def fetch_data(url: str, timeout: int = 30) -> dict:
       expect(entities.variables).toHaveLength(2);
     });
   });
+
+  // ==========================================================================
+  // HAS_METHOD / HAS_PROPERTY edges
+  // ==========================================================================
+
+  describe('Python HAS_METHOD / HAS_PROPERTY', () => {
+    it('emits Function entities + HAS_METHOD edges for class methods', () => {
+      const code = `
+class User:
+    name: str = ""
+    age: int = 0
+    def greet(self) -> str:
+        return f"hi {self.name}"
+    @staticmethod
+    def static_method() -> None:
+        pass
+    def _private_method(self):
+        pass
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+      const userClass = result.classes.find(c => c.name === 'User');
+      expect(userClass).toBeDefined();
+
+      // ::method:: entities (produced by extractClassesWithEdges)
+      const methods = result.functions.filter(
+        f => typeof f.id === 'string' && f.id.startsWith(`${userClass!.id}::method`)
+      );
+      expect(methods.map(m => m.name).sort()).toEqual(['_private_method', 'greet', 'static_method']);
+
+      const hasMethodEdges = result.hasMethodEdges ?? [];
+      const userMethodEdges = hasMethodEdges.filter(e => e.fromId === userClass!.id);
+      expect(userMethodEdges).toHaveLength(3);
+
+      const staticEdge = userMethodEdges.find(
+        e => methods.find(m => m.id === e.toId)?.name === 'static_method'
+      );
+      expect(staticEdge?.isStatic).toBe(true);
+
+      const greetEdge = userMethodEdges.find(
+        e => methods.find(m => m.id === e.toId)?.name === 'greet'
+      );
+      expect(greetEdge?.isStatic).toBe(false);
+      expect(greetEdge?.visibility).toBe('public');
+
+      const privateEdge = userMethodEdges.find(
+        e => methods.find(m => m.id === e.toId)?.name === '_private_method'
+      );
+      expect(privateEdge?.visibility).toBe('private');
+    });
+
+    it('emits Variable entities + HAS_PROPERTY edges for class fields', () => {
+      const code = `
+class User:
+    name: str = ""
+    _hidden: int = 0
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+      const userClass = result.classes.find(c => c.name === 'User');
+      expect(userClass).toBeDefined();
+
+      const props = result.variables.filter(
+        v => typeof v.id === 'string' && v.id.startsWith(`${userClass!.id}::prop`)
+      );
+      expect(props.map(p => p.name).sort()).toEqual(['_hidden', 'name']);
+
+      const hasPropEdges = (result.hasPropertyEdges ?? []).filter(e => e.fromId === userClass!.id);
+      expect(hasPropEdges).toHaveLength(2);
+
+      const nameProp = props.find(p => p.name === 'name')!;
+      const nameEdge = hasPropEdges.find(e => e.toId === nameProp.id);
+      expect(nameEdge?.isStatic).toBe(true);
+      expect(nameEdge?.visibility).toBe('public');
+      expect(nameEdge?.isReadonly).toBe(false);
+
+      const hiddenProp = props.find(p => p.name === '_hidden')!;
+      const hiddenEdge = hasPropEdges.find(e => e.toId === hiddenProp.id);
+      expect(hiddenEdge?.visibility).toBe('private');
+    });
+
+    it('treats dunder methods as public visibility', () => {
+      const code = `
+class Foo:
+    def __init__(self):
+        pass
+    def __str__(self) -> str:
+        return "foo"
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+      const fooClass = result.classes.find(c => c.name === 'Foo')!;
+      const hasMethodEdges = (result.hasMethodEdges ?? []).filter(e => e.fromId === fooClass.id);
+      expect(hasMethodEdges).toHaveLength(2);
+      for (const edge of hasMethodEdges) {
+        expect(edge.visibility).toBe('public');
+      }
+    });
+
+    it('marks @classmethod as isStatic', () => {
+      const code = `
+class MyClass:
+    @classmethod
+    def from_string(cls, s: str):
+        pass
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+      const cls = result.classes.find(c => c.name === 'MyClass')!;
+      const hasMethodEdges = (result.hasMethodEdges ?? []).filter(e => e.fromId === cls.id);
+      expect(hasMethodEdges).toHaveLength(1);
+      expect(hasMethodEdges[0].isStatic).toBe(true);
+    });
+  });
 });

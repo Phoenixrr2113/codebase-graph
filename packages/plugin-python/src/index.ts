@@ -10,6 +10,9 @@ import type {
   VariableEntity,
   ImportEntity,
   SyntaxNode,
+  HasMethodEdgeDescriptor,
+  HasPropertyEdgeDescriptor,
+  Visibility,
 } from '@codegraph/types';
 import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
@@ -217,6 +220,225 @@ export function extractClasses(root: SyntaxNode, filePath: string): ClassEntity[
   }
 
   return classes;
+}
+
+// ============================================================================
+// Python visibility helper
+// ============================================================================
+
+/**
+ * Derive Python visibility from name convention.
+ * Leading underscore (single or double, but not dunder like __init__) → private.
+ * Dunder methods (__x__) are treated as public per Python convention.
+ */
+function pythonVisibility(name: string): Visibility {
+  if (name.startsWith('__') && name.endsWith('__')) return 'public'; // dunder methods are public
+  if (name.startsWith('_')) return 'private';
+  return 'public';
+}
+
+/** Result of extractClassesWithEdges */
+export interface ClassExtractionResult {
+  classes: ClassEntity[];
+  methodEntities: FunctionEntity[];
+  propertyEntities: VariableEntity[];
+  hasMethodEdges: HasMethodEdgeDescriptor[];
+  hasPropertyEdges: HasPropertyEdgeDescriptor[];
+}
+
+/**
+ * Extract class definitions together with their method-Function entities,
+ * class-attribute-Variable entities, and HAS_METHOD/HAS_PROPERTY edge descriptors.
+ *
+ * The pipeline picks up the edges automatically via the ExtractedEntities fields
+ * already wired in batchUpsert.
+ */
+export function extractClassesWithEdges(root: SyntaxNode, filePath: string): ClassExtractionResult {
+  const classes: ClassEntity[] = [];
+  const methodEntities: FunctionEntity[] = [];
+  const propertyEntities: VariableEntity[] = [];
+  const hasMethodEdges: HasMethodEdgeDescriptor[] = [];
+  const hasPropertyEdges: HasPropertyEdgeDescriptor[] = [];
+
+  const classNodes = findNodesOfType(root, ['class_definition']);
+
+  for (const node of classNodes) {
+    const nameNode = node.childForFieldName('name');
+    if (!nameNode) continue;
+
+    const name = nameNode.text;
+    const startLine = node.startPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
+    const isExported = !name.startsWith('_');
+
+    // Extract superclasses
+    const superclassesNode = node.childForFieldName('superclasses');
+    const extendsClause: string[] = [];
+    if (superclassesNode) {
+      for (const child of superclassesNode.children) {
+        if (child.type === 'identifier' || child.type === 'attribute') {
+          extendsClause.push(child.text);
+        }
+      }
+    }
+
+    // Extract docstring
+    const docstring = extractDocstring(node);
+
+    const classId = generateEntityId(filePath, 'class', name, startLine);
+
+    const classEntity: ClassEntity = {
+      id: classId,
+      name,
+      filePath,
+      startLine,
+      endLine,
+      isExported,
+      isAbstract: false,
+    };
+    if (extendsClause.length > 0) classEntity.extends = extendsClause[0];
+    if (docstring) classEntity.docstring = docstring;
+
+    classes.push(classEntity);
+
+    // Walk class body for methods and class-level attributes
+    const bodyNode = node.childForFieldName('body');
+    if (!bodyNode) continue;
+
+    const methodNameCount = new Map<string, number>();
+    const propNameCount = new Map<string, number>();
+
+    for (const member of bodyNode.children) {
+      // ---- Method: function_definition or decorated_definition wrapping one ----
+      let funcNode: SyntaxNode | null = null;
+      let isStatic = false;
+
+      if (member.type === 'function_definition') {
+        funcNode = member;
+      } else if (member.type === 'decorated_definition') {
+        // Check for @staticmethod or @classmethod decorators
+        for (const child of member.children) {
+          if (child.type === 'decorator') {
+            const decoratorName = child.children.find(
+              (c: SyntaxNode) => c.type === 'identifier'
+            )?.text;
+            if (decoratorName === 'staticmethod' || decoratorName === 'classmethod') {
+              isStatic = true;
+            }
+          }
+        }
+        // Find the wrapped function_definition
+        const inner = member.children.find((c: SyntaxNode) => c.type === 'function_definition');
+        if (inner) funcNode = inner;
+      }
+
+      if (funcNode) {
+        const methodNameNode = funcNode.childForFieldName('name');
+        if (!methodNameNode) continue;
+        const methodName = methodNameNode.text;
+
+        const count = methodNameCount.get(methodName) ?? 0;
+        methodNameCount.set(methodName, count + 1);
+        const suffix = count > 0 ? `:${count}` : '';
+
+        const methodId = `${classId}::method::${methodName}${suffix}`;
+        const methodStartLine = funcNode.startPosition.row + 1;
+        const methodEndLine = funcNode.endPosition.row + 1;
+
+        const isAsync = funcNode.children.some((c: SyntaxNode) => c.type === 'async');
+        const params = extractParameters(funcNode);
+        const returnTypeNode = funcNode.childForFieldName('return_type');
+        const returnType = returnTypeNode?.text?.replace(/^->\s*/, '').trim();
+        const methodDocstring = extractDocstring(funcNode);
+        const metrics = calculateComplexity(funcNode);
+
+        const methodEntity: FunctionEntity = {
+          id: methodId,
+          name: methodName,
+          filePath,
+          startLine: methodStartLine,
+          endLine: methodEndLine,
+          isExported,
+          isAsync,
+          isArrow: false,
+          params,
+          complexity: metrics.cyclomatic,
+          cognitiveComplexity: metrics.cognitive,
+          nestingDepth: metrics.nestingDepth,
+        };
+        if (returnType) methodEntity.returnType = returnType;
+        if (methodDocstring) methodEntity.docstring = methodDocstring;
+
+        methodEntities.push(methodEntity);
+        hasMethodEdges.push({
+          fromId: classId,
+          toId: methodId,
+          isStatic,
+          visibility: pythonVisibility(methodName),
+        });
+        continue;
+      }
+
+      // ---- Class-level attribute: assignment or typed assignment ----
+      // Handles: `name: str = ""` (annotated_assignment) and `name = value` (expression_statement > assignment)
+      let propName: string | undefined;
+      let propType: string | undefined;
+      let propStartLine: number | undefined;
+      let propEndLine: number | undefined;
+
+      if (member.type === 'expression_statement') {
+        const expr = member.firstChild;
+        if (expr?.type === 'assignment') {
+          const leftNode = expr.childForFieldName('left');
+          if (leftNode?.type === 'identifier') {
+            propName = leftNode.text;
+            propStartLine = member.startPosition.row + 1;
+            propEndLine = member.endPosition.row + 1;
+          }
+        }
+      } else if (member.type === 'annotated_assignment') {
+        const leftNode = member.childForFieldName('left');
+        if (leftNode?.type === 'identifier') {
+          propName = leftNode.text;
+          propStartLine = member.startPosition.row + 1;
+          propEndLine = member.endPosition.row + 1;
+          const typeAnnotation = member.childForFieldName('type');
+          if (typeAnnotation) {
+            propType = typeAnnotation.text;
+          }
+        }
+      }
+
+      if (propName && propStartLine !== undefined && propEndLine !== undefined) {
+        const count = propNameCount.get(propName) ?? 0;
+        propNameCount.set(propName, count + 1);
+        const suffix = count > 0 ? `:${count}` : '';
+
+        const propId = `${classId}::prop::${propName}${suffix}`;
+
+        const propEntity: VariableEntity = {
+          id: propId,
+          name: propName,
+          filePath,
+          line: propStartLine,
+          kind: 'const',
+          isExported,
+        };
+        if (propType) propEntity.type = propType;
+
+        propertyEntities.push(propEntity);
+        hasPropertyEdges.push({
+          fromId: classId,
+          toId: propId,
+          isStatic: true, // class-body level assignments are class attributes (static in Python's model)
+          visibility: pythonVisibility(propName),
+          isReadonly: false,
+        });
+      }
+    }
+  }
+
+  return { classes, methodEntities, propertyEntities, hasMethodEdges, hasPropertyEdges };
 }
 
 /**
@@ -463,6 +685,38 @@ export const pythonPlugin = createLanguagePlugin({
 });
 
 // Re-export all extractors for backward compatibility
-export const extractAllEntities = pythonPlugin.extractAllEntities;
 export const extractInheritance = pythonPlugin.extractors.extractInheritance;
 export const extractCalls = pythonPlugin.extractors.extractCalls!;
+
+/**
+ * Extract all entities from a Python AST, including HAS_METHOD and HAS_PROPERTY
+ * edge descriptors produced by extractClassesWithEdges.
+ *
+ * Overrides the generic factory's extractAllEntities so the edge fields are populated.
+ * The pipeline picks them up automatically via ParsedFileEntities.
+ *
+ * Function entities appear in two forms:
+ *  - generateEntityId style (from extractFunctions) — targets for CALLS/CONTAINS edges
+ *  - ::method:: style (from extractClassesWithEdges) — targets for HAS_METHOD edges
+ * This matches the TypeScript plugin's pattern.
+ */
+export function extractAllEntities(root: SyntaxNode, filePath: string) {
+  const allFunctions = extractFunctions(root, filePath);
+  const classExtraction = extractClassesWithEdges(root, filePath);
+
+  return {
+    // Merge: generateEntityId-style functions + ::method:: entities from class extraction
+    functions: [...allFunctions, ...classExtraction.methodEntities],
+    classes: classExtraction.classes,
+    interfaces: [],
+    variables: [
+      ...extractVariables(root, filePath),
+      ...classExtraction.propertyEntities,
+    ],
+    imports: extractImports(root, filePath),
+    types: [],
+    components: [],
+    hasMethodEdges: classExtraction.hasMethodEdges,
+    hasPropertyEdges: classExtraction.hasPropertyEdges,
+  };
+}
