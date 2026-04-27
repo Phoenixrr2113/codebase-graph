@@ -428,6 +428,10 @@ export function buildParsedFileEntities(
     rendersEdges,
     hasMethodEdges: extracted.hasMethodEdges ?? [],
     hasPropertyEdges: extracted.hasPropertyEdges ?? [],
+    typeRefs: extracted.typeRefs ?? [],
+    hasParamEdges: extracted.hasParamEdges ?? [],
+    returnsEdges: extracted.returnsEdges ?? [],
+    usesTypeEdges: extracted.usesTypeEdges ?? [],
   };
 }
 
@@ -457,6 +461,9 @@ export function countEdges(parsed: ParsedFileEntities): number {
     parsed.implementsEdges.length +
     parsed.rendersEdges.length +
     parsed.hasMethodEdges.length +
-    parsed.hasPropertyEdges.length
+    parsed.hasPropertyEdges.length +
+    parsed.hasParamEdges.length +
+    parsed.returnsEdges.length +
+    parsed.usesTypeEdges.length
   );
 }

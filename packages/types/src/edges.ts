@@ -175,6 +175,48 @@ export interface HasPropertyEdgeDescriptor {
 }
 
 // ============================================================================
+// Type-Relationship Edge Descriptors (for pipeline transport)
+// ============================================================================
+
+/**
+ * Pipeline transport descriptor for HAS_PARAM edges (Function → Type).
+ * Uses `fromId`/`toId` (not `from`/`to`) to distinguish these
+ * pre-persistence transport objects from the final BaseEdge-derived
+ * types that flow through queries.
+ */
+export interface HasParamEdgeDescriptor {
+  /** Function node id */
+  fromId: string;
+  /** Type node id (prim:: or type:: format) */
+  toId: string;
+  position: number;
+  name: string;
+  isOptional: boolean;
+}
+
+/**
+ * Pipeline transport descriptor for RETURNS edges (Function → Type).
+ */
+export interface ReturnsEdgeDescriptor {
+  /** Function node id */
+  fromId: string;
+  /** Type node id (prim:: or type:: format) */
+  toId: string;
+  isAsync: boolean;
+}
+
+/**
+ * Pipeline transport descriptor for USES_TYPE edges (Function → Type).
+ */
+export interface UsesTypeEdgeDescriptor {
+  /** Function node id */
+  fromId: string;
+  /** Type node id (prim:: or type:: format) */
+  toId: string;
+  kind: 'annotation' | 'instantiation' | 'cast';
+}
+
+// ============================================================================
 // React-Specific Edges
 // ============================================================================
 

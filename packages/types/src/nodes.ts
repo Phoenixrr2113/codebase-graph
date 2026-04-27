@@ -213,6 +213,34 @@ export interface ImportEntity extends ProvenanceFields {
 }
 
 // ============================================================================
+// Type Ref Entity (semantic type identity node — for HAS_PARAM / RETURNS / USES_TYPE)
+// ============================================================================
+
+/**
+ * A lightweight semantic type node used as the target of HAS_PARAM, RETURNS, and
+ * USES_TYPE edges. Unlike TypeEntity (which represents a source-level type alias or
+ * enum declaration), TypeRefEntity represents any type name that appears in a
+ * function's signature or body — including primitives, generics, and cross-file
+ * user types.
+ *
+ * Identity is provided by the `id` field (computed via typeNodeId from
+ * @codegraph/plugin-common). Nodes are MERGE'd in the graph so the same type
+ * referenced from many files becomes one node.
+ */
+export interface TypeRefEntity {
+  /** Deterministic id: `prim::<lang>::<name>` or `type::<lang>::<file>::<name>` */
+  id: string;
+  /** Printed type name (e.g., `string`, `User`, `Promise<Token>`) */
+  name: string;
+  /** Source language */
+  language: string;
+  /** Whether this is a language primitive */
+  isPrimitive: boolean;
+  /** Defining file path for non-primitive user types (undefined for primitives) */
+  definingFile?: string;
+}
+
+// ============================================================================
 // Type Entity
 // ============================================================================
 
@@ -313,6 +341,7 @@ export type Entity =
   | FunctionEntity
   | VariableEntity
   | ImportEntity
+  | TypeRefEntity
   | TypeEntity
   | ComponentEntity
   | CommitEntity;

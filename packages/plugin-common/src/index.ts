@@ -74,6 +74,12 @@ export interface GrammarHelpers {
  * Eliminates duplicated getGrammarForExtension/getSupportedExtensions/isSupported
  * across every language plugin.
  */
+// ============================================================================
+// Type Node Identity
+// ============================================================================
+
+export * from './types';
+
 export function createGrammarHelpers(extensionToGrammar: Record<string, unknown>): GrammarHelpers {
   function getGrammarForExtension(ext: string): unknown | undefined {
     const normalizedExt = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;

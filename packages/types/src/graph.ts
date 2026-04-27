@@ -12,9 +12,18 @@ import type {
   VariableEntity,
   ImportEntity,
   TypeEntity,
+  TypeRefEntity,
   ComponentEntity,
 } from './nodes';
-import type { Edge, EdgeLabel, HasMethodEdgeDescriptor, HasPropertyEdgeDescriptor } from './edges';
+import type {
+  Edge,
+  EdgeLabel,
+  HasMethodEdgeDescriptor,
+  HasPropertyEdgeDescriptor,
+  HasParamEdgeDescriptor,
+  ReturnsEdgeDescriptor,
+  UsesTypeEdgeDescriptor,
+} from './edges';
 
 // ============================================================================
 // Graph Node (for visualization)
@@ -225,6 +234,11 @@ export interface ParsedFileEntities {
   rendersEdges: Array<{ parentId: string; childId: string; line: number }>;
   hasMethodEdges: HasMethodEdgeDescriptor[];
   hasPropertyEdges: HasPropertyEdgeDescriptor[];
+  /** Semantic type reference nodes (targets of HAS_PARAM / RETURNS / USES_TYPE edges). */
+  typeRefs: TypeRefEntity[];
+  hasParamEdges: HasParamEdgeDescriptor[];
+  returnsEdges: ReturnsEdgeDescriptor[];
+  usesTypeEdges: UsesTypeEdgeDescriptor[];
 }
 
 // ============================================================================
@@ -240,6 +254,7 @@ export type {
   FunctionEntity,
   VariableEntity,
   ImportEntity,
+  TypeRefEntity,
   TypeEntity,
   ComponentEntity,
   FunctionParam,
@@ -266,6 +281,9 @@ export type {
   HasPropertyEdge,
   HasMethodEdgeDescriptor,
   HasPropertyEdgeDescriptor,
+  HasParamEdgeDescriptor,
+  ReturnsEdgeDescriptor,
+  UsesTypeEdgeDescriptor,
   RendersEdge,
   Visibility,
 } from './edges';

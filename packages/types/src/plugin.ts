@@ -12,7 +12,14 @@ import type {
   TypeEntity,
   ComponentEntity,
 } from './nodes';
-import type { HasMethodEdgeDescriptor, HasPropertyEdgeDescriptor } from './edges';
+import type {
+  HasMethodEdgeDescriptor,
+  HasPropertyEdgeDescriptor,
+  HasParamEdgeDescriptor,
+  ReturnsEdgeDescriptor,
+  UsesTypeEdgeDescriptor,
+} from './edges';
+import type { TypeRefEntity } from './nodes';
 
 // ============================================================================
 // Tree-sitter Types (generic to avoid direct dependency)
@@ -69,6 +76,26 @@ export interface ExtractedEntities {
    * Optional: only produced by plugins that support class member extraction.
    */
   hasPropertyEdges?: HasPropertyEdgeDescriptor[];
+  /**
+   * Semantic type reference nodes (targets of HAS_PARAM / RETURNS / USES_TYPE edges).
+   * Optional: only produced by plugins that support type-relationship extraction.
+   */
+  typeRefs?: TypeRefEntity[];
+  /**
+   * HAS_PARAM edge descriptors (Function → Type).
+   * Optional: only produced by plugins that support parameter type extraction.
+   */
+  hasParamEdges?: HasParamEdgeDescriptor[];
+  /**
+   * RETURNS edge descriptors (Function → Type).
+   * Optional: only produced by plugins that support return type extraction.
+   */
+  returnsEdges?: ReturnsEdgeDescriptor[];
+  /**
+   * USES_TYPE edge descriptors (Function → Type used in body).
+   * Optional: only produced by plugins that support type usage extraction.
+   */
+  usesTypeEdges?: UsesTypeEdgeDescriptor[];
 }
 
 /** Call reference for edge creation */

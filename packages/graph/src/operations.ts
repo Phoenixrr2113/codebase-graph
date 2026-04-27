@@ -31,7 +31,14 @@ import {
   type ComponentEntity,
   type CommitEntity,
 } from './schema';
-import type { ProjectEntity, ExtractedDocumentEntities } from '@codegraph/types';
+import type {
+  ProjectEntity,
+  ExtractedDocumentEntities,
+  TypeRefEntity,
+  HasParamEdgeDescriptor,
+  ReturnsEdgeDescriptor,
+  UsesTypeEdgeDescriptor,
+} from '@codegraph/types';
 
 // ============================================================================
 // Entity ID parsing — format: "Type:filePath:name" or "Type:external:name"
@@ -252,6 +259,35 @@ const CYPHER = {
     SET r.isStatic = coalesce($isStatic, false),
         r.visibility = coalesce($visibility, 'public'),
         r.isReadonly = coalesce($isReadonly, false)
+  `,
+
+  // Type reference node — MERGE by id so cross-file references share one node
+  MERGE_TYPE_REF: `
+    MERGE (t:Type {id: $id})
+    SET t.name = $name,
+        t.language = $language,
+        t.isPrimitive = $isPrimitive,
+        t.definingFile = coalesce($definingFile, t.definingFile)
+  `,
+
+  CREATE_HAS_PARAM_EDGE: `
+    MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+    MERGE (from)-[r:HAS_PARAM]->(to)
+    SET r.position = $position,
+        r.name = $name,
+        r.isOptional = $isOptional
+  `,
+
+  CREATE_RETURNS_EDGE: `
+    MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+    MERGE (from)-[r:RETURNS]->(to)
+    SET r.isAsync = $isAsync
+  `,
+
+  CREATE_USES_TYPE_EDGE: `
+    MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+    MERGE (from)-[r:USES_TYPE]->(to)
+    SET r.kind = $kind
   `,
 
   // Commit operations
@@ -993,6 +1029,30 @@ export interface GraphOperations {
     props?: { isStatic?: boolean; visibility?: 'public' | 'private' | 'protected'; isReadonly?: boolean }
   ): Promise<void>;
 
+  /** Ensure a semantic Type reference node exists in the graph (MERGE by id). */
+  mergeTypeRef(typeRef: TypeRefEntity): Promise<void>;
+
+  /** Create a HAS_PARAM edge from a Function node to a Type node. */
+  createHasParamEdge(
+    fromId: string,
+    toId: string,
+    props: { position: number; name: string; isOptional: boolean }
+  ): Promise<void>;
+
+  /** Create a RETURNS edge from a Function node to a Type node. */
+  createReturnsEdge(
+    fromId: string,
+    toId: string,
+    props?: { isAsync: boolean }
+  ): Promise<void>;
+
+  /** Create a USES_TYPE edge from a Function node to a Type node. */
+  createUsesTypeEdge(
+    fromId: string,
+    toId: string,
+    props: { kind: 'annotation' | 'instantiation' | 'cast' }
+  ): Promise<void>;
+
   deleteFileEntities(filePath: string): Promise<void>;
 
   /**
@@ -1226,6 +1286,52 @@ class GraphOperationsImpl implements GraphOperations {
   }
 
   @trace()
+  async mergeTypeRef(typeRef: TypeRefEntity): Promise<void> {
+    await this.client.query(CYPHER.MERGE_TYPE_REF, {
+      params: {
+        id: typeRef.id,
+        name: typeRef.name,
+        language: typeRef.language,
+        isPrimitive: typeRef.isPrimitive,
+        definingFile: typeRef.definingFile ?? null,
+      },
+    });
+  }
+
+  @trace()
+  async createHasParamEdge(
+    fromId: string,
+    toId: string,
+    props: { position: number; name: string; isOptional: boolean },
+  ): Promise<void> {
+    await this.client.query(CYPHER.CREATE_HAS_PARAM_EDGE, {
+      params: { fromId, toId, ...props },
+    });
+  }
+
+  @trace()
+  async createReturnsEdge(
+    fromId: string,
+    toId: string,
+    props: { isAsync: boolean } = { isAsync: false },
+  ): Promise<void> {
+    await this.client.query(CYPHER.CREATE_RETURNS_EDGE, {
+      params: { fromId, toId, isAsync: props.isAsync },
+    });
+  }
+
+  @trace()
+  async createUsesTypeEdge(
+    fromId: string,
+    toId: string,
+    props: { kind: 'annotation' | 'instantiation' | 'cast' },
+  ): Promise<void> {
+    await this.client.query(CYPHER.CREATE_USES_TYPE_EDGE, {
+      params: { fromId, toId, kind: props.kind },
+    });
+  }
+
+  @trace()
   async deleteFileEntities(filePath: string): Promise<void> {
     await this.client.query(CYPHER.DELETE_FILE_ENTITIES, { params: { filePath } });
   }
@@ -1305,6 +1411,27 @@ class GraphOperationsImpl implements GraphOperations {
         this.createHasPropertyEdge(edge.fromId, edge.toId, { isStatic: edge.isStatic, visibility: edge.visibility, isReadonly: edge.isReadonly })
       ),
     ]);
+
+    // Type ref nodes must exist before type-relationship edges are MERGE'd.
+    // Process sequentially: create all TypeRef nodes, then create the edges.
+    for (const typeRef of entities.typeRefs) {
+      await this.mergeTypeRef(typeRef);
+    }
+
+    // HAS_PARAM edges (function → parameter type node)
+    for (const edge of entities.hasParamEdges) {
+      await this.createHasParamEdge(edge.fromId, edge.toId, { position: edge.position, name: edge.name, isOptional: edge.isOptional });
+    }
+
+    // RETURNS edges (function → return type node)
+    for (const edge of entities.returnsEdges) {
+      await this.createReturnsEdge(edge.fromId, edge.toId, { isAsync: edge.isAsync });
+    }
+
+    // USES_TYPE edges (function → type used in body)
+    for (const edge of entities.usesTypeEdges) {
+      await this.createUsesTypeEdge(edge.fromId, edge.toId, { kind: edge.kind });
+    }
   }
 
   // ---- UNWIND Bulk Operations (PERF.2) ----
@@ -1446,6 +1573,50 @@ class GraphOperationsImpl implements GraphOperations {
          MERGE (from)-[r:HAS_PROPERTY]->(to)
          SET r.isStatic = coalesce($isStatic, false), r.visibility = coalesce($visibility, 'public'), r.isReadonly = coalesce($isReadonly, false)`,
         { fromId: e.fromId, toId: e.toId, isStatic: e.isStatic ?? null, visibility: e.visibility ?? null, isReadonly: e.isReadonly ?? null },
+      );
+    }
+
+    // Type ref nodes must exist before type-relationship edges are MERGE'd.
+    const typeRefs = entitiesList.flatMap(e => e.typeRefs);
+    for (const t of typeRefs) {
+      await safeEdge(
+        `MERGE (t:Type {id: $id})
+         SET t.name = $name, t.language = $language, t.isPrimitive = $isPrimitive,
+             t.definingFile = coalesce($definingFile, t.definingFile)`,
+        { id: t.id, name: t.name, language: t.language, isPrimitive: t.isPrimitive, definingFile: t.definingFile ?? null },
+      );
+    }
+
+    // HAS_PARAM edges (function → parameter type node)
+    const hasParamEdges: HasParamEdgeDescriptor[] = entitiesList.flatMap(e => e.hasParamEdges);
+    for (const e of hasParamEdges) {
+      await safeEdge(
+        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+         MERGE (from)-[r:HAS_PARAM]->(to)
+         SET r.position = $position, r.name = $name, r.isOptional = $isOptional`,
+        { fromId: e.fromId, toId: e.toId, position: e.position, name: e.name, isOptional: e.isOptional },
+      );
+    }
+
+    // RETURNS edges (function → return type node)
+    const returnsEdges: ReturnsEdgeDescriptor[] = entitiesList.flatMap(e => e.returnsEdges);
+    for (const e of returnsEdges) {
+      await safeEdge(
+        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+         MERGE (from)-[r:RETURNS]->(to)
+         SET r.isAsync = $isAsync`,
+        { fromId: e.fromId, toId: e.toId, isAsync: e.isAsync },
+      );
+    }
+
+    // USES_TYPE edges (function → type used in body)
+    const usesTypeEdges: UsesTypeEdgeDescriptor[] = entitiesList.flatMap(e => e.usesTypeEdges);
+    for (const e of usesTypeEdges) {
+      await safeEdge(
+        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+         MERGE (from)-[r:USES_TYPE]->(to)
+         SET r.kind = $kind`,
+        { fromId: e.fromId, toId: e.toId, kind: e.kind },
       );
     }
   }
@@ -1591,6 +1762,50 @@ class GraphOperationsImpl implements GraphOperations {
          MERGE (from)-[r:HAS_PROPERTY]->(to)
          SET r.isStatic = coalesce($isStatic, false), r.visibility = coalesce($visibility, 'public'), r.isReadonly = coalesce($isReadonly, false)`,
         { fromId: e.fromId, toId: e.toId, isStatic: e.isStatic ?? null, visibility: e.visibility ?? null, isReadonly: e.isReadonly ?? null },
+      );
+    }
+
+    // Type ref nodes must exist before type-relationship edges are MERGE'd.
+    const typeRefs = entitiesList.flatMap(e => e.typeRefs);
+    for (const t of typeRefs) {
+      await safeEdge(
+        `MERGE (t:Type {id: $id})
+         SET t.name = $name, t.language = $language, t.isPrimitive = $isPrimitive,
+             t.definingFile = coalesce($definingFile, t.definingFile)`,
+        { id: t.id, name: t.name, language: t.language, isPrimitive: t.isPrimitive, definingFile: t.definingFile ?? null },
+      );
+    }
+
+    // HAS_PARAM edges (function → parameter type node)
+    const hasParamEdges: HasParamEdgeDescriptor[] = entitiesList.flatMap(e => e.hasParamEdges);
+    for (const e of hasParamEdges) {
+      await safeEdge(
+        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+         MERGE (from)-[r:HAS_PARAM]->(to)
+         SET r.position = $position, r.name = $name, r.isOptional = $isOptional`,
+        { fromId: e.fromId, toId: e.toId, position: e.position, name: e.name, isOptional: e.isOptional },
+      );
+    }
+
+    // RETURNS edges (function → return type node)
+    const returnsEdges: ReturnsEdgeDescriptor[] = entitiesList.flatMap(e => e.returnsEdges);
+    for (const e of returnsEdges) {
+      await safeEdge(
+        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+         MERGE (from)-[r:RETURNS]->(to)
+         SET r.isAsync = $isAsync`,
+        { fromId: e.fromId, toId: e.toId, isAsync: e.isAsync },
+      );
+    }
+
+    // USES_TYPE edges (function → type used in body)
+    const usesTypeEdges: UsesTypeEdgeDescriptor[] = entitiesList.flatMap(e => e.usesTypeEdges);
+    for (const e of usesTypeEdges) {
+      await safeEdge(
+        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+         MERGE (from)-[r:USES_TYPE]->(to)
+         SET r.kind = $kind`,
+        { fromId: e.fromId, toId: e.toId, kind: e.kind },
       );
     }
   }
