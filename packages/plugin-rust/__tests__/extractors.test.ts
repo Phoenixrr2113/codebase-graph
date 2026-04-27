@@ -18,6 +18,8 @@ import {
   extractAllEntities,
   extractStructsWithEdges,
 } from '../src';
+import type { HasParamEdgeDescriptor, ReturnsEdgeDescriptor, UsesTypeEdgeDescriptor } from '@codegraph/types';
+import type { TypeRefEntity } from '@codegraph/types';
 
 const TEST_FILE = '/test/main.rs';
 
@@ -748,6 +750,15 @@ describe('Rust Extractors', () => {
   });
 
   // ==========================================================================
+  // runRustExtraction helper (used by HAS_PARAM / RETURNS / USES_TYPE tests)
+  // ==========================================================================
+
+  function runRustExtraction(code: string, fileName: string) {
+    const rootNode = parseCode(code);
+    return extractAllEntities(rootNode as any, `/test/${fileName}`);
+  }
+
+  // ==========================================================================
   // HAS_METHOD / HAS_PROPERTY Edges
   // ==========================================================================
 
@@ -937,6 +948,167 @@ impl Counter {
       expect(stepProp).toBeDefined();
       const stepEdge = result.hasPropertyEdges.find((e) => e.toId === stepProp!.id);
       expect(stepEdge?.visibility).toBe('private');
+    });
+  });
+
+  // ==========================================================================
+  // HAS_PARAM / RETURNS / USES_TYPE Edges
+  // ==========================================================================
+
+  describe('Rust: HAS_PARAM / RETURNS / USES_TYPE', () => {
+    it('emits HAS_PARAM and RETURNS for typed function', () => {
+      const code = `
+pub fn greet(name: &str, count: u32) -> String {
+    let msg: String = format!("hi");
+    msg.repeat(count as usize)
+}
+`;
+      const result = runRustExtraction(code, 'greet.rs');
+      const fn_ = result.entities
+        ? (result as any).entities.find((e: any) => e.name === 'greet' && e.type === 'Function')
+        : result.functions.find((f) => f.name === 'greet');
+      expect(fn_).toBeDefined();
+
+      const hasParam = ((result.hasParamEdges ?? []) as HasParamEdgeDescriptor[]).filter(
+        (e) => e.fromId === fn_!.id,
+      );
+      expect(hasParam).toHaveLength(2);
+
+      const returns = ((result.returnsEdges ?? []) as ReturnsEdgeDescriptor[]).filter(
+        (e) => e.fromId === fn_!.id,
+      );
+      expect(returns).toHaveLength(1);
+      const ret = returns[0]!;
+      const returnRef = ((result.typeRefs ?? []) as TypeRefEntity[]).find(
+        (t) => t.id === ret.toId,
+      )!;
+      expect(returnRef.name).toBe('String');
+
+      const uses = ((result.usesTypeEdges ?? []) as UsesTypeEdgeDescriptor[]).filter(
+        (e) => e.fromId === fn_!.id,
+      );
+      expect(uses.some((e) => e.kind === 'annotation')).toBe(true);
+      expect(uses.some((e) => e.kind === 'cast')).toBe(true);
+    });
+
+    it('skips self parameter from HAS_PARAM', () => {
+      const code = `
+struct User;
+
+impl User {
+    pub fn greet(&self, prefix: &str) -> String {
+        prefix.to_string()
+    }
+}
+`;
+      const result = runRustExtraction(code, 'user.rs');
+      // greet is a method → its HAS_PARAM edges use the ::method:: id form.
+      // Use the id that appears in hasParamEdges rather than relying on which
+      // duplicate find() returns.
+      const allHasParam = (result.hasParamEdges ?? []) as HasParamEdgeDescriptor[];
+      // All param edges for functions named 'greet' (match via the function list)
+      const greetFnIds = result.functions
+        .filter((f) => f.name === 'greet')
+        .map((f) => f.id);
+      const hasParam = allHasParam.filter((e) => greetFnIds.includes(e.fromId));
+      // Just `prefix`, not `self`
+      expect(hasParam).toHaveLength(1);
+      expect(hasParam[0]!.name).toBe('prefix');
+    });
+
+    it('emits RETURNS to () unit when no return type', () => {
+      const code = `
+fn run() {
+    let x = 1;
+}
+`;
+      const result = runRustExtraction(code, 'run.rs');
+      const fn_ = result.functions.find((f) => f.name === 'run');
+      expect(fn_).toBeDefined();
+
+      const returns = ((result.returnsEdges ?? []) as ReturnsEdgeDescriptor[]).filter(
+        (e) => e.fromId === fn_!.id,
+      );
+      expect(returns).toHaveLength(1);
+      expect(returns[0]!.toId).toBe('prim::rust::()');
+    });
+
+    it('marks isAsync correctly for async functions', () => {
+      const code = `
+async fn fetch_data(url: &str) -> String {
+    String::new()
+}
+`;
+      const result = runRustExtraction(code, 'fetch.rs');
+      const fn_ = result.functions.find((f) => f.name === 'fetch_data');
+      expect(fn_).toBeDefined();
+
+      const returns = ((result.returnsEdges ?? []) as ReturnsEdgeDescriptor[]).filter(
+        (e) => e.fromId === fn_!.id,
+      );
+      expect(returns).toHaveLength(1);
+      expect(returns[0]!.isAsync).toBe(true);
+    });
+
+    it('preserves & vs base type as distinct Type ids', () => {
+      const code = `
+fn f(s: &str) -> String { s.to_string() }
+`;
+      const result = runRustExtraction(code, 'f.rs');
+      const fn_ = result.functions.find((f) => f.name === 'f');
+      expect(fn_).toBeDefined();
+
+      const hasParam = ((result.hasParamEdges ?? []) as HasParamEdgeDescriptor[]).filter(
+        (e) => e.fromId === fn_!.id,
+      );
+      expect(hasParam).toHaveLength(1);
+      const paramTypeRef = ((result.typeRefs ?? []) as TypeRefEntity[]).find(
+        (t) => t.id === hasParam[0]!.toId,
+      )!;
+      expect(paramTypeRef.name).toBe('&str');
+      // Different from the bare 'str' primitive
+      expect(paramTypeRef.id).not.toBe('prim::rust::str');
+    });
+
+    it('emits instantiation USES_TYPE for generic types in body', () => {
+      const code = `
+fn make_vec() -> Vec<u32> {
+    let v: Vec<u32> = Vec::new();
+    v
+}
+`;
+      const result = runRustExtraction(code, 'vec.rs');
+      const fn_ = result.functions.find((f) => f.name === 'make_vec');
+      expect(fn_).toBeDefined();
+
+      const uses = ((result.usesTypeEdges ?? []) as UsesTypeEdgeDescriptor[]).filter(
+        (e) => e.fromId === fn_!.id,
+      );
+      // annotation for let v: Vec<u32> AND instantiation for the generic_type
+      const instantiation = uses.find((e) => e.kind === 'instantiation');
+      expect(instantiation).toBeDefined();
+      const typeRef = ((result.typeRefs ?? []) as TypeRefEntity[]).find(
+        (t) => t.id === instantiation!.toId,
+      )!;
+      expect(typeRef.name).toBe('Vec<u32>');
+    });
+
+    it('deduplicates USES_TYPE edges within a function', () => {
+      const code = `
+fn multi_cast(a: u32, b: u32) {
+    let _x = a as usize;
+    let _y = b as usize;
+}
+`;
+      const result = runRustExtraction(code, 'dedup.rs');
+      const fn_ = result.functions.find((f) => f.name === 'multi_cast');
+      expect(fn_).toBeDefined();
+
+      const uses = ((result.usesTypeEdges ?? []) as UsesTypeEdgeDescriptor[]).filter(
+        (e) => e.fromId === fn_!.id && e.kind === 'cast',
+      );
+      // Two casts to usize — should be deduplicated to 1
+      expect(uses).toHaveLength(1);
     });
   });
 });

@@ -32,9 +32,13 @@ import type {
   SyntaxNode,
   HasMethodEdgeDescriptor,
   HasPropertyEdgeDescriptor,
+  HasParamEdgeDescriptor,
+  ReturnsEdgeDescriptor,
+  UsesTypeEdgeDescriptor,
   Visibility,
 } from '@codegraph/types';
-import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
+import type { TypeRefEntity } from '@codegraph/types';
+import { findNodesOfType, generateEntityId, calculateComplexity, resolveTypeIdentity } from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 export function getGrammar(): unknown {
@@ -1084,12 +1088,210 @@ export function extractStructsWithEdges(
 }
 
 // ============================================================================
+// Type-Relationship Extractors (HAS_PARAM / RETURNS / USES_TYPE)
+// ============================================================================
+
+/**
+ * Build a TypeRefEntity for the given type name scoped to the current file.
+ * Primitives get a language-global id; user types get file-scoped ids.
+ */
+function makeRustTypeRef(name: string, filePath: string): TypeRefEntity {
+  const identity = resolveTypeIdentity({
+    language: 'rust',
+    name,
+    definingFile: filePath,
+  });
+  return {
+    id: identity.id,
+    name: identity.name,
+    language: 'rust',
+    isPrimitive: identity.isPrimitive,
+    ...(identity.definingFile !== undefined ? { definingFile: identity.definingFile } : {}),
+  };
+}
+
+export interface RustTypeRefsForFunction {
+  typeRefs: TypeRefEntity[];
+  hasParamEdges: HasParamEdgeDescriptor[];
+  returnsEdges: ReturnsEdgeDescriptor[];
+  usesTypeEdges: UsesTypeEdgeDescriptor[];
+}
+
+/**
+ * Extract TypeRef entities + the three edge descriptor arrays for a single
+ * Rust function_item AST node.
+ *
+ * - Parameters: skip self_parameter (method receiver, covered by HAS_METHOD).
+ *   Each typed `parameter` node emits a HAS_PARAM edge. isOptional is always
+ *   false (Rust has no optional params).
+ * - Returns: if return_type field is present emit RETURNS to that type; if
+ *   absent (unit return) emit RETURNS to `prim::rust::()`.
+ * - isAsync: detected from presence of function_modifiers node containing "async".
+ * - Body USES_TYPE: let_declaration with type annotation → 'annotation';
+ *   type_cast_expression (x as T) → 'cast'; generic_type nodes → 'instantiation'.
+ *   Deduplicates on (toId, kind) within a function.
+ */
+export function extractTypeRefsForRustFunction(
+  funcNode: SyntaxNode,
+  functionId: string,
+  filePath: string,
+): RustTypeRefsForFunction {
+  const typeRefMap = new Map<string, TypeRefEntity>();
+  const hasParamEdges: HasParamEdgeDescriptor[] = [];
+  const returnsEdges: ReturnsEdgeDescriptor[] = [];
+  const usesTypeEdges: UsesTypeEdgeDescriptor[] = [];
+
+  function addTypeRef(ref: TypeRefEntity): void {
+    if (!typeRefMap.has(ref.id)) {
+      typeRefMap.set(ref.id, ref);
+    }
+  }
+
+  // ── isAsync detection ─────────────────────────────────────────────────────
+  // tree-sitter-rust wraps `async` inside a function_modifiers node
+  const isAsync = funcNode.children.some(
+    (c: SyntaxNode) => c.type === 'function_modifiers' && c.text.includes('async'),
+  );
+
+  // ── Parameters → HAS_PARAM ────────────────────────────────────────────────
+  const paramList = funcNode.childForFieldName('parameters');
+  if (paramList) {
+    let position = 0;
+    for (const child of paramList.children) {
+      // Skip punctuation tokens
+      if (child.type === '(' || child.type === ')' || child.type === ',') continue;
+
+      // Skip self_parameter (&self, &mut self, self) — covered by HAS_METHOD
+      if (child.type === 'self_parameter') continue;
+
+      if (child.type === 'parameter') {
+        const patternNode = child.childForFieldName('pattern');
+        const typeNode = child.childForFieldName('type');
+
+        const paramName = patternNode?.text ?? '_';
+        const typeName = typeNode?.text?.trim();
+        if (!typeName) {
+          position++;
+          continue;
+        }
+
+        const typeRef = makeRustTypeRef(typeName, filePath);
+        addTypeRef(typeRef);
+        hasParamEdges.push({
+          fromId: functionId,
+          toId: typeRef.id,
+          position,
+          name: paramName,
+          isOptional: false, // Rust has no optional params
+        });
+        position++;
+      }
+    }
+  }
+
+  // ── Return type → RETURNS ─────────────────────────────────────────────────
+  const returnTypeNode = funcNode.childForFieldName('return_type');
+  if (returnTypeNode) {
+    const typeName = returnTypeNode.text?.trim();
+    if (typeName) {
+      const typeRef = makeRustTypeRef(typeName, filePath);
+      addTypeRef(typeRef);
+      returnsEdges.push({ fromId: functionId, toId: typeRef.id, isAsync });
+    }
+  } else {
+    // No explicit return type → unit type ()
+    const unitRef = makeRustTypeRef('()', filePath);
+    addTypeRef(unitRef);
+    returnsEdges.push({ fromId: functionId, toId: unitRef.id, isAsync });
+  }
+
+  // ── Body USES_TYPE ────────────────────────────────────────────────────────
+  const bodyNode = funcNode.childForFieldName('body');
+  if (bodyNode) {
+    const seen = new Set<string>();
+
+    function collectBodyTypeUsages(node: SyntaxNode): void {
+      // Don't descend into nested function bodies (their types belong to that function)
+      if (node.type === 'closure_expression') return;
+
+      // let_declaration with explicit type annotation: `let x: T = ...;`
+      // childForFieldName('type') returns the type node when present.
+      if (node.type === 'let_declaration') {
+        const typeNode = node.childForFieldName('type');
+        if (typeNode) {
+          const typeName = typeNode.text?.trim();
+          if (typeName) {
+            const typeRef = makeRustTypeRef(typeName, filePath);
+            addTypeRef(typeRef);
+            const key = `${typeRef.id}::annotation`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              usesTypeEdges.push({ fromId: functionId, toId: typeRef.id, kind: 'annotation' });
+            }
+          }
+        }
+        // Still recurse into let_declaration body for casts/generics in the initializer
+      }
+
+      // type_cast_expression: `x as T`
+      // The type is accessible via childForFieldName('type')
+      if (node.type === 'type_cast_expression') {
+        const typeNode = node.childForFieldName('type');
+        if (typeNode) {
+          const typeName = typeNode.text?.trim();
+          if (typeName) {
+            const typeRef = makeRustTypeRef(typeName, filePath);
+            addTypeRef(typeRef);
+            const key = `${typeRef.id}::cast`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              usesTypeEdges.push({ fromId: functionId, toId: typeRef.id, kind: 'cast' });
+            }
+          }
+        }
+      }
+
+      // generic_type instantiations: `Vec<u32>`, `Option<String>`, etc.
+      // tree-sitter-rust names these `generic_type`.
+      if (node.type === 'generic_type') {
+        const typeName = node.text?.trim();
+        if (typeName) {
+          const typeRef = makeRustTypeRef(typeName, filePath);
+          addTypeRef(typeRef);
+          const key = `${typeRef.id}::instantiation`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            usesTypeEdges.push({ fromId: functionId, toId: typeRef.id, kind: 'instantiation' });
+          }
+        }
+        // Don't recurse further into the generic_type itself — its children
+        // are type args that would double-count the inner types.
+        return;
+      }
+
+      for (const child of node.children) {
+        collectBodyTypeUsages(child);
+      }
+    }
+
+    collectBodyTypeUsages(bodyNode);
+  }
+
+  return {
+    typeRefs: Array.from(typeRefMap.values()),
+    hasParamEdges,
+    returnsEdges,
+    usesTypeEdges,
+  };
+}
+
+// ============================================================================
 // extractAllEntities override
 // ============================================================================
 
 /**
- * Extract all entities from a Rust AST, including HAS_METHOD and HAS_PROPERTY
- * edge descriptors produced by extractStructsWithEdges.
+ * Extract all entities from a Rust AST, including HAS_METHOD, HAS_PROPERTY,
+ * HAS_PARAM, RETURNS, and USES_TYPE edge descriptors.
  *
  * Overrides the generic factory's extractAllEntities so the edge fields are populated.
  * The pipeline picks them up automatically via ParsedFileEntities.
@@ -1102,6 +1304,73 @@ export function extractStructsWithEdges(
 export function extractAllEntities(root: SyntaxNode, filePath: string) {
   const allFunctions = extractFunctions(root, filePath);
   const structExtraction = extractStructsWithEdges(root, filePath);
+
+  // ── Type-relationship edges (HAS_PARAM / RETURNS / USES_TYPE) ──────────────
+  const typeRefMap = new Map<string, TypeRefEntity>();
+  const allHasParamEdges: HasParamEdgeDescriptor[] = [];
+  const allReturnsEdges: ReturnsEdgeDescriptor[] = [];
+  const allUsesTypeEdges: UsesTypeEdgeDescriptor[] = [];
+
+  function accumulateTypeRefs(funcNode: SyntaxNode, entityId: string): void {
+    const result = extractTypeRefsForRustFunction(funcNode, entityId, filePath);
+    for (const ref of result.typeRefs) {
+      if (!typeRefMap.has(ref.id)) typeRefMap.set(ref.id, ref);
+    }
+    allHasParamEdges.push(...result.hasParamEdges);
+    allReturnsEdges.push(...result.returnsEdges);
+    allUsesTypeEdges.push(...result.usesTypeEdges);
+  }
+
+  // Process top-level function_item nodes
+  const topLevelFuncNodes = root.children.filter(
+    (c: SyntaxNode) => c.type === 'function_item',
+  );
+  for (const funcNode of topLevelFuncNodes) {
+    const nameNode = funcNode.childForFieldName('name');
+    if (!nameNode) continue;
+    const name = nameNode.text;
+    const startLine = funcNode.startPosition.row + 1;
+    const entityId = generateEntityId(filePath, 'function', name, startLine);
+    const matched = allFunctions.find((f) => f.id === entityId);
+    if (matched?.id) {
+      accumulateTypeRefs(funcNode, matched.id);
+    }
+  }
+
+  // Process method function_item nodes inside impl blocks
+  const implItems = findNodesOfType(root, ['impl_item']);
+  for (const impl of implItems) {
+    const bodyNode = impl.childForFieldName('body');
+    if (!bodyNode) continue;
+
+    for (const child of bodyNode.children) {
+      if (child.type !== 'function_item') continue;
+
+      const nameNode = child.childForFieldName('name');
+      if (!nameNode) continue;
+      const methodName = nameNode.text;
+      const startLine = child.startPosition.row + 1;
+
+      // Match against ::method:: entities from structExtraction by name + line
+      const matchedMethod = structExtraction.methodEntities.find(
+        (m) => m.name === methodName && m.startLine === startLine,
+      );
+      if (matchedMethod?.id) {
+        accumulateTypeRefs(child, matchedMethod.id);
+      } else {
+        // Method on external type — no ::method:: entity, but use generateEntityId
+        // to find in allFunctions (extractFunctions includes impl methods)
+        const typeNode = impl.childForFieldName('type');
+        const implTypeName = typeNode?.text;
+        const qualifiedName = implTypeName ? `${implTypeName}.${methodName}` : methodName;
+        const entityId = generateEntityId(filePath, 'function', qualifiedName, startLine);
+        const matched = allFunctions.find((f) => f.id === entityId);
+        if (matched?.id) {
+          accumulateTypeRefs(child, matched.id);
+        }
+      }
+    }
+  }
 
   return {
     // Merge: generateEntityId-style functions + ::method:: entities from struct extraction
@@ -1117,5 +1386,9 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
     components: [],
     hasMethodEdges: structExtraction.hasMethodEdges,
     hasPropertyEdges: structExtraction.hasPropertyEdges,
+    typeRefs: Array.from(typeRefMap.values()),
+    hasParamEdges: allHasParamEdges,
+    returnsEdges: allReturnsEdges,
+    usesTypeEdges: allUsesTypeEdges,
   };
 }
