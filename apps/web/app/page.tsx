@@ -5,7 +5,7 @@ import { HowItWorksSection } from "@/components/landing/how-it-works-section"
 import { FeaturesGridSection } from "@/components/landing/features-grid-section"
 import { IntegrationsSection } from "@/components/landing/integrations-section"
 import { ArchitectureSection } from "@/components/landing/architecture-section"
-import { Footer } from "@/components/landing/footer-section"
+import { TechCredibilityBar, Footer } from "@/components/landing/footer-section"
 
 export default function LandingPage() {
   return (
@@ -17,6 +17,7 @@ export default function LandingPage() {
       <FeaturesGridSection />
       <IntegrationsSection />
       <ArchitectureSection />
+      <TechCredibilityBar />
       <Footer />
     </main>
   )
