@@ -77,7 +77,7 @@ const ALL_ENTITY_NODE_TYPES = [
   'function_declaration', 'function_expression', 'arrow_function',
   'method_definition', 'generator_function_declaration',
   // Classes
-  'class_declaration', 'class',
+  'class_declaration', 'abstract_class_declaration', 'class',
   // Variables
   'variable_declaration', 'lexical_declaration',
   // Types
@@ -128,6 +128,7 @@ export function extractAllEntities(
   // property Variable entities + HAS_METHOD / HAS_PROPERTY edge descriptors in one pass.
   const classExtraction = extractClassesWithEdgesFromNodes([
     ...(nodesByType.get('class_declaration') ?? []),
+    ...(nodesByType.get('abstract_class_declaration') ?? []),
     ...(nodesByType.get('class') ?? []),
   ], filePath);
 

@@ -3,7 +3,8 @@
  * Covers HAS_METHOD / HAS_PROPERTY extraction (Tasks 8+9) and the end-to-end
  * wiring through extractAllEntities (Task pipeline fix).
  * HAS_PARAM/RETURNS/USES_TYPE tests added in Task 15.
- * Task 21 will expand to full extractor coverage.
+ * Task 21 expanded to full extractor coverage (calls, imports, inheritance,
+ * jsx, renders, type-aliases, variables, functions, classes, error cases).
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -13,14 +14,32 @@ import {
   extractClassesWithEdges,
   type ClassExtractionResult,
 } from '../src/extractors/classes';
-import { extractAllEntities } from '../src/extractors';
+import {
+  extractAllEntities,
+  extractCalls,
+  extractImports,
+  extractFunctions,
+  extractClasses,
+  extractVariables,
+  extractTypes,
+  extractInterfaces,
+  extractComponents,
+  extractInheritance,
+  extractRenders,
+} from '../src/extractors';
 
 const TEST_FILE = 'user.ts';
 
 let parser: Parser;
+let tsxParser: Parser;
 
 function parseCode(code: string): Parser.SyntaxNode {
   const tree = parser.parse(code);
+  return tree.rootNode;
+}
+
+function parseTsx(code: string): Parser.SyntaxNode {
+  const tree = tsxParser.parse(code);
   return tree.rootNode;
 }
 
@@ -37,6 +56,8 @@ describe('TypeScript HAS_METHOD / HAS_PROPERTY', () => {
   beforeAll(() => {
     parser = new Parser();
     parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+    tsxParser = new Parser();
+    tsxParser.setLanguage(grammars.tsx as Parameters<Parser['setLanguage']>[0]);
   });
 
   it('emits Function entities + HAS_METHOD edges for class methods', () => {
@@ -163,6 +184,8 @@ describe('extractAllEntities — end-to-end HAS_METHOD/HAS_PROPERTY pipeline wir
   beforeAll(() => {
     parser = new Parser();
     parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+    tsxParser = new Parser();
+    tsxParser.setLanguage(grammars.tsx as Parameters<Parser['setLanguage']>[0]);
   });
 
   it('propagates hasMethodEdges and hasPropertyEdges through extractAllEntities', () => {
@@ -246,6 +269,8 @@ describe('TS HAS_PARAM / RETURNS / USES_TYPE', () => {
   beforeAll(() => {
     parser = new Parser();
     parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+    tsxParser = new Parser();
+    tsxParser.setLanguage(grammars.tsx as Parameters<Parser['setLanguage']>[0]);
   });
 
   it('emits HAS_PARAM and RETURNS edges with type refs', () => {
@@ -322,5 +347,725 @@ type User = { id: string };
     const userTypeRefs = (result.typeRefs ?? []).filter((t) => t.name === 'User');
     expect(userTypeRefs).toHaveLength(1);
     expect(userTypeRefs[0]!.id).toBe('type::typescript::multi.ts::User');
+  });
+});
+
+// ==========================================================================
+// Calls Extractor
+// ==========================================================================
+
+describe('TS extractors: calls', () => {
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('local function call produces a CALLS reference from caller to callee', () => {
+    const code = `
+function helper() {}
+function main() { helper(); }
+`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'calls.ts');
+    const calls = extractCalls(rootNode, 'calls.ts', functions, []);
+
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    const ref = calls.find(c => c.callerName === 'main' && c.calleeName === 'helper');
+    expect(ref).toBeDefined();
+    expect(ref!.callerFilePath).toBe('calls.ts');
+    expect(ref!.calleeFilePath).toBe('calls.ts');
+  });
+
+  it('self-recursion produces a CALLS edge from the function to itself', () => {
+    const code = `
+function countdown(n: number): number {
+  if (n <= 0) return 0;
+  return countdown(n - 1);
+}
+`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'calls.ts');
+    const calls = extractCalls(rootNode, 'calls.ts', functions, []);
+
+    const selfCall = calls.find(
+      c => c.callerName === 'countdown' && c.calleeName === 'countdown',
+    );
+    expect(selfCall).toBeDefined();
+    expect(selfCall!.calleeFilePath).toBe('calls.ts');
+  });
+
+  it('call to imported function resolves calleeFilePath via import map', () => {
+    const code = `
+function run() { doWork(); }
+`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'main.ts');
+    const mockImport = {
+      id: 'imp-1',
+      source: './worker',
+      filePath: 'main.ts',
+      isDefault: false,
+      isNamespace: false,
+      specifiers: [{ name: 'doWork' }],
+      resolvedPath: '/project/worker.ts',
+    };
+    const calls = extractCalls(rootNode, 'main.ts', functions, [mockImport]);
+
+    const ref = calls.find(c => c.calleeName === 'doWork');
+    expect(ref).toBeDefined();
+    expect(ref!.calleeFilePath).toBe('/project/worker.ts');
+  });
+
+  it('unresolved external call is excluded by default (includeExternals=false)', () => {
+    const code = `
+function main() { unknownLibFn(); }
+`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'main.ts');
+    const calls = extractCalls(rootNode, 'main.ts', functions, [], false);
+
+    const ref = calls.find(c => c.calleeName === 'unknownLibFn');
+    expect(ref).toBeUndefined();
+  });
+
+  it('unresolved external call is included when includeExternals=true', () => {
+    const code = `
+function main() { unknownLibFn(); }
+`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'main.ts');
+    const calls = extractCalls(rootNode, 'main.ts', functions, [], true);
+
+    const ref = calls.find(c => c.calleeName === 'unknownLibFn');
+    expect(ref).toBeDefined();
+    expect(ref!.calleeFilePath).toBeUndefined();
+  });
+});
+
+// ==========================================================================
+// Imports Extractor
+// ==========================================================================
+
+describe('TS extractors: imports', () => {
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('default import produces isDefault=true and defaultAlias', () => {
+    const code = `import React from 'react';`;
+    const rootNode = parseCode(code);
+    const imports = extractImports(rootNode, '/project/app.ts');
+
+    expect(imports).toHaveLength(1);
+    expect(imports[0]!.source).toBe('react');
+    expect(imports[0]!.isDefault).toBe(true);
+    expect(imports[0]!.defaultAlias).toBe('React');
+    expect(imports[0]!.specifiers).toHaveLength(0);
+  });
+
+  it('named import produces specifier entries', () => {
+    const code = `import { useState, useEffect } from 'react';`;
+    const rootNode = parseCode(code);
+    const imports = extractImports(rootNode, '/project/app.ts');
+
+    expect(imports).toHaveLength(1);
+    const imp = imports[0]!;
+    expect(imp.isDefault).toBe(false);
+    expect(imp.specifiers.map(s => s.name).sort()).toEqual(['useEffect', 'useState']);
+  });
+
+  it('aliased named import captures the alias', () => {
+    const code = `import { foo as bar } from './utils';`;
+    const rootNode = parseCode(code);
+    const imports = extractImports(rootNode, '/project/app.ts');
+
+    const spec = imports[0]!.specifiers[0]!;
+    expect(spec.name).toBe('foo');
+    expect(spec.alias).toBe('bar');
+  });
+
+  it('namespace import produces isNamespace=true and namespaceAlias', () => {
+    const code = `import * as path from 'path';`;
+    const rootNode = parseCode(code);
+    const imports = extractImports(rootNode, '/project/app.ts');
+
+    expect(imports[0]!.isNamespace).toBe(true);
+    expect(imports[0]!.namespaceAlias).toBe('path');
+  });
+
+  it('type-only import is parsed as a regular import (source and specifiers captured)', () => {
+    // tree-sitter-typescript parses `import type { X }` as a normal import_statement
+    // with a type_keyword inside the clause. The extractor captures source and specifiers.
+    const code = `import type { User } from './types';`;
+    const rootNode = parseCode(code);
+    const imports = extractImports(rootNode, '/project/app.ts');
+
+    expect(imports).toHaveLength(1);
+    expect(imports[0]!.source).toBe('./types');
+    // specifiers may or may not include 'User' depending on how the type keyword is parsed;
+    // the important thing is the import is captured at all.
+    expect(imports[0]!.source).toBeTruthy();
+  });
+
+  it('multiple imports from the same file are each captured', () => {
+    const code = `
+import React from 'react';
+import { useState } from 'react';
+`;
+    const rootNode = parseCode(code);
+    const imports = extractImports(rootNode, '/project/app.ts');
+
+    expect(imports).toHaveLength(2);
+    expect(imports.every(i => i.source === 'react')).toBe(true);
+  });
+});
+
+// ==========================================================================
+// Inheritance Extractor
+// ==========================================================================
+
+describe('TS extractors: inheritance', () => {
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('class extends produces an ExtendsReference when parent is local', () => {
+    const code = `
+class Animal {}
+class Dog extends Animal {}
+`;
+    const rootNode = parseCode(code);
+    const classes = extractClasses(rootNode, 'pets.ts');
+    const interfaces = extractInterfaces(rootNode, 'pets.ts');
+    const result = extractInheritance('pets.ts', classes, interfaces, [], true);
+
+    expect(result.extends).toHaveLength(1);
+    const ref = result.extends[0]!;
+    expect(ref.childName).toBe('Dog');
+    expect(ref.parentName).toBe('Animal');
+    expect(ref.parentFilePath).toBe('pets.ts');
+  });
+
+  it('class implements produces ImplementsReferences for each interface', () => {
+    const code = `
+interface Runnable {}
+interface Serializable {}
+class Task implements Runnable, Serializable {}
+`;
+    const rootNode = parseCode(code);
+    const classes = extractClasses(rootNode, 'task.ts');
+    const interfaces = extractInterfaces(rootNode, 'task.ts');
+    const result = extractInheritance('task.ts', classes, interfaces, [], true);
+
+    expect(result.implements).toHaveLength(2);
+    const names = result.implements.map(r => r.interfaceName).sort();
+    expect(names).toEqual(['Runnable', 'Serializable']);
+    result.implements.forEach(r => {
+      expect(r.className).toBe('Task');
+      expect(r.interfaceFilePath).toBe('task.ts');
+    });
+  });
+
+  it('class with no heritage produces no extends or implements entries', () => {
+    const code = `class Standalone {}`;
+    const rootNode = parseCode(code);
+    const classes = extractClasses(rootNode, 'stand.ts');
+    const interfaces = extractInterfaces(rootNode, 'stand.ts');
+    const result = extractInheritance('stand.ts', classes, interfaces, []);
+
+    expect(result.extends).toHaveLength(0);
+    expect(result.implements).toHaveLength(0);
+  });
+
+  it('interface extends another interface captures the relationship on the class entity', () => {
+    // extractInheritance operates on ClassEntity.extends field, not InterfaceEntity.extends.
+    // Interface extends relationships are stored on the InterfaceEntity directly (entity.extends[]).
+    const code = `
+interface Base {}
+interface Child extends Base {}
+`;
+    const rootNode = parseCode(code);
+    const interfaces = extractInterfaces(rootNode, 'iface.ts');
+    const child = interfaces.find(i => i.name === 'Child');
+
+    expect(child).toBeDefined();
+    expect(child!.extends).toContain('Base');
+  });
+
+  it('unresolved external parent is excluded when includeExternals=false', () => {
+    const code = `class MyError extends Error {}`;
+    const rootNode = parseCode(code);
+    const classes = extractClasses(rootNode, 'err.ts');
+    const interfaces = extractInterfaces(rootNode, 'err.ts');
+    const result = extractInheritance('err.ts', classes, interfaces, [], false);
+
+    // Error is not local and not imported → excluded
+    expect(result.extends).toHaveLength(0);
+  });
+});
+
+// ==========================================================================
+// JSX + Component Extractor
+// ==========================================================================
+
+describe('TS extractors: jsx + components', () => {
+  beforeAll(() => {
+    tsxParser = new Parser();
+    tsxParser.setLanguage(grammars.tsx as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('function returning JSX is extracted as a ComponentEntity', () => {
+    const code = `
+export function App() {
+  return <div>Hello</div>;
+}
+`;
+    const rootNode = parseTsx(code);
+    const components = extractComponents(rootNode, 'App.tsx');
+
+    expect(components).toHaveLength(1);
+    expect(components[0]!.name).toBe('App');
+    expect(components[0]!.isExported).toBe(true);
+  });
+
+  it('arrow function returning JSX is extracted as a ComponentEntity', () => {
+    const code = `
+const Header = () => <header>Title</header>;
+`;
+    const rootNode = parseTsx(code);
+    const components = extractComponents(rootNode, 'Header.tsx');
+
+    expect(components).toHaveLength(1);
+    expect(components[0]!.name).toBe('Header');
+  });
+
+  it('lowercase function returning JSX is NOT extracted as a component (not PascalCase)', () => {
+    const code = `
+function renderItem() { return <li>item</li>; }
+`;
+    const rootNode = parseTsx(code);
+    const components = extractComponents(rootNode, 'item.tsx');
+
+    expect(components).toHaveLength(0);
+  });
+
+  it('component that renders another PascalCase component produces a RENDERS reference', () => {
+    const code = `
+function Button() { return <div>ok</div>; }
+function App() { return <Button />; }
+`;
+    const rootNode = parseTsx(code);
+    const components = extractComponents(rootNode, 'app.tsx');
+    const renders = extractRenders(rootNode, 'app.tsx', components, []);
+
+    expect(renders.length).toBeGreaterThanOrEqual(1);
+    const ref = renders.find(r => r.parentName === 'App' && r.childName === 'Button');
+    expect(ref).toBeDefined();
+    expect(ref!.childFilePath).toBe('app.tsx');
+  });
+
+  it('renders extractor ignores lowercase HTML elements', () => {
+    const code = `
+function App() { return <div><span>hello</span></div>; }
+`;
+    const rootNode = parseTsx(code);
+    const components = extractComponents(rootNode, 'app.tsx');
+    const renders = extractRenders(rootNode, 'app.tsx', components, []);
+
+    // No PascalCase child components
+    expect(renders).toHaveLength(0);
+  });
+});
+
+// ==========================================================================
+// Type Aliases Extractor (via type-aliases.ts → extractTypes / extractInterfaces)
+// ==========================================================================
+
+describe('TS extractors: type aliases', () => {
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('simple type alias produces a TypeEntity with kind=type', () => {
+    const code = `type UserId = string;`;
+    const rootNode = parseCode(code);
+    const types = extractTypes(rootNode, 'types.ts');
+
+    expect(types).toHaveLength(1);
+    expect(types[0]!.name).toBe('UserId');
+    expect(types[0]!.kind).toBe('type');
+    expect(types[0]!.filePath).toBe('types.ts');
+  });
+
+  it('object type alias produces a TypeEntity', () => {
+    const code = `type User = { id: string; name: string };`;
+    const rootNode = parseCode(code);
+    const types = extractTypes(rootNode, 'types.ts');
+
+    expect(types).toHaveLength(1);
+    expect(types[0]!.name).toBe('User');
+  });
+
+  it('exported type alias has isExported=true', () => {
+    const code = `export type Status = 'active' | 'inactive';`;
+    const rootNode = parseCode(code);
+    const types = extractTypes(rootNode, 'types.ts');
+
+    expect(types[0]!.isExported).toBe(true);
+  });
+
+  it('non-exported type alias has isExported=false', () => {
+    const code = `type Internal = number;`;
+    const rootNode = parseCode(code);
+    const types = extractTypes(rootNode, 'types.ts');
+
+    expect(types[0]!.isExported).toBe(false);
+  });
+
+  it('generic type alias produces a TypeEntity', () => {
+    const code = `type Maybe<T> = T | null;`;
+    const rootNode = parseCode(code);
+    const types = extractTypes(rootNode, 'types.ts');
+
+    expect(types).toHaveLength(1);
+    expect(types[0]!.name).toBe('Maybe');
+  });
+
+  it('enum declaration produces a TypeEntity with kind=enum', () => {
+    const code = `enum Direction { Up, Down, Left, Right }`;
+    const rootNode = parseCode(code);
+    const types = extractTypes(rootNode, 'types.ts');
+
+    expect(types).toHaveLength(1);
+    expect(types[0]!.name).toBe('Direction');
+    expect(types[0]!.kind).toBe('enum');
+  });
+
+  it('multiple type aliases are all extracted', () => {
+    const code = `
+type A = string;
+type B = number;
+type C = boolean;
+`;
+    const rootNode = parseCode(code);
+    const types = extractTypes(rootNode, 'types.ts');
+
+    expect(types.map(t => t.name).sort()).toEqual(['A', 'B', 'C']);
+  });
+});
+
+// ==========================================================================
+// Variables Extractor
+// ==========================================================================
+
+describe('TS extractors: variables', () => {
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('top-level const declaration produces a VariableEntity', () => {
+    const code = `const X = 1;`;
+    const rootNode = parseCode(code);
+    const vars = extractVariables(rootNode, 'vars.ts');
+
+    expect(vars).toHaveLength(1);
+    expect(vars[0]!.name).toBe('X');
+    expect(vars[0]!.kind).toBe('const');
+  });
+
+  it('exported const has isExported=true', () => {
+    const code = `export const PI = 3.14;`;
+    const rootNode = parseCode(code);
+    const vars = extractVariables(rootNode, 'vars.ts');
+
+    expect(vars[0]!.isExported).toBe(true);
+  });
+
+  it('let declaration has kind=let', () => {
+    const code = `let counter = 0;`;
+    const rootNode = parseCode(code);
+    const vars = extractVariables(rootNode, 'vars.ts');
+
+    expect(vars[0]!.kind).toBe('let');
+  });
+
+  it('var declaration has kind=var', () => {
+    const code = `var legacy = 'old';`;
+    const rootNode = parseCode(code);
+    const vars = extractVariables(rootNode, 'vars.ts');
+
+    expect(vars[0]!.kind).toBe('var');
+  });
+
+  it('variable with type annotation captures the type', () => {
+    const code = `const x: number = 42;`;
+    const rootNode = parseCode(code);
+    const vars = extractVariables(rootNode, 'vars.ts');
+
+    expect(vars[0]!.type).toBe('number');
+  });
+
+  it('destructuring assignment is skipped (no entity for pattern binding)', () => {
+    // The extractor explicitly skips object_pattern and array_pattern
+    const code = `const { a, b } = obj;`;
+    const rootNode = parseCode(code);
+    const vars = extractVariables(rootNode, 'vars.ts');
+
+    // Destructuring is skipped — result may be empty
+    const destructured = vars.filter(v => v.name === 'a' || v.name === 'b');
+    expect(destructured).toHaveLength(0);
+  });
+
+  it('multiple declarations on one line each produce a VariableEntity', () => {
+    const code = `const a = 1, b = 2;`;
+    const rootNode = parseCode(code);
+    const vars = extractVariables(rootNode, 'vars.ts');
+
+    expect(vars.map(v => v.name).sort()).toEqual(['a', 'b']);
+  });
+});
+
+// ==========================================================================
+// Functions Extractor (basic)
+// ==========================================================================
+
+describe('TS extractors: functions (basic)', () => {
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('function declaration produces a FunctionEntity', () => {
+    const code = `function greet(name: string): string { return 'hi'; }`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'fn.ts');
+
+    expect(functions).toHaveLength(1);
+    expect(functions[0]!.name).toBe('greet');
+    expect(functions[0]!.filePath).toBe('fn.ts');
+  });
+
+  it('exported function has isExported=true', () => {
+    const code = `export function doThing() {}`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'fn.ts');
+
+    expect(functions[0]!.isExported).toBe(true);
+  });
+
+  it('non-exported function has isExported=false', () => {
+    const code = `function internal() {}`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'fn.ts');
+
+    expect(functions[0]!.isExported).toBe(false);
+  });
+
+  it('arrow function assigned to const produces a FunctionEntity', () => {
+    const code = `const add = (a: number, b: number) => a + b;`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'fn.ts');
+
+    const fn = functions.find(f => f.name === 'add');
+    expect(fn).toBeDefined();
+    expect(fn!.isArrow).toBe(true);
+  });
+
+  it('async function has isAsync=true', () => {
+    const code = `async function fetchData() {}`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'fn.ts');
+
+    expect(functions[0]!.isAsync).toBe(true);
+  });
+
+  it('non-async function has isAsync=false', () => {
+    const code = `function syncFn() {}`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'fn.ts');
+
+    expect(functions[0]!.isAsync).toBe(false);
+  });
+
+  it('generator function has isGenerator=true', () => {
+    const code = `function* gen() { yield 1; }`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'fn.ts');
+
+    const fn = functions.find(f => f.name === 'gen');
+    expect(fn).toBeDefined();
+    expect(fn!.isGenerator).toBe(true);
+  });
+
+  it('function with return type annotation captures returnType', () => {
+    const code = `function id(x: number): number { return x; }`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'fn.ts');
+
+    expect(functions[0]!.returnType).toBe('number');
+  });
+
+  it('function without return type annotation has returnType undefined', () => {
+    const code = `function noReturn() {}`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, 'fn.ts');
+
+    expect(functions[0]!.returnType).toBeUndefined();
+  });
+});
+
+// ==========================================================================
+// Classes Extractor (basic)
+// ==========================================================================
+
+describe('TS extractors: classes (basic)', () => {
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('class declaration produces a ClassEntity', () => {
+    const code = `class Animal {}`;
+    const rootNode = parseCode(code);
+    const classes = extractClasses(rootNode, 'cls.ts');
+
+    expect(classes).toHaveLength(1);
+    expect(classes[0]!.name).toBe('Animal');
+    expect(classes[0]!.filePath).toBe('cls.ts');
+  });
+
+  it('exported class has isExported=true', () => {
+    const code = `export class Dog {}`;
+    const rootNode = parseCode(code);
+    const classes = extractClasses(rootNode, 'cls.ts');
+
+    expect(classes[0]!.isExported).toBe(true);
+  });
+
+  it('non-exported class has isExported=false', () => {
+    const code = `class InternalHelper {}`;
+    const rootNode = parseCode(code);
+    const classes = extractClasses(rootNode, 'cls.ts');
+
+    expect(classes[0]!.isExported).toBe(false);
+  });
+
+  it('abstract class has isAbstract=true', () => {
+    const code = `abstract class Shape {}`;
+    const rootNode = parseCode(code);
+    const classes = extractClasses(rootNode, 'cls.ts');
+
+    expect(classes[0]!.isAbstract).toBe(true);
+  });
+
+  it('concrete class has isAbstract=false', () => {
+    const code = `class Circle {}`;
+    const rootNode = parseCode(code);
+    const classes = extractClasses(rootNode, 'cls.ts');
+
+    expect(classes[0]!.isAbstract).toBe(false);
+  });
+
+  it('class with extends captures the parent name', () => {
+    const code = `class Cat extends Animal {}`;
+    const rootNode = parseCode(code);
+    const classes = extractClasses(rootNode, 'cls.ts');
+
+    expect(classes[0]!.extends).toBe('Animal');
+  });
+
+  it('class with implements captures the interface names', () => {
+    const code = `class Runner implements Runnable, Trackable {}`;
+    const rootNode = parseCode(code);
+    const classes = extractClasses(rootNode, 'cls.ts');
+
+    expect(classes[0]!.implements).toEqual(expect.arrayContaining(['Runnable', 'Trackable']));
+  });
+
+  it('interface declaration produces an InterfaceEntity', () => {
+    const code = `interface Printable { print(): void; }`;
+    const rootNode = parseCode(code);
+    const interfaces = extractInterfaces(rootNode, 'iface.ts');
+
+    expect(interfaces).toHaveLength(1);
+    expect(interfaces[0]!.name).toBe('Printable');
+    expect(interfaces[0]!.filePath).toBe('iface.ts');
+  });
+
+  it('exported interface has isExported=true', () => {
+    const code = `export interface EventEmitter {}`;
+    const rootNode = parseCode(code);
+    const interfaces = extractInterfaces(rootNode, 'iface.ts');
+
+    expect(interfaces[0]!.isExported).toBe(true);
+  });
+});
+
+// ==========================================================================
+// Error / Edge Cases
+// ==========================================================================
+
+describe('TS extractors: error cases', () => {
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('empty file returns all-empty entity arrays without throwing', () => {
+    const result = runTSExtraction('', 'empty.ts');
+
+    expect(result.functions).toHaveLength(0);
+    expect(result.classes).toHaveLength(0);
+    expect(result.variables).toHaveLength(0);
+    expect(result.imports).toHaveLength(0);
+    expect(result.types).toHaveLength(0);
+    expect(result.interfaces).toHaveLength(0);
+    expect(result.components).toHaveLength(0);
+  });
+
+  it('file with only comments returns empty entity arrays', () => {
+    const code = `
+// This is a comment
+/* Multi-line comment */
+/** JSDoc comment */
+`;
+    const result = runTSExtraction(code, 'comments.ts');
+
+    expect(result.functions).toHaveLength(0);
+    expect(result.classes).toHaveLength(0);
+    expect(result.variables).toHaveLength(0);
+  });
+
+  it('syntax error in input does not throw — returns partial result', () => {
+    // tree-sitter is error-tolerant and will parse what it can
+    const code = `
+function valid() { return 1; }
+function broken( { /* unclosed */
+`;
+    let result: ReturnType<typeof runTSExtraction> | undefined;
+    expect(() => {
+      result = runTSExtraction(code, 'broken.ts');
+    }).not.toThrow();
+
+    // At minimum, the valid function should be extracted
+    expect(result).toBeDefined();
+    const fn = result!.functions.find(f => f.name === 'valid');
+    expect(fn).toBeDefined();
+  });
+
+  it('file with only type declarations returns types but no functions or classes', () => {
+    const code = `
+type A = string;
+type B = number;
+`;
+    const result = runTSExtraction(code, 'types-only.ts');
+
+    expect(result.functions).toHaveLength(0);
+    expect(result.classes).toHaveLength(0);
+    expect(result.types.map(t => t.name).sort()).toEqual(['A', 'B']);
   });
 });

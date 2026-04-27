@@ -68,6 +68,7 @@ export function extractClassesWithEdges(
 ): ClassExtractionResult {
   const allClassNodes = [
     ...findNodesOfType(rootNode, 'class_declaration'),
+    ...findNodesOfType(rootNode, 'abstract_class_declaration'),
     ...findNodesOfType(rootNode, 'class'),
   ];
   return extractClassesWithEdgesFromNodes(allClassNodes, filePath);
