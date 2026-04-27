@@ -209,7 +209,10 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
         const limit = typeof args.limit === 'number' ? args.limit : 10;
         const filter = projectPath ? 'WHERE n.filePath STARTS WITH $projectPath' : '';
         const fileFilter = projectPath ? 'WHERE f.path STARTS WITH $projectPath' : '';
-        const params: Record<string, unknown> = { projectPath: projectPath ?? null, limit };
+        const params: Record<string, string | number | boolean | null | Array<unknown>> = {
+          projectPath: projectPath ?? null,
+          limit,
+        };
 
         const client = await getGraphClient();
 

@@ -398,10 +398,14 @@ const rawHandlers: Record<string, ToolHandler> = {
     try {
       const { getGraphClient } = await import('@codegraph/core');
       const client = await getGraphClient();
-      return fetchGraphData(client as Parameters<typeof fetchGraphData>[0], {
-        projectPath: typeof args.projectPath === 'string' ? args.projectPath : undefined,
-        limit: typeof args.limit === 'number' ? args.limit : undefined,
-      });
+      const fetchArgs: { projectPath?: string; limit?: number } = {};
+      if (typeof args.projectPath === 'string') {
+        fetchArgs.projectPath = args.projectPath;
+      }
+      if (typeof args.limit === 'number') {
+        fetchArgs.limit = args.limit;
+      }
+      return fetchGraphData(client as Parameters<typeof fetchGraphData>[0], fetchArgs);
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'Failed to fetch graph data', nodes: [], edges: [] };
     }
