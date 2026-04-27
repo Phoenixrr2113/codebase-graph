@@ -136,6 +136,39 @@ export interface HasPropertyEdge extends BaseEdge {
 }
 
 // ============================================================================
+// Class Member Edge Descriptors (for pipeline transport)
+// ============================================================================
+
+/**
+ * Describes a HAS_METHOD edge to create between a Class node and a Function node.
+ * Produced by language plugins during extraction, consumed by graph batchUpsert.
+ * Lives here (not in a plugin) so Python/Go/Rust plugins emit the same shape.
+ */
+export interface HasMethodEdgeDescriptor {
+  /** Class node id */
+  fromId: string;
+  /** Function node id */
+  toId: string;
+  isStatic: boolean;
+  visibility: Visibility;
+}
+
+/**
+ * Describes a HAS_PROPERTY edge to create between a Class node and a Variable node.
+ * Produced by language plugins during extraction, consumed by graph batchUpsert.
+ * Lives here (not in a plugin) so Python/Go/Rust plugins emit the same shape.
+ */
+export interface HasPropertyEdgeDescriptor {
+  /** Class node id */
+  fromId: string;
+  /** Variable node id */
+  toId: string;
+  isStatic: boolean;
+  visibility: Visibility;
+  isReadonly: boolean;
+}
+
+// ============================================================================
 // React-Specific Edges
 // ============================================================================
 

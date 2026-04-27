@@ -15,6 +15,8 @@ import type {
   TypeEntity,
   InterfaceEntity,
   ComponentEntity,
+  HasMethodEdgeDescriptor,
+  HasPropertyEdgeDescriptor,
 } from '@codegraph/types';
 
 // Re-export individual extractors (still available for standalone use)
@@ -40,7 +42,7 @@ export type { SourceLocation } from './types';
 import { collectNodesByType } from './types';
 import { extractImportsFromNodes } from './imports';
 import { extractFunctionsFromNodes } from './functions';
-import { extractClassesFromNodes } from './classes';
+import { extractClassesWithEdgesFromNodes } from './classes';
 import { extractVariablesFromNodes } from './variables';
 import { extractTypesFromNodes, extractInterfacesFromNodes } from './type-aliases';
 import { extractComponentsFromNodes } from './jsx';
@@ -54,6 +56,8 @@ export interface ExtractedEntities {
   types: TypeEntity[];
   interfaces: InterfaceEntity[];
   components: ComponentEntity[];
+  hasMethodEdges: HasMethodEdgeDescriptor[];
+  hasPropertyEdges: HasPropertyEdgeDescriptor[];
 }
 
 /** All node types we need to collect in a single walk */
@@ -99,7 +103,9 @@ export function extractAllEntities(
     ...(nodesByType.get('generator_function_declaration') ?? []),
   ], filePath);
 
-  const classes = extractClassesFromNodes([
+  // extractClassesWithEdgesFromNodes returns class entities + method Function entities +
+  // property Variable entities + HAS_METHOD / HAS_PROPERTY edge descriptors in one pass.
+  const classExtraction = extractClassesWithEdgesFromNodes([
     ...(nodesByType.get('class_declaration') ?? []),
     ...(nodesByType.get('class') ?? []),
   ], filePath);
@@ -126,5 +132,20 @@ export function extractAllEntities(
     ...(nodesByType.get('function_expression') ?? []),
   ], filePath);
 
-  return { imports, functions, classes, variables, types, interfaces, components };
+  // Merge method Function entities and property Variable entities from class extraction
+  // into the top-level entity arrays so they get upserted into the graph as full nodes.
+  const allFunctions = [...functions, ...classExtraction.methodEntities];
+  const allVariables = [...variables, ...classExtraction.propertyEntities];
+
+  return {
+    imports,
+    functions: allFunctions,
+    classes: classExtraction.classes,
+    variables: allVariables,
+    types,
+    interfaces,
+    components,
+    hasMethodEdges: classExtraction.hasMethodEdges,
+    hasPropertyEdges: classExtraction.hasPropertyEdges,
+  };
 }

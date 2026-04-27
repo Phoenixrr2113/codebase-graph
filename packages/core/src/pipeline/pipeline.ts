@@ -9,10 +9,9 @@
  */
 
 import Parser from 'tree-sitter';
-import type { FileEntity, ParsedFileEntities, InheritanceReference, CallReference, LanguagePlugin, SyntaxNode as GenericSyntaxNode } from '@codegraph/types';
+import type { FileEntity, ParsedFileEntities, InheritanceReference, CallReference, LanguagePlugin, SyntaxNode as GenericSyntaxNode, ExtractedEntities } from '@codegraph/types';
 import {
   extractAllEntities,
-  type ExtractedEntities,
   extractCalls as extractTsCalls,
   extractRenders,
   extractInheritance as extractTsInheritance,
@@ -427,6 +426,8 @@ export function buildParsedFileEntities(
     extendsEdges,
     implementsEdges,
     rendersEdges,
+    hasMethodEdges: extracted.hasMethodEdges ?? [],
+    hasPropertyEdges: extracted.hasPropertyEdges ?? [],
   };
 }
 
@@ -454,6 +455,8 @@ export function countEdges(parsed: ParsedFileEntities): number {
     parsed.importsEdges.length +
     parsed.extendsEdges.length +
     parsed.implementsEdges.length +
-    parsed.rendersEdges.length
+    parsed.rendersEdges.length +
+    parsed.hasMethodEdges.length +
+    parsed.hasPropertyEdges.length
   );
 }

@@ -58,6 +58,18 @@ export interface ExtractedEntities {
   variables: VariableEntity[];
   types: TypeEntity[];
   components: ComponentEntity[];
+  /**
+   * HAS_METHOD edge descriptors (Class → Function).
+   * Optional: only produced by plugins that support class member extraction.
+   * Use HasMethodEdgeDescriptor from @codegraph/types for the concrete type.
+   */
+  hasMethodEdges?: Array<{ fromId: string; toId: string; isStatic: boolean; visibility: 'public' | 'private' | 'protected' }>;
+  /**
+   * HAS_PROPERTY edge descriptors (Class → Variable).
+   * Optional: only produced by plugins that support class member extraction.
+   * Use HasPropertyEdgeDescriptor from @codegraph/types for the concrete type.
+   */
+  hasPropertyEdges?: Array<{ fromId: string; toId: string; isStatic: boolean; visibility: 'public' | 'private' | 'protected'; isReadonly: boolean }>;
 }
 
 /** Call reference for edge creation */

@@ -1296,6 +1296,14 @@ class GraphOperationsImpl implements GraphOperations {
         const child = parseEntityId(edge.childId);
         return this.createRendersEdge(parent.name, parent.filePath, child.name, edge.line);
       }),
+      // HAS_METHOD edges (class → method Function node)
+      ...entities.hasMethodEdges.map((edge) =>
+        this.createHasMethodEdge(edge.fromId, edge.toId, { isStatic: edge.isStatic, visibility: edge.visibility })
+      ),
+      // HAS_PROPERTY edges (class → property Variable node)
+      ...entities.hasPropertyEdges.map((edge) =>
+        this.createHasPropertyEdge(edge.fromId, edge.toId, { isStatic: edge.isStatic, visibility: edge.visibility, isReadonly: edge.isReadonly })
+      ),
     ]);
   }
 
@@ -1414,6 +1422,30 @@ class GraphOperationsImpl implements GraphOperations {
          MATCH (child:Component {name: $childName})
          MERGE (parent)-[r:RENDERS]->(child) SET r.line = $line`,
         e,
+      );
+    }
+
+    // HAS_METHOD edges (class → method Function node)
+    const hasMethodEdges = entitiesList.flatMap(e => e.hasMethodEdges);
+    for (const e of hasMethodEdges) {
+      await safeEdge(
+        `MATCH (from:Class {id: $fromId})
+         MATCH (to:Function {id: $toId})
+         MERGE (from)-[r:HAS_METHOD]->(to)
+         SET r.isStatic = coalesce($isStatic, false), r.visibility = coalesce($visibility, 'public')`,
+        { fromId: e.fromId, toId: e.toId, isStatic: e.isStatic ?? null, visibility: e.visibility ?? null },
+      );
+    }
+
+    // HAS_PROPERTY edges (class → property Variable node)
+    const hasPropertyEdges = entitiesList.flatMap(e => e.hasPropertyEdges);
+    for (const e of hasPropertyEdges) {
+      await safeEdge(
+        `MATCH (from:Class {id: $fromId})
+         MATCH (to:Variable {id: $toId})
+         MERGE (from)-[r:HAS_PROPERTY]->(to)
+         SET r.isStatic = coalesce($isStatic, false), r.visibility = coalesce($visibility, 'public'), r.isReadonly = coalesce($isReadonly, false)`,
+        { fromId: e.fromId, toId: e.toId, isStatic: e.isStatic ?? null, visibility: e.visibility ?? null, isReadonly: e.isReadonly ?? null },
       );
     }
   }
@@ -1535,6 +1567,30 @@ class GraphOperationsImpl implements GraphOperations {
          MATCH (child:Component {name: $childName})
          MERGE (parent)-[r:RENDERS]->(child) SET r.line = $line`,
         e,
+      );
+    }
+
+    // HAS_METHOD edges (class → method Function node)
+    const hasMethodEdges = entitiesList.flatMap(e => e.hasMethodEdges);
+    for (const e of hasMethodEdges) {
+      await safeEdge(
+        `MATCH (from:Class {id: $fromId})
+         MATCH (to:Function {id: $toId})
+         MERGE (from)-[r:HAS_METHOD]->(to)
+         SET r.isStatic = coalesce($isStatic, false), r.visibility = coalesce($visibility, 'public')`,
+        { fromId: e.fromId, toId: e.toId, isStatic: e.isStatic ?? null, visibility: e.visibility ?? null },
+      );
+    }
+
+    // HAS_PROPERTY edges (class → property Variable node)
+    const hasPropertyEdges = entitiesList.flatMap(e => e.hasPropertyEdges);
+    for (const e of hasPropertyEdges) {
+      await safeEdge(
+        `MATCH (from:Class {id: $fromId})
+         MATCH (to:Variable {id: $toId})
+         MERGE (from)-[r:HAS_PROPERTY]->(to)
+         SET r.isStatic = coalesce($isStatic, false), r.visibility = coalesce($visibility, 'public'), r.isReadonly = coalesce($isReadonly, false)`,
+        { fromId: e.fromId, toId: e.toId, isStatic: e.isStatic ?? null, visibility: e.visibility ?? null, isReadonly: e.isReadonly ?? null },
       );
     }
   }

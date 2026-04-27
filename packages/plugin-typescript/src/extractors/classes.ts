@@ -4,31 +4,22 @@
  */
 
 import Parser from 'tree-sitter';
-import type { ClassEntity, FunctionEntity, VariableEntity, FunctionParam } from '@codegraph/types';
+import type {
+  ClassEntity,
+  FunctionEntity,
+  VariableEntity,
+  FunctionParam,
+  HasMethodEdgeDescriptor,
+  HasPropertyEdgeDescriptor,
+} from '@codegraph/types';
 import { findNodesOfType, getLocation, generateEntityId } from './types';
 import { calculateComplexity } from '@codegraph/plugin-common';
 
 /** Visibility modifier */
 export type Visibility = 'public' | 'private' | 'protected';
 
-/** Edge descriptor for HAS_METHOD */
-export interface HasMethodEdgeDescriptor {
-  type: 'HAS_METHOD';
-  from: string;
-  to: string;
-  isStatic: boolean;
-  visibility: Visibility;
-}
-
-/** Edge descriptor for HAS_PROPERTY */
-export interface HasPropertyEdgeDescriptor {
-  type: 'HAS_PROPERTY';
-  from: string;
-  to: string;
-  isStatic: boolean;
-  visibility: Visibility;
-  isReadonly: boolean;
-}
+// Re-export shared descriptor types so consumers can import from this module
+export type { HasMethodEdgeDescriptor, HasPropertyEdgeDescriptor };
 
 /** Result of extractClassesWithEdges */
 export interface ClassExtractionResult {
@@ -171,9 +162,8 @@ export function extractClassesWithEdgesFromNodes(
 
         methodEntities.push(methodEntity);
         hasMethodEdges.push({
-          type: 'HAS_METHOD',
-          from: classId,
-          to: methodId,
+          fromId: classId,
+          toId: methodId,
           isStatic,
           visibility,
         });
@@ -208,9 +198,8 @@ export function extractClassesWithEdgesFromNodes(
 
         propertyEntities.push(propEntity);
         hasPropertyEdges.push({
-          type: 'HAS_PROPERTY',
-          from: classId,
-          to: propId,
+          fromId: classId,
+          toId: propId,
           isStatic,
           visibility,
           isReadonly,

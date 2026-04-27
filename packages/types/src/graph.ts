@@ -14,7 +14,7 @@ import type {
   TypeEntity,
   ComponentEntity,
 } from './nodes';
-import type { Edge, EdgeLabel } from './edges';
+import type { Edge, EdgeLabel, HasMethodEdgeDescriptor, HasPropertyEdgeDescriptor } from './edges';
 
 // ============================================================================
 // Graph Node (for visualization)
@@ -223,6 +223,8 @@ export interface ParsedFileEntities {
   extendsEdges: Array<{ childId: string; parentId: string }>;
   implementsEdges: Array<{ classId: string; interfaceId: string }>;
   rendersEdges: Array<{ parentId: string; childId: string; line: number }>;
+  hasMethodEdges: HasMethodEdgeDescriptor[];
+  hasPropertyEdges: HasPropertyEdgeDescriptor[];
 }
 
 // ============================================================================
@@ -262,6 +264,8 @@ export type {
   HasParamEdge,
   HasMethodEdge,
   HasPropertyEdge,
+  HasMethodEdgeDescriptor,
+  HasPropertyEdgeDescriptor,
   RendersEdge,
   Visibility,
 } from './edges';
