@@ -140,7 +140,17 @@ export async function extractAndStore(
     const head = annotated.entities.find((e) => e.id === r.headEntityId);
     const tail = annotated.entities.find((e) => e.id === r.tailEntityId);
 
-    return {
+    const rel: {
+      headText: string;
+      headType: string;
+      tailText: string;
+      tailType: string;
+      type: string;
+      confidence: number;
+      sampleId: string;
+      forgetAfter?: string | null;
+      forgetReason?: string | null;
+    } = {
       headText: head?.text ?? '',
       headType: head?.type ?? 'Concept',
       tailText: tail?.text ?? '',
@@ -149,6 +159,9 @@ export async function extractAndStore(
       confidence: r.confidence,
       sampleId,
     };
+    if (r.forgetAfter != null) rel.forgetAfter = r.forgetAfter;
+    if (r.forgetReason != null) rel.forgetReason = r.forgetReason;
+    return rel;
   }).filter((r) => r.headText && r.tailText);
 
   // Embedding pass — generate embeddings for entities and relationship facts

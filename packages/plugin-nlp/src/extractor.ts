@@ -80,6 +80,7 @@ function groundEntities(
 /**
  * Post-process extracted relationships: resolve head/tail entity references,
  * normalize type synonyms, and drop relationships where entities can't be found.
+ * Preserves optional forgetAfter/forgetReason fields from LLM output.
  */
 function resolveRelationships(
   raw: ExtractionResponse['relationships'],
@@ -91,13 +92,16 @@ function resolveRelationships(
       const tail = entities.find((e) => e.text === r.tailText);
       if (!head || !tail) return null;
       const normalizedType = normalizeRelationshipType(r.type);
-      return {
+      const rel: RelationshipAnnotation = {
         id: `r-${i}`,
         headEntityId: head.id,
         tailEntityId: tail.id,
         type: normalizedType,
         confidence: DEFAULT_LLM_CONFIDENCE,
       };
+      if (r.forgetAfter != null) rel.forgetAfter = r.forgetAfter;
+      if (r.forgetReason != null) rel.forgetReason = r.forgetReason;
+      return rel;
     })
     .filter((r): r is RelationshipAnnotation => r !== null);
 }
@@ -319,6 +323,15 @@ ${entityTypeList}
 ## Relationship Types (prefer these, but you may propose new types if needed)
 ${relTypeList}
 
+## Expiration Fields (on each relationship)
+For each relationship, also output:
+- forgetAfter (optional ISO 8601 timestamp): when this fact stops being valid.
+  Set this for episodic, time-bounded facts (e.g., "meeting at 3pm tomorrow",
+  "exam on Friday", "deployment scheduled for 2026-05-01"). Leave null for
+  permanent facts (architectural decisions, ownership, definitions).
+- forgetReason (optional short string): one phrase explaining why it expires.
+  E.g., "scheduled event", "temporary assignment". Leave null for permanent facts.
+
 ## Human-Labeled Examples (Ground Truth)
 
 ${examplesText}
@@ -355,6 +368,15 @@ ${entityTypeList}
 ## Relationship Types (prefer these, but you may propose new types if needed)
 ${relTypeList}
 
+## Expiration Fields (on each relationship)
+For each relationship, also output:
+- forgetAfter (optional ISO 8601 timestamp): when this fact stops being valid.
+  Set this for episodic, time-bounded facts (e.g., "meeting at 3pm tomorrow",
+  "exam on Friday", "deployment scheduled for 2026-05-01"). Leave null for
+  permanent facts (architectural decisions, ownership, definitions).
+- forgetReason (optional short string): one phrase explaining why it expires.
+  E.g., "scheduled event", "temporary assignment". Leave null for permanent facts.
+
 ## Context (prior messages — for reference only, do NOT extract from these):
 ${context}
 
@@ -378,6 +400,15 @@ ${entityTypeList}
 
 ## Relationship Types (prefer these, but you may propose new types if needed)
 ${relTypeList}
+
+## Expiration Fields (on each relationship)
+For each relationship, also output:
+- forgetAfter (optional ISO 8601 timestamp): when this fact stops being valid.
+  Set this for episodic, time-bounded facts (e.g., "meeting at 3pm tomorrow",
+  "exam on Friday", "deployment scheduled for 2026-05-01"). Leave null for
+  permanent facts (architectural decisions, ownership, definitions).
+- forgetReason (optional short string): one phrase explaining why it expires.
+  E.g., "scheduled event", "temporary assignment". Leave null for permanent facts.
 
 ## Text to Process
 <document>${text}</document>

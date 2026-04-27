@@ -257,7 +257,7 @@ class KnowledgeServiceImpl {
    */
   async recall(
     text: string,
-    options?: { type?: string; relationType?: string; limit?: number; includeHistory?: boolean },
+    options?: { type?: string; relationType?: string; limit?: number; includeHistory?: boolean; includeExpired?: boolean },
   ): Promise<KnowledgeRecallResult> {
     const ops = await getKnowledgeOps();
 
@@ -273,6 +273,7 @@ class KnowledgeServiceImpl {
     if (options?.type !== undefined) relQuery.entityType = options.type;
     if (options?.relationType !== undefined) relQuery.relationType = options.relationType;
     if (options?.includeHistory) relQuery.includeInvalidated = true;
+    if (options?.includeExpired) relQuery.includeExpired = true;
     const rels = await ops.getRelationships(relQuery);
 
     return {

@@ -347,6 +347,10 @@ export type RelationshipAnnotation = {
   tailEntityId: string;
   type: RelationshipType;
   confidence: number;
+  /** ISO 8601 timestamp when this fact expires (episodic facts only). Null for permanent facts. */
+  forgetAfter?: string | null;
+  /** Short phrase explaining why the fact expires. Null for permanent facts. */
+  forgetReason?: string | null;
 };
 
 export type Sample = {

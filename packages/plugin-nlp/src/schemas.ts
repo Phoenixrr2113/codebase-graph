@@ -32,6 +32,18 @@ export const ExtractedRelationshipSchema = z.object({
   tailText: z.string().describe('Text of the target entity'),
   /** Relationship type (e.g., CREATED, DECIDED, WORKS_ON) */
   type: z.string().describe('Relationship type (e.g., CREATED, DECIDED, WORKS_ON)'),
+  /**
+   * Optional ISO 8601 timestamp when this fact stops being valid.
+   * Set for episodic, time-bounded facts (e.g., "meeting at 3pm tomorrow",
+   * "exam on Friday", "deployment on 2026-05-01"). Null for permanent facts.
+   */
+  forgetAfter: z.string().nullable().optional().describe(
+    'ISO 8601 timestamp when this fact expires. Set for time-bounded events; null for permanent facts.',
+  ),
+  /** Short phrase explaining why the fact expires (e.g., "scheduled event", "temporary assignment") */
+  forgetReason: z.string().nullable().optional().describe(
+    'Why this fact expires (e.g., "scheduled event", "temporary assignment"). Null for permanent facts.',
+  ),
 });
 
 /** Response schema for single-text extraction (zero-shot, few-shot, context-aware) */

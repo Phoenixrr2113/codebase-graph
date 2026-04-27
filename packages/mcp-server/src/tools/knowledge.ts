@@ -173,6 +173,10 @@ export const recallToolDefinition: ToolDefinition = {
         type: 'boolean',
         description: 'If true, also return invalidated/superseded facts (default: false — only current facts)',
       },
+      includeExpired: {
+        type: 'boolean',
+        description: 'If true, also return facts that have passed their forgetAfter expiration timestamp (default: false — expired facts are hidden)',
+      },
       at: {
         type: 'string',
         description: 'ISO timestamp for point-in-time query — returns only facts valid at this moment (e.g., "2026-03-01T00:00:00Z")',
@@ -629,11 +633,12 @@ export async function handleRecall(args: Record<string, unknown>) {
     }
 
     // --- Default: standard recall with ABOUT edge enrichment ---
-    const opts: { type?: string; relationType?: string; limit?: number; includeHistory?: boolean } = {};
+    const opts: { type?: string; relationType?: string; limit?: number; includeHistory?: boolean; includeExpired?: boolean } = {};
     if (args.type != null) opts.type = args.type as string;
     if (args.relationType != null) opts.relationType = args.relationType as string;
     if (args.limit != null) opts.limit = args.limit as number;
     if (args.includeHistory != null) opts.includeHistory = args.includeHistory as boolean;
+    if (args.includeExpired != null) opts.includeExpired = args.includeExpired as boolean;
     const result = await knowledgeService.recall(args.text as string, opts);
 
     // Enrich with ABOUT edges (knowledge → code bridges) if entity type is known

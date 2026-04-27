@@ -46,6 +46,14 @@ export interface KnowledgeRelationship {
   validAt?: number | null;
   invalidAt?: number | null;
   properties?: Record<string, unknown>;
+  /**
+   * ISO 8601 timestamp after which this fact is no longer valid.
+   * Stored as epoch ms on the edge. Filtered from recall results after expiry
+   * unless `includeExpired: true` is passed to getRelationships.
+   */
+  forgetAfter?: string | null;
+  /** Short phrase explaining why the fact expires (e.g., "scheduled event"). */
+  forgetReason?: string | null;
 }
 
 export interface DecayConfig {
@@ -205,7 +213,7 @@ export interface KnowledgeOperations {
 
   // --- Relationship CRUD ---
   createRelationship(rel: KnowledgeRelationship): Promise<void>;
-  getRelationships(query: { entityText?: string; entityType?: string; relationType?: string; limit?: number; includeInvalidated?: boolean }): Promise<RelationshipResult[]>;
+  getRelationships(query: { entityText?: string; entityType?: string; relationType?: string; limit?: number; includeInvalidated?: boolean; includeExpired?: boolean }): Promise<RelationshipResult[]>;
   /** Invalidate a relationship by setting invalid_at to now. Used by conflict resolution. */
   invalidateRelationship(headText: string, headType: string, tailText: string, tailType: string, relationType: string): Promise<boolean>;
 
@@ -369,6 +377,8 @@ const KG_CYPHER = {
       invalid_at: $invalidAt,
       created_at: $now,
       expired_at: $expiredAt,
+      forget_after: $forgetAfter,
+      forget_reason: $forgetReason,
       sampleIds: $sampleIds,
       properties: $properties
     }]->(t)
@@ -393,8 +403,21 @@ const KG_CYPHER = {
     RETURN r.type as type
   `,
 
-  /** Get relationships for an entity (valid only — excludes invalidated) */
+  /** Get relationships for an entity (valid only — excludes invalidated and expired) */
   GET_RELATIONSHIPS: `
+    MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
+    WHERE h.text = $entityText
+      AND r.invalid_at IS NULL
+      AND (r.forget_after IS NULL OR r.forget_after > $now)
+    RETURN h.text as headText, h.type as headType,
+           t.text as tailText, t.type as tailType,
+           r.type as relationType, r.confidence as confidence,
+           r.fact as fact
+    LIMIT $limit
+  `,
+
+  /** Get relationships for an entity (valid only, including expired — for includeExpired: true) */
+  GET_RELATIONSHIPS_INCLUDE_EXPIRED: `
     MATCH (h:Entity)-[r:RELATES_TO]->(t:Entity)
     WHERE h.text = $entityText
       AND r.invalid_at IS NULL
@@ -556,6 +579,8 @@ const KG_CYPHER = {
       invalid_at: rel.invalidAt,
       created_at: $now,
       expired_at: NULL,
+      forget_after: rel.forgetAfter,
+      forget_reason: rel.forgetReason,
       sampleIds: [rel.sampleId],
       properties: rel.properties
     }]->(t)
@@ -804,6 +829,11 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
     const now = Date.now();
     const sampleId = rel.sampleId ?? 'unknown';
 
+    // Convert ISO forgetAfter to epoch ms for storage (null if not provided or invalid)
+    const forgetAfterMs = rel.forgetAfter != null
+      ? (() => { const t = new Date(rel.forgetAfter!).getTime(); return isNaN(t) ? null : t; })()
+      : null;
+
     // Atomic upsert — idempotent CREATE (guarded by NOT EXISTS) + unconditional UPDATE (QUAL.2)
     await this.client.query(KG_CYPHER.UPSERT_RELATIONSHIP_CREATE, {
       params: {
@@ -819,6 +849,8 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
         invalidAt: rel.invalidAt ?? null,
         now,
         expiredAt: null,
+        forgetAfter: forgetAfterMs,
+        forgetReason: rel.forgetReason ?? null,
         sampleIds: [sampleId],
         properties: rel.properties ? JSON.stringify(rel.properties) : '{}',
       } as QueryParams,
@@ -862,16 +894,30 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
     relationType?: string;
     limit?: number;
     includeInvalidated?: boolean;
+    includeExpired?: boolean;
   }): Promise<RelationshipResult[]> {
     const limit = query.limit ?? 50;
     const includeInvalidated = query.includeInvalidated ?? false;
+    const includeExpired = query.includeExpired ?? false;
+    const now = Date.now();
 
     let cypher: string;
     let params: QueryParams;
 
     if (query.entityText) {
-      cypher = includeInvalidated ? KG_CYPHER.GET_RELATIONSHIPS_ALL : KG_CYPHER.GET_RELATIONSHIPS;
-      params = { entityText: query.entityText, limit };
+      if (includeInvalidated) {
+        // History mode: includes invalidated (superseded) and expired facts
+        cypher = KG_CYPHER.GET_RELATIONSHIPS_ALL;
+        params = { entityText: query.entityText, limit };
+      } else if (includeExpired) {
+        // Include expired but still exclude invalidated
+        cypher = KG_CYPHER.GET_RELATIONSHIPS_INCLUDE_EXPIRED;
+        params = { entityText: query.entityText, limit };
+      } else {
+        // Default: exclude invalidated AND expired
+        cypher = KG_CYPHER.GET_RELATIONSHIPS;
+        params = { entityText: query.entityText, limit, now };
+      }
     } else if (query.relationType) {
       cypher = KG_CYPHER.GET_RELATIONSHIPS_BY_TYPE;
       params = { relationType: query.relationType, limit };
@@ -929,19 +975,26 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
     // Step 2: Batch upsert relationships via UNWIND (QUAL.3)
     for (let i = 0; i < relationships.length; i += BATCH_SIZE) {
       const batch = relationships.slice(i, i + BATCH_SIZE);
-      const relParams = batch.map(r => ({
-        headText: r.headText,
-        headType: r.headType,
-        tailText: r.tailText,
-        tailType: r.tailType,
-        relType: r.type,
-        confidence: r.confidence ?? 1.0,
-        fact: r.fact ?? null,
-        validAt: r.validAt ?? now,
-        invalidAt: r.invalidAt ?? null,
-        sampleId: r.sampleId ?? sampleId,
-        properties: r.properties ? JSON.stringify(r.properties) : '{}',
-      }));
+      const relParams = batch.map(r => {
+        const forgetAfterMs = r.forgetAfter != null
+          ? (() => { const t = new Date(r.forgetAfter!).getTime(); return isNaN(t) ? null : t; })()
+          : null;
+        return {
+          headText: r.headText,
+          headType: r.headType,
+          tailText: r.tailText,
+          tailType: r.tailType,
+          relType: r.type,
+          confidence: r.confidence ?? 1.0,
+          fact: r.fact ?? null,
+          validAt: r.validAt ?? now,
+          invalidAt: r.invalidAt ?? null,
+          forgetAfter: forgetAfterMs,
+          forgetReason: r.forgetReason ?? null,
+          sampleId: r.sampleId ?? sampleId,
+          properties: r.properties ? JSON.stringify(r.properties) : '{}',
+        };
+      });
 
       // Conditional CREATE (idempotent — NOT EXISTS guard)
       await this.client.query(KG_CYPHER.BATCH_UPSERT_RELATIONSHIPS, {
