@@ -656,4 +656,136 @@ class MyClass:
       expect(hasMethodEdges[0].isStatic).toBe(true);
     });
   });
+
+  // ==========================================================================
+  // HAS_PARAM / RETURNS / USES_TYPE edges
+  // ==========================================================================
+
+  describe('Python: HAS_PARAM / RETURNS / USES_TYPE', () => {
+    it('emits HAS_PARAM and RETURNS for typed function', async () => {
+      const code = `
+def greet(name: str, count: int = 1) -> str:
+    msg: str = f"hi {name}"
+    return msg * count
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+      const fn = result.functions.find((e: any) => e.name === 'greet')!;
+      expect(fn).toBeDefined();
+
+      const hasParam = (result.hasParamEdges ?? []).filter((e: any) => e.fromId === fn.id);
+      expect(hasParam).toHaveLength(2);
+      const params = hasParam.map((e: any) => {
+        const t = (result.typeRefs ?? []).find((tr: any) => tr.id === e.toId)!;
+        return { name: e.name, typeName: t.name };
+      }).sort((a: any, b: any) => a.name.localeCompare(b.name));
+      expect(params).toEqual([
+        { name: 'count', typeName: 'int' },
+        { name: 'name', typeName: 'str' },
+      ]);
+
+      const returns = (result.returnsEdges ?? []).filter((e: any) => e.fromId === fn.id);
+      expect(returns).toHaveLength(1);
+      const ret = returns[0]! as { toId?: string };
+      const returnRef = (result.typeRefs ?? []).find((t: any) => t.id === ret.toId)!;
+      expect(returnRef.name).toBe('str');
+
+      const usesType = (result.usesTypeEdges ?? []).filter((e: any) => e.fromId === fn.id);
+      expect(usesType.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('emits no type edges for an untyped function', () => {
+      const code = `
+def add(a, b):
+    return a + b
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+      const fn = result.functions.find((e: any) => e.name === 'add')!;
+      expect(fn).toBeDefined();
+
+      const paramEdges = (result.hasParamEdges ?? []).filter((e: any) => e.fromId === fn.id);
+      expect(paramEdges).toHaveLength(0);
+      const returns = (result.returnsEdges ?? []).filter((e: any) => e.fromId === fn.id);
+      expect(returns).toHaveLength(0);
+    });
+
+    it('marks isAsync correctly for async functions', () => {
+      const code = `
+async def fetch_data(url: str) -> dict:
+    pass
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+      const fn = result.functions.find((e: any) => e.name === 'fetch_data')!;
+      expect(fn).toBeDefined();
+
+      const returns = (result.returnsEdges ?? []).filter((e: any) => e.fromId === fn.id);
+      expect(returns).toHaveLength(1);
+      const ret = returns[0]! as { isAsync?: boolean };
+      expect(ret.isAsync).toBe(true);
+    });
+
+    it('marks isOptional for typed_default_parameter params', () => {
+      const code = `
+def f(x: int = 1, y: str = "hi"):
+    pass
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+      const fn = result.functions.find((e: any) => e.name === 'f')!;
+      expect(fn).toBeDefined();
+
+      const params = (result.hasParamEdges ?? []).filter((e: any) => e.fromId === fn.id);
+      expect(params).toHaveLength(2);
+      expect(params.every((p: any) => p.isOptional === true)).toBe(true);
+    });
+
+    it('emits HAS_PARAM and RETURNS for typed class methods', () => {
+      const code = `
+class Greeter:
+    def greet(self, name: str) -> str:
+        return f"hi {name}"
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+      const cls = result.classes.find((c: any) => c.name === 'Greeter')!;
+      expect(cls).toBeDefined();
+
+      // Find the ::method:: entity for greet
+      const greetMethod = result.functions.find(
+        (f: any) => f.name === 'greet' && typeof f.id === 'string' && f.id.startsWith(`${cls.id}::method`)
+      )!;
+      expect(greetMethod).toBeDefined();
+
+      const params = (result.hasParamEdges ?? []).filter((e: any) => e.fromId === greetMethod.id);
+      // 'self' is filtered — only 'name: str' should appear
+      expect(params).toHaveLength(1);
+      const nameParam = params[0]!;
+      const typeRef = (result.typeRefs ?? []).find((t: any) => t.id === nameParam.toId)!;
+      expect(typeRef.name).toBe('str');
+
+      const returns = (result.returnsEdges ?? []).filter((e: any) => e.fromId === greetMethod.id);
+      expect(returns).toHaveLength(1);
+      const retRef = (result.typeRefs ?? []).find((t: any) => t.id === (returns[0]! as any).toId)!;
+      expect(retRef.name).toBe('str');
+    });
+
+    it('marks str and int as primitives', () => {
+      const code = `
+def add(a: int, b: int) -> int:
+    pass
+`;
+      const rootNode = parseCode(code);
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
+      const fn = result.functions.find((e: any) => e.name === 'add')!;
+      const params = (result.hasParamEdges ?? []).filter((e: any) => e.fromId === fn.id);
+      for (const p of params) {
+        const ref = (result.typeRefs ?? []).find((t: any) => t.id === p.toId)!;
+        expect(ref.isPrimitive).toBe(true);
+        expect(ref.id).toBe(`prim::python::int`);
+      }
+    });
+  });
 });

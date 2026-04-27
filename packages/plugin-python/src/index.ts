@@ -12,9 +12,13 @@ import type {
   SyntaxNode,
   HasMethodEdgeDescriptor,
   HasPropertyEdgeDescriptor,
+  HasParamEdgeDescriptor,
+  ReturnsEdgeDescriptor,
+  UsesTypeEdgeDescriptor,
+  TypeRefEntity,
   Visibility,
 } from '@codegraph/types';
-import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
+import { findNodesOfType, generateEntityId, calculateComplexity, resolveTypeIdentity } from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 /** Get the tree-sitter grammar for Python */
@@ -156,6 +160,222 @@ function isInsideClass(node: SyntaxNode): boolean {
     parent = parent.parent;
   }
   return false;
+}
+
+// ============================================================================
+// Python Type-Relationship Extractors (HAS_PARAM / RETURNS / USES_TYPE)
+// ============================================================================
+
+/**
+ * Build a TypeRefEntity for the given type name scoped to the current file.
+ * Primitives get a language-global id; user types get file-scoped ids.
+ */
+function makePythonTypeRef(name: string, filePath: string): TypeRefEntity {
+  const identity = resolveTypeIdentity({
+    language: 'python',
+    name,
+    definingFile: filePath,
+  });
+  return {
+    id: identity.id,
+    name: identity.name,
+    language: 'python',
+    isPrimitive: identity.isPrimitive,
+    ...(identity.definingFile !== undefined ? { definingFile: identity.definingFile } : {}),
+  };
+}
+
+/**
+ * Walk a function body for type-annotated local-variable assignments:
+ *   `x: int = 1` or `x: int`
+ *
+ * In tree-sitter-python, both module-level and function-body-level annotated
+ * assignments are represented as `expression_statement > assignment` where the
+ * `assignment` node has a `type` child field (e.g., `type [int]`).
+ *
+ * Does NOT descend into nested function bodies so types are attributed
+ * to the correct function.
+ */
+function collectPythonBodyTypeUsages(
+  bodyNode: SyntaxNode,
+  filePath: string,
+): TypeRefEntity[] {
+  const usages: TypeRefEntity[] = [];
+
+  const FUNCTION_BOUNDARY = new Set(['function_definition']);
+
+  function visit(node: SyntaxNode): void {
+    if (FUNCTION_BOUNDARY.has(node.type)) {
+      // Don't descend into nested functions — their types belong to that function.
+      return;
+    }
+
+    // assignment with a type annotation: `x: int = 1` or `x: int`
+    // tree-sitter-python represents this as an `assignment` node that has
+    // a `type` child field when a type annotation is present.
+    if (node.type === 'assignment') {
+      const typeNode = node.childForFieldName('type');
+      if (typeNode) {
+        const typeName = typeNode.text.trim();
+        if (typeName) {
+          usages.push(makePythonTypeRef(typeName, filePath));
+        }
+      }
+    }
+
+    for (const child of node.children) {
+      visit(child);
+    }
+  }
+
+  visit(bodyNode);
+  return usages;
+}
+
+export interface PythonTypeRefsForFunction {
+  typeRefs: TypeRefEntity[];
+  hasParamEdges: HasParamEdgeDescriptor[];
+  returnsEdges: ReturnsEdgeDescriptor[];
+  usesTypeEdges: UsesTypeEdgeDescriptor[];
+}
+
+/**
+ * Extract TypeRef entities + the three edge descriptor arrays for a single
+ * Python function_definition AST node.
+ *
+ * Python type hints (PEP 484) are optional. Untyped functions emit zero
+ * type-edges — this preserves the "unknown" state honestly rather than
+ * forging types.
+ *
+ * @param funcNode    The function_definition AST node
+ * @param functionId  The already-computed FunctionEntity id for this node
+ * @param filePath    The file being indexed
+ */
+export function extractTypeRefsForPythonFunction(
+  funcNode: SyntaxNode,
+  functionId: string,
+  filePath: string,
+): PythonTypeRefsForFunction {
+  const typeRefMap = new Map<string, TypeRefEntity>();
+  const hasParamEdges: HasParamEdgeDescriptor[] = [];
+  const returnsEdges: ReturnsEdgeDescriptor[] = [];
+  const usesTypeEdges: UsesTypeEdgeDescriptor[] = [];
+
+  function addTypeRef(ref: TypeRefEntity): void {
+    if (!typeRefMap.has(ref.id)) {
+      typeRefMap.set(ref.id, ref);
+    }
+  }
+
+  // ── Parameters → HAS_PARAM (only typed parameters) ───────────────────────
+  const parametersNode = funcNode.childForFieldName('parameters');
+  if (parametersNode) {
+    let position = 0;
+    for (const child of parametersNode.children) {
+      // Skip punctuation tokens
+      if (child.type === ',' || child.type === '(' || child.type === ')') {
+        continue;
+      }
+
+      if (child.type === 'typed_parameter') {
+        // `name: Type` — required typed parameter
+        const nameNode = child.children.find((c: SyntaxNode) => c.type === 'identifier');
+        const typeNode = child.childForFieldName('type');
+        if (nameNode && typeNode) {
+          const paramName = nameNode.text;
+          // Skip 'self' and 'cls'
+          if (paramName === 'self' || paramName === 'cls') {
+            position++;
+            continue;
+          }
+          const typeName = typeNode.text.trim();
+          const isOptional =
+            typeName.startsWith('Optional[') ||
+            /^.*\|\s*None$/.test(typeName) ||
+            /^None\s*\|/.test(typeName);
+          const typeRef = makePythonTypeRef(typeName, filePath);
+          addTypeRef(typeRef);
+          hasParamEdges.push({
+            fromId: functionId,
+            toId: typeRef.id,
+            position,
+            name: paramName,
+            isOptional,
+          });
+        }
+        position++;
+      } else if (child.type === 'typed_default_parameter') {
+        // `name: Type = value` — typed parameter with a default value
+        const nameNode = child.children.find((c: SyntaxNode) => c.type === 'identifier');
+        const typeNode = child.childForFieldName('type');
+        if (nameNode && typeNode) {
+          const paramName = nameNode.text;
+          if (paramName === 'self' || paramName === 'cls') {
+            position++;
+            continue;
+          }
+          const typeName = typeNode.text.trim();
+          const typeRef = makePythonTypeRef(typeName, filePath);
+          addTypeRef(typeRef);
+          hasParamEdges.push({
+            fromId: functionId,
+            toId: typeRef.id,
+            position,
+            name: paramName,
+            isOptional: true, // has a default → optional
+          });
+        }
+        position++;
+      } else if (
+        child.type === 'identifier' ||
+        child.type === 'default_parameter' ||
+        child.type === 'list_splat_pattern' ||
+        child.type === 'dictionary_splat_pattern'
+      ) {
+        // Untyped parameter — skip (preserve "unknown" state honestly).
+        position++;
+      }
+      // Other node types (e.g., comments) are silently ignored.
+    }
+  }
+
+  // ── Return type → RETURNS (only if annotated) ─────────────────────────────
+  const returnTypeNode = funcNode.childForFieldName('return_type');
+  if (returnTypeNode) {
+    // raw text may be `-> int` or just `int` depending on tree-sitter-python version;
+    // strip the `->` prefix defensively.
+    const typeName = returnTypeNode.text.replace(/^->\s*/, '').trim();
+    if (typeName) {
+      const isAsync = funcNode.children.some((c: SyntaxNode) => c.type === 'async');
+      const typeRef = makePythonTypeRef(typeName, filePath);
+      addTypeRef(typeRef);
+      returnsEdges.push({ fromId: functionId, toId: typeRef.id, isAsync });
+    }
+  }
+  // No return annotation → emit NO RETURNS edge (unlike TS which emits "inferred").
+  // Python's untyped means we genuinely don't know.
+
+  // ── Body USES_TYPE — typed local-variable assignments ─────────────────────
+  const bodyNode = funcNode.childForFieldName('body');
+  if (bodyNode) {
+    const bodyUsages = collectPythonBodyTypeUsages(bodyNode, filePath);
+    const seen = new Set<string>();
+    for (const typeRef of bodyUsages) {
+      // Deduplicate: one USES_TYPE edge per unique type within this function.
+      if (!seen.has(typeRef.id)) {
+        seen.add(typeRef.id);
+        addTypeRef(typeRef);
+        usesTypeEdges.push({ fromId: functionId, toId: typeRef.id, kind: 'annotation' });
+      }
+    }
+  }
+
+  return {
+    typeRefs: Array.from(typeRefMap.values()),
+    hasParamEdges,
+    returnsEdges,
+    usesTypeEdges,
+  };
 }
 
 /**
@@ -689,10 +909,11 @@ export const extractInheritance = pythonPlugin.extractors.extractInheritance;
 export const extractCalls = pythonPlugin.extractors.extractCalls!;
 
 /**
- * Extract all entities from a Python AST, including HAS_METHOD and HAS_PROPERTY
- * edge descriptors produced by extractClassesWithEdges.
+ * Extract all entities from a Python AST, including HAS_METHOD / HAS_PROPERTY
+ * edge descriptors from extractClassesWithEdges, and HAS_PARAM / RETURNS /
+ * USES_TYPE edge descriptors from extractTypeRefsForPythonFunction.
  *
- * Overrides the generic factory's extractAllEntities so the edge fields are populated.
+ * Overrides the generic factory's extractAllEntities so all edge fields are populated.
  * The pipeline picks them up automatically via ParsedFileEntities.
  *
  * Function entities appear in two forms:
@@ -703,6 +924,53 @@ export const extractCalls = pythonPlugin.extractors.extractCalls!;
 export function extractAllEntities(root: SyntaxNode, filePath: string) {
   const allFunctions = extractFunctions(root, filePath);
   const classExtraction = extractClassesWithEdges(root, filePath);
+
+  // ── Type-relationship edges (HAS_PARAM / RETURNS / USES_TYPE) ──────────────
+  const typeRefMap = new Map<string, TypeRefEntity>();
+  const allHasParamEdges: HasParamEdgeDescriptor[] = [];
+  const allReturnsEdges: ReturnsEdgeDescriptor[] = [];
+  const allUsesTypeEdges: UsesTypeEdgeDescriptor[] = [];
+
+  function accumulateTypeRefs(funcNode: SyntaxNode, entityId: string): void {
+    const result = extractTypeRefsForPythonFunction(funcNode, entityId, filePath);
+    for (const ref of result.typeRefs) {
+      if (!typeRefMap.has(ref.id)) typeRefMap.set(ref.id, ref);
+    }
+    allHasParamEdges.push(...result.hasParamEdges);
+    allReturnsEdges.push(...result.returnsEdges);
+    allUsesTypeEdges.push(...result.usesTypeEdges);
+  }
+
+  // Process top-level functions: find their AST nodes and pair with entity ids.
+  // We re-walk the tree to get function_definition nodes paired with their ids.
+  const functionDefinitionNodes = findNodesOfType(root, ['function_definition']);
+  for (const funcNode of functionDefinitionNodes) {
+    const nameNode = funcNode.childForFieldName('name');
+    if (!nameNode) continue;
+    const name = nameNode.text;
+    const startLine = funcNode.startPosition.row + 1;
+    const entityId = generateEntityId(filePath, 'function', name, startLine);
+
+    // Match to a top-level function entity (not a class method which uses ::method:: ids)
+    const matchedEntity = allFunctions.find(f => f.id === entityId);
+    if (matchedEntity?.id) {
+      accumulateTypeRefs(funcNode, matchedEntity.id);
+    }
+  }
+
+  // Process class methods: match AST nodes to ::method:: entities from classExtraction.
+  for (const methodEntity of classExtraction.methodEntities) {
+    if (!methodEntity.id) continue;
+    // Find the function_definition AST node that matches this method entity by
+    // line number and name.
+    const astNode = functionDefinitionNodes.find(
+      (n: SyntaxNode) =>
+        n.startPosition.row + 1 === methodEntity.startLine &&
+        n.childForFieldName('name')?.text === methodEntity.name,
+    );
+    if (!astNode) continue;
+    accumulateTypeRefs(astNode, methodEntity.id);
+  }
 
   return {
     // Merge: generateEntityId-style functions + ::method:: entities from class extraction
@@ -718,5 +986,9 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
     components: [],
     hasMethodEdges: classExtraction.hasMethodEdges,
     hasPropertyEdges: classExtraction.hasPropertyEdges,
+    typeRefs: Array.from(typeRefMap.values()),
+    hasParamEdges: allHasParamEdges,
+    returnsEdges: allReturnsEdges,
+    usesTypeEdges: allUsesTypeEdges,
   };
 }
