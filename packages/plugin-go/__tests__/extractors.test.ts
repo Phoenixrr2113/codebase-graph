@@ -16,6 +16,7 @@ import {
   extractInheritance,
   extractCalls,
   extractAllEntities,
+  extractStructsWithEdges,
 } from '../src';
 
 const TEST_FILE = '/test/main.go';
@@ -809,5 +810,214 @@ describe('Go Extractors', () => {
       expect(newRouter?.isExported).toBe(true);
       expect(newRouter?.docstring).toContain('creates a new Router instance');
     });
+  });
+});
+
+// =============================================================================
+// HAS_METHOD / HAS_PROPERTY edges (Task 11)
+// =============================================================================
+
+describe('Go: HAS_METHOD / HAS_PROPERTY', () => {
+  let parser: Parser;
+
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(Go as any);
+  });
+
+  function parseCode(code: string): Parser.SyntaxNode {
+    return parser.parse(code).rootNode;
+  }
+
+  it('emits HAS_METHOD edges from struct to its receiver methods', () => {
+    const code = `
+package main
+
+type User struct {
+    Name string
+    age  int
+}
+
+func (u *User) Greet() string {
+    return "hi " + u.Name
+}
+
+func (u User) IsAdult() bool {
+    return u.age >= 18
+}
+`;
+    const rootNode = parseCode(code);
+    const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+    const userStruct = result.classes.find((e) => e.name === 'User');
+    expect(userStruct).toBeDefined();
+
+    const methodEdges = (result.hasMethodEdges ?? []).filter((e) => e.fromId === userStruct!.id);
+    expect(methodEdges).toHaveLength(2);
+
+    const fieldEdges = (result.hasPropertyEdges ?? []).filter((e) => e.fromId === userStruct!.id);
+    expect(fieldEdges).toHaveLength(2);
+
+    // Visibility check on fields
+    const props = result.variables.filter(
+      (v) => typeof v.id === 'string' && v.id.startsWith(`${userStruct!.id}::prop`),
+    );
+    const nameField = props.find((p) => p.name === 'Name');
+    const ageField = props.find((p) => p.name === 'age');
+    expect(nameField).toBeDefined();
+    expect(ageField).toBeDefined();
+
+    const nameEdge = fieldEdges.find((e) => e.toId === nameField!.id);
+    const ageEdge = fieldEdges.find((e) => e.toId === ageField!.id);
+    expect(nameEdge?.visibility).toBe('public');
+    expect(ageEdge?.visibility).toBe('private');
+  });
+
+  it('emits HAS_METHOD with isStatic=false for all Go methods', () => {
+    const code = `
+package main
+
+type Counter struct{}
+
+func (c *Counter) Inc() {}
+`;
+    const rootNode = parseCode(code);
+    const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+    const counter = result.classes.find((e) => e.name === 'Counter');
+    expect(counter).toBeDefined();
+
+    const methodEdges = (result.hasMethodEdges ?? []).filter((e) => e.fromId === counter!.id);
+    expect(methodEdges).toHaveLength(1);
+    expect(methodEdges[0].isStatic).toBe(false);
+  });
+
+  it('emits HAS_PROPERTY with isStatic=false and correct visibility for struct fields', () => {
+    const code = `
+package main
+
+type Config struct {
+    Host    string
+    port    int
+    Timeout int
+}
+`;
+    const rootNode = parseCode(code);
+    const result = extractStructsWithEdges(rootNode as any, TEST_FILE);
+
+    const config = result.classes.find((c) => c.name === 'Config');
+    expect(config).toBeDefined();
+
+    const propEdges = result.hasPropertyEdges.filter((e) => e.fromId === config!.id);
+    expect(propEdges).toHaveLength(3);
+
+    for (const edge of propEdges) {
+      expect(edge.isStatic).toBe(false);
+      expect(edge.isReadonly).toBe(false);
+    }
+
+    const props = result.propertyEntities.filter(
+      (p) => typeof p.id === 'string' && p.id.startsWith(`${config!.id}::prop`),
+    );
+    const hostProp = props.find((p) => p.name === 'Host');
+    const portProp = props.find((p) => p.name === 'port');
+    expect(hostProp).toBeDefined();
+    expect(portProp).toBeDefined();
+
+    const hostEdge = propEdges.find((e) => e.toId === hostProp!.id);
+    const portEdge = propEdges.find((e) => e.toId === portProp!.id);
+    expect(hostEdge?.visibility).toBe('public');
+    expect(portEdge?.visibility).toBe('private');
+  });
+
+  it('skips HAS_METHOD edge for methods on types not declared in this file, but still extracts the function', () => {
+    const code = `
+package main
+
+// ExternalType is declared in another file; no ClassEntity for it here
+func (e *ExternalType) DoSomething() {}
+
+type LocalStruct struct{}
+
+func (l *LocalStruct) LocalMethod() {}
+`;
+    const rootNode = parseCode(code);
+    const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+    // LocalStruct should have one HAS_METHOD edge
+    const local = result.classes.find((c) => c.name === 'LocalStruct');
+    expect(local).toBeDefined();
+    const localEdges = (result.hasMethodEdges ?? []).filter((e) => e.fromId === local!.id);
+    expect(localEdges).toHaveLength(1);
+
+    // DoSomething should still appear as a standalone function (from extractFunctions)
+    const doSomething = result.functions.find((f) => f.name === 'DoSomething');
+    expect(doSomething).toBeDefined();
+
+    // No HAS_METHOD edge should point to DoSomething
+    const doSomethingEdge = (result.hasMethodEdges ?? []).find(
+      (e) => result.functions.find((f) => f.id === e.toId)?.name === 'DoSomething',
+    );
+    expect(doSomethingEdge).toBeUndefined();
+  });
+
+  it('emits ::method:: entities with correct ids in extractAllEntities', () => {
+    const code = `
+package main
+
+type Service struct{}
+
+func (s *Service) Start() error { return nil }
+func (s *Service) Stop() {}
+`;
+    const rootNode = parseCode(code);
+    const result = extractAllEntities(rootNode as any, TEST_FILE);
+
+    const service = result.classes.find((c) => c.name === 'Service');
+    expect(service).toBeDefined();
+
+    const methodEntities = result.functions.filter(
+      (f) => typeof f.id === 'string' && f.id.startsWith(`${service!.id}::method::`),
+    );
+    expect(methodEntities).toHaveLength(2);
+    const methodNames = methodEntities.map((m) => m.name).sort();
+    expect(methodNames).toEqual(['Start', 'Stop']);
+  });
+
+  it('handles pointer and value receivers on the same struct', () => {
+    const code = `
+package main
+
+type Point struct {
+    X float64
+    Y float64
+}
+
+func (p *Point) Scale(factor float64) {
+    p.X *= factor
+    p.Y *= factor
+}
+
+func (p Point) String() string {
+    return ""
+}
+`;
+    const rootNode = parseCode(code);
+    const result = extractStructsWithEdges(rootNode as any, TEST_FILE);
+
+    const point = result.classes.find((c) => c.name === 'Point');
+    expect(point).toBeDefined();
+
+    const methodEdges = result.hasMethodEdges.filter((e) => e.fromId === point!.id);
+    expect(methodEdges).toHaveLength(2);
+
+    const methodNames = result.methodEntities
+      .filter((m) => typeof m.id === 'string' && m.id.startsWith(`${point!.id}::method::`))
+      .map((m) => m.name)
+      .sort();
+    expect(methodNames).toEqual(['Scale', 'String']);
+
+    const propEdges = result.hasPropertyEdges.filter((e) => e.fromId === point!.id);
+    expect(propEdges).toHaveLength(2);
   });
 });

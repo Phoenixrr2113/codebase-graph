@@ -26,6 +26,9 @@ import type {
   TypeEntity,
   CallReference,
   SyntaxNode,
+  HasMethodEdgeDescriptor,
+  HasPropertyEdgeDescriptor,
+  Visibility,
 } from '@codegraph/types';
 import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
@@ -176,6 +179,277 @@ export function extractClasses(root: SyntaxNode, filePath: string): ClassEntity[
   }
 
   return classes;
+}
+
+// ============================================================================
+// Struct Extraction with HAS_METHOD / HAS_PROPERTY edges
+// ============================================================================
+
+/** Result of extractStructsWithEdges */
+export interface GoClassExtractionResult {
+  classes: ClassEntity[];
+  methodEntities: FunctionEntity[];
+  propertyEntities: VariableEntity[];
+  hasMethodEdges: HasMethodEdgeDescriptor[];
+  hasPropertyEdges: HasPropertyEdgeDescriptor[];
+}
+
+/**
+ * Derive Go visibility from Go's uppercase-public naming convention.
+ * Identifiers starting with an uppercase letter are exported (public);
+ * lowercase identifiers are unexported (private).
+ */
+function goVisibility(name: string): Visibility {
+  if (name.length === 0) return 'private';
+  const first = name.charAt(0);
+  return first === first.toUpperCase() && first !== first.toLowerCase() ? 'public' : 'private';
+}
+
+/**
+ * Extract struct declarations together with their field-Variable entities,
+ * method-Function entities, and HAS_PROPERTY / HAS_METHOD edge descriptors.
+ *
+ * Go-specific notes:
+ *  - Structs are the analog of classes.
+ *  - Struct fields → VariableEntity with id `<classId>::prop::<fieldName>`.
+ *  - Methods are top-level `method_declaration` nodes (not nested in the struct body).
+ *    The receiver type is resolved to match a struct in this file.
+ *  - `isStatic` is always false — Go has no static-method concept.
+ *  - Visibility uses Go's uppercase-public convention.
+ *  - Methods whose receiver type is not declared in this file are skipped (no edge produced),
+ *    but the standalone FunctionEntity is still extracted by extractFunctions.
+ *
+ * Go AST shape for struct:
+ *   type_declaration
+ *     type_spec
+ *       name: type_identifier
+ *       type: struct_type
+ *         field_declaration_list
+ *           field_declaration
+ *
+ * Go AST shape for method:
+ *   method_declaration
+ *     receiver: parameter_list  (e.g., (s *Server))
+ *     name: field_identifier
+ *     parameters: parameter_list
+ *     result: ...
+ *     body: block
+ */
+export function extractStructsWithEdges(
+  root: SyntaxNode,
+  filePath: string,
+): GoClassExtractionResult {
+  const classes: ClassEntity[] = [];
+  const methodEntities: FunctionEntity[] = [];
+  const propertyEntities: VariableEntity[] = [];
+  const hasMethodEdges: HasMethodEdgeDescriptor[] = [];
+  const hasPropertyEdges: HasPropertyEdgeDescriptor[] = [];
+
+  // ---- Pass 1: collect structs (mirrors extractClasses logic) ----
+  const typeDecls = findNodesOfType(root, ['type_declaration']);
+
+  // Map from struct name → classId for fast receiver lookup in pass 2
+  const structIdByName = new Map<string, string>();
+
+  for (const decl of typeDecls) {
+    for (const child of decl.children) {
+      if (child.type !== 'type_spec') continue;
+
+      const nameNode = child.childForFieldName('name');
+      const typeNode = child.childForFieldName('type');
+
+      if (!nameNode || !typeNode || typeNode.type !== 'struct_type') continue;
+
+      const name = nameNode.text;
+      const startLine = decl.startPosition.row + 1;
+      const endLine = decl.endPosition.row + 1;
+      const isExported = isGoExported(name);
+
+      // Extract embedded types (struct embedding → implements-like)
+      const implementsList: string[] = [];
+      const fieldList = typeNode.children.find(
+        (c: SyntaxNode) => c.type === 'field_declaration_list',
+      );
+
+      if (fieldList) {
+        for (const field of fieldList.children) {
+          if (field.type !== 'field_declaration') continue;
+
+          const fieldNames = field.children.filter(
+            (c: SyntaxNode) => c.type === 'field_identifier',
+          );
+
+          if (fieldNames.length === 0) {
+            // Embedded type (no field name)
+            const typeChild = field.children.find(
+              (c: SyntaxNode) =>
+                c.type === 'type_identifier' ||
+                c.type === 'qualified_type' ||
+                c.type === 'pointer_type',
+            );
+            if (typeChild) {
+              let embeddedName = typeChild.text;
+              if (typeChild.type === 'pointer_type') {
+                const inner = typeChild.children.find(
+                  (c: SyntaxNode) => c.type === 'type_identifier' || c.type === 'qualified_type',
+                );
+                if (inner) embeddedName = inner.text;
+              }
+              implementsList.push(embeddedName);
+            }
+          }
+        }
+      }
+
+      const docstring = extractDocComment(decl);
+      const classId = generateEntityId(filePath, 'class', name, startLine);
+      structIdByName.set(name, classId);
+
+      const entity: ClassEntity = {
+        id: classId,
+        name,
+        filePath,
+        startLine,
+        endLine,
+        isExported,
+        isAbstract: false,
+      };
+      if (implementsList.length > 0) entity.implements = implementsList;
+      if (docstring) entity.docstring = docstring;
+
+      classes.push(entity);
+
+      // ---- Extract field declarations → HAS_PROPERTY ----
+      if (!fieldList) continue;
+
+      const propNameCount = new Map<string, number>();
+
+      for (const field of fieldList.children) {
+        if (field.type !== 'field_declaration') continue;
+
+        // Skip embedded (anonymous) fields — those have no field_identifier
+        const fieldIdentifiers = field.children.filter(
+          (c: SyntaxNode) => c.type === 'field_identifier',
+        );
+        if (fieldIdentifiers.length === 0) continue;
+
+        // Extract type annotation (last non-tag, non-identifier child)
+        const typeChild = field.children.find(
+          (c: SyntaxNode) =>
+            c.type === 'type_identifier' ||
+            c.type === 'pointer_type' ||
+            c.type === 'qualified_type' ||
+            c.type === 'array_type' ||
+            c.type === 'slice_type' ||
+            c.type === 'map_type' ||
+            c.type === 'interface_type' ||
+            c.type === 'struct_type' ||
+            c.type === 'function_type' ||
+            c.type === 'channel_type',
+        );
+        const fieldType = typeChild?.text;
+
+        // Go allows multiple names per field: `X, Y int`
+        for (const fieldIdent of fieldIdentifiers) {
+          const fieldName = fieldIdent.text;
+          const count = propNameCount.get(fieldName) ?? 0;
+          propNameCount.set(fieldName, count + 1);
+          const suffix = count > 0 ? `:${count}` : '';
+
+          const propId = `${classId}::prop::${fieldName}${suffix}`;
+          const line = field.startPosition.row + 1;
+          const visibility = goVisibility(fieldName);
+
+          const propEntity: VariableEntity = {
+            id: propId,
+            name: fieldName,
+            filePath,
+            line,
+            kind: 'let', // Go fields are mutable by default
+            isExported: visibility === 'public',
+          };
+          if (fieldType) propEntity.type = fieldType;
+
+          propertyEntities.push(propEntity);
+          hasPropertyEdges.push({
+            fromId: classId,
+            toId: propId,
+            isStatic: false, // Go has no static fields
+            visibility,
+            isReadonly: false,
+          });
+        }
+      }
+    }
+  }
+
+  // ---- Pass 2: walk method_declarations, resolve receiver → struct ----
+  const methodDecls = findNodesOfType(root, ['method_declaration']);
+  const methodNameCountByClass = new Map<string, Map<string, number>>();
+
+  for (const node of methodDecls) {
+    const nameNode = node.childForFieldName('name');
+    if (!nameNode) continue;
+
+    const methodName = nameNode.text;
+    const receiverTypeName = extractReceiverType(node);
+
+    if (!receiverTypeName) continue;
+
+    const classId = structIdByName.get(receiverTypeName);
+    if (!classId) {
+      // Receiver type not declared in this file — skip the HAS_METHOD edge.
+      // The standalone FunctionEntity is still extracted by extractFunctions.
+      continue;
+    }
+
+    // Track method name counts per class for overload suffixes
+    if (!methodNameCountByClass.has(classId)) {
+      methodNameCountByClass.set(classId, new Map());
+    }
+    const nameCount = methodNameCountByClass.get(classId)!;
+    const count = nameCount.get(methodName) ?? 0;
+    nameCount.set(methodName, count + 1);
+    const suffix = count > 0 ? `:${count}` : '';
+
+    const methodId = `${classId}::method::${methodName}${suffix}`;
+    const startLine = node.startPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
+    const isExported = isGoExported(methodName);
+    const visibility = goVisibility(methodName);
+
+    const params = extractGoParams(node);
+    const returnType = extractGoReturnType(node);
+    const docstring = extractDocComment(node);
+    const metrics = calculateComplexity(node);
+
+    const methodEntity: FunctionEntity = {
+      id: methodId,
+      name: methodName,
+      filePath,
+      startLine,
+      endLine,
+      isExported,
+      isAsync: false,
+      isArrow: false,
+      params,
+      complexity: metrics.cyclomatic,
+      cognitiveComplexity: metrics.cognitive,
+      nestingDepth: metrics.nestingDepth,
+    };
+    if (returnType) methodEntity.returnType = returnType;
+    if (docstring) methodEntity.docstring = docstring;
+
+    methodEntities.push(methodEntity);
+    hasMethodEdges.push({
+      fromId: classId,
+      toId: methodId,
+      isStatic: false, // Go has no static methods
+      visibility,
+    });
+  }
+
+  return { classes, methodEntities, propertyEntities, hasMethodEdges, hasPropertyEdges };
 }
 
 // ============================================================================
@@ -805,5 +1079,37 @@ export const goPlugin = createLanguagePlugin({
 });
 
 // Re-export all extractors for backward compatibility
-export const extractAllEntities = goPlugin.extractAllEntities;
 export const extractInheritance = goPlugin.extractors.extractInheritance;
+
+/**
+ * Extract all entities from a Go AST, including HAS_METHOD and HAS_PROPERTY
+ * edge descriptors produced by extractStructsWithEdges.
+ *
+ * Overrides the generic factory's extractAllEntities so the edge fields are populated.
+ * The pipeline picks them up automatically via ParsedFileEntities.
+ *
+ * Function entities appear in two forms:
+ *  - generateEntityId style (from extractFunctions) — targets for CALLS/CONTAINS edges
+ *  - ::method:: style (from extractStructsWithEdges) — targets for HAS_METHOD edges
+ * This matches the TypeScript and Python plugin patterns.
+ */
+export function extractAllEntities(root: SyntaxNode, filePath: string) {
+  const allFunctions = extractFunctions(root, filePath);
+  const structExtraction = extractStructsWithEdges(root, filePath);
+
+  return {
+    // Merge: generateEntityId-style functions + ::method:: entities from struct extraction
+    functions: [...allFunctions, ...structExtraction.methodEntities],
+    classes: structExtraction.classes,
+    interfaces: extractInterfaces(root, filePath),
+    variables: [
+      ...extractVariables(root, filePath),
+      ...structExtraction.propertyEntities,
+    ],
+    imports: extractImports(root, filePath),
+    types: extractTypes(root, filePath),
+    components: [],
+    hasMethodEdges: structExtraction.hasMethodEdges,
+    hasPropertyEdges: structExtraction.hasPropertyEdges,
+  };
+}
