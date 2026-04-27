@@ -53,7 +53,7 @@ export function FeaturesGridSection({ highlighted }: FeaturesGridSectionProps) {
                   {feature.description}
                 </p>
                 <div
-                  className="code-snippet rounded-md border border-border bg-muted/30 overflow-x-auto"
+                  className="code-snippet rounded-md border border-border bg-muted/30 overflow-hidden"
                   dangerouslySetInnerHTML={{ __html: highlighted[i] ?? `<pre><code>${feature.snippet}</code></pre>` }}
                 />
               </motion.div>

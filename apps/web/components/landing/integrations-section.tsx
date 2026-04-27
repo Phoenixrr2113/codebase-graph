@@ -94,7 +94,7 @@ export function IntegrationsSection({ highlighted }: IntegrationsSectionProps) {
             </button>
           </div>
           <div
-            className="code-snippet text-xs sm:text-sm overflow-x-auto"
+            className="code-snippet code-snippet--wide text-xs sm:text-sm"
             dangerouslySetInnerHTML={{ __html: activeHtml }}
           />
         </motion.div>

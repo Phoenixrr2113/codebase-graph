@@ -16,7 +16,7 @@ export const integrations: Integration[] = [
   "mcpServers": {
     "codegraph": {
       "command": "node",
-      "args": ["/abs/path/to/codebase-graph/packages/mcp-server/dist/index.js"],
+      "args": ["~/codebase-graph/packages/mcp-server/dist/index.js"],
       "env": { "CODEGRAPH_DRIVER": "embedded" }
     }
   }
@@ -31,7 +31,7 @@ export const integrations: Integration[] = [
   "mcpServers": {
     "codegraph": {
       "command": "node",
-      "args": ["/abs/path/to/codebase-graph/packages/mcp-server/dist/index.js"]
+      "args": ["~/codebase-graph/packages/mcp-server/dist/index.js"]
     }
   }
 }`,
@@ -42,8 +42,8 @@ export const integrations: Integration[] = [
     filename: "Terminal",
     lang: "bash",
     snippet: `# Add the MCP server (after building)
-claude mcp add codegraph node \\
-  /abs/path/to/codebase-graph/packages/mcp-server/dist/index.js`,
+claude mcp add codegraph \\
+  node ~/codebase-graph/packages/mcp-server/dist/index.js`,
   },
   {
     id: "vercel-ai-sdk",
@@ -75,8 +75,7 @@ export const mastra = new Mastra({
     lang: "bash",
     snippet: `#!/usr/bin/env bash
 # Re-extract after file edits so the graph stays fresh.
-# Adapt path + arguments to your project layout.
-exec node /abs/path/to/codebase-graph/packages/cli/dist/index.js \\
+exec node ~/codebase-graph/packages/cli/dist/index.js \\
   extract .`,
   },
 ]

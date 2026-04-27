@@ -123,26 +123,49 @@
   }
 }
 
-/* Shiki-rendered code blocks */
+/* Shiki-rendered code blocks. Default = soft-wrap so narrow cards
+   never trigger horizontal scrollbars. */
+.code-snippet {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 .code-snippet pre.shiki {
   margin: 0;
-  padding: 0.875rem 1rem;
+  padding: 0.75rem 0.875rem;
   font-family: var(--font-mono);
   font-size: inherit;
-  line-height: 1.55;
+  line-height: 1.4;
   background: transparent !important;
-  white-space: pre;
-  overflow-x: auto;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow-x: hidden;
+  max-width: 100%;
+  tab-size: 2;
 }
 
 .code-snippet pre.shiki code {
   font-family: inherit;
-  white-space: pre;
+  white-space: inherit;
+  overflow-wrap: inherit;
+  display: block;
+  max-width: 100%;
 }
 
+/* Shiki emits one <span class="line"> per source line plus a literal "\n"
+   between them. Inline display keeps the source-line span behavior; the
+   newline character itself produces the line break. */
 .code-snippet pre.shiki .line {
-  display: block;
-  min-height: 1lh;
+  display: inline;
+}
+
+/* Wider panes (integrations tabs) keep strict pre wrapping — the box is
+   wide enough that horizontal scroll is never triggered. */
+.code-snippet--wide pre.shiki {
+  white-space: pre;
+  overflow-x: auto;
+  word-break: normal;
 }
 
 /* Custom scrollbar for dark theme */

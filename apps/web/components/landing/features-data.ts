@@ -50,6 +50,6 @@ export const features: Feature[] = [
     title: "Drop-in middleware",
     description:
       "Wrap any Vercel AI SDK model with withCodeGraph(); register a Mastra processor with createCodeGraphProcessor(). Your existing agent gets graph-aware context.",
-    snippet: `import { withCodeGraph } from\n  "@codegraph/tools/vercel"\nconst model = withCodeGraph(openai("gpt-4o"))`,
+    snippet: `import { withCodeGraph }\n  from "@codegraph/tools/vercel"\n\nconst model = withCodeGraph(\n  openai("gpt-4o")\n)`,
   },
 ]
