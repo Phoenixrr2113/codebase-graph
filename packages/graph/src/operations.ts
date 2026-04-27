@@ -100,7 +100,8 @@ const CYPHER = {
   // Function operations - creates CONTAINS edge to File
   UPSERT_FUNCTION: `
     MERGE (fn:Function {name: $name, filePath: $filePath, startLine: $startLine})
-    SET fn.endLine = $endLine,
+    SET fn.id = $id,
+        fn.endLine = $endLine,
         fn.isExported = $isExported,
         fn.isAsync = $isAsync,
         fn.isArrow = $isArrow,
@@ -123,7 +124,8 @@ const CYPHER = {
   // Class operations - creates CONTAINS edge to File
   UPSERT_CLASS: `
     MERGE (c:Class {name: $name, filePath: $filePath, startLine: $startLine})
-    SET c.endLine = $endLine,
+    SET c.id = $id,
+        c.endLine = $endLine,
         c.isExported = $isExported,
         c.isAbstract = $isAbstract,
         c.extends = $extends,
@@ -141,7 +143,8 @@ const CYPHER = {
   // Interface operations - creates CONTAINS edge to File
   UPSERT_INTERFACE: `
     MERGE (i:Interface {name: $name, filePath: $filePath, startLine: $startLine})
-    SET i.endLine = $endLine,
+    SET i.id = $id,
+        i.endLine = $endLine,
         i.isExported = $isExported,
         i.extends = $extends,
         i.docstring = $docstring,
@@ -157,7 +160,8 @@ const CYPHER = {
   // Variable operations - creates CONTAINS edge to File
   UPSERT_VARIABLE: `
     MERGE (v:Variable {name: $name, filePath: $filePath, line: $line})
-    SET v.kind = $kind,
+    SET v.id = $id,
+        v.kind = $kind,
         v.isExported = $isExported,
         v.type = $type,
         v.sourcePipeline = $sourcePipeline,
@@ -463,7 +467,8 @@ const CYPHER = {
   BATCH_UPSERT_FUNCTIONS: `
     UNWIND $items AS item
     MERGE (fn:Function {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET fn.endLine = item.endLine,
+    SET fn.id = item.id,
+        fn.endLine = item.endLine,
         fn.isExported = item.isExported,
         fn.isAsync = item.isAsync,
         fn.isArrow = item.isArrow,
@@ -485,7 +490,8 @@ const CYPHER = {
   BATCH_UPSERT_CLASSES: `
     UNWIND $items AS item
     MERGE (c:Class {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET c.endLine = item.endLine,
+    SET c.id = item.id,
+        c.endLine = item.endLine,
         c.isExported = item.isExported,
         c.isAbstract = item.isAbstract,
         c.extends = item.extends,
@@ -502,7 +508,8 @@ const CYPHER = {
   BATCH_UPSERT_INTERFACES: `
     UNWIND $items AS item
     MERGE (i:Interface {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET i.endLine = item.endLine,
+    SET i.id = item.id,
+        i.endLine = item.endLine,
         i.isExported = item.isExported,
         i.extends = item.extends,
         i.docstring = item.docstring,
@@ -517,7 +524,8 @@ const CYPHER = {
   BATCH_UPSERT_VARIABLES: `
     UNWIND $items AS item
     MERGE (v:Variable {name: item.name, filePath: item.filePath, line: item.line})
-    SET v.kind = item.kind,
+    SET v.id = item.id,
+        v.kind = item.kind,
         v.isExported = item.isExported,
         v.type = item.type,
         v.sourcePipeline = item.sourcePipeline,
@@ -671,7 +679,7 @@ const CYPHER = {
 
   BATCH_CREATE_FUNCTIONS_FAST: `
     UNWIND $items AS item
-    CREATE (fn:Function {name: item.name, filePath: item.filePath, startLine: item.startLine,
+    CREATE (fn:Function {id: item.id, name: item.name, filePath: item.filePath, startLine: item.startLine,
       endLine: item.endLine, isExported: item.isExported, isAsync: item.isAsync,
       isArrow: item.isArrow, params: item.params, returnType: item.returnType,
       docstring: item.docstring, bodySnippet: item.bodySnippet, complexity: item.complexity,
@@ -684,7 +692,7 @@ const CYPHER = {
 
   BATCH_CREATE_CLASSES_FAST: `
     UNWIND $items AS item
-    CREATE (c:Class {name: item.name, filePath: item.filePath, startLine: item.startLine,
+    CREATE (c:Class {id: item.id, name: item.name, filePath: item.filePath, startLine: item.startLine,
       endLine: item.endLine, isExported: item.isExported, isAbstract: item.isAbstract,
       extends: item.extends, implements: item.implements, docstring: item.docstring,
       sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
@@ -695,7 +703,7 @@ const CYPHER = {
 
   BATCH_CREATE_INTERFACES_FAST: `
     UNWIND $items AS item
-    CREATE (i:Interface {name: item.name, filePath: item.filePath, startLine: item.startLine,
+    CREATE (i:Interface {id: item.id, name: item.name, filePath: item.filePath, startLine: item.startLine,
       endLine: item.endLine, isExported: item.isExported, extends: item.extends,
       docstring: item.docstring,
       sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
@@ -706,7 +714,7 @@ const CYPHER = {
 
   BATCH_CREATE_VARIABLES_FAST: `
     UNWIND $items AS item
-    CREATE (v:Variable {name: item.name, filePath: item.filePath, line: item.line,
+    CREATE (v:Variable {id: item.id, name: item.name, filePath: item.filePath, line: item.line,
       kind: item.kind, isExported: item.isExported, type: item.type,
       sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
     WITH v
@@ -754,7 +762,8 @@ const CYPHER = {
     WITH count(*) AS _c1
     UNWIND $functions AS item
     MERGE (fn:Function {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET fn.endLine = item.endLine,
+    SET fn.id = item.id,
+        fn.endLine = item.endLine,
         fn.isExported = item.isExported,
         fn.isAsync = item.isAsync,
         fn.isArrow = item.isArrow,
@@ -773,7 +782,8 @@ const CYPHER = {
     WITH count(*) AS _c2
     UNWIND $classes AS item
     MERGE (c:Class {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET c.endLine = item.endLine,
+    SET c.id = item.id,
+        c.endLine = item.endLine,
         c.isExported = item.isExported,
         c.isAbstract = item.isAbstract,
         c.extends = item.extends,
@@ -788,7 +798,8 @@ const CYPHER = {
     WITH count(*) AS _c3
     UNWIND $interfaces AS item
     MERGE (i:Interface {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET i.endLine = item.endLine,
+    SET i.id = item.id,
+        i.endLine = item.endLine,
         i.isExported = item.isExported,
         i.extends = item.extends,
         i.docstring = item.docstring,
@@ -801,7 +812,8 @@ const CYPHER = {
     WITH count(*) AS _c4
     UNWIND $variables AS item
     MERGE (v:Variable {name: item.name, filePath: item.filePath, line: item.line})
-    SET v.kind = item.kind,
+    SET v.id = item.id,
+        v.kind = item.kind,
         v.isExported = item.isExported,
         v.type = item.type,
         v.sourcePipeline = item.sourcePipeline,

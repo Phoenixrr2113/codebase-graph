@@ -57,6 +57,7 @@ export interface FileNodeProps extends ProvenanceNodeProps {
  * Function node properties for Cypher operations
  */
 export interface FunctionNodeProps extends ProvenanceNodeProps {
+  id: string | null;
   name: string;
   filePath: string;
   startLine: number;
@@ -79,6 +80,7 @@ export interface FunctionNodeProps extends ProvenanceNodeProps {
  * Class node properties for Cypher operations
  */
 export interface ClassNodeProps extends ProvenanceNodeProps {
+  id: string | null;
   name: string;
   filePath: string;
   startLine: number;
@@ -96,6 +98,7 @@ export interface ClassNodeProps extends ProvenanceNodeProps {
  * Interface node properties for Cypher operations
  */
 export interface InterfaceNodeProps extends ProvenanceNodeProps {
+  id: string | null;
   name: string;
   filePath: string;
   startLine: number;
@@ -111,6 +114,7 @@ export interface InterfaceNodeProps extends ProvenanceNodeProps {
  * Variable node properties for Cypher operations
  */
 export interface VariableNodeProps extends ProvenanceNodeProps {
+  id: string | null;
   name: string;
   filePath: string;
   line: number;
@@ -234,6 +238,7 @@ export function fileToNodeProps(entity: FileEntity): FileNodeProps {
  */
 export function functionToNodeProps(entity: FunctionEntity): FunctionNodeProps {
   return {
+    id: entity.id ?? null,
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
@@ -259,6 +264,7 @@ export function functionToNodeProps(entity: FunctionEntity): FunctionNodeProps {
  */
 export function classToNodeProps(entity: ClassEntity): ClassNodeProps {
   return {
+    id: entity.id ?? null,
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
@@ -279,6 +285,7 @@ export function classToNodeProps(entity: ClassEntity): ClassNodeProps {
  */
 export function interfaceToNodeProps(entity: InterfaceEntity): InterfaceNodeProps {
   return {
+    id: entity.id ?? null,
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
@@ -297,6 +304,7 @@ export function interfaceToNodeProps(entity: InterfaceEntity): InterfaceNodeProp
  */
 export function variableToNodeProps(entity: VariableEntity): VariableNodeProps {
   return {
+    id: entity.id ?? null,
     name: entity.name,
     filePath: entity.filePath,
     line: entity.line,
