@@ -43,6 +43,14 @@ export interface LinkedKnowledgeEntry {
   fact?: string | undefined;
 }
 
+export interface SiblingSymbol {
+  name: string;
+  startLine: number;
+  endLine: number;
+  signature?: string;
+  nodeType?: string;
+}
+
 export interface EnrichedV2Hit {
   name: string;
   nodeType: string;
@@ -72,6 +80,8 @@ export interface EnrichedV2Hit {
   commitCount?: number;
   /** Knowledge entities linked to this code node via ABOUT edges */
   linkedKnowledge?: LinkedKnowledgeEntry[];
+  /** ±1 sibling symbols in the same file (drawer-grep expansion) */
+  siblings?: SiblingSymbol[];
 }
 
 export interface EnrichedV2Options {
@@ -453,6 +463,151 @@ async function getLinkedKnowledge(
   return result;
 }
 
+// ============================================================================
+// Sibling expansion — drawer-grep ±1 pattern (mempalace searcher.py:175-236)
+// ============================================================================
+
+const SIBLING_SIGNATURE_CAP = 5_000; // bytes per sibling signature
+const SIBLING_AGGREGATE_CAP = 10_000; // bytes aggregate siblings JSON per hit
+
+/**
+ * Fetch the ±1 sibling symbols (prev + next by startLine) of a target symbol
+ * within the same file, using CONTAINS edges from the File node.
+ *
+ * Returns an array of 0–2 siblings. Empty when the file has only one symbol
+ * or the target isn't found by name+startLine.
+ *
+ * NOTE: File nodes use `filePath` as the property key (not `path`).
+ */
+export async function fetchSiblingSymbols(
+  client: GraphClient,
+  filePath: string,
+  symbolName: string,
+  symbolStartLine: number,
+): Promise<SiblingSymbol[]> {
+  const cypher = `
+    MATCH (f:File)-[:CONTAINS]->(s)
+    WHERE f.filePath = $filePath AND s.startLine IS NOT NULL
+    RETURN s.name AS name, s.startLine AS startLine, s.endLine AS endLine,
+           s.signature AS signature, labels(s)[0] AS nodeType
+    ORDER BY s.startLine
+  `;
+  let data: Array<Record<string, unknown>>;
+  try {
+    const res = await client.roQuery<Record<string, unknown>>(cypher, { params: { filePath } });
+    data = res.data ?? [];
+  } catch (err) {
+    logger.debug(`fetchSiblingSymbols query failed (non-fatal): ${err}`);
+    return [];
+  }
+
+  const idx = data.findIndex(
+    s => s['name'] === symbolName && s['startLine'] === symbolStartLine,
+  );
+  if (idx === -1) return [];
+
+  const out: SiblingSymbol[] = [];
+  const prevRow = idx > 0 ? data[idx - 1] : undefined;
+  const nextRow = idx < data.length - 1 ? data[idx + 1] : undefined;
+
+  for (const row of [prevRow, nextRow]) {
+    if (!row) continue;
+    let sig = row['signature'] as string | undefined;
+    if (sig && sig.length > SIBLING_SIGNATURE_CAP) {
+      sig = sig.slice(0, SIBLING_SIGNATURE_CAP);
+    }
+    out.push({
+      name: row['name'] as string,
+      startLine: row['startLine'] as number,
+      endLine: row['endLine'] as number,
+      ...(sig != null ? { signature: sig } : {}),
+      ...(row['nodeType'] != null ? { nodeType: row['nodeType'] as string } : {}),
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Batch-fetch siblings for multiple hits, grouping by unique filePath to
+ * minimize graph round-trips. Returns a map of `filePath:name:startLine` → siblings.
+ */
+async function fetchSiblingsForHits(
+  client: GraphClient,
+  hits: Array<{ name: string; filePath?: string | undefined; startLine?: number | undefined }>,
+): Promise<Map<string, SiblingSymbol[]>> {
+  const result = new Map<string, SiblingSymbol[]>();
+  if (hits.length === 0) return result;
+
+  // Group hits by unique filePath
+  const byFile = new Map<string, Array<{ name: string; startLine: number; key: string }>>();
+  for (const hit of hits) {
+    if (!hit.filePath || hit.startLine == null) continue;
+    const key = `${hit.filePath}:${hit.name}:${hit.startLine}`;
+    const existing = byFile.get(hit.filePath);
+    if (existing) {
+      existing.push({ name: hit.name, startLine: hit.startLine, key });
+    } else {
+      byFile.set(hit.filePath, [{ name: hit.name, startLine: hit.startLine, key }]);
+    }
+  }
+
+  if (byFile.size === 0) return result;
+
+  // Fetch the symbol list for each unique file in parallel
+  await Promise.all(
+    Array.from(byFile.entries()).map(async ([filePath, hitsInFile]) => {
+      const cypher = `
+        MATCH (f:File)-[:CONTAINS]->(s)
+        WHERE f.filePath = $filePath AND s.startLine IS NOT NULL
+        RETURN s.name AS name, s.startLine AS startLine, s.endLine AS endLine,
+               s.signature AS signature, labels(s)[0] AS nodeType
+        ORDER BY s.startLine
+      `;
+      let rows: Array<Record<string, unknown>>;
+      try {
+        const res = await client.roQuery<Record<string, unknown>>(cypher, { params: { filePath } });
+        rows = res.data ?? [];
+      } catch (err) {
+        logger.debug(`fetchSiblingsForHits query failed for ${filePath} (non-fatal): ${err}`);
+        return;
+      }
+
+      for (const { name, startLine, key } of hitsInFile) {
+        const idx = rows.findIndex(r => r['name'] === name && r['startLine'] === startLine);
+        if (idx === -1) {
+          result.set(key, []);
+          continue;
+        }
+
+        const siblings: SiblingSymbol[] = [];
+        for (const row of [rows[idx - 1], rows[idx + 1]]) {
+          if (!row) continue;
+          let sig = row['signature'] as string | undefined;
+          if (sig && sig.length > SIBLING_SIGNATURE_CAP) sig = sig.slice(0, SIBLING_SIGNATURE_CAP);
+          siblings.push({
+            name: row['name'] as string,
+            startLine: row['startLine'] as number,
+            endLine: row['endLine'] as number,
+            ...(sig != null ? { signature: sig } : {}),
+            ...(row['nodeType'] != null ? { nodeType: row['nodeType'] as string } : {}),
+          });
+        }
+
+        // Cap aggregate size
+        if (JSON.stringify(siblings).length > SIBLING_AGGREGATE_CAP) {
+          // Keep only the first sibling if both together exceed the cap
+          result.set(key, siblings.slice(0, 1));
+        } else {
+          result.set(key, siblings);
+        }
+      }
+    }),
+  );
+
+  return result;
+}
+
 async function enrichedSearchV2Impl(
   query: string,
   client: GraphClient,
@@ -580,6 +735,9 @@ async function enrichedSearchV2Impl(
   // Enrich with linked knowledge (ABOUT edges: knowledge → code)
   const knowledgeLinks = await getLinkedKnowledge(client, topHits.map(h => h.name));
 
+  // Drawer-grep: fetch ±1 sibling symbols per hit, batched by unique filePath
+  const siblingMap = await fetchSiblingsForHits(client, topHits);
+
   const durationMs = Date.now() - start;
 
   logger.info(
@@ -619,6 +777,12 @@ async function enrichedSearchV2Impl(
         }),
         // Knowledge graph enrichment (ABOUT edges)
         ...(knowledgeLinks.has(c.name) ? { linkedKnowledge: knowledgeLinks.get(c.name)! } : {}),
+        // Drawer-grep: ±1 sibling symbols in the same file
+        ...((): { siblings?: SiblingSymbol[] } => {
+          const key = `${c.filePath}:${c.name}:${c.startLine}`;
+          const sibs = siblingMap.get(key);
+          return sibs && sibs.length > 0 ? { siblings: sibs } : {};
+        })(),
       };
     }),
     meta: {
