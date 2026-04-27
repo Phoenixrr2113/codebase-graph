@@ -2,11 +2,11 @@
 
 import { useState } from "react"
 import { motion } from "framer-motion"
-import { Github, FileText, ShoppingBag, GitGraph, Mail, ArrowRight, Check } from "lucide-react"
+import { Github, FileText, GitGraph, Mail, ArrowRight, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const techStats = [
-  "42 languages",
+  "5 first-class languages + 30 more via tree-sitter",
   "Local-first architecture",
   "Knowledge graph powered",
   "AI-powered reranking",
@@ -18,7 +18,6 @@ const techStats = [
 const footerLinks = [
   { label: "Docs", href: "https://github.com/Phoenixrr2113/codebase-graph#readme", icon: FileText },
   { label: "GitHub", href: "https://github.com/Phoenixrr2113/codebase-graph", icon: Github },
-  { label: "Polar.sh", href: "https://polar.sh", icon: ShoppingBag },
 ]
 
 export function TechCredibilityBar() {
@@ -173,7 +172,7 @@ export function Footer() {
             Built by a developer, for developers.
           </p>
           <p className="mt-1.5 sm:mt-2 text-[10px] sm:text-xs text-muted-foreground/70">
-            2026 CodeGraph. All rights reserved.
+            2026 CodeGraph. MIT licensed.
           </p>
         </div>
       </div>

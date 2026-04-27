@@ -7,16 +7,16 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 const codeGraphFeatures = [
-  "One-time purchase",
-  "Compiled binary (all platforms)",
+  "Open source — MIT licensed",
+  "Self-hostable, no cloud required",
   "MCP tools for any AI editor",
-  "42 languages supported",
-  "Embedded graph database",
-  "Knowledge graph + memory",
-  "Industry-leading search accuracy",
-  "Enriched search results",
-  "AI-powered result reranking",
-  "Free updates for 1 year",
+  "5 first-class languages + 30 more via tree-sitter",
+  "Embedded graph database (FalkorDBLite)",
+  "Knowledge graph + bitemporal memory",
+  "Vector search + cross-encoder reranking",
+  "Enriched search with linked knowledge",
+  "Drop-in middleware for Vercel AI SDK / Mastra",
+  "Active development, public roadmap",
 ]
 
 

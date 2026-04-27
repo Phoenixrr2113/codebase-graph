@@ -9,7 +9,9 @@ import { PerformanceSection } from "@/components/landing/performance-section"
 import { ArchitectureSection } from "@/components/landing/architecture-section"
 import { AgntkSection } from "@/components/landing/agntk-section"
 import { FullStackSection } from "@/components/landing/full-stack-section"
-import { PricingSection } from "@/components/landing/pricing-section"
+// Pricing section disabled until open-core monetization model is decided.
+// See docs/v6-execution-plan.md Chunk 5.
+// import { PricingSection } from "@/components/landing/pricing-section"
 import { TechCredibilityBar, NewsletterSection, Footer } from "@/components/landing/footer-section"
 
 export default function LandingPage() {
@@ -28,9 +30,7 @@ export default function LandingPage() {
       <ArchitectureSection />
       <AgntkSection />
       <FullStackSection />
-      <div id="pricing">
-        <PricingSection />
-      </div>
+      {/* Pricing section disabled — see docs/v6-execution-plan.md Chunk 5 */}
       <TechCredibilityBar />
       <NewsletterSection />
       <Footer />
