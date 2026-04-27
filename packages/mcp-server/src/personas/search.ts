@@ -51,6 +51,7 @@ export const searchPersonaDefinition: ToolDefinition = {
       query: {
         type: 'string',
         description: 'Search query (required for find)',
+        maxLength: 500,
       },
       file: {
         type: 'string',

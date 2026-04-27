@@ -5,8 +5,11 @@
  * Delegates to codeGraphService.search() → enrichedSearchV2.
  */
 
-import { codeGraphService, unifiedSearch, cotSearch, getGraphClient, type EnrichedV2Hit, type UnifiedSearchResult } from '@codegraph/core';
+import { codeGraphService, unifiedSearch, cotSearch, getGraphClient, sanitizeQuery, type EnrichedV2Hit, type UnifiedSearchResult } from '@codegraph/core';
+import { createLogger } from '@codegraph/logger';
 import type { ToolDefinition } from './router';
+
+const logger = createLogger({ namespace: 'MCP:Tool:SearchCode' });
 
 export interface SearchCodeInput {
   query: string;
@@ -71,6 +74,16 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
       return { results: [], total: 0, durationMs: 0, error: 'Search query is required' };
     }
 
+    // Sanitize the query before passing it to the search pipeline
+    const { query: sanitizedQuery, warnings } = sanitizeQuery(input.query);
+    if (warnings.length > 0) {
+      logger.info('query sanitized', { warnings, originalLength: input.query.length, sanitizedLength: sanitizedQuery.length });
+    }
+    if (!sanitizedQuery) {
+      return { results: [], total: 0, durationMs: 0, error: 'Query is empty after sanitization' };
+    }
+
+    const rawQuery = sanitizedQuery;
     const searchScope = input.searchScope ?? 'code';
     const mode = input.mode ?? 'standard';
 
@@ -82,7 +95,7 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
         searchScope: searchScope === 'code' ? 'all' : searchScope,
       };
       if (input.scope) opts.scope = input.scope;
-      const result = await cotSearch(input.query, client, opts);
+      const result = await cotSearch(rawQuery, client, opts);
       return {
         results: result.results,
         total: result.results.length,
@@ -101,7 +114,7 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
         searchScope,
       };
       if (input.scope) opts.scope = input.scope;
-      const result = await unifiedSearch(input.query, client, opts);
+      const result = await unifiedSearch(rawQuery, client, opts);
       return {
         results: result.results,
         total: result.results.length,
@@ -114,7 +127,7 @@ export async function searchCode(input: SearchCodeInput): Promise<SearchCodeOutp
     const opts: { limit: number; scope?: string } = { limit: input.limit ?? 20 };
     if (input.scope) opts.scope = input.scope;
 
-    const result = await codeGraphService.search(input.query, opts);
+    const result = await codeGraphService.search(rawQuery, opts);
 
     return {
       results: result.hits,
