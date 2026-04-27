@@ -1021,3 +1021,124 @@ func (p Point) String() string {
     expect(propEdges).toHaveLength(2);
   });
 });
+
+// =============================================================================
+// HAS_PARAM / RETURNS / USES_TYPE edges (Task 17)
+// =============================================================================
+
+describe('Go: HAS_PARAM / RETURNS / USES_TYPE', () => {
+  let parser: Parser;
+
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(Go as any);
+  });
+
+  function parseCode(code: string): Parser.SyntaxNode {
+    return parser.parse(code).rootNode;
+  }
+
+  async function runGoExtraction(code: string, fileName: string) {
+    const root = parseCode(code);
+    return extractAllEntities(root as any, `/test/${fileName}`);
+  }
+
+  it('emits HAS_PARAM and (multiple) RETURNS edges', async () => {
+    const code = `
+package main
+
+type User struct{ Name string }
+
+func GetUser(id int) (*User, error) {
+    var u *User
+    return u, nil
+}
+`;
+    const result = await runGoExtraction(code, 'user.go');
+    const fn = result.functions.find((e: any) => e.name === 'GetUser');
+    expect(fn).toBeDefined();
+
+    const hasParam = (result.hasParamEdges ?? []).filter((e: any) => e.fromId === fn!.id);
+    expect(hasParam).toHaveLength(1);
+    const idTypeRef = (result.typeRefs ?? []).find((t: any) => t.id === hasParam[0]!.toId)!;
+    expect(idTypeRef).toBeDefined();
+    expect(idTypeRef.name).toBe('int');
+    expect(idTypeRef.id).toBe('prim::go::int');
+
+    const returns = (result.returnsEdges ?? []).filter((e: any) => e.fromId === fn!.id);
+    expect(returns).toHaveLength(2);
+    const returnTypeNames = returns.map((e: any) => {
+      return (result.typeRefs ?? []).find((t: any) => t.id === e.toId)!.name;
+    }).sort();
+    expect(returnTypeNames).toEqual(['*User', 'error']);
+  });
+
+  it('handles multiple-name parameter declarations (x, y int)', async () => {
+    const code = `
+package main
+
+func Add(x, y int) int { return x + y }
+`;
+    const result = await runGoExtraction(code, 'add.go');
+    const fn = result.functions.find((e: any) => e.name === 'Add');
+    expect(fn).toBeDefined();
+    const hasParam = (result.hasParamEdges ?? []).filter((e: any) => e.fromId === fn!.id);
+    expect(hasParam).toHaveLength(2);
+    expect(hasParam.map((e: any) => e.name).sort()).toEqual(['x', 'y']);
+    expect(hasParam.every((e: any) => e.toId === 'prim::go::int')).toBe(true);
+  });
+
+  it('skips method receiver from HAS_PARAM', async () => {
+    const code = `
+package main
+
+type User struct{ Name string }
+
+func (u *User) Greet(prefix string) string {
+    return prefix + u.Name
+}
+`;
+    const result = await runGoExtraction(code, 'user.go');
+    // Methods on structs are emitted as ::method:: entities by extractStructsWithEdges;
+    // type-ref edges use that id, not the generateEntityId-style function id.
+    const greetFn = result.functions.find(
+      (e: any) => e.name === 'Greet' && typeof e.id === 'string' && e.id.includes('::method::'),
+    );
+    expect(greetFn).toBeDefined();
+    const hasParam = (result.hasParamEdges ?? []).filter((e: any) => e.fromId === greetFn!.id);
+    // Should be 1 (just the prefix arg), NOT 2 (which would include the receiver)
+    expect(hasParam).toHaveLength(1);
+    expect(hasParam[0]!.name).toBe('prefix');
+  });
+
+  it('emits USES_TYPE for var declarations and composite literals', async () => {
+    const code = `
+package main
+
+type Counter struct{ N int }
+
+func Run() {
+    var c Counter
+    _ = Counter{N: 5}
+    _ = int(3.14)
+}
+`;
+    const result = await runGoExtraction(code, 'run.go');
+    const fn = result.functions.find((e: any) => e.name === 'Run');
+    expect(fn).toBeDefined();
+    const uses = (result.usesTypeEdges ?? []).filter((e: any) => e.fromId === fn!.id);
+    expect(uses.some((e: any) => e.kind === 'annotation')).toBe(true);
+    expect(uses.some((e: any) => e.kind === 'instantiation')).toBe(true);
+    expect(uses.some((e: any) => e.kind === 'cast')).toBe(true);
+  });
+
+  it('isAsync is always false for Go', async () => {
+    const code = `package main\nfunc F() int { return 0 }`;
+    const result = await runGoExtraction(code, 'f.go');
+    const fn = result.functions.find((e: any) => e.name === 'F');
+    expect(fn).toBeDefined();
+    const returns = (result.returnsEdges ?? []).filter((e: any) => e.fromId === fn!.id);
+    expect(returns).toHaveLength(1);
+    expect((returns[0] as { isAsync?: boolean }).isAsync).toBe(false);
+  });
+});

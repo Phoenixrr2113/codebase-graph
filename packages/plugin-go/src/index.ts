@@ -28,9 +28,13 @@ import type {
   SyntaxNode,
   HasMethodEdgeDescriptor,
   HasPropertyEdgeDescriptor,
+  HasParamEdgeDescriptor,
+  ReturnsEdgeDescriptor,
+  UsesTypeEdgeDescriptor,
+  TypeRefEntity,
   Visibility,
 } from '@codegraph/types';
-import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
+import { findNodesOfType, generateEntityId, calculateComplexity, resolveTypeIdentity } from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 /** Get the tree-sitter grammar for Go */
@@ -1050,6 +1054,296 @@ export function resolveGoImport(
 }
 
 // ============================================================================
+// Go Type-Relationship Extractors (HAS_PARAM / RETURNS / USES_TYPE)
+// ============================================================================
+
+/** Go built-in primitive type names used to identify type conversions in call_expression nodes. */
+const GO_PRIMITIVE_TYPES = new Set([
+  'string', 'int', 'int8', 'int16', 'int32', 'int64',
+  'uint', 'uint8', 'uint16', 'uint32', 'uint64', 'uintptr',
+  'byte', 'rune', 'float32', 'float64', 'complex64', 'complex128',
+  'bool', 'error',
+]);
+
+/**
+ * Determine if a call_expression callee name is a Go type conversion rather than
+ * a regular function call. In tree-sitter-go, both use `identifier` as the callee
+ * node type, so we distinguish by:
+ *  1. Known Go primitive types (always type conversions)
+ *  2. Names starting with uppercase (exported user types — heuristic)
+ */
+function isGoTypeConversion(name: string): boolean {
+  if (GO_PRIMITIVE_TYPES.has(name)) return true;
+  // Exported identifiers starting with uppercase are likely type names in Go
+  const first = name.charAt(0);
+  if (first.length > 0 && first === first.toUpperCase() && first !== first.toLowerCase()) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Build a TypeRefEntity for the given type name scoped to the current file.
+ * Primitives get a language-global id; user types get file-scoped ids.
+ */
+function makeGoTypeRef(name: string, filePath: string): TypeRefEntity {
+  const identity = resolveTypeIdentity({
+    language: 'go',
+    name,
+    definingFile: filePath,
+  });
+  return {
+    id: identity.id,
+    name: identity.name,
+    language: 'go',
+    isPrimitive: identity.isPrimitive,
+    ...(identity.definingFile !== undefined ? { definingFile: identity.definingFile } : {}),
+  };
+}
+
+export interface GoTypeRefsForFunction {
+  typeRefs: TypeRefEntity[];
+  hasParamEdges: HasParamEdgeDescriptor[];
+  returnsEdges: ReturnsEdgeDescriptor[];
+  usesTypeEdges: UsesTypeEdgeDescriptor[];
+}
+
+/**
+ * Extract TypeRef entities + the three edge descriptor arrays for a single
+ * Go function_declaration or method_declaration AST node.
+ *
+ * Go has explicit types on all parameters and return values, so every typed
+ * position emits edges. The only exception is a method receiver, which is
+ * skipped from HAS_PARAM (it's already represented by the HAS_METHOD edge).
+ *
+ * @param funcNode    The function_declaration or method_declaration AST node
+ * @param functionId  The already-computed FunctionEntity id for this node
+ * @param filePath    The file being indexed
+ */
+export function extractTypeRefsForGoFunction(
+  funcNode: SyntaxNode,
+  functionId: string,
+  filePath: string,
+): GoTypeRefsForFunction {
+  const typeRefMap = new Map<string, TypeRefEntity>();
+  const hasParamEdges: HasParamEdgeDescriptor[] = [];
+  const returnsEdges: ReturnsEdgeDescriptor[] = [];
+  const usesTypeEdges: UsesTypeEdgeDescriptor[] = [];
+
+  function addTypeRef(ref: TypeRefEntity): void {
+    if (!typeRefMap.has(ref.id)) {
+      typeRefMap.set(ref.id, ref);
+    }
+  }
+
+  // ── Parameters → HAS_PARAM ──────────────────────────────────────────────────
+  // For method_declaration: 'receiver' is the first parameter_list (skip it);
+  // 'parameters' is the actual function params. Both function_declaration and
+  // method_declaration use the 'parameters' field name for the argument list.
+  const paramList: SyntaxNode | null = funcNode.childForFieldName('parameters');
+
+  if (paramList) {
+    let position = 0;
+    for (const child of paramList.children) {
+      // Skip punctuation
+      if (child.type === ',' || child.type === '(' || child.type === ')') {
+        continue;
+      }
+
+      if (child.type === 'parameter_declaration') {
+        // Get the type of this declaration (last meaningful child after names)
+        const typeNode = child.childForFieldName('type');
+        const typeName = typeNode?.text?.trim();
+
+        // Get all identifier names in this declaration (e.g., `x, y int` → [x, y])
+        const nameNodes = child.children.filter((c: SyntaxNode) => c.type === 'identifier');
+
+        if (nameNodes.length > 0 && typeName) {
+          const typeRef = makeGoTypeRef(typeName, filePath);
+          addTypeRef(typeRef);
+          for (const nameNode of nameNodes) {
+            hasParamEdges.push({
+              fromId: functionId,
+              toId: typeRef.id,
+              position,
+              name: nameNode.text,
+              isOptional: false, // Go has no optional params
+            });
+            position++;
+          }
+        } else if (nameNodes.length === 0 && typeName) {
+          // Unnamed parameter (just a type)
+          const typeRef = makeGoTypeRef(typeName, filePath);
+          addTypeRef(typeRef);
+          hasParamEdges.push({
+            fromId: functionId,
+            toId: typeRef.id,
+            position,
+            name: '_',
+            isOptional: false,
+          });
+          position++;
+        } else {
+          position++;
+        }
+      } else if (child.type === 'variadic_parameter_declaration') {
+        // `args ...T` — treat `...T` as the type
+        const nameNode = child.childForFieldName('name');
+        const typeNode = child.childForFieldName('type');
+        if (typeNode) {
+          const typeName = `...${typeNode.text}`;
+          const typeRef = makeGoTypeRef(typeName, filePath);
+          addTypeRef(typeRef);
+          hasParamEdges.push({
+            fromId: functionId,
+            toId: typeRef.id,
+            position,
+            name: nameNode?.text ?? '...',
+            isOptional: false,
+          });
+        }
+        position++;
+      }
+    }
+  }
+
+  // ── Return type → RETURNS ────────────────────────────────────────────────────
+  // result field can be:
+  //   - a single type node (e.g., `int`, `*User`, `error`)
+  //   - a parameter_list (named or unnamed multiple returns: `(int, error)`)
+  const resultNode = funcNode.childForFieldName('result');
+  if (resultNode) {
+    if (resultNode.type === 'parameter_list') {
+      // Multiple return values
+      for (const child of resultNode.children) {
+        if (child.type === ',' || child.type === '(' || child.type === ')') continue;
+
+        if (child.type === 'parameter_declaration') {
+          // Named return: `(a int, e error)` — type is what matters
+          const typeNode = child.childForFieldName('type');
+          const typeName = typeNode?.text?.trim();
+          if (typeName) {
+            const typeRef = makeGoTypeRef(typeName, filePath);
+            addTypeRef(typeRef);
+            returnsEdges.push({ fromId: functionId, toId: typeRef.id, isAsync: false });
+          }
+        } else if (child.type !== 'comment') {
+          // Unnamed return type node (e.g., type_identifier, pointer_type, etc.)
+          const typeName = child.text?.trim();
+          if (typeName) {
+            const typeRef = makeGoTypeRef(typeName, filePath);
+            addTypeRef(typeRef);
+            returnsEdges.push({ fromId: functionId, toId: typeRef.id, isAsync: false });
+          }
+        }
+      }
+    } else {
+      // Single return type
+      const typeName = resultNode.text?.trim();
+      if (typeName) {
+        const typeRef = makeGoTypeRef(typeName, filePath);
+        addTypeRef(typeRef);
+        returnsEdges.push({ fromId: functionId, toId: typeRef.id, isAsync: false });
+      }
+    }
+  }
+
+  // ── Body USES_TYPE ───────────────────────────────────────────────────────────
+  const bodyNode = funcNode.childForFieldName('body');
+  if (bodyNode) {
+    const seen = new Set<string>();
+
+    function collectBodyTypeUsages(node: SyntaxNode): void {
+      // Don't descend into nested function literals (their types belong to that function)
+      if (node.type === 'func_literal') return;
+
+      if (node.type === 'var_declaration') {
+        // `var x T` or `var x T = ...` — walk specs
+        for (const child of node.children) {
+          if (child.type === 'var_spec') {
+            const typeNode = child.childForFieldName('type');
+            if (typeNode) {
+              const typeName = typeNode.text.trim();
+              if (typeName) {
+                const typeRef = makeGoTypeRef(typeName, filePath);
+                addTypeRef(typeRef);
+                const key = `${typeRef.id}::annotation`;
+                if (!seen.has(key)) {
+                  seen.add(key);
+                  usesTypeEdges.push({ fromId: functionId, toId: typeRef.id, kind: 'annotation' });
+                }
+              }
+            }
+          }
+        }
+        // Don't recurse further into var_declaration children (already handled)
+        return;
+      }
+
+      if (node.type === 'composite_literal') {
+        // `T{...}` — the type field is the struct/slice/map type being instantiated
+        const typeNode = node.childForFieldName('type');
+        if (typeNode) {
+          const typeName = typeNode.text.trim();
+          if (typeName) {
+            const typeRef = makeGoTypeRef(typeName, filePath);
+            addTypeRef(typeRef);
+            const key = `${typeRef.id}::instantiation`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              usesTypeEdges.push({ fromId: functionId, toId: typeRef.id, kind: 'instantiation' });
+            }
+          }
+        }
+        // Still recurse into the composite literal body for nested usages
+      }
+
+      if (node.type === 'call_expression') {
+        // Type conversions: `int(x)`, `string(b)`, `MyType(val)` etc.
+        // In tree-sitter-go, the callee of a type conversion is an `identifier`
+        // (for both primitives like `int` and user-defined types like `MyType`),
+        // or a `type_identifier` / `pointer_type` in some positions.
+        // Distinguish from function calls: Go primitives are always type conversions.
+        // For user types, we check if the name starts with uppercase (exported type)
+        // but this may also match exported functions — the heuristic is reasonable
+        // since the spec says to track type conversions in body walking.
+        const fnNode = node.childForFieldName('function');
+        if (
+          fnNode &&
+          (fnNode.type === 'type_identifier' ||
+            fnNode.type === 'pointer_type' ||
+            (fnNode.type === 'identifier' && isGoTypeConversion(fnNode.text)))
+        ) {
+          const typeName = fnNode.text.trim();
+          if (typeName) {
+            const typeRef = makeGoTypeRef(typeName, filePath);
+            addTypeRef(typeRef);
+            const key = `${typeRef.id}::cast`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              usesTypeEdges.push({ fromId: functionId, toId: typeRef.id, kind: 'cast' });
+            }
+          }
+        }
+      }
+
+      for (const child of node.children) {
+        collectBodyTypeUsages(child);
+      }
+    }
+
+    collectBodyTypeUsages(bodyNode);
+  }
+
+  return {
+    typeRefs: Array.from(typeRefMap.values()),
+    hasParamEdges,
+    returnsEdges,
+    usesTypeEdges,
+  };
+}
+
+// ============================================================================
 // Plugin Export (via generic factory)
 // ============================================================================
 
@@ -1097,6 +1391,54 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
   const allFunctions = extractFunctions(root, filePath);
   const structExtraction = extractStructsWithEdges(root, filePath);
 
+  // ── Type-relationship edges (HAS_PARAM / RETURNS / USES_TYPE) ──────────────
+  const typeRefMap = new Map<string, TypeRefEntity>();
+  const allHasParamEdges: HasParamEdgeDescriptor[] = [];
+  const allReturnsEdges: ReturnsEdgeDescriptor[] = [];
+  const allUsesTypeEdges: UsesTypeEdgeDescriptor[] = [];
+
+  function accumulateTypeRefs(funcNode: SyntaxNode, entityId: string): void {
+    const result = extractTypeRefsForGoFunction(funcNode, entityId, filePath);
+    for (const ref of result.typeRefs) {
+      if (!typeRefMap.has(ref.id)) typeRefMap.set(ref.id, ref);
+    }
+    allHasParamEdges.push(...result.hasParamEdges);
+    allReturnsEdges.push(...result.returnsEdges);
+    allUsesTypeEdges.push(...result.usesTypeEdges);
+  }
+
+  // Process top-level functions and methods (function_declaration nodes)
+  const funcDeclNodes = findNodesOfType(root, ['function_declaration']);
+  for (const funcNode of funcDeclNodes) {
+    const nameNode = funcNode.childForFieldName('name');
+    if (!nameNode) continue;
+    const name = nameNode.text;
+    const startLine = funcNode.startPosition.row + 1;
+    const entityId = generateEntityId(filePath, 'function', name, startLine);
+
+    const matchedEntity = allFunctions.find((f) => f.id === entityId);
+    if (matchedEntity?.id) {
+      accumulateTypeRefs(funcNode, matchedEntity.id);
+    }
+  }
+
+  // Process method declarations: match AST nodes to ::method:: entities from structExtraction
+  const methodDeclNodes = findNodesOfType(root, ['method_declaration']);
+  for (const methodNode of methodDeclNodes) {
+    const nameNode = methodNode.childForFieldName('name');
+    if (!nameNode) continue;
+    const methodName = nameNode.text;
+    const startLine = methodNode.startPosition.row + 1;
+
+    // Find the matching ::method:: entity by name and line
+    const matchedMethod = structExtraction.methodEntities.find(
+      (m) => m.name === methodName && m.startLine === startLine,
+    );
+    if (matchedMethod?.id) {
+      accumulateTypeRefs(methodNode, matchedMethod.id);
+    }
+  }
+
   return {
     // Merge: generateEntityId-style functions + ::method:: entities from struct extraction
     functions: [...allFunctions, ...structExtraction.methodEntities],
@@ -1111,5 +1453,9 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
     components: [],
     hasMethodEdges: structExtraction.hasMethodEdges,
     hasPropertyEdges: structExtraction.hasPropertyEdges,
+    typeRefs: Array.from(typeRefMap.values()),
+    hasParamEdges: allHasParamEdges,
+    returnsEdges: allReturnsEdges,
+    usesTypeEdges: allUsesTypeEdges,
   };
 }
