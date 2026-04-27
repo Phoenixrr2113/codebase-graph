@@ -2,7 +2,7 @@
   "mcpServers": {
     "codegraph": {
       "command": "npx",
-      "args": ["tsx", "/path/to/user/Desktop/codebase-graph/packages/mcp-server/src/index.ts"],
+      "args": ["tsx", "/path/to/codebase-graph/packages/mcp-server/src/index.ts"],
       "env": {
         "CODEGRAPH_DRIVER": "falkordblite",
         "CODEGRAPH_DB_PATH": ".codegraph/falkordb",

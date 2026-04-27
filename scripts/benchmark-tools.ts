@@ -59,7 +59,9 @@ const indexExternalProjects = args.includes('--index-projects');
 const fromFixtures = args.includes('--from-fixtures');
 const label = args.filter(a => !a.startsWith('--'))[0] ?? 'unlabeled';
 
-const PROJECTS_DIR = '/path/to/user/Desktop/projects';
+// Defaults to ~/Desktop/projects but can be overridden with CODEGRAPH_PROJECTS_DIR.
+const PROJECTS_DIR = process.env['CODEGRAPH_PROJECTS_DIR']
+  ?? `${process.env['HOME'] ?? ''}/Desktop/projects`;
 const EXTERNAL_PROJECTS = [
   'LightRAG', 'cognee', 'graphiti', 'crewAI-main', 'bolt.new-main',
   'openclaw', 'qwik', 'screenshot-to-code-main', 'openui', 'code-gen',

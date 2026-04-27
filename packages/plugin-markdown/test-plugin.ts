@@ -84,18 +84,23 @@ async function main() {
 
     console.log('\n✅ Synthetic test passed!');
 
-    // Test with real file
-    console.log('\n\n=== Testing with Real File ===');
-    const { parseMarkdownFile } = await import('./src/index');
-    const realResult = await parseMarkdownFile('/path/to/user/Desktop/openclaw/skills/github/SKILL.md');
+    // Test with real file (opt-in via env var to avoid hardcoded paths)
+    const realFilePath = process.env['MARKDOWN_TEST_FILE'];
+    if (realFilePath) {
+      console.log('\n\n=== Testing with Real File ===');
+      const { parseMarkdownFile } = await import('./src/index');
+      const realResult = await parseMarkdownFile(realFilePath);
 
-    console.log(`  Title: ${realResult.document.title}`);
-    console.log(`  Frontmatter: ${JSON.stringify(realResult.document.frontmatter, null, 2)}`);
-    console.log(`  Sections: ${realResult.sections.length}`);
-    console.log(`  Code Blocks: ${realResult.codeBlocks.length}`);
-    console.log(`  Links: ${realResult.links.length}`);
+      console.log(`  Title: ${realResult.document.title}`);
+      console.log(`  Frontmatter: ${JSON.stringify(realResult.document.frontmatter, null, 2)}`);
+      console.log(`  Sections: ${realResult.sections.length}`);
+      console.log(`  Code Blocks: ${realResult.codeBlocks.length}`);
+      console.log(`  Links: ${realResult.links.length}`);
 
-    console.log('\n✅ Real file test passed!');
+      console.log('\n✅ Real file test passed!');
+    } else {
+      console.log('\n(Skipped real-file test — set MARKDOWN_TEST_FILE env var to a path to enable.)');
+    }
   } catch (error) {
     console.error('❌ Plugin test failed:', error);
     process.exit(1);

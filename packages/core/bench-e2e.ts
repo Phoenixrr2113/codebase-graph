@@ -8,7 +8,8 @@ import { registerPlugins } from './src/pipeline/pipeline.js';
 
 registerPlugins();
 
-const ROOT = '/path/to/user/Desktop/codebase-graph';
+// Defaults to the current working directory; override with CODEGRAPH_BENCH_ROOT.
+const ROOT = process.env['CODEGRAPH_BENCH_ROOT'] ?? process.cwd();
 
 async function main() {
   console.log('\n=== End-to-End Indexing Benchmark ===\n');

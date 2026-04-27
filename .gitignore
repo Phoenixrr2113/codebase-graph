@@ -60,6 +60,13 @@ codeGraph-v5-plans.yml
 
 scripts/benchmark-coir/
 
+# Benchmark fixtures contain hardcoded local paths from a single
+# user's machine. Regenerate locally if you need them.
+scripts/benchmark-fixtures.json
+
+# Cursor IDE rules (per-developer, not part of the source tree)
+.cursor/
+
 # MCPB build artifacts
 *.mcpb
 search-query-response.json
