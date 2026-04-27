@@ -114,7 +114,7 @@ export function HeroSection() {
                 className="text-center lg:text-left p-3 rounded-xl bg-card/50 border border-border/50"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: 0.5 }}
+                transition={{ duration: 0.4, delay: 0.55 }}
               >
                 <div className="text-2xl sm:text-3xl font-bold text-foreground tabular-nums">
                   0.969
