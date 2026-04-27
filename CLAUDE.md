@@ -68,6 +68,7 @@ search({ action: "context", symbol: "enrichedSearchV2" })
 ```
 knowledge({ action: "store", text: "We decided to use JWT for auth because..." })
 knowledge({ action: "add", input: "/path/to/spec.pdf", source: "product-spec-v2" })
+knowledge({ action: "add", input: "https://docs.example.com/api", source: "api-docs" })
 knowledge({ action: "recall", text: "AuthModule", timeline: true })
 knowledge({ action: "recall", text: "payment system", at: "2026-03-01T00:00:00Z" })
 knowledge({ action: "recall", text: "decisions", from: "2026-03-01", to: "2026-03-31" })
@@ -118,7 +119,7 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 
 ### Ingest Documents
 1. `knowledge({ action: "add", input: "/path/to/spec.pdf" })` — auto-detects format, chunks, extracts entities
-2. Supported: PDF, DOCX, HTML, CSV, raw text
+2. Supported: PDF, DOCX, HTML, CSV, URLs, raw text
 
 ### Temporal Knowledge Queries
 1. `knowledge({ action: "recall", text: "auth system", at: "2026-01-15T00:00:00Z" })` — point-in-time reconstruction
