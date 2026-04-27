@@ -15,7 +15,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@codegraph/types": "workspace:*",
@@ -25,7 +26,8 @@
     "tree-sitter-typescript": "^0.23.2"
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.4"
   },
   "peerDependencies": {
     "tree-sitter": "^0.22.4"

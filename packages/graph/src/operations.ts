@@ -237,6 +237,23 @@ const CYPHER = {
     RETURN r
   `,
 
+  CREATE_HAS_METHOD_EDGE: `
+    MATCH (from:Class {id: $fromId})
+    MATCH (to:Function {id: $toId})
+    MERGE (from)-[r:HAS_METHOD]->(to)
+    SET r.isStatic = coalesce($isStatic, false),
+        r.visibility = coalesce($visibility, 'public')
+  `,
+
+  CREATE_HAS_PROPERTY_EDGE: `
+    MATCH (from:Class {id: $fromId})
+    MATCH (to:Variable {id: $toId})
+    MERGE (from)-[r:HAS_PROPERTY]->(to)
+    SET r.isStatic = coalesce($isStatic, false),
+        r.visibility = coalesce($visibility, 'public'),
+        r.isReadonly = coalesce($isReadonly, false)
+  `,
+
   // Commit operations
   UPSERT_COMMIT: `
     MERGE (c:Commit {hash: $hash})
@@ -964,6 +981,18 @@ export interface GraphOperations {
     line: number
   ): Promise<void>;
 
+  createHasMethodEdge(
+    fromId: string,
+    toId: string,
+    props?: { isStatic?: boolean; visibility?: 'public' | 'private' | 'protected' }
+  ): Promise<void>;
+
+  createHasPropertyEdge(
+    fromId: string,
+    toId: string,
+    props?: { isStatic?: boolean; visibility?: 'public' | 'private' | 'protected'; isReadonly?: boolean }
+  ): Promise<void>;
+
   deleteFileEntities(filePath: string): Promise<void>;
 
   /**
@@ -1171,6 +1200,28 @@ class GraphOperationsImpl implements GraphOperations {
   ): Promise<void> {
     await this.client.query(CYPHER.CREATE_RENDERS_EDGE, {
       params: { parentName, parentFile, childName, line },
+    });
+  }
+
+  @trace()
+  async createHasMethodEdge(
+    fromId: string,
+    toId: string,
+    props: { isStatic?: boolean; visibility?: 'public' | 'private' | 'protected' } = {},
+  ): Promise<void> {
+    await this.client.query(CYPHER.CREATE_HAS_METHOD_EDGE, {
+      params: { fromId, toId, isStatic: props.isStatic ?? null, visibility: props.visibility ?? null },
+    });
+  }
+
+  @trace()
+  async createHasPropertyEdge(
+    fromId: string,
+    toId: string,
+    props: { isStatic?: boolean; visibility?: 'public' | 'private' | 'protected'; isReadonly?: boolean } = {},
+  ): Promise<void> {
+    await this.client.query(CYPHER.CREATE_HAS_PROPERTY_EDGE, {
+      params: { fromId, toId, isStatic: props.isStatic ?? null, visibility: props.visibility ?? null, isReadonly: props.isReadonly ?? null },
     });
   }
 
@@ -1875,4 +1926,32 @@ class GraphOperationsImpl implements GraphOperations {
  */
 export function createOperations(client: GraphClient): GraphOperations {
   return new GraphOperationsImpl(client);
+}
+
+/**
+ * Create a HAS_METHOD edge from a Class to a Function.
+ */
+export async function createHasMethodEdge(
+  client: GraphClient,
+  fromId: string,
+  toId: string,
+  props: { isStatic?: boolean; visibility?: 'public' | 'private' | 'protected' } = {},
+): Promise<void> {
+  await client.query(CYPHER.CREATE_HAS_METHOD_EDGE, {
+    params: { fromId, toId, isStatic: props.isStatic ?? null, visibility: props.visibility ?? null },
+  });
+}
+
+/**
+ * Create a HAS_PROPERTY edge from a Class to a Variable.
+ */
+export async function createHasPropertyEdge(
+  client: GraphClient,
+  fromId: string,
+  toId: string,
+  props: { isStatic?: boolean; visibility?: 'public' | 'private' | 'protected'; isReadonly?: boolean } = {},
+): Promise<void> {
+  await client.query(CYPHER.CREATE_HAS_PROPERTY_EDGE, {
+    params: { fromId, toId, isStatic: props.isStatic ?? null, visibility: props.visibility ?? null, isReadonly: props.isReadonly ?? null },
+  });
 }

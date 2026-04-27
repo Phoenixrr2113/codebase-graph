@@ -20,7 +20,8 @@ import type {
 // Re-export individual extractors (still available for standalone use)
 export { extractImports, extractImportsFromNodes } from './imports';
 export { extractFunctions, extractFunctionsFromNodes } from './functions';
-export { extractClasses, extractClassesFromNodes } from './classes';
+export { extractClasses, extractClassesFromNodes, extractClassesWithEdges, extractClassesWithEdgesFromNodes } from './classes';
+export type { ClassExtractionResult, HasMethodEdgeDescriptor, HasPropertyEdgeDescriptor, Visibility } from './classes';
 export { extractVariables, extractVariablesFromNodes } from './variables';
 export { extractTypes, extractInterfaces, extractTypesFromNodes, extractInterfacesFromNodes } from './type-aliases';
 export { extractComponents, extractComponentsFromNodes } from './jsx';
