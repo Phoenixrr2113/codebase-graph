@@ -30,7 +30,10 @@ export interface CodebaseProfile {
 
 export interface ProfileService {
   getStats(): Promise<{ nodes: number; edges: number; files: number }>;
-  query(cypher: string, opts?: { params?: Record<string, unknown> }): Promise<{ data: unknown[] }>;
+  query(
+    cypher: string,
+    params?: Record<string, string | number | boolean | unknown[] | null>,
+  ): Promise<{ data: unknown[] }>;
 }
 
 // ============================================================================
@@ -56,7 +59,10 @@ export async function getProfile(
   const fileFilter = projectPath
     ? 'WHERE f.path STARTS WITH $projectPath'
     : '';
-  const params: Record<string, unknown> = { projectPath: projectPath ?? null, limit };
+  const params: Record<string, string | number | boolean | null | unknown[]> = {
+    projectPath: projectPath ?? null,
+    limit,
+  };
 
   const [
     rawStats,
@@ -73,7 +79,7 @@ export async function getProfile(
         `MATCH (n)<-[:IMPORTS]-(m) ${nodeFilter}
          RETURN n.name AS name, count(m) AS importCount
          ORDER BY importCount DESC LIMIT $limit`,
-        { params },
+        params,
       )
       .catch(() => ({ data: [] as unknown[] })),
 
@@ -82,7 +88,7 @@ export async function getProfile(
         `MATCH (n)<-[:CALLS]-(m) ${nodeFilter}
          RETURN n.name AS name, count(m) AS callCount
          ORDER BY callCount DESC LIMIT $limit`,
-        { params },
+        params,
       )
       .catch(() => ({ data: [] as unknown[] })),
 
@@ -91,7 +97,7 @@ export async function getProfile(
         `MATCH (f:File) ${fileFilter}
          RETURN f.language AS name, count(f) AS fileCount
          ORDER BY fileCount DESC LIMIT $limit`,
-        { params },
+        params,
       )
       .catch(() => ({ data: [] as unknown[] })),
 
@@ -100,7 +106,7 @@ export async function getProfile(
         `MATCH (f:File) ${fileFilter}
          RETURN f.path AS filePath, f.lastModified AS lastModified
          ORDER BY f.lastModified DESC LIMIT $limit`,
-        { params },
+        params,
       )
       .catch(() => ({ data: [] as unknown[] })),
 
@@ -109,7 +115,7 @@ export async function getProfile(
         `MATCH (e:Entity)
          RETURN e.text AS text, e.type AS type, e.createdAt AS createdAt
          ORDER BY e.createdAt DESC LIMIT $limit`,
-        { params },
+        params,
       )
       .catch(() => ({ data: [] as unknown[] })),
   ]);
@@ -152,12 +158,17 @@ profileRoutes.get('/api/profile', async (c) => {
           files: (stats.nodesByType as Record<string, number>)['File'] ?? 0,
         };
       },
-      query: async (cypher, opts) => {
-        return client.roQuery(cypher, opts) as Promise<{ data: unknown[] }>;
+      query: async (cypher, params) => {
+        const result = await client.roQuery(cypher, params ? { params } : undefined);
+        return { data: result.data };
       },
     };
 
-    const profile = await getProfile(service, { projectPath, limit });
+    // Build args object conditionally to respect exactOptionalPropertyTypes
+    const args: { projectPath?: string; limit?: number } = {};
+    if (projectPath !== undefined) args.projectPath = projectPath;
+    if (limit !== undefined) args.limit = limit;
+    const profile = await getProfile(service, args);
     return c.json(profile);
   } catch (err) {
     return c.json(
