@@ -8,10 +8,9 @@ import { cn } from "@/lib/utils"
 
 const navLinks = [
   { label: "Features", href: "#features" },
-  { label: "Languages", href: "#languages" },
-  { label: "Pricing", href: "#pricing" },
-  { label: "agntk", href: "#agntk" },
-  { label: "Docs", href: "https://github.com/Phoenixrr2113/codebase-graph#readme", external: true },
+  { label: "Integrations", href: "#integrations" },
+  { label: "Architecture", href: "#architecture" },
+  { label: "GitHub", href: "https://github.com/Phoenixrr2113/codebase-graph", external: true },
 ]
 
 export function Navigation() {
@@ -92,18 +91,11 @@ export function Navigation() {
 
         {/* CTA Buttons */}
         <div className="hidden md:flex items-center gap-3">
-          <Button variant="ghost" size="sm" className="group" asChild>
+          <Button variant="ghost" size="sm" asChild>
             <a href="https://github.com/Phoenixrr2113/codebase-graph" target="_blank" rel="noopener noreferrer">
-              GitHub
+              Star on GitHub
             </a>
           </Button>
-          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-            <Button size="sm" className="bg-accent text-accent-foreground hover:bg-accent/90" asChild>
-              <a href="https://polar.sh" target="_blank" rel="noopener noreferrer">
-                Get CodeGraph
-              </a>
-            </Button>
-          </motion.div>
         </div>
 
         {/* Mobile Menu Button */}
@@ -169,7 +161,7 @@ export function Navigation() {
                   </motion.a>
                 )
               })}
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: 0.2 }}
@@ -177,12 +169,7 @@ export function Navigation() {
               >
                 <Button variant="outline" size="sm" asChild>
                   <a href="https://github.com/Phoenixrr2113/codebase-graph" target="_blank" rel="noopener noreferrer">
-                    GitHub
-                  </a>
-                </Button>
-                <Button size="sm" className="bg-accent text-accent-foreground hover:bg-accent/90" asChild>
-                  <a href="https://polar.sh" target="_blank" rel="noopener noreferrer">
-                    Get CodeGraph
+                    Star on GitHub
                   </a>
                 </Button>
               </motion.div>
