@@ -1,55 +1,14 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { Search, Clock, FileText, Users, Layers, Boxes } from "lucide-react"
+import { features } from "./features-data"
+export { features } from "./features-data"
 
-// All feature copy and snippets traced to CLAUDE.md tool reference.
-const features = [
-  {
-    icon: Search,
-    title: "Search pipeline",
-    description:
-      "Vector embeddings → cross-encoder reranking → graph enrichment. Returns symbols with their callers, callees, complexity, and linked knowledge.",
-    snippet: `search({\n  action: "find",\n  query: "authentication"\n})`,
-  },
-  {
-    icon: Clock,
-    title: "Bitemporal knowledge",
-    description:
-      "Every fact carries valid_at and invalid_at. Query the graph as it existed on a past date, see full timelines, watch supersession happen.",
-    snippet: `knowledge({\n  action: "recall",\n  text: "AuthModule",\n  at: "2026-03-01T00:00:00Z"\n})`,
-  },
-  {
-    icon: FileText,
-    title: "Document ingestion",
-    description:
-      "Drop a PDF, DOCX, HTML, CSV, or URL into knowledge.add(). It chunks, embeds, extracts entities, and links them into the same graph as the code.",
-    snippet: `knowledge({\n  action: "add",\n  input: "/path/to/spec.pdf"\n})`,
-  },
-  {
-    icon: Users,
-    title: "Speaker entities",
-    description:
-      "Ingest a multi-turn conversation; CodeGraph creates Person nodes with SAID edges to facts. Ask 'what has Alice said about retries?' and get an answer.",
-    snippet: `knowledge({\n  action: "ingest_conversation",\n  text: "Alice: let's use Redis...",\n  source: "standup"\n})`,
-  },
-  {
-    icon: Layers,
-    title: "MCP App UI panel",
-    description:
-      "The graph_explorer MCP tool ships as an App UI panel that renders the Graph Explorer canvas inside Claude Desktop or Cursor — interactive, in-conversation.",
-    snippet: `// Surfaced automatically when CodeGraph\n// is configured as an MCP server`,
-  },
-  {
-    icon: Boxes,
-    title: "Drop-in middleware",
-    description:
-      "Wrap any Vercel AI SDK model with withCodeGraph(); register a Mastra processor with createCodeGraphProcessor(). Your existing agent gets graph-aware context.",
-    snippet: `import { withCodeGraph } from\n  "@codegraph/tools/vercel"\nconst model = withCodeGraph(openai("gpt-4o"))`,
-  },
-]
+interface FeaturesGridSectionProps {
+  highlighted: string[]
+}
 
-export function FeaturesGridSection() {
+export function FeaturesGridSection({ highlighted }: FeaturesGridSectionProps) {
   return (
     <section
       id="features"
@@ -93,9 +52,10 @@ export function FeaturesGridSection() {
                 <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed mb-4 flex-1">
                   {feature.description}
                 </p>
-                <pre className="rounded-md border border-border bg-muted/50 p-3 text-[11px] sm:text-xs font-mono overflow-x-auto whitespace-pre">
-                  <code>{feature.snippet}</code>
-                </pre>
+                <div
+                  className="code-snippet rounded-md border border-border bg-muted/30 overflow-x-auto"
+                  dangerouslySetInnerHTML={{ __html: highlighted[i] ?? `<pre><code>${feature.snippet}</code></pre>` }}
+                />
               </motion.div>
             )
           })}

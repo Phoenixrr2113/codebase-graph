@@ -4,81 +4,19 @@ import { useState } from "react"
 import { motion } from "framer-motion"
 import { Check, Copy } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { integrations } from "./integrations-data"
+export { integrations } from "./integrations-data"
 
-const integrations = [
-  {
-    id: "claude-desktop",
-    label: "Claude Desktop",
-    filename: "claude_desktop_config.json",
-    snippet: `{
-  "mcpServers": {
-    "codegraph": {
-      "command": "node",
-      "args": ["/abs/path/to/codebase-graph/packages/mcp-server/dist/index.js"],
-      "env": { "CODEGRAPH_DRIVER": "embedded" }
-    }
-  }
-}`,
-  },
-  {
-    id: "cursor",
-    label: "Cursor",
-    filename: ".cursor/mcp.json",
-    snippet: `{
-  "mcpServers": {
-    "codegraph": {
-      "command": "node",
-      "args": ["/abs/path/to/codebase-graph/packages/mcp-server/dist/index.js"]
-    }
-  }
-}`,
-  },
-  {
-    id: "claude-code",
-    label: "Claude Code",
-    filename: "Terminal",
-    snippet: `# Add the MCP server (after building)
-claude mcp add codegraph node \\
-  /abs/path/to/codebase-graph/packages/mcp-server/dist/index.js`,
-  },
-  {
-    id: "vercel-ai-sdk",
-    label: "Vercel AI SDK",
-    filename: "agent.ts",
-    snippet: `import { openai } from "@ai-sdk/openai"
-import { withCodeGraph } from "@codegraph/tools/vercel"
+interface IntegrationsSectionProps {
+  highlighted: Record<string, string>
+}
 
-const model = withCodeGraph(openai("gpt-4o"))
-// Now every generateText call gets graph-aware context tools.`,
-  },
-  {
-    id: "mastra",
-    label: "Mastra",
-    filename: "mastra.config.ts",
-    snippet: `import { Mastra } from "@mastra/core"
-import { createCodeGraphProcessor } from "@codegraph/tools/mastra"
-
-export const mastra = new Mastra({
-  processors: [createCodeGraphProcessor()],
-})`,
-  },
-  {
-    id: "claude-code-hooks",
-    label: "Claude Code Hooks",
-    filename: ".claude-plugin/hooks/post-tool-use.sh",
-    snippet: `#!/usr/bin/env bash
-# Re-extract after file edits so the graph stays fresh.
-# Adapt path + arguments to your project layout.
-exec node /abs/path/to/codebase-graph/packages/cli/dist/index.js \\
-  extract .`,
-  },
-]
-
-export function IntegrationsSection() {
+export function IntegrationsSection({ highlighted }: IntegrationsSectionProps) {
   const [activeId, setActiveId] = useState(integrations[0].id)
   const [copied, setCopied] = useState(false)
 
   const active = integrations.find((i) => i.id === activeId) ?? integrations[0]
+  const activeHtml = highlighted[active.id] ?? `<pre><code>${active.snippet}</code></pre>`
 
   const onCopy = async () => {
     await navigator.clipboard.writeText(active.snippet)
@@ -155,9 +93,10 @@ export function IntegrationsSection() {
               )}
             </button>
           </div>
-          <pre className="p-4 overflow-x-auto text-xs sm:text-sm">
-            <code className="font-mono text-foreground whitespace-pre">{active.snippet}</code>
-          </pre>
+          <div
+            className="code-snippet text-xs sm:text-sm overflow-x-auto"
+            dangerouslySetInnerHTML={{ __html: activeHtml }}
+          />
         </motion.div>
 
         <p className="mt-6 text-center text-[11px] sm:text-xs text-muted-foreground">

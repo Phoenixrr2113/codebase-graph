@@ -123,6 +123,28 @@
   }
 }
 
+/* Shiki-rendered code blocks */
+.code-snippet pre.shiki {
+  margin: 0;
+  padding: 0.875rem 1rem;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  line-height: 1.55;
+  background: transparent !important;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.code-snippet pre.shiki code {
+  font-family: inherit;
+  white-space: pre;
+}
+
+.code-snippet pre.shiki .line {
+  display: block;
+  min-height: 1lh;
+}
+
 /* Custom scrollbar for dark theme */
 @layer base {
   ::-webkit-scrollbar {
