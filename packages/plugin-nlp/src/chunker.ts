@@ -68,6 +68,11 @@ function splitSentences(text: string): Array<{ text: string; start: number; end:
 
   // eslint-disable-next-line no-cond-assign
   while ((match = sentenceRegex.exec(text)) !== null) {
+    // Guard against zero-length matches causing infinite loop (regex `\s*$` can match "")
+    if (match[0].length === 0) {
+      sentenceRegex.lastIndex++;
+      continue;
+    }
     const sentenceText = text.slice(lastIndex, match.index + 1).trim();
     if (sentenceText) {
       sentences.push({
