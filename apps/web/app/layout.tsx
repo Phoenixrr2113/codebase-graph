@@ -5,7 +5,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'CodeGraph — Deep Codebase Understanding for AI Agents',
   description: 'CodeGraph builds a queryable knowledge graph of every function, class, and relationship in your codebase — then gives your AI assistant the tools to search, analyze, and navigate it.',
-  keywords: ['CodeGraph', 'agntk', 'MCP', 'AI agent', 'codebase', 'knowledge graph', 'developer tools'],
+  keywords: ['CodeGraph', 'MCP', 'AI agent', 'codebase', 'knowledge graph', 'tree-sitter', 'FalkorDB', 'developer tools'],
   authors: [{ name: 'CodeGraph' }],
   openGraph: {
     title: 'CodeGraph — Deep Codebase Understanding for AI Agents',
