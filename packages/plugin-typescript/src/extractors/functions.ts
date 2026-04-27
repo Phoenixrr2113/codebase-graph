@@ -56,6 +56,26 @@ export function extractFunctionsFromNodes(
 }
 
 /**
+ * Extract functions from pre-collected nodes, returning each AST node paired
+ * with its FunctionEntity. Nodes that produce no entity (anonymous functions)
+ * are excluded. Used by extractAllEntities to correlate AST nodes with
+ * entity ids for type-ref edge emission.
+ */
+export function extractFunctionsWithNodes(
+  functionNodes: Parser.SyntaxNode[],
+  filePath: string
+): Array<{ node: Parser.SyntaxNode; entity: FunctionEntity }> {
+  const pairs: Array<{ node: Parser.SyntaxNode; entity: FunctionEntity }> = [];
+  for (const node of functionNodes) {
+    const entity = parseFunctionNode(node, filePath);
+    if (entity) {
+      pairs.push({ node, entity });
+    }
+  }
+  return pairs;
+}
+
+/**
  * Parse a function node into a FunctionEntity
  */
 function parseFunctionNode(

@@ -2,7 +2,7 @@
  * TypeScript Plugin Extractor Tests
  * Covers HAS_METHOD / HAS_PROPERTY extraction (Tasks 8+9) and the end-to-end
  * wiring through extractAllEntities (Task pipeline fix).
- * Task 15 will add HAS_PARAM/RETURNS/USES_TYPE tests.
+ * HAS_PARAM/RETURNS/USES_TYPE tests added in Task 15.
  * Task 21 will expand to full extractor coverage.
  */
 
@@ -22,6 +22,15 @@ let parser: Parser;
 function parseCode(code: string): Parser.SyntaxNode {
   const tree = parser.parse(code);
   return tree.rootNode;
+}
+
+/**
+ * Run extractAllEntities on the given TypeScript source code.
+ * Returns the full ExtractedEntities result including type-ref edge arrays.
+ */
+function runTSExtraction(code: string, filePath: string) {
+  const rootNode = parseCode(code);
+  return extractAllEntities(rootNode, filePath);
 }
 
 describe('TypeScript HAS_METHOD / HAS_PROPERTY', () => {
@@ -230,5 +239,88 @@ export const PI = 3.14;
 
     expect(result.hasMethodEdges).toHaveLength(0);
     expect(result.hasPropertyEdges).toHaveLength(0);
+  });
+});
+
+describe('TS HAS_PARAM / RETURNS / USES_TYPE', () => {
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('emits HAS_PARAM and RETURNS edges with type refs', () => {
+    const code = `
+type User = { id: string };
+
+export async function fetchUser(id: string, opts?: number): Promise<User> {
+  const url: string = '/api/' + id;
+  return null as unknown as User;
+}
+`;
+    const result = runTSExtraction(code, 'fetch.ts');
+
+    const fn = result.functions.find((e) => e.name === 'fetchUser')!;
+    expect(fn).toBeDefined();
+
+    const hasParam = (result.hasParamEdges ?? []).filter((e) => e.fromId === fn.id);
+    expect(hasParam).toHaveLength(2);
+
+    // First param: id: string → primitive
+    const idParam = hasParam.find((e) => e.name === 'id')!;
+    expect(idParam).toBeDefined();
+    expect(idParam.toId).toBe('prim::typescript::string');
+    expect(idParam.isOptional).toBe(false);
+
+    // Second param: opts?: number → optional primitive
+    const optsParam = hasParam.find((e) => e.name === 'opts')!;
+    expect(optsParam).toBeDefined();
+    expect(optsParam.isOptional).toBe(true);
+    expect(optsParam.toId).toBe('prim::typescript::number');
+
+    // RETURNS Promise<User>
+    const returns = (result.returnsEdges ?? []).filter((e) => e.fromId === fn.id);
+    expect(returns).toHaveLength(1);
+    const ret = returns[0]!;
+    expect(ret.isAsync).toBe(true);
+    const returnTypeRef = (result.typeRefs ?? []).find((t) => t.id === ret.toId)!;
+    expect(returnTypeRef).toBeDefined();
+    expect(returnTypeRef.name).toBe('Promise<User>');
+
+    // USES_TYPE on the local var annotation `: string`
+    const usesType = (result.usesTypeEdges ?? []).filter((e) => e.fromId === fn.id);
+    expect(usesType.some((e) => e.kind === 'annotation')).toBe(true);
+    expect(usesType.some((e) => e.kind === 'cast')).toBe(true);
+
+    // typeRefs array is deduplicated
+    const typeRefIds = (result.typeRefs ?? []).map((t) => t.id);
+    expect(new Set(typeRefIds).size).toBe(typeRefIds.length);
+  });
+
+  it('emits RETURNS to "inferred" Type when no annotation', () => {
+    const code = `
+function add(a: number, b: number) { return a + b; }
+`;
+    const result = runTSExtraction(code, 'inferred.ts');
+    const fn = result.functions.find((e) => e.name === 'add')!;
+    expect(fn).toBeDefined();
+
+    const returns = (result.returnsEdges ?? []).filter((e) => e.fromId === fn.id);
+    expect(returns).toHaveLength(1);
+    const ret = returns[0]!;
+    const returnTypeRef = (result.typeRefs ?? []).find((t) => t.id === ret.toId)!;
+    expect(returnTypeRef).toBeDefined();
+    expect(returnTypeRef.name).toBe('inferred');
+  });
+
+  it('emits TypeRef entities deduplicated when same type appears in multiple functions', () => {
+    const code = `
+function a(u: User): User { return u; }
+function b(u: User): User { return u; }
+type User = { id: string };
+`;
+    const result = runTSExtraction(code, 'multi.ts');
+    const userTypeRefs = (result.typeRefs ?? []).filter((t) => t.name === 'User');
+    expect(userTypeRefs).toHaveLength(1);
+    expect(userTypeRefs[0]!.id).toBe('type::typescript::multi.ts::User');
   });
 });

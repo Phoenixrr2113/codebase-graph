@@ -17,11 +17,15 @@ import type {
   ComponentEntity,
   HasMethodEdgeDescriptor,
   HasPropertyEdgeDescriptor,
+  HasParamEdgeDescriptor,
+  ReturnsEdgeDescriptor,
+  UsesTypeEdgeDescriptor,
+  TypeRefEntity,
 } from '@codegraph/types';
 
 // Re-export individual extractors (still available for standalone use)
 export { extractImports, extractImportsFromNodes } from './imports';
-export { extractFunctions, extractFunctionsFromNodes } from './functions';
+export { extractFunctions, extractFunctionsFromNodes, extractFunctionsWithNodes } from './functions';
 export { extractClasses, extractClassesFromNodes, extractClassesWithEdges, extractClassesWithEdgesFromNodes } from './classes';
 export type { ClassExtractionResult, HasMethodEdgeDescriptor, HasPropertyEdgeDescriptor, Visibility } from './classes';
 export { extractVariables, extractVariablesFromNodes } from './variables';
@@ -41,11 +45,12 @@ export type { SourceLocation } from './types';
 // Import for the combined single-pass extractor
 import { collectNodesByType } from './types';
 import { extractImportsFromNodes } from './imports';
-import { extractFunctionsFromNodes } from './functions';
+import { extractFunctionsFromNodes, extractFunctionsWithNodes } from './functions';
 import { extractClassesWithEdgesFromNodes } from './classes';
 import { extractVariablesFromNodes } from './variables';
 import { extractTypesFromNodes, extractInterfacesFromNodes } from './type-aliases';
 import { extractComponentsFromNodes } from './jsx';
+import { extractTypeRefsForFunction } from './type-refs';
 
 /** Combined result of all entity extraction */
 export interface ExtractedEntities {
@@ -58,6 +63,10 @@ export interface ExtractedEntities {
   components: ComponentEntity[];
   hasMethodEdges: HasMethodEdgeDescriptor[];
   hasPropertyEdges: HasPropertyEdgeDescriptor[];
+  typeRefs: TypeRefEntity[];
+  hasParamEdges: HasParamEdgeDescriptor[];
+  returnsEdges: ReturnsEdgeDescriptor[];
+  usesTypeEdges: UsesTypeEdgeDescriptor[];
 }
 
 /** All node types we need to collect in a single walk */
@@ -95,13 +104,25 @@ export function extractAllEntities(
     nodesByType.get('import_statement') ?? [], filePath
   );
 
-  const functions = extractFunctionsFromNodes([
+  const functionNodes = [
     ...(nodesByType.get('function_declaration') ?? []),
     ...(nodesByType.get('function_expression') ?? []),
     ...(nodesByType.get('arrow_function') ?? []),
     ...(nodesByType.get('method_definition') ?? []),
     ...(nodesByType.get('generator_function_declaration') ?? []),
-  ], filePath);
+  ];
+
+  const functions = extractFunctionsFromNodes(functionNodes, filePath);
+
+  // Top-level (non-method) function nodes paired with their entities, used for
+  // type-ref edge emission. method_definition nodes are handled via classExtraction.
+  const topLevelFunctionNodes = [
+    ...(nodesByType.get('function_declaration') ?? []),
+    ...(nodesByType.get('function_expression') ?? []),
+    ...(nodesByType.get('arrow_function') ?? []),
+    ...(nodesByType.get('generator_function_declaration') ?? []),
+  ];
+  const topLevelFunctionPairs = extractFunctionsWithNodes(topLevelFunctionNodes, filePath);
 
   // extractClassesWithEdgesFromNodes returns class entities + method Function entities +
   // property Variable entities + HAS_METHOD / HAS_PROPERTY edge descriptors in one pass.
@@ -137,6 +158,43 @@ export function extractAllEntities(
   const allFunctions = [...functions, ...classExtraction.methodEntities];
   const allVariables = [...variables, ...classExtraction.propertyEntities];
 
+  // ── Type-relationship edges (HAS_PARAM / RETURNS / USES_TYPE) ──────────────
+  // The single walk already collected all method_definition nodes. We use those
+  // directly for class methods instead of re-walking the tree.
+  const typeRefMap = new Map<string, TypeRefEntity>();
+  const allHasParamEdges: HasParamEdgeDescriptor[] = [];
+  const allReturnsEdges: ReturnsEdgeDescriptor[] = [];
+  const allUsesTypeEdges: UsesTypeEdgeDescriptor[] = [];
+
+  function accumulateTypeRefs(node: Parser.SyntaxNode, entityId: string): void {
+    const result = extractTypeRefsForFunction(node, entityId, filePath);
+    for (const ref of result.typeRefs) {
+      if (!typeRefMap.has(ref.id)) typeRefMap.set(ref.id, ref);
+    }
+    allHasParamEdges.push(...result.hasParamEdges);
+    allReturnsEdges.push(...result.returnsEdges);
+    allUsesTypeEdges.push(...result.usesTypeEdges);
+  }
+
+  // Top-level functions (non-methods): pairs are correctly aligned.
+  for (const { node, entity } of topLevelFunctionPairs) {
+    if (!entity.id) continue;
+    accumulateTypeRefs(node, entity.id);
+  }
+
+  // Class methods: match AST nodes from the already-collected method_definition bucket.
+  const methodDefinitionNodes = nodesByType.get('method_definition') ?? [];
+  for (const methodEntity of classExtraction.methodEntities) {
+    if (!methodEntity.id) continue;
+    const astNode = methodDefinitionNodes.find(
+      n =>
+        n.startPosition.row + 1 === methodEntity.startLine &&
+        n.childForFieldName('name')?.text === methodEntity.name,
+    );
+    if (!astNode) continue;
+    accumulateTypeRefs(astNode, methodEntity.id);
+  }
+
   return {
     imports,
     functions: allFunctions,
@@ -147,5 +205,9 @@ export function extractAllEntities(
     components,
     hasMethodEdges: classExtraction.hasMethodEdges,
     hasPropertyEdges: classExtraction.hasPropertyEdges,
+    typeRefs: Array.from(typeRefMap.values()),
+    hasParamEdges: allHasParamEdges,
+    returnsEdges: allReturnsEdges,
+    usesTypeEdges: allUsesTypeEdges,
   };
 }
