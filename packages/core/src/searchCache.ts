@@ -1,3 +1,5 @@
+import type { EnrichedV2Result } from './enrichedSearchV2';
+
 /**
  * Per-process LRU cache for search results.
  *
@@ -56,13 +58,13 @@ export class SearchCache<V> {
 }
 
 /** Module-level singleton used by enrichedSearchV2. */
-export const searchCache = new SearchCache<unknown>(100);
+export const searchCache = new SearchCache<EnrichedV2Result>(100);
 
 /**
  * Build a stable cache key from search inputs.
  *
  * Fields mirror the EnrichedV2Options fields actually accepted by
- * enrichedSearchV2Impl: scope, limit (plus query and searchScope which
+ * enrichedSearchV2Impl: scope, limit, skipReranker (plus query and searchScope which
  * live at the call site or in the router layer).
  */
 export function searchCacheKey(parts: {
@@ -71,6 +73,7 @@ export function searchCacheKey(parts: {
   scope?: string;
   limit?: number;
   searchScope?: string;
+  skipReranker?: boolean;
 }): string {
   return [
     parts.projectPath ?? '',
@@ -78,5 +81,6 @@ export function searchCacheKey(parts: {
     parts.scope ?? '',
     parts.limit ?? 0,
     parts.searchScope ?? 'code',
+    parts.skipReranker ? '1' : '0',
   ].join('\x00');
 }

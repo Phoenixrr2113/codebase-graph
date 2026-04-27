@@ -477,15 +477,16 @@ async function enrichedSearchV2Impl(
   }
 
   // LRU cache check — avoids duplicate calls during multi-tool-call agent turns.
-  // Keyed on query + scope + limit (fields that fully determine the result set).
+  // Keyed on query + scope + limit + skipReranker (fields that fully determine the result set).
   // scopePaths is included via JSON to handle multi-project filtering.
   const cacheKeyParts: Parameters<typeof searchCacheKey>[0] = { query };
   if (options.scope !== undefined) cacheKeyParts.scope = options.scope;
   if (options.limit !== undefined) cacheKeyParts.limit = options.limit;
+  if (options.skipReranker !== undefined) cacheKeyParts.skipReranker = options.skipReranker;
   const cacheKey = searchCacheKey(cacheKeyParts) +
     (options.scopePaths ? '\x00' + JSON.stringify(options.scopePaths) : '');
 
-  const cached = searchCache.get(cacheKey) as EnrichedV2Result | undefined;
+  const cached = searchCache.get(cacheKey);
   if (cached) {
     logger.debug(`Cache hit for query "${query.slice(0, 60)}"`);
     return cached;
