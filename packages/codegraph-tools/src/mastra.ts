@@ -60,8 +60,9 @@ export function createCodeGraphProcessor(opts: MastraProcessorOpts = {}): {
   const getSearch = (): SearchFn => {
     if (opts._searchFn) return opts._searchFn;
     return async (query, searchOpts) => {
-      const { enrichedSearchV2 } = await import('@codegraph/core');
-      const result = await enrichedSearchV2(query, searchOpts as Parameters<typeof enrichedSearchV2>[1]);
+      const { enrichedSearchV2, getGraphClient } = await import('@codegraph/core');
+      const client = await getGraphClient();
+      const result = await enrichedSearchV2(query, client, { limit: searchOpts.limit, ...(searchOpts.scope !== undefined ? { scope: searchOpts.scope } : {}) });
       const hits = (result as unknown as { hits?: unknown[] })?.hits ?? [];
       return hits.map((h) => {
         const hit = h as Record<string, unknown>;
@@ -95,7 +96,9 @@ export function createCodeGraphProcessor(opts: MastraProcessorOpts = {}): {
 
       if (!hits) {
         try {
-          hits = await getSearch()(text, { limit: maxHits, scope: opts.projectPath });
+          const searchOpts: { limit: number; scope?: string } = { limit: maxHits };
+          if (opts.projectPath !== undefined) searchOpts.scope = opts.projectPath;
+          hits = await getSearch()(text, searchOpts);
           _cache.set(key, hits);
         } catch {
           hits = [];
