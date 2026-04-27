@@ -46,4 +46,16 @@ describe('sanitizeQuery', () => {
     expect(r.query).toBe('');
     expect(r.warnings.length).toBeGreaterThan(0);
   });
+
+  it('Step 2: extracts only the last ?-sentence when multiple ?-sentences exist', () => {
+    const input = 'x'.repeat(182) + ' What is X? Find Y?';
+    const r = sanitizeQuery(input);
+    expect(r.query).toBe('Find Y?');
+  });
+
+  it('Step 2: handles two ?-sentences in a long input correctly', () => {
+    const input = 'a'.repeat(200) + ' Why? Where?';
+    const r = sanitizeQuery(input);
+    expect(r.query).toBe('Where?');
+  });
 });

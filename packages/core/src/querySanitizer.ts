@@ -38,22 +38,23 @@ export function sanitizeQuery(input: string): SanitizedQuery {
   warnings.push(`input length ${trimmed.length} exceeds ${PASSTHROUGH_MAX}; sanitizing`);
 
   // Step 2: extract last ?-terminated sentence
-  const questionMatches = [...trimmed.matchAll(/[^?!.]*\?/g)];
-  if (questionMatches.length > 0) {
-    const last = questionMatches[questionMatches.length - 1]?.[0]?.trim();
-    if (last && last.length > 0 && last.length <= HARD_CAP) {
+  const sentences = trimmed.split(/(?<=[.!?])\s+/);
+  const lastQuestion = [...sentences].reverse().find(s => s.trimEnd().endsWith('?'));
+  if (lastQuestion) {
+    const q = lastQuestion.trim();
+    if (q.length > 0 && q.length <= HARD_CAP) {
       warnings.push('extracted last question-terminated sentence');
-      return { query: last, warnings };
+      return { query: q, warnings };
     }
   }
 
   // Step 3: extract last sentence (any terminator)
-  const sentenceMatches = [...trimmed.matchAll(/[^.!?\n]+[.!?]/g)];
-  if (sentenceMatches.length > 0) {
-    const last = sentenceMatches[sentenceMatches.length - 1]?.[0]?.trim();
-    if (last && last.length > 0 && last.length <= HARD_CAP) {
+  const lastSentence = [...sentences].reverse().find(s => /[.!?]$/.test(s.trimEnd()));
+  if (lastSentence) {
+    const q = lastSentence.trim();
+    if (q.length > 0 && q.length <= HARD_CAP) {
       warnings.push('extracted last sentence');
-      return { query: last, warnings };
+      return { query: q, warnings };
     }
   }
 
