@@ -2,35 +2,29 @@
 
 import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Download, Database, Sparkles, Check, ChevronRight } from "lucide-react"
-import { CodeBlock, TerminalBlock } from "./code-block"
+import { FileCode2, Database, Sparkles, Check, ChevronRight } from "lucide-react"
+import { TerminalBlock } from "./code-block"
 import { cn } from "@/lib/utils"
 
+// source: CLAUDE.md "5 tier-1 language plugins" + MEMORY.md
 const steps = [
   {
     number: "01",
-    icon: Download,
-    title: "Install",
-    description: "A single binary. No Docker, no cloud services, no complex setup. Just download and run.",
-    code: `# Install via npm
-npx codegraph-mcp
-
-# Or download the binary
-# macOS / Linux / Windows
-# → github.com/Phoenixrr2113/codebase-graph/releases`,
-    language: "bash",
+    icon: FileCode2,
+    title: "Parse",
+    description: "Tree-sitter extracts every function, class, type, and import. 5 tier-1 plugins (TypeScript, Python, Go, Rust, Markdown) plus generic coverage for ~30 more languages.",
   },
   {
     number: "02",
     icon: Database,
-    title: "Index",
-    description: "Point it at your codebase. CodeGraph automatically extracts structure, relationships, and meaning.",
+    title: "Graph",
+    description: "Nodes and edges land in FalkorDB (Docker) or FalkorDBLite (embedded, no Docker). Vector indexes for semantic search; structural edges for CALLS, IMPORTS, EXTENDS, IMPLEMENTS.",
   },
   {
     number: "03",
     icon: Sparkles,
     title: "Query",
-    description: "Your AI assistant now understands your entire codebase. It can search, understand relationships, and recall knowledge with full context.",
+    description: "Four MCP persona tools — search, knowledge, codebase, query — give your AI agent vector search, knowledge recall, project management, and raw Cypher. Cross-encoder reranking and graph enrichment included.",
   },
 ]
 
@@ -46,25 +40,25 @@ export function HowItWorksSection() {
           className="text-center mb-12 md:mb-16"
         >
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3 sm:mb-4">
-            Three steps. Under a minute.
+            Parse. Graph. Query.
           </h2>
           <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto">
-            Get your AI assistant fully connected to your codebase in seconds.
+            Three pipelines, one graph. Your AI agent queries it through MCP tools.
           </p>
         </motion.div>
 
         <div className="space-y-12 sm:space-y-16 md:space-y-20">
-          {/* Step 1: Install */}
+          {/* Step 1: Parse — show indexing pipeline animation */}
           <StepRow step={steps[0]} index={0}>
-            <CodeBlock code={steps[0].code!} language="bash" />
-          </StepRow>
-
-          {/* Step 2: Index - Interactive indexing demo */}
-          <StepRow step={steps[1]} index={1} reverse>
             <IndexingDemo />
           </StepRow>
 
-          {/* Step 3: Query - Interactive AI response demo */}
+          {/* Step 2: Graph — show a graph illustration */}
+          <StepRow step={steps[1]} index={1} reverse>
+            <GraphIllustration />
+          </StepRow>
+
+          {/* Step 3: Query — interactive MCP tool call */}
           <StepRow step={steps[2]} index={2}>
             <ImpactAnalysisDemo />
           </StepRow>
@@ -179,7 +173,7 @@ function IndexingDemo() {
       </div>
       <div className="p-3 sm:p-4 font-mono text-xs sm:text-sm space-y-2 min-h-[140px] sm:min-h-[160px]">
         <div className="text-muted-foreground">
-          <span className="text-accent">$</span> codegraph index ./src
+          <span className="text-accent">$</span> pnpm --filter @codegraph/cli start index ./src
         </div>
         
         <AnimatePresence mode="wait">
@@ -248,60 +242,90 @@ function IndexingDemo() {
   )
 }
 
+function GraphIllustration() {
+  return (
+    <motion.div
+      className="rounded-xl border bg-card overflow-hidden shadow-lg"
+      whileHover={{ scale: 1.01 }}
+      transition={{ duration: 0.2 }}
+    >
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b bg-muted/50">
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
+            <span className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
+          </div>
+          <span className="text-xs sm:text-sm text-muted-foreground font-mono ml-2">FalkorDB</span>
+        </div>
+      </div>
+      <div className="p-4 sm:p-6 font-mono text-xs sm:text-sm">
+        <div className="text-muted-foreground mb-2">Sample relationships:</div>
+        <ul className="space-y-1 text-foreground">
+          <li><span className="text-accent">(:Function)</span> -[:CALLS]-&gt; <span className="text-accent">(:Function)</span></li>
+          <li><span className="text-accent">(:File)</span> -[:IMPORTS]-&gt; <span className="text-accent">(:File)</span></li>
+          <li><span className="text-accent">(:Class)</span> -[:EXTENDS]-&gt; <span className="text-accent">(:Class)</span></li>
+          <li><span className="text-accent">(:Function)</span> -[:ABOUT]-&gt; <span className="text-accent">(:Entity)</span></li>
+          <li><span className="text-accent">(:Person)</span> -[:SAID]-&gt; <span className="text-accent">(:Fact)</span></li>
+        </ul>
+      </div>
+    </motion.div>
+  )
+}
+
 function ImpactAnalysisDemo() {
   const [isExpanded, setIsExpanded] = useState(false)
 
   return (
-    <TerminalBlock title="AI Assistant Response">
+    <TerminalBlock title="MCP Tool Call">
       <div className="space-y-3">
-        <div className="text-muted-foreground text-xs sm:text-sm">
-          <span className="text-accent">User:</span> what calls processPayment and what would break if I changed it?
+        <div className="text-muted-foreground text-xs sm:text-sm font-mono">
+          search({"{"} action: <span className="text-accent">&quot;context&quot;</span>, symbol: <span className="text-accent">&quot;processPayment&quot;</span> {"}"})
         </div>
         <div className="border-t border-border pt-3">
           <motion.button
             onClick={() => setIsExpanded(!isExpanded)}
             whileHover={{ x: 2 }}
-            className="flex items-center gap-2 text-accent mb-2 hover:underline text-xs sm:text-sm"
+            className="flex items-center gap-2 text-accent mb-2 hover:underline text-xs sm:text-sm font-mono"
           >
             <ChevronRight className={cn("h-3 w-3 sm:h-4 sm:w-4 transition-transform", isExpanded && "rotate-90")} />
-            Impact Analysis: processPayment()
+            Result: enriched context
           </motion.button>
-          
+
           <AnimatePresence>
             {isExpanded && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="space-y-2 text-xs sm:text-sm overflow-hidden"
+                className="space-y-2 text-xs sm:text-sm overflow-hidden font-mono"
               >
                 <div>
-                  <span className="text-muted-foreground">Direct callers:</span>
-                  <ul className="ml-3 sm:ml-4 mt-1 text-foreground space-y-0.5">
-                    <li>• checkout.ts</li>
-                    <li>• orders.ts</li>
-                    <li>• subscriptions.ts</li>
+                  <span className="text-muted-foreground">callers:</span>
+                  <ul className="ml-3 mt-1 text-foreground space-y-0.5">
+                    <li>• checkout.ts:42</li>
+                    <li>• orders.ts:118</li>
+                    <li>• subscriptions.ts:67</li>
                   </ul>
                 </div>
                 <div className="flex flex-wrap gap-1 sm:gap-2">
-                  <span className="text-muted-foreground">Downstream:</span>
-                  <span className="text-foreground">12 additional dependencies</span>
+                  <span className="text-muted-foreground">callees:</span>
+                  <span className="text-foreground">7 functions across 3 files</span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Affected tests:</span>
-                  <span className="text-foreground ml-2">6 tests across 2 files</span>
+                  <span className="text-muted-foreground">linkedKnowledge:</span>
+                  <span className="text-foreground ml-2">2 entities, 1 SAID fact</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border">
-                  <span className="text-muted-foreground">Risk:</span>
-                  <span className="px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400 text-xs">MEDIUM</span>
-                  <span className="text-muted-foreground text-xs">— payment critical path</span>
+                  <span className="text-muted-foreground">complexity:</span>
+                  <span className="text-foreground">cyclomatic 12, importerCount 3</span>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
 
           {!isExpanded && (
-            <p className="text-xs text-muted-foreground">Click to expand analysis</p>
+            <p className="text-xs text-muted-foreground">Click to expand result</p>
           )}
         </div>
       </div>
