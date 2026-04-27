@@ -1,0 +1,35 @@
+{
+  "name": "@codegraph/tools",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./vercel": "./dist/vercel.js",
+    "./mastra": "./dist/mastra.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codegraph/core": "workspace:*",
+    "@codegraph/types": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.4",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.12.0"
+  },
+  "peerDependencies": {
+    "ai": "*"
+  },
+  "peerDependenciesMeta": {
+    "ai": { "optional": true }
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
