@@ -143,6 +143,9 @@ export interface HasPropertyEdge extends BaseEdge {
  * Describes a HAS_METHOD edge to create between a Class node and a Function node.
  * Produced by language plugins during extraction, consumed by graph batchUpsert.
  * Lives here (not in a plugin) so Python/Go/Rust plugins emit the same shape.
+ *
+ * Uses `fromId`/`toId` (not `from`/`to`) to distinguish these pre-persistence
+ * transport objects from the final BaseEdge-derived types that flow through queries.
  */
 export interface HasMethodEdgeDescriptor {
   /** Class node id */
@@ -157,6 +160,9 @@ export interface HasMethodEdgeDescriptor {
  * Describes a HAS_PROPERTY edge to create between a Class node and a Variable node.
  * Produced by language plugins during extraction, consumed by graph batchUpsert.
  * Lives here (not in a plugin) so Python/Go/Rust plugins emit the same shape.
+ *
+ * Uses `fromId`/`toId` (not `from`/`to`) to distinguish these pre-persistence
+ * transport objects from the final BaseEdge-derived types that flow through queries.
  */
 export interface HasPropertyEdgeDescriptor {
   /** Class node id */

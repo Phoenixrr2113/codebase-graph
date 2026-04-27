@@ -12,6 +12,7 @@ import type {
   TypeEntity,
   ComponentEntity,
 } from './nodes';
+import type { HasMethodEdgeDescriptor, HasPropertyEdgeDescriptor } from './edges';
 
 // ============================================================================
 // Tree-sitter Types (generic to avoid direct dependency)
@@ -61,15 +62,13 @@ export interface ExtractedEntities {
   /**
    * HAS_METHOD edge descriptors (Class → Function).
    * Optional: only produced by plugins that support class member extraction.
-   * Use HasMethodEdgeDescriptor from @codegraph/types for the concrete type.
    */
-  hasMethodEdges?: Array<{ fromId: string; toId: string; isStatic: boolean; visibility: 'public' | 'private' | 'protected' }>;
+  hasMethodEdges?: HasMethodEdgeDescriptor[];
   /**
    * HAS_PROPERTY edge descriptors (Class → Variable).
    * Optional: only produced by plugins that support class member extraction.
-   * Use HasPropertyEdgeDescriptor from @codegraph/types for the concrete type.
    */
-  hasPropertyEdges?: Array<{ fromId: string; toId: string; isStatic: boolean; visibility: 'public' | 'private' | 'protected'; isReadonly: boolean }>;
+  hasPropertyEdges?: HasPropertyEdgeDescriptor[];
 }
 
 /** Call reference for edge creation */

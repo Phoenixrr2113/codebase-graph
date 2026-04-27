@@ -31,50 +31,27 @@ export interface ClassExtractionResult {
 }
 
 /**
- * Extract all class entities from a syntax tree
+ * Compatibility wrapper — delegates to extractClassesWithEdges.
+ * Returns only the Class entities (not method/property entities or edges).
+ * @deprecated Use extractClassesWithEdges or extractAllEntities instead.
  */
 export function extractClasses(
   rootNode: Parser.SyntaxNode,
   filePath: string
 ): ClassEntity[] {
-  const classes: ClassEntity[] = [];
-  
-  const classNodes = findNodesOfType(rootNode, 'class_declaration');
-  
-  for (const node of classNodes) {
-    const classEntity = parseClassNode(node, filePath);
-    if (classEntity) {
-      classes.push(classEntity);
-    }
-  }
-  
-  // Also find class expressions
-  const classExprNodes = findNodesOfType(rootNode, 'class');
-  for (const node of classExprNodes) {
-    const classEntity = parseClassNode(node, filePath);
-    if (classEntity) {
-      classes.push(classEntity);
-    }
-  }
-  
-  return classes;
+  return extractClassesWithEdges(rootNode, filePath).classes;
 }
 
 /**
- * Extract classes from pre-collected class nodes (single-pass mode)
+ * Compatibility wrapper — delegates to extractClassesWithEdgesFromNodes.
+ * Returns only the Class entities (not method/property entities or edges).
+ * @deprecated Use extractClassesWithEdgesFromNodes or extractAllEntities instead.
  */
 export function extractClassesFromNodes(
   classNodes: Parser.SyntaxNode[],
   filePath: string
 ): ClassEntity[] {
-  const classes: ClassEntity[] = [];
-  for (const node of classNodes) {
-    const classEntity = parseClassNode(node, filePath);
-    if (classEntity) {
-      classes.push(classEntity);
-    }
-  }
-  return classes;
+  return extractClassesWithEdgesFromNodes(classNodes, filePath).classes;
 }
 
 /**
