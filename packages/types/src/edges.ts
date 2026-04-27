@@ -146,12 +146,6 @@ export interface RendersEdge extends BaseEdge {
   line: number;
 }
 
-/** Component uses a React hook */
-export interface UsesHookEdge extends BaseEdge {
-  type: 'USES_HOOK';
-  /** Hook name (e.g., 'useState', 'useEffect') */
-  hookName: string;
-}
 
 // ============================================================================
 // Temporal Edges (Git History)
@@ -182,30 +176,8 @@ export interface DeletedInEdge extends BaseEdge {
 // Dataflow Edges
 // ============================================================================
 
-/** Function reads from a variable */
-export interface ReadsEdge extends BaseEdge {
-  type: 'READS';
-  /** Line number where the read occurs */
-  line?: number;
-}
 
-/** Function writes to a variable */
-export interface WritesEdge extends BaseEdge {
-  type: 'WRITES';
-  /** Line number where the write occurs */
-  line?: number;
-}
 
-/** Data flows from one node to another (for taint tracking) */
-export interface FlowsToEdge extends BaseEdge {
-  type: 'FLOWS_TO';
-  /** Type of transformation applied (e.g., 'assignment', 'call_argument', 'return') */
-  transformation?: string;
-  /** Whether this flow carries tainted data */
-  tainted?: boolean;
-  /** Whether the data has been sanitized at this point */
-  sanitized?: boolean;
-}
 
 // ============================================================================
 // Document Edges (Markdown)
@@ -275,13 +247,9 @@ export type Edge =
   | HasMethodEdge
   | HasPropertyEdge
   | RendersEdge
-  | UsesHookEdge
   | IntroducedInEdge
   | ModifiedInEdge
   | DeletedInEdge
-  | ReadsEdge
-  | WritesEdge
-  | FlowsToEdge
   | ExportsEdge
   | InstantiatesEdge
   | HasSectionEdge
@@ -304,13 +272,9 @@ export type EdgeLabel =
   | 'HAS_METHOD'
   | 'HAS_PROPERTY'
   | 'RENDERS'
-  | 'USES_HOOK'
   | 'INTRODUCED_IN'
   | 'MODIFIED_IN'
   | 'DELETED_IN'
-  | 'READS'
-  | 'WRITES'
-  | 'FLOWS_TO'
   | 'EXPORTS'
   | 'INSTANTIATES'
   | 'HAS_SECTION'

@@ -263,6 +263,5 @@ export type {
   HasMethodEdge,
   HasPropertyEdge,
   RendersEdge,
-  UsesHookEdge,
   Visibility,
 } from './edges';

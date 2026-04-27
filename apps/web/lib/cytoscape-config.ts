@@ -85,9 +85,6 @@ export const EDGE_COLORS: Record<string, string> = {
   INTRODUCED_IN: '#22c55e',
   MODIFIED_IN: '#eab308',
   DELETED_IN: '#ef4444',
-  READS: '#3b82f6',
-  WRITES: '#f97316',
-  FLOWS_TO: '#a855f7',
 }
 
 // ============================================================================

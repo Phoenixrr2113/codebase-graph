@@ -359,7 +359,7 @@ export async function getNeighborsImpl(
   // Validate edge types
   const VALID_EDGE_TYPES = new Set([
     'CONTAINS', 'IMPORTS', 'CALLS', 'EXTENDS', 'IMPLEMENTS',
-    'RENDERS', 'USES_HOOK', 'MODIFIED_IN', 'DEPENDS_ON', 'ABOUT',
+    'RENDERS', 'MODIFIED_IN', 'DEPENDS_ON', 'ABOUT',
   ]);
   const safeEdgeTypes = edgeTypes?.filter(t => VALID_EDGE_TYPES.has(t));
 

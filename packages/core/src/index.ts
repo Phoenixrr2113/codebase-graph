@@ -198,7 +198,6 @@ export type {
   ExtendsEdge,
   ImplementsEdge,
   RendersEdge,
-  UsesHookEdge,
 } from '@codegraph/types';
 
 // Re-export extractor types from @codegraph/plugin-typescript
