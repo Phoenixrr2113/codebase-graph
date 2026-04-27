@@ -30,18 +30,21 @@ export const indexPersonaDefinition: ToolDefinition = {
   Params: path (required), startLine, endLine
 - **ping**: Test connectivity.
   Params: none
+- **profile**: Return a static + dynamic codebase summary for fast agent onboarding (topImports, topCallers, recentFiles, recentEntities). Targets <200ms.
+  Params: projectPath (optional), limit (optional, default 10)
 
 **Examples:**
 - Check status: { action: "status" }
 - Configure projects: { action: "configure", projectAction: "status" }
 - Re-index: { action: "reindex", mode: "incremental" }
-- Read source: { action: "source", path: "/path/to/file.ts", startLine: 1, endLine: 50 }`,
+- Read source: { action: "source", path: "/path/to/file.ts", startLine: 1, endLine: 50 }
+- Get profile: { action: "profile", projectPath: "/your/project", limit: 10 }`,
   inputSchema: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['configure', 'reindex', 'status', 'stats', 'source', 'ping'],
+        enum: ['configure', 'reindex', 'status', 'stats', 'source', 'ping', 'profile'],
         description: 'Index operation to perform',
       },
       // configure params
@@ -200,8 +203,76 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
       break;
     }
 
+    case 'profile': {
+      try {
+        const projectPath = typeof args.projectPath === 'string' ? args.projectPath : undefined;
+        const limit = typeof args.limit === 'number' ? args.limit : 10;
+        const filter = projectPath ? 'WHERE n.filePath STARTS WITH $projectPath' : '';
+        const fileFilter = projectPath ? 'WHERE f.path STARTS WITH $projectPath' : '';
+        const params: Record<string, unknown> = { projectPath: projectPath ?? null, limit };
+
+        const client = await getGraphClient();
+
+        const [rawStats, topImportsRes, topCallersRes, langsRes, recentFilesRes, recentEntitiesRes] =
+          await Promise.all([
+            codeGraphService.getGraphStats(),
+            client.roQuery<{ name: string; importCount: number }>(
+              `MATCH (n)<-[:IMPORTS]-(m) ${filter}
+               RETURN n.name AS name, count(m) AS importCount
+               ORDER BY importCount DESC LIMIT $limit`,
+              { params },
+            ).catch(() => ({ data: [] as Array<{ name: string; importCount: number }> })),
+            client.roQuery<{ name: string; callCount: number }>(
+              `MATCH (n)<-[:CALLS]-(m) ${filter}
+               RETURN n.name AS name, count(m) AS callCount
+               ORDER BY callCount DESC LIMIT $limit`,
+              { params },
+            ).catch(() => ({ data: [] as Array<{ name: string; callCount: number }> })),
+            client.roQuery<{ name: string; fileCount: number }>(
+              `MATCH (f:File) ${fileFilter}
+               RETURN f.language AS name, count(f) AS fileCount
+               ORDER BY fileCount DESC LIMIT $limit`,
+              { params },
+            ).catch(() => ({ data: [] as Array<{ name: string; fileCount: number }> })),
+            client.roQuery<{ filePath: string; lastModified: number }>(
+              `MATCH (f:File) ${fileFilter}
+               RETURN f.path AS filePath, f.lastModified AS lastModified
+               ORDER BY f.lastModified DESC LIMIT $limit`,
+              { params },
+            ).catch(() => ({ data: [] as Array<{ filePath: string; lastModified: number }> })),
+            client.roQuery<{ text: string; type: string; createdAt: number }>(
+              `MATCH (e:Entity)
+               RETURN e.text AS text, e.type AS type, e.createdAt AS createdAt
+               ORDER BY e.createdAt DESC LIMIT $limit`,
+              { params },
+            ).catch(() => ({ data: [] as Array<{ text: string; type: string; createdAt: number }> })),
+          ]);
+
+        result = {
+          stats: {
+            nodes: rawStats.totalNodes,
+            edges: rawStats.totalEdges,
+            files: (rawStats.nodesByType as Record<string, number>)['File'] ?? 0,
+          },
+          static: {
+            topImports: topImportsRes.data,
+            topCallers: topCallersRes.data,
+            languages: langsRes.data,
+          },
+          dynamic: {
+            recentFiles: recentFilesRes.data,
+            recentEntities: recentEntitiesRes.data,
+          },
+        };
+      } catch (error) {
+        result = { error: error instanceof Error ? error.message : 'Unknown error building profile' };
+      }
+      toolUsed = 'profile';
+      break;
+    }
+
     default:
-      return { error: `Unknown index action: ${action}. Use: configure, reindex, status, stats, source, ping` };
+      return { error: `Unknown index action: ${action}. Use: configure, reindex, status, stats, source, ping, profile` };
   }
 
   const durationMs = Date.now() - start;

@@ -16,6 +16,7 @@ import { parseRoutes } from './routes/parse';
 import { statsRoutes } from './routes/stats';
 import { naturalRoutes } from './routes/natural';
 import { sourceRoutes } from './routes/source';
+import { profileRoutes } from './routes/profile';
 
 const app = new Hono();
 
@@ -35,6 +36,7 @@ app.route('/', parseRoutes);
 app.route('/', statsRoutes);
 app.route('/', naturalRoutes);
 app.route('/', sourceRoutes);
+app.route('/', profileRoutes);
 
 // Start server
 const port = Number(process.env.PORT ?? 3001);
@@ -48,6 +50,7 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log(`  Parse:      POST /api/parse/project`);
   console.log(`  Stats:      GET  /api/stats`);
   console.log(`  Knowledge:  GET  /api/knowledge/stats`);
+  console.log(`  Profile:    GET  /api/profile`);
   console.log(`  Embeddings: GET  /api/embeddings/status`);
 });
 
