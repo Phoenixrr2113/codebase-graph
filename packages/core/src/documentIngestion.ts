@@ -26,6 +26,13 @@ export interface AddOptions {
   model?: string;
   /** Source label for provenance tracking */
   source?: string;
+  /**
+   * DI hooks — test-only. Override internal dependencies for unit testing
+   * without a real graph database or network connection.
+   */
+  _extractAndStore?: (text: string, ops: unknown, config?: unknown) => Promise<{ entities: number; relationships: number }>;
+  _fetch?: typeof globalThis.fetch;
+  _loader?: { extract: (input: string | Buffer) => Promise<{ text: string; metadata: Record<string, unknown> }> };
 }
 
 export interface AddResult {
@@ -89,7 +96,17 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
   // Step 1: Load content
   if (inputType === 'file') {
     const ext = getExtension(input);
-    const loader = nlp.getLoaderForExtension(ext);
+    // DI hook: allow test to inject a specific loader
+    const loader = options?._loader ?? nlp.getLoaderForExtension(ext);
+    // For known binary/structured extensions we require a loader; unknown extensions with no loader throw
+    const knownBinaryExts = new Set(['pdf', 'docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt']);
+    if (!loader && ext && knownBinaryExts.has(ext)) {
+      throw new Error(`unsupported file type: no loader registered for ".${ext}"`);
+    }
+    // For totally unknown extensions with no loader, throw as well
+    if (!loader && ext && !/^txt|md|json|yaml|yml|toml|ini|csv|html?|htm/.test(ext)) {
+      throw new Error(`unsupported file extension: no loader registered for ".${ext}"`);
+    }
     if (loader) {
       logger.info(`Loading ${ext} file: ${input}`);
       const result = await loader.extract(input);
@@ -104,9 +121,21 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
   } else if (inputType === 'url') {
     // Use HTML loader for URLs
     logger.info(`Fetching URL: ${input}`);
-    const result = await nlp.HTMLLoader.extract(input);
-    text = result.text;
-    metadata = result.metadata;
+    if (options?._fetch) {
+      // DI hook: use injected fetch (test mode)
+      const fetcher = options._fetch;
+      const res = await fetcher(input);
+      if (!res.ok) throw new Error(`URL fetch failed: ${input} (${res.status})`);
+      const html = await res.text();
+      const htmlLoader = options._loader ?? nlp.HTMLLoader;
+      const result = await htmlLoader.extract(html);
+      text = result.text;
+      metadata = result.metadata;
+    } else {
+      const result = await nlp.HTMLLoader.extract(input);
+      text = result.text;
+      metadata = result.metadata;
+    }
   } else {
     // Raw text
     text = input;
@@ -133,7 +162,9 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
   logger.info(`Chunked into ${chunks.length} pieces (${nlp.estimateTokens(text)} total tokens)`);
 
   // Step 3: Extract and store each chunk
-  const ops = await getKnowledgeOps();
+  // DI hook: allow test to inject extractAndStore mock to avoid real DB connection
+  const extractor = options?._extractAndStore;
+  const ops = extractor ? null : await getKnowledgeOps();
   let totalEntities = 0;
   let totalRelationships = 0;
 
@@ -144,7 +175,9 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
 
   for (const chunk of chunks) {
     try {
-      const result = await nlp.extractAndStore(chunk.text, ops, config);
+      const result = extractor
+        ? await extractor(chunk.text, ops, config)
+        : await nlp.extractAndStore(chunk.text, ops!, config);
       totalEntities += result.entities;
       totalRelationships += result.relationships;
     } catch (err) {
