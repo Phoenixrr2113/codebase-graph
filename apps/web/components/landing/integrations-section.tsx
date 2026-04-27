@@ -67,10 +67,10 @@ export const mastra = new Mastra({
     label: "Claude Code Hooks",
     filename: ".claude-plugin/hooks/post-tool-use.sh",
     snippet: `#!/usr/bin/env bash
-# Re-index after file edits so the graph stays fresh.
-# Sample script lives in the repo at .claude-plugin/hooks/
+# Re-extract after file edits so the graph stays fresh.
+# Adapt path + arguments to your project layout.
 exec node /abs/path/to/codebase-graph/packages/cli/dist/index.js \\
-  reindex --incremental`,
+  extract .`,
   },
 ]
 

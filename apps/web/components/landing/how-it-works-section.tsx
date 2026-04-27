@@ -173,7 +173,7 @@ function IndexingDemo() {
       </div>
       <div className="p-3 sm:p-4 font-mono text-xs sm:text-sm space-y-2 min-h-[140px] sm:min-h-[160px]">
         <div className="text-muted-foreground">
-          <span className="text-accent">$</span> pnpm --filter @codegraph/cli start index ./src
+          <span className="text-accent">$</span> pnpm --filter @codegraph/cli start extract ./src
         </div>
         
         <AnimatePresence mode="wait">
