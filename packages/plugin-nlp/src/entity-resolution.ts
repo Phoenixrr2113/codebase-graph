@@ -32,6 +32,7 @@ import { generateText, type LanguageModel } from 'ai';
 import type { KnowledgeOperations } from '@codegraph/graph';
 import { generateEmbedding, isEmbeddingAvailable } from './embeddings';
 import { buildEntityEmbeddingText } from './embedding-text';
+import { DeltaOpSchema, type DeltaOp } from './schemas';
 
 const logger = createLogger({ namespace: 'nlp:entity-resolution' });
 
@@ -236,40 +237,61 @@ function findEmbeddingSimilarPairs(
 // ============================================================================
 
 /**
- * Use LLM to verify whether two entities refer to the same thing.
- * Returns true if the LLM confirms they are the same.
+ * Use LLM to compare two candidate entities and return a typed DeltaOp.
+ *
+ * Returns a Zod-validated discriminated union (MergeOp | KeepOp | RenameOp).
+ * Malformed or unparseable LLM output falls back to a safe "keep" op so that
+ * no merges happen on parse failure (conservative default).
  */
-async function llmVerifyMatch(
+async function tier3Compare(
   entityA: EntityWithEmbedding,
   entityB: EntityWithEmbedding,
   llm: LanguageModel,
-): Promise<boolean> {
-  const prompt = `You are an entity resolution expert.
+): Promise<DeltaOp> {
+  const prompt = `Compare these two entities and decide whether to merge them or keep them separate.
 
-Determine if these two entities refer to the SAME real-world thing:
-  Entity A: "${entityA.text}" (type: ${entityA.type})
-  Entity B: "${entityB.text}" (type: ${entityB.type})
+Entity A: ${JSON.stringify({ text: entityA.text, type: entityA.type })}
+Entity B: ${JSON.stringify({ text: entityB.text, type: entityB.type })}
+
+Respond with a JSON object matching exactly one of these shapes:
+- {"op": "merge", "canonical": "<text of survivor entity>", "duplicate": "<text of merged-in entity>", "reason": "<one sentence why>"}
+- {"op": "keep", "reason": "<one sentence why they should stay separate>"}
 
 Rules:
-- If they are clearly the same entity (e.g., "Sarah" and "Sarah Chen"), answer YES
-- If they are different entities that happen to be similar, answer NO
-- Consider the entity types: different types suggest different entities
+- If they clearly refer to the same real-world thing (e.g., "Sarah" and "Sarah Chen"), use merge with the longer/more specific text as canonical.
+- If they are different entities that happen to be similar, use keep.
+- Consider entity types: different types strongly suggest different entities.
 
-Answer with exactly one word: YES or NO`;
+Only output the JSON object, no other text.`;
 
+  let raw: string;
   try {
     const { text } = await generateText({
       model: llm,
       prompt,
       temperature: 0,
     });
-
-    const answer = text.trim().toUpperCase();
-    return answer.startsWith('YES');
+    raw = text.trim();
   } catch (err) {
-    logger.warn(`LLM verification failed for "${entityA.text}" vs "${entityB.text}": ${err}`);
-    return false;
+    logger.warn(`Tier 3 LLM call failed for "${entityA.text}" vs "${entityB.text}": ${err}`);
+    return { op: 'keep', reason: 'LLM call failed; defaulting to keep.' };
   }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    logger.warn(`Tier 3 LLM output was not parseable JSON for "${entityA.text}" vs "${entityB.text}": ${raw.slice(0, 100)}`);
+    return { op: 'keep', reason: 'LLM output was not parseable JSON; defaulting to keep.' };
+  }
+
+  const result = DeltaOpSchema.safeParse(parsed);
+  if (!result.success) {
+    logger.warn(`Tier 3 DeltaOp schema validation failed for "${entityA.text}" vs "${entityB.text}": ${result.error.message.slice(0, 100)}`);
+    return { op: 'keep', reason: `LLM output failed schema validation: ${result.error.message.slice(0, 100)}` };
+  }
+
+  return result.data;
 }
 
 // ============================================================================
@@ -435,29 +457,44 @@ export async function resolveEntities(
       const { a, b, similarity } = candidates[i]!;
 
       result.llmCalls++;
-      const isSame = await llmVerifyMatch(a, b, config.llm);
+      const op = await tier3Compare(a, b, config.llm);
 
-      if (isSame) {
-        // Pick longer text as canonical
-        const canonical = a.text.length >= b.text.length ? a : b;
-        const duplicate = a.text.length >= b.text.length ? b : a;
+      switch (op.op) {
+        case 'merge': {
+          // LLM named canonical/duplicate by text; map back to our entity objects.
+          // Fall back to length heuristic if the LLM returned text we can't match.
+          const canonicalText = op.canonical;
+          const duplicateText = op.duplicate;
+          const canonicalEntity = (a.text === canonicalText ? a : b.text === canonicalText ? b : null)
+            ?? (a.text.length >= b.text.length ? a : b);
+          const duplicateEntity = (a.text === duplicateText ? a : b.text === duplicateText ? b : null)
+            ?? (a.text.length >= b.text.length ? b : a);
 
-        try {
-          await kgOps.mergeEntities(
-            canonical.text, canonical.type,
-            duplicate.text, duplicate.type,
-          );
-          result.tier3Merges++;
-          result.merged++;
-          result.merges.push({
-            canonical: canonical.text,
-            duplicate: duplicate.text,
-            tier: 3,
-            similarity,
-          });
-        } catch (err) {
-          logger.warn(`Tier 3 merge failed: "${duplicate.text}" → "${canonical.text}": ${err}`);
+          try {
+            await kgOps.mergeEntities(
+              canonicalEntity.text, canonicalEntity.type,
+              duplicateEntity.text, duplicateEntity.type,
+            );
+            result.tier3Merges++;
+            result.merged++;
+            result.merges.push({
+              canonical: canonicalEntity.text,
+              duplicate: duplicateEntity.text,
+              tier: 3,
+              similarity,
+            });
+          } catch (err) {
+            logger.warn(`Tier 3 merge failed: "${duplicateEntity.text}" → "${canonicalEntity.text}": ${err}`);
+          }
+          break;
         }
+        case 'keep':
+          logger.info('entity-resolution', { tier: 3, op: 'keep', a: a.text, b: b.text, reason: op.reason });
+          break;
+        case 'rename':
+          // RenameOp is uncommon in entity comparison context; log and skip.
+          logger.info('entity-resolution', { tier: 3, op: 'rename', entity: op.entity, newText: op.newText, reason: op.reason });
+          break;
       }
 
       config.onProgress?.('tier3', i + 1, candidates.length);

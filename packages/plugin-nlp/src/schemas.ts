@@ -68,3 +68,48 @@ export const BatchExtractionResponseSchema = z.object({
 
 export type BatchExtractionResponse = z.infer<typeof BatchExtractionResponseSchema>;
 
+// ============================================================================
+// Entity Resolution Delta Ops
+// ============================================================================
+
+/**
+ * Typed delta operations returned by the Tier-3 LLM entity-resolution step.
+ * Using a discriminated union (op field) keeps the output unambiguous and
+ * Zod-validated, eliminating LLM rewrite drift.
+ *
+ * Pattern: hindsight engine/reflect/delta_ops.py
+ */
+
+export const MergeOpSchema = z.object({
+  op: z.literal('merge'),
+  /** Canonical entity ID (the survivor). */
+  canonical: z.string(),
+  /** Duplicate to merge into canonical. */
+  duplicate: z.string(),
+  /** One-sentence rationale. */
+  reason: z.string().min(5).max(200),
+});
+
+export const KeepOpSchema = z.object({
+  op: z.literal('keep'),
+  reason: z.string().min(5).max(200),
+});
+
+export const RenameOpSchema = z.object({
+  op: z.literal('rename'),
+  entity: z.string(),
+  newText: z.string(),
+  reason: z.string().min(5).max(200),
+});
+
+export const DeltaOpSchema = z.discriminatedUnion('op', [
+  MergeOpSchema,
+  KeepOpSchema,
+  RenameOpSchema,
+]);
+
+export type MergeOp = z.infer<typeof MergeOpSchema>;
+export type KeepOp = z.infer<typeof KeepOpSchema>;
+export type RenameOp = z.infer<typeof RenameOpSchema>;
+export type DeltaOp = z.infer<typeof DeltaOpSchema>;
+
