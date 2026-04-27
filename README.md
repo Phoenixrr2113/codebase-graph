@@ -139,7 +139,7 @@ pnpm docker:db      # Start FalkorDB via Docker
 
 ## Status
 
-Active development. Public on 2026-04-25. No releases yet — install from source. See [docs/v6-execution-plan.md](docs/v6-execution-plan.md) for the current roadmap.
+Active development. Public on 2026-04-25. No releases yet — install from source.
 
 ## License
 
