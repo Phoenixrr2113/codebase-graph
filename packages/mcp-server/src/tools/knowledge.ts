@@ -220,6 +220,10 @@ export const decayAndPruneToolDefinition: ToolDefinition = {
         type: 'number',
         description: 'Decay rate per run, e.g. 0.013 = 1.3% (default: 0.013)',
       },
+      minAge: {
+        type: 'number',
+        description: 'Minimum age in milliseconds before decay starts (default: 604800000 = 7 days)',
+      },
       minRelevance: {
         type: 'number',
         description: 'Minimum relevance threshold for pruning (default: 0.1)',
@@ -672,9 +676,10 @@ export async function handleRecall(args: Record<string, unknown>) {
 
 export async function handleDecayAndPrune(args: Record<string, unknown>) {
   try {
-    const opts: { prune?: boolean; decayRate?: number; minRelevance?: number } = {};
+    const opts: { prune?: boolean; decayRate?: number; minAge?: number; minRelevance?: number } = {};
     if (args.prune != null) opts.prune = args.prune as boolean;
     if (args.decayRate != null) opts.decayRate = args.decayRate as number;
+    if (args.minAge != null) opts.minAge = args.minAge as number;
     if (args.minRelevance != null) opts.minRelevance = args.minRelevance as number;
     const result = await knowledgeService.decayAndPrune(opts);
     return {

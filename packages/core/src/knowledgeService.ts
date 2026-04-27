@@ -296,12 +296,14 @@ class KnowledgeServiceImpl {
   async decayAndPrune(options?: {
     prune?: boolean;
     decayRate?: number;
+    minAge?: number;
     minRelevance?: number;
   }): Promise<KnowledgeMaintenanceResult> {
     const ops = await getKnowledgeOps();
 
     const decayConfig: Partial<DecayConfig> = {};
     if (options?.decayRate !== undefined) decayConfig.decayRate = options.decayRate;
+    if (options?.minAge !== undefined) decayConfig.minAge = options.minAge;
     if (options?.minRelevance !== undefined) decayConfig.minRelevance = options.minRelevance;
 
     const decayResult = await ops.decayRelevance(decayConfig);
