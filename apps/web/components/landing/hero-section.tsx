@@ -1,10 +1,11 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { ArrowRight, Terminal, Github, BookOpen, Network } from "lucide-react"
+import { ArrowRight, Terminal, Github, BookOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spotlight } from "@/components/ui/spotlight"
 import { AnimatedCounter } from "@/components/ui/animated-counter"
+import { HeroGraphDemo } from "./hero-graph-demo"
 
 // source: MEMORY.md "v6 Chunk 1 baseline (2026-04-26)"; CLAUDE.md tool list
 // MRR rendered as static text because AnimatedCounter rounds to integer; the other two animate.
@@ -161,23 +162,13 @@ export function HeroSection() {
                 Claude Desktop · Graph Explorer panel
               </span>
             </div>
-            {/* Placeholder until the real screen recording is swapped in */}
+            {/* Live cytoscape graph demo (sample auth-flow data) */}
             <div
-              className="relative aspect-[16/10] flex items-center justify-center bg-gradient-to-br from-accent/5 via-card to-accent/10 [background-image:linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [background-size:24px_24px]"
+              className="relative aspect-[16/10] bg-gradient-to-br from-accent/5 via-card to-accent/10 [background-image:linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [background-size:24px_24px]"
               role="img"
-              aria-label="Graph Explorer panel demo — recording in progress"
+              aria-label="Sample CodeGraph rendering of an auth-flow codebase: files containing functions, with CALLS and IMPORTS edges"
             >
-              <div className="text-center px-6">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-accent/10 border border-accent/30 mb-3">
-                  <Network className="h-6 w-6 text-accent" />
-                </div>
-                <div className="text-sm font-mono text-muted-foreground">
-                  graph_explorer rendering...
-                </div>
-                <div className="text-[10px] font-mono text-muted-foreground/60 mt-1">
-                  (live demo recording in progress)
-                </div>
-              </div>
+              <HeroGraphDemo />
             </div>
           </motion.div>
         </div>
