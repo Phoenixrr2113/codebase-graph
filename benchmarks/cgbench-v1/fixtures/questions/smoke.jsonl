@@ -1,0 +1,3 @@
+{"id":"smoke-001","task":"A","prompt":"function that retries failed requests","gold":["retry.ts#retry","retry.ts#retryWithBackoff"]}
+{"id":"smoke-002","task":"A","prompt":"authenticate a user with a token","gold":["auth.ts#authenticate"]}
+{"id":"smoke-003","task":"A","prompt":"make an authenticated request","gold":["index.ts#authenticatedRequest"]}

@@ -154,8 +154,9 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
 
   private resultId(hit: { filePath?: string | null; name?: string | null }): string {
     const file = hit.filePath ?? 'unknown';
+    const basename = file.includes('/') ? file.slice(file.lastIndexOf('/') + 1) : file;
     const name = hit.name ?? 'unknown';
-    return `${file}#${name}`;
+    return `${basename}#${name}`;
   }
 
   async destroy(): Promise<void> {
