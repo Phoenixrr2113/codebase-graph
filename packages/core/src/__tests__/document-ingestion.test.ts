@@ -8,7 +8,7 @@
  * unsupported extension rejection.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { add } from '../documentIngestion';
 
 // ---------------------------------------------------------------------------
@@ -37,6 +37,8 @@ function makeLoader(text: string, format = 'pdf') {
 // ---------------------------------------------------------------------------
 
 describe('add()', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it('detects raw text and ingests via chunker + extractAndStore', async () => {
     const mockExtract = makeExtractAndStore({ entities: 1 });
 
@@ -164,6 +166,5 @@ describe('add()', () => {
     });
 
     expect(spy).toHaveBeenCalledWith(fakeClient);
-    spy.mockRestore();
   });
 });

@@ -10,6 +10,7 @@
 import { getKnowledgeOps } from './knowledgeClient';
 import { createLogger, toErrorMessage } from '@codegraph/logger';
 import type { TextLoader } from '@codegraph/plugin-nlp';
+import type { GraphClient } from '@codegraph/graph';
 
 const logger = createLogger({ namespace: 'DocumentIngestion' });
 
@@ -32,7 +33,7 @@ export interface AddOptions {
    * knowledge ops use this client (caller manages lifecycle) instead of
    * the global singleton from getGraphClient(). Mirrors embed-nodes.ts:330.
    */
-  client?: import('@codegraph/graph').GraphClient;
+  client?: GraphClient;
   /**
    * DI hooks — test-only. Override internal dependencies for unit testing
    * without a real graph database or network connection.
