@@ -44,3 +44,19 @@ export const RankedResultSchema = z.object({
   raw: z.unknown().optional(),
 });
 export type RankedResult = z.infer<typeof RankedResultSchema>;
+
+// Bump `version` when adding required fields and fork ManifestSchema.
+export const ManifestSchema = z.object({
+  version: z.literal('1'),
+  corpora: z.array(
+    z.object({
+      name: z.string(),
+      language: LanguageSchema,
+      url: z.string().url(),
+      commitSha: z.string().regex(/^[0-9a-f]{40}$/),
+      license: z.string(),
+      notes: z.string().optional(),
+    }),
+  ).length(4),
+});
+export type Manifest = z.infer<typeof ManifestSchema>;
