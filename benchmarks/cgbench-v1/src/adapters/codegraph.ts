@@ -116,12 +116,32 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     mkdirSync(this.dataDir, { recursive: true });
   }
 
+  /** Stable graph name for FalkorDB Docker mode — set on first getClient(), reused on reopen. */
+  private dockerGraphName?: string;
+
   private async getClient(): Promise<GraphClient> {
     if (!this.client) {
-      this.client = await createClient({
-        driver: 'falkordblite',
-        databasePath: join(this.dataDir, 'falkordb'),
-      });
+      // Allow swapping to FalkorDB Docker via env vars for diagnosing
+      // FalkorDBLite-specific issues (e.g., concurrent vector-query hangs).
+      const useDocker = process.env['CGBENCH_FALKORDB_HOST'] !== undefined;
+      if (useDocker) {
+        // Reuse the same graph name across reopen cycles so query() sees what
+        // ingest() wrote. dataDir is unique per adapter instance — derive from it.
+        if (!this.dockerGraphName) {
+          this.dockerGraphName = `cgbench-${this.dataDir.split('/').pop()!.replace(/[^a-z0-9-]/gi, '')}`;
+        }
+        this.client = await createClient({
+          driver: 'falkordb',
+          host: process.env['CGBENCH_FALKORDB_HOST']!,
+          port: parseInt(process.env['CGBENCH_FALKORDB_PORT'] ?? '6379', 10),
+          graphName: this.dockerGraphName,
+        });
+      } else {
+        this.client = await createClient({
+          driver: 'falkordblite',
+          databasePath: join(this.dataDir, 'falkordb'),
+        });
+      }
       // Wire knowledge ops to this adapter's own client (not the global singleton).
       await this.client.ensureIndexes();
       this.knowledgeOps = createKnowledgeOperations(this.client);
@@ -526,6 +546,15 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   }
 
   async destroy(): Promise<void> {
+    // For FalkorDB Docker mode, drop the graph before closing so the server
+    // doesn't accumulate data across benchmark runs.
+    if (this.client && this.dockerGraphName !== undefined) {
+      try {
+        await this.client.query(`MATCH (n) DETACH DELETE n`, { params: {} });
+      } catch {
+        // best-effort cleanup
+      }
+    }
     if (this.client) {
       await this.client.close().catch(() => {
         // FalkorDBLite emits SocketClosedUnexpectedlyError on clean shutdown — that's noise.
