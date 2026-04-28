@@ -1,5 +1,6 @@
 dist/
 results/
+!results/v0.1.0-smoke/
 corpora/code/*/
 !corpora/code/manifest.json
 documents/rendered/

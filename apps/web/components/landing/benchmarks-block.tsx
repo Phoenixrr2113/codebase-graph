@@ -35,8 +35,16 @@ export function BenchmarksBlock() {
         ))}
       </div>
       <p className="text-[11px] sm:text-xs text-muted-foreground leading-relaxed">
-        2,310-node test set, v6 Chunk 1 baseline (2026-04-26). CodeSearchNet public-benchmark
-        numbers in progress — methodology link will appear here when published.
+        2,310-node test set, v6 Chunk 1 baseline (2026-04-26).{" "}
+        <a
+          href="https://github.com/Phoenixrr2113/codebase-graph/blob/main/benchmarks/cgbench-v1/BENCHMARKS.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2 hover:text-foreground transition-colors"
+        >
+          CGBench v1 methodology and results
+        </a>
+        .
       </p>
     </motion.div>
   )

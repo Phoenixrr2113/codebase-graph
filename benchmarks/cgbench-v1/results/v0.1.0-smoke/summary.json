@@ -1,0 +1,65 @@
+{
+  "timestamp": "2026-04-28T14:43:04.958Z",
+  "systems": [
+    "codegraph",
+    "mcp-codebase-index",
+    "mempalace"
+  ],
+  "perTask": {
+    "A": {
+      "codegraph": {
+        "mrr": 1,
+        "recallAt10": 1
+      },
+      "mcp-codebase-index": {
+        "mrr": 0.7777777777777777,
+        "recallAt10": 1
+      },
+      "mempalace": {
+        "mrr": 0,
+        "recallAt10": 0
+      }
+    }
+  },
+  "perSystemLatency": {
+    "codegraph": {
+      "p50": 9.291083000000071,
+      "p95": 182.58670800000004,
+      "p99": 182.58670800000004,
+      "mean": 66.50087500000002
+    },
+    "mcp-codebase-index": {
+      "p50": 58.810250000000224,
+      "p95": 68.17358400000012,
+      "p99": 68.17358400000012,
+      "mean": 60.143180666666844
+    },
+    "mempalace": {
+      "p50": 861.4954169999983,
+      "p95": 870.7993330000008,
+      "p99": 870.7993330000008,
+      "mean": 847.6543196666668
+    }
+  },
+  "perSystemIngestion": {
+    "codegraph": {
+      "durationMs": 752,
+      "tokensPerSecond": 12255.31914893617,
+      "totalDocs": 24
+    },
+    "mcp-codebase-index": {
+      "durationMs": 333,
+      "tokensPerSecond": 37537.53753753754,
+      "totalDocs": 1
+    },
+    "mempalace": {
+      "durationMs": 12569,
+      "tokensPerSecond": 24766.96634577134,
+      "totalDocs": 15
+    }
+  },
+  "caveats": [
+    "CodeGraph runs with local Hugging Face embeddings (no API keys required)",
+    "Cognee, Mastra, Augment ship as DEFERRED stubs in Plan 4 — see COMPETITORS.md"
+  ]
+}
