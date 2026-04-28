@@ -193,12 +193,19 @@ export class SupermemoryAdapter implements BenchmarkAdapter {
     // v3 returns either .documents or .results depending on endpoint variant
     const docs: SupermemorySearchDocument[] = raw.documents ?? raw.results ?? [];
 
-    // Project metadata.path → <basename>#<basename> so cross-system gold
-    // IDs (which use file-level granularity) resolve. Fall back to opaque
-    // service ID only if no path metadata is available.
+    // Project metadata.path → bare file stem (e.g. "knowledge-001") so result IDs
+    // match the gold ID format used in task-d/task-e/task-f (bare stems, no extension,
+    // no '#' separator). Fall back to opaque service ID only if no path metadata.
     return docs.map((doc, idx) => {
       const path = doc.metadata?.path;
-      const id = path ? `${basename(path)}#${basename(path)}` : (doc.id ?? `supermemory-${idx}`);
+      let id: string;
+      if (path) {
+        const base = basename(path);
+        const dotIdx = base.lastIndexOf('.');
+        id = dotIdx > 0 ? base.slice(0, dotIdx) : base;
+      } else {
+        id = doc.id ?? `supermemory-${idx}`;
+      }
       return {
         id,
         score: typeof doc.score === 'number' ? doc.score : 1 - idx * 0.01,

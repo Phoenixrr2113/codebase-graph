@@ -27,6 +27,7 @@ This document captures what is known about each competitor at the time of Plan 3
   - Persistent disk cache eliminates cold-start penalties on second run — benchmark must account for warm vs cold timing
   - Sub-millisecond query responses; response size scales with answer, not codebase size (tested on CPython at 1.1M lines)
   - AGPL-3.0 means redistribution of modified versions requires source publication; running in a private benchmark is fine
+  - **CODE-ONLY**: does not ingest `knowledgeRoot` or `documentRoot`; Tasks D, E, and F will score 0 — expected by design
 
 ---
 

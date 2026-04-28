@@ -496,8 +496,9 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
    *   - `{ path: "/abs/path/to/knowledge-001.md" }` (knowledge corpus)
    *   - `{ path: "/abs/path/to/fact-001.md", format: "md" }` (document corpus)
    *
-   * We extract the file stem (e.g. "knowledge-001" or "fact-001") and return
-   * `<stem>#<stem>` to match the gold ID format used in task-d/task-e/task-f questions.
+   * We extract the bare file stem (e.g. "knowledge-001" or "fact-001") to match
+   * the gold ID format used in task-d/task-e/task-f questions, which use bare
+   * stems with no file extension and no `#` separator.
    *
    * If properties can't be parsed or path is missing, fall back to using the
    * first 60 chars of the text.
@@ -513,8 +514,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
             : filePath;
           // Strip any file extension (.md, .html, .csv, etc.)
           const dotIdx = base.lastIndexOf('.');
-          const stem = dotIdx > 0 ? base.slice(0, dotIdx) : base;
-          return `${stem}#${stem}`;
+          return dotIdx > 0 ? base.slice(0, dotIdx) : base;
         }
       } catch {
         // fall through
@@ -522,7 +522,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     }
     // Fallback: use first 60 chars of text as a degenerate ID.
     const slug = hit.text.slice(0, 60).replace(/\s+/g, '-').replace(/[^a-z0-9-]/gi, '');
-    return `knowledge#${slug}`;
+    return `knowledge-${slug}`;
   }
 
   async destroy(): Promise<void> {

@@ -206,8 +206,9 @@ export class HindsightAdapter implements BenchmarkAdapter {
     const raw = (await res.json()) as HindsightRecallResponse;
     const results: HindsightRecallResult[] = raw.results ?? raw.memories ?? [];
 
-    // Project metadata.path → <basename>#<basename> so cross-system gold IDs
-    // resolve. Fall back to opaque service ID only if no path metadata.
+    // Project metadata.path → bare file stem (e.g. "knowledge-001") so result IDs
+    // match the gold ID format used in task-d/task-e/task-f (bare stems, no extension,
+    // no '#' separator). Fall back to opaque service ID only if no path metadata.
     return results.map((r, idx) => {
       const score =
         typeof r.score === 'number'
@@ -216,7 +217,14 @@ export class HindsightAdapter implements BenchmarkAdapter {
             ? r.relevance
             : 1 - idx * 0.01;
       const path = r.metadata?.path;
-      const id = path ? `${basename(path)}#${basename(path)}` : (r.id ?? `hindsight-${idx}`);
+      let id: string;
+      if (path) {
+        const base = basename(path);
+        const dotIdx = base.lastIndexOf('.');
+        id = dotIdx > 0 ? base.slice(0, dotIdx) : base;
+      } else {
+        id = r.id ?? `hindsight-${idx}`;
+      }
       return {
         id,
         score,

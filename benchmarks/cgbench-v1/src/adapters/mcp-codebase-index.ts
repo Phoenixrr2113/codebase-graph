@@ -56,6 +56,13 @@ interface ProjectSummary {
  * the server accepts only one PROJECT_ROOT per process, we spawn one server
  * per corpus root. For benchmark workloads with a single codebase this means
  * one MCP subprocess per run.
+ *
+ * **CODE-ONLY LIMITATION**: mcp-codebase-index is a structural code indexer by
+ * design. It does NOT ingest `corpus.knowledgeRoot` or `corpus.documentRoot`.
+ * Benchmark tasks D (temporal knowledge), E (cross-modal), and F (document
+ * retrieval) will all score 0 for this adapter — this is expected behaviour,
+ * not a bug. The adapter intentionally ignores knowledge/document roots because
+ * the underlying tool has no facility to index or retrieve unstructured prose.
  */
 export class McpCodebaseIndexAdapter implements BenchmarkAdapter {
   readonly name = 'mcp-codebase-index';
