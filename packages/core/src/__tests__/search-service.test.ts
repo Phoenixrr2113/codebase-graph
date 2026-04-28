@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { CypherDialect, GraphClient } from '@codegraph/graph';
 import { searchImpl } from '../services/search-service';
 import * as graphClientMod from '../graphClient';
