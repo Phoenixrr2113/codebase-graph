@@ -41,17 +41,21 @@ export async function renderFact(sourcePath: string, outRoot: string): Promise<v
 }
 
 export function markdownTablesToCsv(md: string): string {
-  // Naive markdown-table to CSV. Source files in this benchmark only
-  // contain pipe-tables; other inputs are not in scope for v1.
+  // Naive markdown-table to CSV. Cell whitespace is normalized via trim.
+  // Pipe-tables inside fenced code blocks are skipped.
   const rows: string[][] = [];
+  let inFence = false;
   for (const rawLine of md.split('\n')) {
     const line = rawLine.trim();
+    if (line.startsWith('```')) { inFence = !inFence; continue; }
+    if (inFence) continue;
     const isTable = line.startsWith('|') && line.endsWith('|');
     if (!isTable) continue;
     if (/^\|\s*[-:]+/.test(line)) continue; // separator row
     const cells = line.slice(1, -1).split('|').map((c) => c.trim());
     rows.push(cells);
   }
+  if (rows.length === 0) return '';
   return rows.map((r) => r.map(escCsv).join(',')).join('\n') + '\n';
 }
 
