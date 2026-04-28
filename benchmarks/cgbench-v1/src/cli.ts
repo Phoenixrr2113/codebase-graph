@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AugmentAdapter } from './adapters/augment.js';
-import { CodeGraphAdapter } from './adapters/codegraph.js';
+import { CodeGraphAdapter, type DocumentFormat } from './adapters/codegraph.js';
 import { CogneeAdapter } from './adapters/cognee.js';
 import { HindsightAdapter } from './adapters/hindsight.js';
 import { MastraAdapter } from './adapters/mastra.js';
@@ -13,10 +13,17 @@ import { runSystem } from './runner.js';
 import type { BenchmarkAdapter } from './adapter.js';
 import { LanguageSchema, type BenchmarkCorpus, type Language } from './types.js';
 
+const DOCUMENT_FORMATS = ['md', 'pdf', 'docx', 'html', 'csv'] as const;
+function isDocumentFormat(v: string): v is DocumentFormat {
+  return (DOCUMENT_FORMATS as readonly string[]).includes(v);
+}
+
 interface ParsedArgs {
   command: 'run';
   system: string;
   corpus: string;
+  documentCorpus?: string | undefined;
+  documentFormat: DocumentFormat;
   questions: string;
   resultsDir: string;
   language: Language;
@@ -42,21 +49,37 @@ function parseArgs(argv: string[]): ParsedArgs {
   if (!existsSync(flags['questions'])) {
     throw new Error(`--questions path does not exist: ${flags['questions']}`);
   }
+  if (flags['document-corpus'] && !existsSync(flags['document-corpus'])) {
+    throw new Error(`--document-corpus path does not exist: ${flags['document-corpus']}`);
+  }
+  const rawFormat = flags['format'] ?? 'md';
+  if (!isDocumentFormat(rawFormat)) {
+    throw new Error(`--format must be one of: ${DOCUMENT_FORMATS.join(', ')} (got: ${rawFormat})`);
+  }
   const language = LanguageSchema.parse(flags['language'] ?? 'typescript');
   return {
     command: 'run',
     system: flags['system']!,
     corpus: flags['corpus']!,
+    ...(flags['document-corpus'] !== undefined ? { documentCorpus: flags['document-corpus'] } : {}),
+    documentFormat: rawFormat,
     questions: flags['questions']!,
     resultsDir: flags['results-dir'] ?? join(process.cwd(), 'results'),
     language,
   };
 }
 
-export function makeAdapter(name: string, dataDir: string): BenchmarkAdapter {
+export function makeAdapter(
+  name: string,
+  dataDir: string,
+  opts?: { documentFormat?: DocumentFormat | undefined },
+): BenchmarkAdapter {
   switch (name) {
     case 'codegraph':
-      return new CodeGraphAdapter({ dataDir });
+      return new CodeGraphAdapter({
+        dataDir,
+        ...(opts?.documentFormat !== undefined ? { documentFormat: opts.documentFormat } : {}),
+      });
     case 'mcp-codebase-index':
       return new McpCodebaseIndexAdapter({ dataDir });
     case 'mempalace':
@@ -87,9 +110,10 @@ async function main(): Promise<void> {
   mkdirSync(perSystemDir, { recursive: true });
   mkdirSync(dataDir, { recursive: true });
 
-  const adapter = makeAdapter(args.system, dataDir);
+  const adapter = makeAdapter(args.system, dataDir, { documentFormat: args.documentFormat });
   const corpus: BenchmarkCorpus = {
     codeRoots: [{ language: args.language, path: args.corpus, commitSha: 'cli-run' }],
+    documentRoot: args.documentCorpus,
   };
 
   try {

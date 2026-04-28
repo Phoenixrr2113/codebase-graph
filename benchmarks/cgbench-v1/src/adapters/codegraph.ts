@@ -7,8 +7,20 @@ import { indexProject } from '@codegraph/core';
 import { createClient, createKnowledgeOperations } from '@codegraph/graph';
 import type { GraphClient, QueryOptions, KnowledgeOperations } from '@codegraph/graph';
 
+export type DocumentFormat = 'md' | 'pdf' | 'docx' | 'html' | 'csv';
+
 export interface CodeGraphAdapterOptions {
   dataDir: string;
+  /**
+   * Document format to ingest from corpus.documentRoot.
+   * Defaults to 'md'.
+   *
+   * Text formats (md, html, csv): file content is read and stored directly as entity text.
+   * Binary formats (pdf, docx): NOT supported in v0.1.
+   *   DEFERRED: pdf/docx support requires documentIngestion.add() loader path (pandoc/PDF
+   *   loaders). Plan 5/6 territory. Requesting these formats throws a clear error.
+   */
+  documentFormat?: DocumentFormat;
 }
 
 /**
@@ -41,11 +53,13 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   readonly name = 'codegraph';
   readonly mode = 'native' as const;
   private readonly dataDir: string;
+  private readonly documentFormat: DocumentFormat;
   private client: GraphClient | null = null;
   private knowledgeOps: KnowledgeOperations | null = null;
 
   constructor(opts: CodeGraphAdapterOptions) {
     this.dataDir = opts.dataDir;
+    this.documentFormat = opts.documentFormat ?? 'md';
     mkdirSync(this.dataDir, { recursive: true });
   }
 
@@ -113,6 +127,47 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
           confidence: 1.0,
           sampleId: `cgbench-knowledge/${base}`,
           properties: { path: filePath },
+        });
+
+        totalDocs += 1;
+      }
+    }
+
+    // Ingest document corpus if provided.
+    // Text formats (md, html, csv) are read and stored as Entity nodes with
+    // metadata.format tagged for per-format scoring in Plan 4 Task F.
+    // Binary formats (pdf, docx) are deferred — see CodeGraphAdapterOptions docstring.
+    if (corpus.documentRoot) {
+      const fmt = this.documentFormat;
+
+      if (fmt === 'pdf' || fmt === 'docx') {
+        throw new Error(
+          `DEFERRED: documentFormat '${fmt}' requires documentIngestion.add() loader path ` +
+            `(pandoc/PDF loaders). Not supported in v0.1. Use md, html, or csv instead.`,
+        );
+      }
+
+      const ops = await this.getKnowledgeOps();
+      const formatDir = join(corpus.documentRoot, fmt);
+      // Fall back to documentRoot directly if no sub-directory exists for the format.
+      // This supports passing documents/source/ (md files at root) without a sub-folder.
+      const scanDir = existsSync(formatDir) ? formatDir : corpus.documentRoot;
+
+      const docFiles = readdirSync(scanDir)
+        .filter((f) => f.endsWith(`.${fmt}`))
+        .sort();
+
+      for (const fileName of docFiles) {
+        const filePath = join(scanDir, fileName);
+        const content = readFileSync(filePath, 'utf-8');
+        const base = basename(fileName, `.${fmt}`);
+
+        await ops.createEntity({
+          text: content,
+          type: 'Document',
+          confidence: 1.0,
+          sampleId: `cgbench-document/${fmt}/${base}`,
+          properties: { path: filePath, format: fmt },
         });
 
         totalDocs += 1;
@@ -260,11 +315,14 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   /**
    * Build a result ID for a knowledge Entity row.
    *
-   * The Entity's `properties` JSON field may contain `{ path: "/abs/path/to/knowledge-001.md" }`.
-   * We extract the stem (e.g. "knowledge-001") and return `<stem>#<stem>` to match the
-   * gold ID format used in Plan 2's task-d/task-e questions.
+   * The Entity's `properties` JSON field may contain:
+   *   - `{ path: "/abs/path/to/knowledge-001.md" }` (knowledge corpus)
+   *   - `{ path: "/abs/path/to/fact-001.md", format: "md" }` (document corpus)
    *
-   * If properties can't be parsed or path is missing, fall back to hashing the
+   * We extract the file stem (e.g. "knowledge-001" or "fact-001") and return
+   * `<stem>#<stem>` to match the gold ID format used in task-d/task-e/task-f questions.
+   *
+   * If properties can't be parsed or path is missing, fall back to using the
    * first 60 chars of the text.
    */
   private knowledgeResultId(hit: { text: string; properties: string | null }): string {
@@ -276,7 +334,9 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
           const base = filePath.includes('/')
             ? filePath.slice(filePath.lastIndexOf('/') + 1)
             : filePath;
-          const stem = base.endsWith('.md') ? base.slice(0, -3) : base;
+          // Strip any file extension (.md, .html, .csv, etc.)
+          const dotIdx = base.lastIndexOf('.');
+          const stem = dotIdx > 0 ? base.slice(0, dotIdx) : base;
           return `${stem}#${stem}`;
         }
       } catch {

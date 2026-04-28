@@ -8,6 +8,7 @@ import { CodeGraphAdapter } from '../../src/adapters/codegraph.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_CODE = join(__dirname, '../../fixtures/code/tiny-ts');
 const KNOWLEDGE_DIR = join(__dirname, '../../corpora/knowledge');
+const DOCUMENTS_DIR = join(__dirname, '../../documents/source');
 
 describe('CodeGraphAdapter — ingest', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'cgbench-cg-'));
@@ -74,4 +75,51 @@ describe('CodeGraphAdapter — code + knowledge ingest', () => {
     const hasKnowledge001 = ids.some((id) => id.includes('knowledge-001'));
     expect(hasKnowledge001).toBe(true);
   }, 90_000);
+});
+
+describe('CodeGraphAdapter — document corpus ingest', () => {
+  const dataDir = mkdtempSync(join('/tmp', 'cgd-'));
+  const adapter = new CodeGraphAdapter({ dataDir, documentFormat: 'md' });
+  afterAll(async () => {
+    await adapter.destroy().catch(() => {});
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('ingests document corpus and queries surface fact content', async () => {
+    const stats = await adapter.ingest({
+      codeRoots: [{ language: 'typescript', path: FIXTURE_CODE, commitSha: 'fixture' }],
+      documentRoot: DOCUMENTS_DIR,
+    });
+    // 3 code files + 10 fact docs = > 3
+    expect(stats.totalDocs).toBeGreaterThan(3);
+
+    // fact-001.md contains the Q1 retro date "2026-04-15"
+    const results = await adapter.query('Q1 retro date', { topK: 10 });
+    expect(results.length).toBeGreaterThan(0);
+
+    // At least one knowledge result (document entity) should surface
+    const knowledgeResults = results.filter((r) => r.kind === 'knowledge');
+    expect(knowledgeResults.length).toBeGreaterThan(0);
+
+    // fact-001 document should appear with correct ID format <stem>#<stem>
+    const ids = knowledgeResults.map((r) => r.id);
+    const hasFact001 = ids.some((id) => id.includes('fact-001'));
+    expect(hasFact001).toBe(true);
+  }, 90_000);
+
+  it('throws for deferred binary formats (pdf)', async () => {
+    const binDir = mkdtempSync(join('/tmp', 'cgd-pdf-'));
+    const binAdapter = new CodeGraphAdapter({ dataDir: binDir, documentFormat: 'pdf' });
+    try {
+      await expect(
+        binAdapter.ingest({
+          codeRoots: [{ language: 'typescript', path: FIXTURE_CODE, commitSha: 'fixture' }],
+          documentRoot: DOCUMENTS_DIR,
+        }),
+      ).rejects.toThrow(/DEFERRED/);
+    } finally {
+      await binAdapter.destroy().catch(() => {});
+      rmSync(binDir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
