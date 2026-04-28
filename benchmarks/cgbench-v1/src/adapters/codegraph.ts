@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { measureDiskBytes } from '../metrics/resources.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
@@ -160,8 +160,15 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
 
   async destroy(): Promise<void> {
     if (this.client) {
-      await this.client.close().catch(() => {});
+      await this.client.close().catch(() => {
+        // FalkorDBLite emits SocketClosedUnexpectedlyError on clean shutdown — that's noise.
+      });
       this.client = null;
+    }
+    try {
+      rmSync(this.dataDir, { recursive: true, force: true });
+    } catch {
+      // best-effort — caller may have already cleaned up
     }
   }
 }
