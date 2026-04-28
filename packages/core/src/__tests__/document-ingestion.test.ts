@@ -140,4 +140,30 @@ describe('add()', () => {
     expect(result.entities).toBe(0);
     expect(mockExtract).not.toHaveBeenCalled();
   });
+
+  it('threads client option through to getKnowledgeOps for caller-managed graph', async () => {
+    const { add } = await import('../documentIngestion');
+    const knowledgeClientMod = await import('../knowledgeClient');
+    const spy = vi.spyOn(knowledgeClientMod, 'getKnowledgeOps');
+
+    const fakeClient = {
+      graph: null,
+      graphName: 'fake-graph',
+      dialect: 'cypher' as const,
+      query: vi.fn().mockResolvedValue({ data: [], headers: [] }),
+      roQuery: vi.fn().mockResolvedValue({ data: [], headers: [] }),
+      ensureIndexes: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const extractAndStore = makeExtractAndStore();
+    await add('Some short text content for chunking.', {
+      client: fakeClient as never,
+      _extractAndStore: extractAndStore,
+      source: 'test-source',
+    });
+
+    expect(spy).toHaveBeenCalledWith(fakeClient);
+    spy.mockRestore();
+  });
 });

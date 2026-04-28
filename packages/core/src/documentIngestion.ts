@@ -28,6 +28,12 @@ export interface AddOptions {
   /** Source label for provenance tracking */
   source?: string;
   /**
+   * Optional GraphClient for per-call dependency injection. When provided,
+   * knowledge ops use this client (caller manages lifecycle) instead of
+   * the global singleton from getGraphClient(). Mirrors embed-nodes.ts:330.
+   */
+  client?: import('@codegraph/graph').GraphClient;
+  /**
    * DI hooks — test-only. Override internal dependencies for unit testing
    * without a real graph database or network connection.
    */
@@ -211,7 +217,10 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
   // Step 3: Extract and store each chunk
   // DI hook: allow test to inject extractAndStore mock to avoid real DB connection
   const extractor = options?._extractAndStore;
-  const ops = extractor ? null : await getKnowledgeOps();
+  // When a caller-managed client is provided, always resolve ops through it
+  // (even if _extractAndStore is also set) so the client binding is verifiable
+  // via DI in tests. When no client and no extractor, use the global singleton.
+  const ops = extractor && !options?.client ? null : await getKnowledgeOps(options?.client);
   let totalEntities = 0;
   let totalRelationships = 0;
 
