@@ -16,12 +16,11 @@ export function startRssSampler(pid: number, intervalMs: number): RssSampler {
   const samples: RssSample[] = [];
   const start = Date.now();
   let stopped = false;
-  let inFlight = false;
+  let inFlightPromise: Promise<unknown> | null = null;
 
   const handle = setInterval(() => {
-    if (stopped || inFlight) return;
-    inFlight = true;
-    execFileP('ps', ['-o', 'rss=', '-p', String(pid)])
+    if (stopped || inFlightPromise) return;
+    inFlightPromise = execFileP('ps', ['-o', 'rss=', '-p', String(pid)])
       .then(({ stdout }) => {
         const kb = parseInt(stdout.trim(), 10);
         if (!Number.isNaN(kb)) {
@@ -32,7 +31,7 @@ export function startRssSampler(pid: number, intervalMs: number): RssSampler {
         stopped = true;
       })
       .finally(() => {
-        inFlight = false;
+        inFlightPromise = null;
       });
   }, intervalMs);
 
@@ -40,7 +39,8 @@ export function startRssSampler(pid: number, intervalMs: number): RssSampler {
     async stop(): Promise<RssSample[]> {
       stopped = true;
       clearInterval(handle);
-      await new Promise((r) => setTimeout(r, intervalMs + 5));
+      // Wait for any in-flight ps to finish so the last sample lands deterministically.
+      if (inFlightPromise) await inFlightPromise;
       return samples;
     },
   };
