@@ -317,19 +317,13 @@ describe('unifiedSearch', () => {
     it('passes the search client through to getKnowledgeOps when scope is "all"', async () => {
       await unifiedSearch('test query', mockClient as never, { searchScope: 'all', limit: 5 });
 
-      const callsFirstArgs = (getKnowledgeOps as ReturnType<typeof vi.fn>).mock.calls.map(
-        (c: unknown[]) => c[0],
-      );
-      expect(callsFirstArgs).toContain(mockClient);
+      expect(getKnowledgeOps).toHaveBeenCalledWith(mockClient);
     });
 
     it('passes the search client through to getKnowledgeOps when scope is "knowledge"', async () => {
       await unifiedSearch('test query', mockClient as never, { searchScope: 'knowledge', limit: 5 });
 
-      const callsFirstArgs = (getKnowledgeOps as ReturnType<typeof vi.fn>).mock.calls.map(
-        (c: unknown[]) => c[0],
-      );
-      expect(callsFirstArgs).toContain(mockClient);
+      expect(getKnowledgeOps).toHaveBeenCalledWith(mockClient);
     });
   });
 });
