@@ -1,0 +1,10 @@
+{"id":"f-md-001","task":"F","format":"md","prompt":"On what date was the Q1 2026 retro held?","gold":["fact-001"],"difficulty":"easy"}
+{"id":"f-md-002","task":"F","format":"md","prompt":"What is the top action item from the Q2 2026 planning kickoff?","gold":["fact-002"],"difficulty":"easy"}
+{"id":"f-pdf-001","task":"F","format":"pdf","prompt":"What is the p99 latency SLA in milliseconds for the Search API?","gold":["fact-003"],"difficulty":"easy"}
+{"id":"f-pdf-002","task":"F","format":"pdf","prompt":"What is the maximum number of retries configured for the Notification service?","gold":["fact-004"],"difficulty":"easy"}
+{"id":"f-docx-001","task":"F","format":"docx","prompt":"What version of redis is pinned in the monorepo dependency policy?","gold":["fact-005"],"difficulty":"easy"}
+{"id":"f-docx-002","task":"F","format":"docx","prompt":"Who decided to switch from session cookies to JWT for API authentication?","gold":["fact-006"],"difficulty":"easy"}
+{"id":"f-html-001","task":"F","format":"html","prompt":"What was the previous graph database that FalkorDB replaced, and who made the decision?","gold":["fact-007"],"difficulty":"medium"}
+{"id":"f-html-002","task":"F","format":"html","prompt":"How many minutes did the search outage last on 2026-03-27, and what was its severity?","gold":["fact-008"],"difficulty":"medium"}
+{"id":"f-csv-001","task":"F","format":"csv","prompt":"Who is the on-call engineer for the week of 2026-04-21?","gold":["fact-009"],"difficulty":"easy"}
+{"id":"f-csv-002","task":"F","format":"csv","prompt":"What is the code review SLA in hours and what is the minimum number of approvers required?","gold":["fact-010"],"difficulty":"easy"}
