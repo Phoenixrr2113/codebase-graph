@@ -70,6 +70,10 @@ async function runPy<T>(
     cwd: cwd ?? '/tmp',
     env: { ...process.env, ...env },
   });
+  // Forward any diagnostic lines from Python stderr to Node stderr so they appear in test output.
+  if (stderr) {
+    process.stderr.write(stderr);
+  }
   try {
     return JSON.parse(extractJson(stdout)) as T;
   } catch (err) {
@@ -253,6 +257,7 @@ if not hasattr(_st, 'HTTP_422_UNPROCESSABLE_CONTENT'):
 
 import cognee
 from cognee import SearchType
+from cognee.infrastructure.databases.graph import get_graph_engine
 
 async def main():
     # ENABLE_BACKEND_ACCESS_CONTROL=false (set in env) disables multi-user mode so
@@ -264,37 +269,72 @@ async def main():
         top_k=${topK},
     )
 
-    hits = []
+    # Normalise result items to chunk dicts.
+    # In no-access-control mode results is a flat list of IndexSchema payload dicts
+    # (keys: id, text, type, …).  They do NOT carry is_part_of / raw_data_location
+    # because LanceDB only stores id+text in the vector index.
+    # We collect chunk UUIDs then do a single batch graph query to resolve
+    # DocumentChunk → is_part_of → Document.raw_data_location.
+    chunk_payloads = []
     for item in results:
-        # In no-access-control mode (ENABLE_BACKEND_ACCESS_CONTROL=false), results is a
-        # flat list of chunk payload dicts (keys: text, chunk_index, word_count, etc.).
-        # In access-control mode, each item is a dict with a "search_result" key.
-        # Normalise both shapes to a single chunk dict.
         if isinstance(item, dict) and "search_result" in item:
             chunk = item["search_result"]
         elif isinstance(item, dict):
             chunk = item
         else:
-            # Pydantic SearchResult object (older cognee shape)
             sr = item.search_result
             chunk = {"text": getattr(sr, "text", "") or ""}
             if hasattr(sr, "is_part_of") and sr.is_part_of is not None:
                 doc = sr.is_part_of
-                raw_loc = getattr(doc, "raw_data_location", "") or ""
-                doc_name = getattr(doc, "name", "") or ""
-                chunk["raw_data_location"] = raw_loc or doc_name
+                chunk["_source_file"] = os.path.basename(
+                    str(getattr(doc, "raw_data_location", "") or getattr(doc, "name", "") or "")
+                )
+        if isinstance(chunk, dict):
+            chunk_payloads.append(chunk)
 
-        if not isinstance(chunk, dict):
-            continue
+    # Build a map: chunk_id (str) -> doc_name (the Document.name field, which is the
+    # original file stem, e.g. "retry" for retry.ts) via Kuzu graph traversal.
+    # DocumentChunk -[is_part_of]-> Document.  doc.name is the stem of the original
+    # filename (set from original_file_metadata["name"] = Path(original_path).stem).
+    # raw_data_location in doc.properties is the cognee-internal storage path
+    # (text_<hash>.txt) — not useful for source identification.
+    chunk_ids = [str(c.get("id", "")) for c in chunk_payloads if c.get("id")]
+    id_to_source: dict = {}
 
+    if chunk_ids:
+        try:
+            graph = await get_graph_engine()
+            # Kuzu stores all DataPoint nodes under :Node label.
+            # is_part_of edge goes chunk -> doc.
+            cypher = """
+MATCH (chunk:Node)-[e:EDGE]->(doc:Node)
+WHERE chunk.id IN $ids AND e.relationship_name = 'is_part_of'
+RETURN chunk.id AS chunk_id, doc.name AS doc_name
+"""
+            rows = await graph.query(cypher, {"ids": chunk_ids})
+            for row in (rows or []):
+                cid = str(row[0]) if row[0] else ""
+                doc_name = str(row[1]) if row[1] else ""
+                # doc.name is the stem of the original filename (e.g. "retry" for retry.ts).
+                # We return it as-is; resultId() will look up the full basename from codeStems.
+                if cid and doc_name:
+                    id_to_source[cid] = doc_name
+        except Exception as graph_err:
+            # Graph lookup failed — fall through to empty source_file (honest 0 MRR)
+            import sys
+            print(f"WARN graph lookup failed: {graph_err}", file=sys.stderr)
+
+    hits = []
+    for idx, chunk in enumerate(chunk_payloads):
         text = str(chunk.get("text", "") or "")
-        # Chunk payload dicts may contain raw_data_location directly, or it may live in
-        # a nested "is_part_of" sub-object.  Fall back gracefully.
-        raw_loc = chunk.get("raw_data_location", "") or ""
-        if isinstance(raw_loc, dict):
-            raw_loc = raw_loc.get("raw_data_location", "") or ""
-        source_file = os.path.basename(str(raw_loc)) if raw_loc else ""
-
+        # Use the doc.name (original file stem) resolved via graph traversal.
+        # Fall back to any inline field if graph lookup failed.
+        chunk_id = str(chunk.get("id", ""))
+        source_file = (
+            id_to_source.get(chunk_id)
+            or chunk.get("_source_file", "")
+            or ""
+        )
         chunk_index = int(chunk.get("chunk_index", 0) or 0)
         score = max(0.0, 1.0 - (chunk_index * 0.01))
         hits.append({"source_file": source_file, "text": text[:200], "score": score})
@@ -344,7 +384,21 @@ asyncio.run(main())
       return stem;
     }
 
-    // Code files: <basename>#<basename> convention
+    // cognee.Document.name is the stem of the original filename (e.g. "retry" for
+    // retry.ts).  Resolve back to the full basename by scanning codeStems.
+    // codeStems contains full basenames like "retry.ts", "index.ts", etc.
+    if (!sourceFile.includes('.')) {
+      // sourceFile is just a stem — look up the full basename in codeStems
+      for (const basename of this.codeStems) {
+        const bDot = basename.lastIndexOf('.');
+        const bStem = bDot > 0 ? basename.slice(0, bDot) : basename;
+        if (bStem === sourceFile) {
+          return `${basename}#${basename}`;
+        }
+      }
+    }
+
+    // Code files: <basename>#<basename> convention (sourceFile already has extension)
     return `${sourceFile}#${sourceFile}`;
   }
 
