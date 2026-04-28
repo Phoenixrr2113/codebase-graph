@@ -135,7 +135,7 @@ def __dunder_func__():
       expect(functions[2].isExported).toBe(false);
     });
 
-    it('should extract methods inside classes', () => {
+    it('should not extract methods inside classes (class methods are owned by extractClassesWithEdges)', () => {
       const code = `
 class Dog:
     def __init__(self, name: str):
@@ -147,14 +147,13 @@ class Dog:
       const rootNode = parseCode(code);
       const functions = extractFunctions(rootNode as any, TEST_FILE);
 
-      // Should extract methods too
-      expect(functions.length).toBeGreaterThanOrEqual(2);
-      const methodNames = functions.map(f => f.name);
-      expect(methodNames).toContain('__init__');
-      expect(methodNames).toContain('bark');
+      // extractFunctions skips class-body methods — they are extracted by
+      // extractClassesWithEdges with generateEntityId-format ids that match this
+      // extractor's id format, avoiding HAS_METHOD edge toId mismatches.
+      expect(functions.length).toBe(0);
     });
 
-    it('should filter out self and cls parameters', () => {
+    it('should filter out self and cls parameters (class methods via extractAllEntities)', () => {
       const code = `
 class MyClass:
     def instance_method(self, x: int):
@@ -165,13 +164,14 @@ class MyClass:
         pass
       `;
       const rootNode = parseCode(code);
-      const functions = extractFunctions(rootNode as any, TEST_FILE);
+      // Class methods are extracted via extractAllEntities (which calls extractClassesWithEdges)
+      const result = extractAllEntities(rootNode as any, TEST_FILE);
 
-      const instanceMethod = functions.find(f => f.name === 'instance_method');
+      const instanceMethod = result.functions.find((f: any) => f.name === 'instance_method');
       expect(instanceMethod).toBeDefined();
       expect(instanceMethod!.params).toEqual([{ name: 'x', type: 'int' }]);
 
-      const classMethod = functions.find(f => f.name === 'class_method');
+      const classMethod = result.functions.find((f: any) => f.name === 'class_method');
       expect(classMethod).toBeDefined();
       expect(classMethod!.params).toEqual([{ name: 'y', type: 'str' }]);
     });
@@ -563,29 +563,27 @@ class User:
       const userClass = result.classes.find(c => c.name === 'User');
       expect(userClass).toBeDefined();
 
-      // ::method:: entities (produced by extractClassesWithEdges)
-      const methods = result.functions.filter(
-        f => typeof f.id === 'string' && f.id.startsWith(`${userClass!.id}::method`)
-      );
-      expect(methods.map(m => m.name).sort()).toEqual(['_private_method', 'greet', 'static_method']);
-
       const hasMethodEdges = result.hasMethodEdges ?? [];
       const userMethodEdges = hasMethodEdges.filter(e => e.fromId === userClass!.id);
       expect(userMethodEdges).toHaveLength(3);
 
+      // Method entities are found via HAS_METHOD edge toIds (generateEntityId format)
+      const methods = userMethodEdges.map(e => result.functions.find(f => f.id === e.toId)!);
+      expect(methods.map(m => m.name).sort()).toEqual(['_private_method', 'greet', 'static_method']);
+
       const staticEdge = userMethodEdges.find(
-        e => methods.find(m => m.id === e.toId)?.name === 'static_method'
+        e => result.functions.find(f => f.id === e.toId)?.name === 'static_method'
       );
       expect(staticEdge?.isStatic).toBe(true);
 
       const greetEdge = userMethodEdges.find(
-        e => methods.find(m => m.id === e.toId)?.name === 'greet'
+        e => result.functions.find(f => f.id === e.toId)?.name === 'greet'
       );
       expect(greetEdge?.isStatic).toBe(false);
       expect(greetEdge?.visibility).toBe('public');
 
       const privateEdge = userMethodEdges.find(
-        e => methods.find(m => m.id === e.toId)?.name === '_private_method'
+        e => result.functions.find(f => f.id === e.toId)?.name === '_private_method'
       );
       expect(privateEdge?.visibility).toBe('private');
     });
@@ -753,10 +751,11 @@ class Greeter:
       const cls = result.classes.find((c: any) => c.name === 'Greeter')!;
       expect(cls).toBeDefined();
 
-      // Find the ::method:: entity for greet
-      const greetMethod = result.functions.find(
-        (f: any) => f.name === 'greet' && typeof f.id === 'string' && f.id.startsWith(`${cls.id}::method`)
-      )!;
+      // Find the greet method entity via HAS_METHOD edges (generateEntityId format now)
+      const greetEdge = (result.hasMethodEdges ?? []).find(
+        (e: any) => result.functions.find((f: any) => f.id === e.toId)?.name === 'greet' && e.fromId === cls.id
+      );
+      const greetMethod = result.functions.find((f: any) => f.id === greetEdge?.toId)!;
       expect(greetMethod).toBeDefined();
 
       const params = (result.hasParamEdges ?? []).filter((e: any) => e.fromId === greetMethod.id);

@@ -104,25 +104,24 @@ export function extractAllEntities(
     nodesByType.get('import_statement') ?? [], filePath
   );
 
+  // method_definition nodes are excluded from the function extractor — class methods
+  // are owned by extractClassesWithEdgesFromNodes, which emits them with
+  // generateEntityId-format ids that match this extractor's id format. Adding
+  // method_definition here would produce duplicate Function entities for the same
+  // source method (same name/filePath/startLine natural key) and cause HAS_METHOD
+  // edge toIds to mismatch the persisted node id after MERGE.
   const functionNodes = [
     ...(nodesByType.get('function_declaration') ?? []),
     ...(nodesByType.get('function_expression') ?? []),
     ...(nodesByType.get('arrow_function') ?? []),
-    ...(nodesByType.get('method_definition') ?? []),
     ...(nodesByType.get('generator_function_declaration') ?? []),
   ];
 
   const functions = extractFunctionsFromNodes(functionNodes, filePath);
 
-  // Top-level (non-method) function nodes paired with their entities, used for
-  // type-ref edge emission. method_definition nodes are handled via classExtraction.
-  const topLevelFunctionNodes = [
-    ...(nodesByType.get('function_declaration') ?? []),
-    ...(nodesByType.get('function_expression') ?? []),
-    ...(nodesByType.get('arrow_function') ?? []),
-    ...(nodesByType.get('generator_function_declaration') ?? []),
-  ];
-  const topLevelFunctionPairs = extractFunctionsWithNodes(topLevelFunctionNodes, filePath);
+  // Top-level function nodes paired with their entities, used for type-ref edge emission.
+  // method_definition nodes are handled via classExtraction.methodEntities (see below).
+  const topLevelFunctionPairs = extractFunctionsWithNodes(functionNodes, filePath);
 
   // extractClassesWithEdgesFromNodes returns class entities + method Function entities +
   // property Variable entities + HAS_METHOD / HAS_PROPERTY edge descriptors in one pass.

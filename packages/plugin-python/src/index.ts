@@ -59,8 +59,11 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
     // Extract docstring
     const docstring = extractDocstring(node);
 
-    // Check if method (inside class)
-    const isMethod = isInsideClass(node);
+    // Skip class methods — they are extracted by extractClassesWithEdges, which emits
+    // them with generateEntityId-format ids. Including them here would produce duplicate
+    // Function entities for the same source method (same natural key) and cause HAS_METHOD
+    // edge toIds to mismatch the persisted node id after MERGE.
+    if (isInsideClass(node)) continue;
 
     const id = generateEntityId(filePath, 'function', name, startLine);
 
@@ -525,7 +528,6 @@ export function extractClassesWithEdges(root: SyntaxNode, filePath: string): Cla
     const bodyNode = node.childForFieldName('body');
     if (!bodyNode) continue;
 
-    const methodNameCount = new Map<string, number>();
     const propNameCount = new Map<string, number>();
 
     for (const member of bodyNode.children) {
@@ -557,13 +559,12 @@ export function extractClassesWithEdges(root: SyntaxNode, filePath: string): Cla
         if (!methodNameNode) continue;
         const methodName = methodNameNode.text;
 
-        const count = methodNameCount.get(methodName) ?? 0;
-        methodNameCount.set(methodName, count + 1);
-        const suffix = count > 0 ? `:${count}` : '';
-
-        const methodId = `${classId}::method::${methodName}${suffix}`;
         const methodStartLine = funcNode.startPosition.row + 1;
         const methodEndLine = funcNode.endPosition.row + 1;
+        // Use generateEntityId format so the id matches what extractFunctions
+        // would produce for the same source node. HAS_METHOD edge toIds must
+        // match the id persisted to the graph after natural-key MERGE.
+        const methodId = generateEntityId(filePath, 'function', methodName, methodStartLine);
 
         const isAsync = funcNode.children.some((c: SyntaxNode) => c.type === 'async');
         const params = extractParameters(funcNode);
@@ -916,10 +917,10 @@ export const extractCalls = pythonPlugin.extractors.extractCalls!;
  * Overrides the generic factory's extractAllEntities so all edge fields are populated.
  * The pipeline picks them up automatically via ParsedFileEntities.
  *
- * Function entities appear in two forms:
- *  - generateEntityId style (from extractFunctions) — targets for CALLS/CONTAINS edges
- *  - ::method:: style (from extractClassesWithEdges) — targets for HAS_METHOD edges
- * This matches the TypeScript plugin's pattern.
+ * Function entities use a single id format: generateEntityId(filePath, 'function', name, startLine).
+ * extractFunctions skips class-body methods; extractClassesWithEdges emits them with the
+ * same id format. This ensures HAS_METHOD edge toIds match the persisted graph node id
+ * after natural-key MERGE (name, filePath, startLine).
  */
 export function extractAllEntities(root: SyntaxNode, filePath: string) {
   const allFunctions = extractFunctions(root, filePath);
@@ -951,14 +952,14 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
     const startLine = funcNode.startPosition.row + 1;
     const entityId = generateEntityId(filePath, 'function', name, startLine);
 
-    // Match to a top-level function entity (not a class method which uses ::method:: ids)
+    // Match to a top-level function entity (class methods are skipped by extractFunctions)
     const matchedEntity = allFunctions.find(f => f.id === entityId);
     if (matchedEntity?.id) {
       accumulateTypeRefs(funcNode, matchedEntity.id);
     }
   }
 
-  // Process class methods: match AST nodes to ::method:: entities from classExtraction.
+  // Process class methods: match AST nodes to method entities from classExtraction.
   for (const methodEntity of classExtraction.methodEntities) {
     if (!methodEntity.id) continue;
     // Find the function_definition AST node that matches this method entity by
@@ -973,7 +974,7 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
   }
 
   return {
-    // Merge: generateEntityId-style functions + ::method:: entities from class extraction
+    // Both sets use generateEntityId format ids (no ::method:: style anymore).
     functions: [...allFunctions, ...classExtraction.methodEntities],
     classes: classExtraction.classes,
     interfaces: [],

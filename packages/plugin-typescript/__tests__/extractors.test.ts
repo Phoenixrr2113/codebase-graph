@@ -26,6 +26,7 @@ import {
   extractComponents,
   extractInheritance,
   extractRenders,
+  generateEntityId,
 } from '../src/extractors';
 
 const TEST_FILE = 'user.ts';
@@ -75,22 +76,25 @@ export class User {
     const userClass = result.classes.find(c => c.name === 'User');
     expect(userClass).toBeDefined();
 
-    const methods = result.methodEntities.filter(
-      m => m.id.startsWith(`${userClass!.id}::method`),
-    );
-    expect(methods.map(m => m.name).sort()).toEqual(['_hash', 'create', 'greet']);
-
     const hasMethodEdges = result.hasMethodEdges.filter(r => r.fromId === userClass!.id);
     expect(hasMethodEdges).toHaveLength(3);
 
+    // Find method entities via HAS_METHOD edge toIds (generateEntityId format now)
+    const methods = hasMethodEdges.map(e => result.methodEntities.find(m => m.id === e.toId)!);
+    expect(methods.map(m => m.name).sort()).toEqual(['_hash', 'create', 'greet']);
+
     // Static method has isStatic = true on its edge
-    const createMethod = methods.find(m => m.name === 'create')!;
-    const createEdge = hasMethodEdges.find(e => e.toId === createMethod.id);
+    const createEdge = hasMethodEdges.find(e => {
+      const m = result.methodEntities.find(m => m.id === e.toId);
+      return m?.name === 'create';
+    });
     expect(createEdge?.isStatic).toBe(true);
 
     // Private method has visibility = 'private'
-    const hashMethod = methods.find(m => m.name === '_hash')!;
-    const hashEdge = hasMethodEdges.find(e => e.toId === hashMethod.id);
+    const hashEdge = hasMethodEdges.find(e => {
+      const m = result.methodEntities.find(m => m.id === e.toId);
+      return m?.name === '_hash';
+    });
     expect(hashEdge?.visibility).toBe('private');
   });
 
@@ -136,8 +140,9 @@ export class User {
     const userClass = result.classes.find(c => c.name === 'User')!;
     const greetMethod = result.methodEntities.find(m => m.name === 'greet')!;
 
-    // Method entity id is deterministic
-    expect(greetMethod.id).toBe(`${userClass.id}::method::greet`);
+    // Method entity id uses generateEntityId format (same as extractFunctions would produce)
+    const expectedGreetId = generateEntityId(TEST_FILE, 'function', 'greet', greetMethod.startLine);
+    expect(greetMethod.id).toBe(expectedGreetId);
 
     // Edge connects class to method using fromId/toId
     const edge = result.hasMethodEdges.find(e => e.toId === greetMethod.id);
@@ -218,9 +223,10 @@ export class Service {
     const propEdges = result.hasPropertyEdges.filter(e => e.fromId === classId);
     expect(propEdges).toHaveLength(3);
 
-    // Method entities appear in the top-level functions array
+    // Method entities appear in the top-level functions array, found via HAS_METHOD edge toIds
+    const methodEdgeToIds = new Set(methodEdges.map(e => e.toId));
     const methodNames = result.functions
-      .filter(f => f.id?.startsWith(`${classId}::method`))
+      .filter(f => f.id && methodEdgeToIds.has(f.id))
       .map(f => f.name)
       .sort();
     expect(methodNames).toEqual(['connect', 'create', 'init']);
@@ -262,6 +268,86 @@ export const PI = 3.14;
 
     expect(result.hasMethodEdges).toHaveLength(0);
     expect(result.hasPropertyEdges).toHaveLength(0);
+  });
+});
+
+describe('Regression: HAS_METHOD toId format matches Function entity id (::method:: bug)', () => {
+  // Regression for: class extractors produced method-Function entities with id
+  // <classId>::method::<name>, while extractFunctions produced the same methods with
+  // generateEntityId-format ids. Natural-key MERGE in the graph collapsed both to one
+  // node; whichever id was upserted last won. HAS_METHOD edge toIds used ::method::
+  // format and silently failed their MATCH — resulting in 0 HAS_METHOD edges in graph.
+
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('extractClassesWithEdges: every HAS_METHOD toId matches a method entity id', () => {
+    const code = `
+export class Counter {
+  private count: number = 0;
+  increment(): void { this.count++; }
+  decrement(): void { this.count--; }
+  static reset(): Counter { return new Counter(); }
+}
+`;
+    const rootNode = parseCode(code);
+    const result = extractClassesWithEdges(rootNode, TEST_FILE);
+
+    const counterClass = result.classes.find(c => c.name === 'Counter');
+    expect(counterClass).toBeDefined();
+
+    const methodEntityIds = new Set(result.methodEntities.map(m => m.id));
+    const classEdges = result.hasMethodEdges.filter(e => e.fromId === counterClass!.id);
+    expect(classEdges).toHaveLength(3);
+
+    for (const edge of classEdges) {
+      expect(methodEntityIds.has(edge.toId),
+        `HAS_METHOD toId '${edge.toId}' not found in methodEntities. ` +
+        `Entity ids: ${[...methodEntityIds].join(', ')}`
+      ).toBe(true);
+    }
+
+    // No ::method:: format in any entity id
+    for (const entity of result.methodEntities) {
+      expect(entity.id).not.toContain('::method::');
+    }
+  });
+
+  it('extractAllEntities: every HAS_METHOD toId resolves to a function in the output array', () => {
+    const code = `
+export class Service {
+  name: string = 'svc';
+  start(): void {}
+  stop(): void {}
+}
+export function topLevel(): string { return ''; }
+`;
+    const rootNode = parseCode(code);
+    const result = extractAllEntities(rootNode, TEST_FILE);
+
+    const serviceClass = result.classes.find(c => c.name === 'Service');
+    expect(serviceClass).toBeDefined();
+
+    const functionIds = new Set(result.functions.map(f => f.id));
+    const classEdges = result.hasMethodEdges.filter(e => e.fromId === serviceClass!.id);
+    expect(classEdges).toHaveLength(2);
+
+    for (const edge of classEdges) {
+      expect(functionIds.has(edge.toId),
+        `HAS_METHOD toId '${edge.toId}' not found in functions array. ` +
+        `Ids: ${[...functionIds].join(', ')}`
+      ).toBe(true);
+    }
+
+    // Top-level function must be present (not mixed with methods)
+    expect(result.functions.find(f => f.name === 'topLevel')).toBeDefined();
+
+    // No ::method:: format in any function id
+    for (const fn of result.functions) {
+      expect(fn.id).not.toContain('::method::');
+    }
   });
 });
 

@@ -1002,11 +1002,9 @@ impl User {
 }
 `;
       const result = runRustExtraction(code, 'user.rs');
-      // greet is a method → its HAS_PARAM edges use the ::method:: id form.
-      // Use the id that appears in hasParamEdges rather than relying on which
-      // duplicate find() returns.
+      // greet is a method → its HAS_PARAM edges use generateEntityId format (same as any function).
+      // After deduplication, exactly one entity named 'greet' exists in the functions array.
       const allHasParam = (result.hasParamEdges ?? []) as HasParamEdgeDescriptor[];
-      // All param edges for functions named 'greet' (match via the function list)
       const greetFnIds = result.functions
         .filter((f) => f.name === 'greet')
         .map((f) => f.id);

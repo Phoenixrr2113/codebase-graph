@@ -389,7 +389,6 @@ export function extractStructsWithEdges(
 
   // ---- Pass 2: walk method_declarations, resolve receiver → struct ----
   const methodDecls = findNodesOfType(root, ['method_declaration']);
-  const methodNameCountByClass = new Map<string, Map<string, number>>();
 
   for (const node of methodDecls) {
     const nameNode = node.childForFieldName('name');
@@ -403,24 +402,21 @@ export function extractStructsWithEdges(
     const classId = structIdByName.get(receiverTypeName);
     if (!classId) {
       // Receiver type not declared in this file — skip the HAS_METHOD edge.
-      // The standalone FunctionEntity is still extracted by extractFunctions.
+      // The standalone FunctionEntity is extracted by extractFunctions.
       continue;
     }
 
-    // Track method name counts per class for overload suffixes
-    if (!methodNameCountByClass.has(classId)) {
-      methodNameCountByClass.set(classId, new Map());
-    }
-    const nameCount = methodNameCountByClass.get(classId)!;
-    const count = nameCount.get(methodName) ?? 0;
-    nameCount.set(methodName, count + 1);
-    const suffix = count > 0 ? `:${count}` : '';
-
-    const methodId = `${classId}::method::${methodName}${suffix}`;
     const startLine = node.startPosition.row + 1;
     const endLine = node.endPosition.row + 1;
     const isExported = isGoExported(methodName);
     const visibility = goVisibility(methodName);
+
+    // Use generateEntityId format matching extractFunctions, so the HAS_METHOD toId
+    // matches the persisted node id after natural-key MERGE (name, filePath, startLine).
+    // receiverTypeName qualifies the id just as extractFunctions does.
+    // Go doesn't allow two methods with the same name on the same receiver type,
+    // so no overload suffix is needed.
+    const methodId = generateEntityId(filePath, 'function', `${receiverTypeName}.${methodName}`, startLine);
 
     const params = extractGoParams(node);
     const returnType = extractGoReturnType(node);
@@ -595,6 +591,11 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
   }
 
   // Methods (with receivers)
+  // extractStructsWithEdges handles methods whose receiver struct IS declared in this file
+  // (producing HAS_METHOD edges). For methods on external types (receiver not in this file),
+  // extractStructsWithEdges skips them, so we extract them here as standalone FunctionEntities.
+  // extractAllEntities deduplicates by id — methods on local structs appear in both arrays
+  // but share the same generateEntityId-format id, so MERGE collapses them correctly.
   const methodDecls = findNodesOfType(root, ['method_declaration']);
   for (const node of methodDecls) {
     const nameNode = node.childForFieldName('name');
@@ -629,7 +630,7 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
     if (returnType) entity.returnType = returnType;
     if (docstring) entity.docstring = docstring;
     // Note: receiver type is encoded in the function id (e.g., "Server.Start")
-    // The parent relationship is expressed via CONTAINS edges in the graph
+    // The parent relationship is expressed via HAS_METHOD edges in the graph
 
     // Universal complexity metrics
     const mMetrics = calculateComplexity(node);
@@ -1382,14 +1383,30 @@ export const extractInheritance = goPlugin.extractors.extractInheritance;
  * Overrides the generic factory's extractAllEntities so the edge fields are populated.
  * The pipeline picks them up automatically via ParsedFileEntities.
  *
- * Function entities appear in two forms:
- *  - generateEntityId style (from extractFunctions) — targets for CALLS/CONTAINS edges
- *  - ::method:: style (from extractStructsWithEdges) — targets for HAS_METHOD edges
- * This matches the TypeScript and Python plugin patterns.
+ * Function entities all use generateEntityId(filePath, 'function', name, startLine) format.
+ * extractFunctions handles function_declaration nodes and method_declaration nodes (the
+ * latter for external-type methods — where the receiver struct is not declared in this file).
+ * extractStructsWithEdges handles method_declaration nodes for local-struct methods (emitting
+ * HAS_METHOD edges) using the same generateEntityId format. extractAllEntities deduplicates
+ * by id so duplicate method entities collapse to one entry.
  */
 export function extractAllEntities(root: SyntaxNode, filePath: string) {
   const allFunctions = extractFunctions(root, filePath);
   const structExtraction = extractStructsWithEdges(root, filePath);
+
+  // Merge and deduplicate by id: extractFunctions emits method_declaration nodes for
+  // ALL methods (so external-type methods survive), while extractStructsWithEdges emits
+  // method entities only for local-struct methods. For local-struct methods the id format
+  // now matches, so merging by id keeps one canonical entity per method.
+  const functionById = new Map<string, FunctionEntity>();
+  for (const fn of allFunctions) {
+    if (fn.id) functionById.set(fn.id, fn);
+  }
+  // structExtraction entities take priority (they carry the full method metadata and HAS_METHOD linkage)
+  for (const fn of structExtraction.methodEntities) {
+    if (fn.id) functionById.set(fn.id, fn);
+  }
+  const mergedFunctions = Array.from(functionById.values());
 
   // ── Type-relationship edges (HAS_PARAM / RETURNS / USES_TYPE) ──────────────
   const typeRefMap = new Map<string, TypeRefEntity>();
@@ -1407,7 +1424,7 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
     allUsesTypeEdges.push(...result.usesTypeEdges);
   }
 
-  // Process top-level functions and methods (function_declaration nodes)
+  // Process top-level functions (function_declaration nodes)
   const funcDeclNodes = findNodesOfType(root, ['function_declaration']);
   for (const funcNode of funcDeclNodes) {
     const nameNode = funcNode.childForFieldName('name');
@@ -1416,32 +1433,32 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
     const startLine = funcNode.startPosition.row + 1;
     const entityId = generateEntityId(filePath, 'function', name, startLine);
 
-    const matchedEntity = allFunctions.find((f) => f.id === entityId);
+    const matchedEntity = functionById.get(entityId);
     if (matchedEntity?.id) {
       accumulateTypeRefs(funcNode, matchedEntity.id);
     }
   }
 
-  // Process method declarations: match AST nodes to ::method:: entities from structExtraction
+  // Process method declarations: use the merged entity id (generateEntityId format)
   const methodDeclNodes = findNodesOfType(root, ['method_declaration']);
   for (const methodNode of methodDeclNodes) {
     const nameNode = methodNode.childForFieldName('name');
     if (!nameNode) continue;
     const methodName = nameNode.text;
+    const receiverTypeName = extractReceiverType(methodNode);
     const startLine = methodNode.startPosition.row + 1;
 
-    // Find the matching ::method:: entity by name and line
-    const matchedMethod = structExtraction.methodEntities.find(
-      (m) => m.name === methodName && m.startLine === startLine,
-    );
+    // Compute the id that both extractFunctions and extractStructsWithEdges now use
+    const entityId = generateEntityId(filePath, 'function', `${receiverTypeName || ''}.${methodName}`, startLine);
+    const matchedMethod = functionById.get(entityId);
     if (matchedMethod?.id) {
       accumulateTypeRefs(methodNode, matchedMethod.id);
     }
   }
 
   return {
-    // Merge: generateEntityId-style functions + ::method:: entities from struct extraction
-    functions: [...allFunctions, ...structExtraction.methodEntities],
+    // Deduplicated: one entity per method (local-struct methods use the structExtraction version)
+    functions: mergedFunctions,
     classes: structExtraction.classes,
     interfaces: extractInterfaces(root, filePath),
     variables: [

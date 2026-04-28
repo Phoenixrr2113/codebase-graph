@@ -1010,7 +1010,6 @@ export function extractStructsWithEdges(
 
   // ---- Pass 2: walk impl_item blocks, resolve target type → struct ----
   const implItems = findNodesOfType(root, ['impl_item']);
-  const methodNameCountByClass = new Map<string, Map<string, number>>();
 
   for (const impl of implItems) {
     const targetName = resolveImplTargetName(impl);
@@ -1034,16 +1033,9 @@ export function extractStructsWithEdges(
 
       const methodName = fnNameNode.text;
 
-      // Track overload suffixes per class
-      if (!methodNameCountByClass.has(classId)) {
-        methodNameCountByClass.set(classId, new Map());
-      }
-      const nameCount = methodNameCountByClass.get(classId)!;
-      const count = nameCount.get(methodName) ?? 0;
-      nameCount.set(methodName, count + 1);
-      const suffix = count > 0 ? `:${count}` : '';
-
-      const methodId = `${classId}::method::${methodName}${suffix}`;
+      // Use generateEntityId format matching extractFunctions (which uses implType.methodName).
+      // This ensures HAS_METHOD edge toIds match the persisted node id after natural-key MERGE.
+      const methodId = generateEntityId(filePath, 'function', `${targetName}.${methodName}`, child.startPosition.row + 1);
       const startLine = child.startPosition.row + 1;
       const endLine = child.endPosition.row + 1;
       const isExported = isPublic(child);
@@ -1296,14 +1288,26 @@ export function extractTypeRefsForRustFunction(
  * Overrides the generic factory's extractAllEntities so the edge fields are populated.
  * The pipeline picks them up automatically via ParsedFileEntities.
  *
- * Function entities appear in two forms:
- *  - generateEntityId style (from extractFunctions) — targets for CALLS/CONTAINS edges
- *  - ::method:: style (from extractStructsWithEdges) — targets for HAS_METHOD edges
- * This matches the TypeScript, Python, and Go plugin patterns.
+ * Function entities all use generateEntityId(filePath, 'function', qualifiedName, startLine).
+ * extractFunctions handles all function_item nodes (top-level and inside impl blocks).
+ * extractStructsWithEdges handles impl-block methods for local structs (producing HAS_METHOD
+ * edges) using the same generateEntityId format. extractAllEntities deduplicates by id so
+ * local-struct methods appear once in the output.
  */
 export function extractAllEntities(root: SyntaxNode, filePath: string) {
   const allFunctions = extractFunctions(root, filePath);
   const structExtraction = extractStructsWithEdges(root, filePath);
+
+  // Merge and deduplicate by id: both extractors now use generateEntityId format.
+  // structExtraction entities take priority (they carry HAS_METHOD linkage metadata).
+  const functionById = new Map<string, FunctionEntity>();
+  for (const fn of allFunctions) {
+    if (fn.id) functionById.set(fn.id, fn);
+  }
+  for (const fn of structExtraction.methodEntities) {
+    if (fn.id) functionById.set(fn.id, fn);
+  }
+  const mergedFunctions = Array.from(functionById.values());
 
   // ── Type-relationship edges (HAS_PARAM / RETURNS / USES_TYPE) ──────────────
   const typeRefMap = new Map<string, TypeRefEntity>();
@@ -1331,15 +1335,17 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
     const name = nameNode.text;
     const startLine = funcNode.startPosition.row + 1;
     const entityId = generateEntityId(filePath, 'function', name, startLine);
-    const matched = allFunctions.find((f) => f.id === entityId);
+    const matched = functionById.get(entityId);
     if (matched?.id) {
       accumulateTypeRefs(funcNode, matched.id);
     }
   }
 
-  // Process method function_item nodes inside impl blocks
+  // Process method function_item nodes inside impl blocks (all use generateEntityId now)
   const implItems = findNodesOfType(root, ['impl_item']);
   for (const impl of implItems) {
+    const typeNode = impl.childForFieldName('type');
+    const implTypeName = typeNode?.text;
     const bodyNode = impl.childForFieldName('body');
     if (!bodyNode) continue;
 
@@ -1351,30 +1357,18 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
       const methodName = nameNode.text;
       const startLine = child.startPosition.row + 1;
 
-      // Match against ::method:: entities from structExtraction by name + line
-      const matchedMethod = structExtraction.methodEntities.find(
-        (m) => m.name === methodName && m.startLine === startLine,
-      );
-      if (matchedMethod?.id) {
-        accumulateTypeRefs(child, matchedMethod.id);
-      } else {
-        // Method on external type — no ::method:: entity, but use generateEntityId
-        // to find in allFunctions (extractFunctions includes impl methods)
-        const typeNode = impl.childForFieldName('type');
-        const implTypeName = typeNode?.text;
-        const qualifiedName = implTypeName ? `${implTypeName}.${methodName}` : methodName;
-        const entityId = generateEntityId(filePath, 'function', qualifiedName, startLine);
-        const matched = allFunctions.find((f) => f.id === entityId);
-        if (matched?.id) {
-          accumulateTypeRefs(child, matched.id);
-        }
+      const qualifiedName = implTypeName ? `${implTypeName}.${methodName}` : methodName;
+      const entityId = generateEntityId(filePath, 'function', qualifiedName, startLine);
+      const matched = functionById.get(entityId);
+      if (matched?.id) {
+        accumulateTypeRefs(child, matched.id);
       }
     }
   }
 
   return {
-    // Merge: generateEntityId-style functions + ::method:: entities from struct extraction
-    functions: [...allFunctions, ...structExtraction.methodEntities],
+    // Deduplicated: one entity per function/method (local-struct methods use structExtraction version)
+    functions: mergedFunctions,
     classes: structExtraction.classes,
     interfaces: extractInterfaces(root, filePath),
     variables: [

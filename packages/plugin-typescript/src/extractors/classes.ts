@@ -100,8 +100,7 @@ export function extractClassesWithEdgesFromNodes(
     const bodyNode = node.childForFieldName('body');
     if (!bodyNode) continue;
 
-    // Track method name counts for duplicate overload detection
-    const methodNameCount = new Map<string, number>();
+    // Track property name counts for duplicate overload detection
     const propNameCount = new Map<string, number>();
 
     for (const member of bodyNode.children) {
@@ -109,12 +108,12 @@ export function extractClassesWithEdgesFromNodes(
         const methodName = member.childForFieldName('name')?.text;
         if (!methodName) continue;
 
-        const count = methodNameCount.get(methodName) ?? 0;
-        methodNameCount.set(methodName, count + 1);
-        const suffix = count > 0 ? `:${count}` : '';
-
-        const methodId = `${classId}::method::${methodName}${suffix}`;
         const location = getLocation(member);
+        // Use generateEntityId format so the id matches what extractFunctions
+        // would produce for the same source node. Both paths use {filePath,
+        // startLine, name} as the natural graph key; using the same id format
+        // means HAS_METHOD edge toIds resolve correctly after MERGE.
+        const methodId = generateEntityId(filePath, 'function', methodName, location.startLine);
         const isStatic = hasMemberModifier(member, 'static');
         const visibility = getMemberVisibility(member);
         const isAsync = hasMemberModifier(member, 'async');

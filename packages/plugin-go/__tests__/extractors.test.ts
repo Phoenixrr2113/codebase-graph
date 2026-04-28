@@ -976,9 +976,9 @@ func (s *Service) Stop() {}
     const service = result.classes.find((c) => c.name === 'Service');
     expect(service).toBeDefined();
 
-    const methodEntities = result.functions.filter(
-      (f) => typeof f.id === 'string' && f.id.startsWith(`${service!.id}::method::`),
-    );
+    // Method entities are found via HAS_METHOD edge toIds (generateEntityId format)
+    const methodEdges = (result.hasMethodEdges ?? []).filter((e) => e.fromId === service!.id);
+    const methodEntities = methodEdges.map((e) => result.functions.find((f) => f.id === e.toId)!);
     expect(methodEntities).toHaveLength(2);
     const methodNames = methodEntities.map((m) => m.name).sort();
     expect(methodNames).toEqual(['Start', 'Stop']);
@@ -1011,9 +1011,11 @@ func (p Point) String() string {
     const methodEdges = result.hasMethodEdges.filter((e) => e.fromId === point!.id);
     expect(methodEdges).toHaveLength(2);
 
-    const methodNames = result.methodEntities
-      .filter((m) => typeof m.id === 'string' && m.id.startsWith(`${point!.id}::method::`))
-      .map((m) => m.name)
+    // Method entities are found via HAS_METHOD edge toIds (generateEntityId format)
+    const pointMethodEdges = result.hasMethodEdges.filter((e) => e.fromId === point!.id);
+    const methodNames = pointMethodEdges
+      .map((e) => result.methodEntities.find((m) => m.id === e.toId)?.name)
+      .filter((n): n is string => n !== undefined)
       .sort();
     expect(methodNames).toEqual(['Scale', 'String']);
 
@@ -1099,11 +1101,12 @@ func (u *User) Greet(prefix string) string {
 }
 `;
     const result = await runGoExtraction(code, 'user.go');
-    // Methods on structs are emitted as ::method:: entities by extractStructsWithEdges;
-    // type-ref edges use that id, not the generateEntityId-style function id.
-    const greetFn = result.functions.find(
-      (e: any) => e.name === 'Greet' && typeof e.id === 'string' && e.id.includes('::method::'),
-    );
+    // Methods on structs use generateEntityId format; find via HAS_METHOD edges
+    const userStruct = result.classes.find((c: any) => c.name === 'User');
+    expect(userStruct).toBeDefined();
+    const methodEdge = (result.hasMethodEdges ?? []).find((e: any) => e.fromId === userStruct!.id);
+    expect(methodEdge).toBeDefined();
+    const greetFn = result.functions.find((f: any) => f.id === methodEdge!.toId);
     expect(greetFn).toBeDefined();
     const hasParam = (result.hasParamEdges ?? []).filter((e: any) => e.fromId === greetFn!.id);
     // Should be 1 (just the prefix arg), NOT 2 (which would include the receiver)

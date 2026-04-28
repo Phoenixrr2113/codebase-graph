@@ -8,12 +8,18 @@ import type { FunctionEntity, FunctionParam } from '@codegraph/types';
 import { findNodesOfTypes, getLocation, generateEntityId } from './types';
 import { calculateComplexity } from '@codegraph/plugin-common';
 
-/** Node types that represent function declarations */
+/**
+ * Node types that represent top-level (non-class-method) function declarations.
+ * method_definition is intentionally excluded — class methods are extracted by
+ * extractClassesWithEdgesFromNodes, which emits them with generateEntityId-format
+ * ids that match this extractor's id format. Including method_definition here would
+ * produce duplicate Function entities with the same natural key (name/filePath/startLine),
+ * causing HAS_METHOD edge descriptor toIds to silently mismatch the persisted node id.
+ */
 const FUNCTION_TYPES = [
   'function_declaration',
   'function_expression',
   'arrow_function',
-  'method_definition',
   'generator_function_declaration',
 ];
 
