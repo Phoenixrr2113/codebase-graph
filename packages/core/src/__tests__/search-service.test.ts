@@ -32,23 +32,18 @@ describe('searchImpl — DI hook', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   it('uses caller-provided client and skips getGraphClient()', async () => {
     const callerClient = makeMockClient('caller-graph');
     const getClientSpy = vi.spyOn(graphClientMod, 'getGraphClient');
     const enrichedSpy = vi.spyOn(enrichedSearchMod, 'enrichedSearchV2').mockResolvedValue({
       hits: [],
-      latencyMs: 0,
-      totalCandidates: 0,
-    } as never);
+      meta: { query: 'hello', vectorHits: 0, durationMs: 0 },
+    });
 
     await searchImpl('hello', { client: callerClient, scope: 'all', limit: 5 });
 
     expect(getClientSpy).not.toHaveBeenCalled();
-    expect(enrichedSpy).toHaveBeenCalledWith('hello', callerClient, expect.any(Object));
+    expect(enrichedSpy).toHaveBeenCalledWith('hello', callerClient, expect.objectContaining({ limit: 5 }));
   });
 
   it('falls back to getGraphClient() when no client provided', async () => {
@@ -56,13 +51,12 @@ describe('searchImpl — DI hook', () => {
     const getClientSpy = vi.spyOn(graphClientMod, 'getGraphClient').mockResolvedValue(fallbackClient);
     const enrichedSpy = vi.spyOn(enrichedSearchMod, 'enrichedSearchV2').mockResolvedValue({
       hits: [],
-      latencyMs: 0,
-      totalCandidates: 0,
-    } as never);
+      meta: { query: 'hello', vectorHits: 0, durationMs: 0 },
+    });
 
     await searchImpl('hello', { scope: 'all', limit: 5 });
 
     expect(getClientSpy).toHaveBeenCalled();
-    expect(enrichedSpy).toHaveBeenCalledWith('hello', fallbackClient, expect.any(Object));
+    expect(enrichedSpy).toHaveBeenCalledWith('hello', fallbackClient, expect.objectContaining({ limit: 5 }));
   });
 });
