@@ -34,11 +34,11 @@ export class CogneeAdapter implements BenchmarkAdapter {
   }
 
   async ingest(_corpus: BenchmarkCorpus): Promise<IngestStats> {
-    throw new Error(`BLOCKED: ${BLOCKED_REASON}`);
+    throw new Error(`DEFERRED: ${BLOCKED_REASON}`);
   }
 
   async query(_question: string, _opts?: QueryOpts): Promise<RankedResult[]> {
-    throw new Error(`BLOCKED: ${BLOCKED_REASON}`);
+    throw new Error(`DEFERRED: ${BLOCKED_REASON}`);
   }
 
   async destroy(): Promise<void> {

@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, extname } from 'node:path';
+import { basename, join, extname } from 'node:path';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
 
@@ -27,6 +27,7 @@ interface HindsightRecallResult {
   content?: string;
   score?: number;
   relevance?: number;
+  metadata?: { path?: string; [key: string]: unknown };
   [key: string]: unknown;
 }
 
@@ -205,6 +206,8 @@ export class HindsightAdapter implements BenchmarkAdapter {
     const raw = (await res.json()) as HindsightRecallResponse;
     const results: HindsightRecallResult[] = raw.results ?? raw.memories ?? [];
 
+    // Project metadata.path → <basename>#<basename> so cross-system gold IDs
+    // resolve. Fall back to opaque service ID only if no path metadata.
     return results.map((r, idx) => {
       const score =
         typeof r.score === 'number'
@@ -212,8 +215,10 @@ export class HindsightAdapter implements BenchmarkAdapter {
           : typeof r.relevance === 'number'
             ? r.relevance
             : 1 - idx * 0.01;
+      const path = r.metadata?.path;
+      const id = path ? `${basename(path)}#${basename(path)}` : (r.id ?? `hindsight-${idx}`);
       return {
-        id: r.id ?? `hindsight-${idx}`,
+        id,
         score,
         kind: 'knowledge' as const,
         raw: r,

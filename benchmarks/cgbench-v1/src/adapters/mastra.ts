@@ -28,7 +28,7 @@ const BLOCKED_REASON =
  * a headless Mastra agent harness, which is deferred to Plan 4.
  */
 export class MastraAdapter implements BenchmarkAdapter {
-  readonly name = 'mastra';
+  readonly name = 'mastra-memory';
   readonly mode = 'native' as const;
 
   constructor(opts: MastraAdapterOptions) {
@@ -36,11 +36,11 @@ export class MastraAdapter implements BenchmarkAdapter {
   }
 
   async ingest(_corpus: BenchmarkCorpus): Promise<IngestStats> {
-    throw new Error(`BLOCKED: ${BLOCKED_REASON}`);
+    throw new Error(`DEFERRED: ${BLOCKED_REASON}`);
   }
 
   async query(_question: string, _opts?: QueryOpts): Promise<RankedResult[]> {
-    throw new Error(`BLOCKED: ${BLOCKED_REASON}`);
+    throw new Error(`DEFERRED: ${BLOCKED_REASON}`);
   }
 
   async destroy(): Promise<void> {

@@ -19,7 +19,7 @@ describe('CLI makeAdapter — supports all 8 systems', () => {
       const dataDir = mkdtempSync(`/tmp/cgbench-multi-${sys}-`);
       try {
         const adapter = makeAdapter(sys, dataDir);
-        expect(adapter.name).toBe(sys === 'mastra-memory' ? 'mastra' : sys);
+        expect(adapter.name).toBe(sys);
       } finally {
         rmSync(dataDir, { recursive: true, force: true });
       }

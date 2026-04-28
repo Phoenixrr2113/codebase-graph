@@ -3,19 +3,19 @@ import { mkdtempSync } from 'node:fs';
 import { MastraAdapter } from '../../src/adapters/mastra.js';
 
 describe('MastraAdapter (Plan 3 stub)', () => {
-  it('throws BLOCKED on ingest', async () => {
+  it('throws DEFERRED on ingest', async () => {
     const adapter = new MastraAdapter({
       dataDir: mkdtempSync('/tmp/cgbench-mastra-stub-'),
     });
     await expect(
       adapter.ingest({ codeRoots: [] }),
-    ).rejects.toThrow(/BLOCKED/);
+    ).rejects.toThrow(/DEFERRED/);
   });
 
-  it('throws BLOCKED on query', async () => {
+  it('throws DEFERRED on query', async () => {
     const adapter = new MastraAdapter({
       dataDir: mkdtempSync('/tmp/cgbench-mastra-stub-'),
     });
-    await expect(adapter.query('q')).rejects.toThrow(/BLOCKED/);
+    await expect(adapter.query('q')).rejects.toThrow(/DEFERRED/);
   });
 });

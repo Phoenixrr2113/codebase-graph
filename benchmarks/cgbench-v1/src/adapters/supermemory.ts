@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, extname } from 'node:path';
+import { basename, join, extname } from 'node:path';
 
 export interface SupermemoryAdapterOptions {
   dataDir: string;
@@ -26,6 +26,7 @@ interface SupermemorySearchDocument {
   metadata?: {
     title?: string;
     url?: string;
+    path?: string;
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -192,12 +193,19 @@ export class SupermemoryAdapter implements BenchmarkAdapter {
     // v3 returns either .documents or .results depending on endpoint variant
     const docs: SupermemorySearchDocument[] = raw.documents ?? raw.results ?? [];
 
-    return docs.map((doc, idx) => ({
-      id: doc.id ?? `supermemory-${idx}`,
-      score: typeof doc.score === 'number' ? doc.score : 1 - idx * 0.01,
-      kind: 'knowledge' as const,
-      raw: doc,
-    }));
+    // Project metadata.path → <basename>#<basename> so cross-system gold
+    // IDs (which use file-level granularity) resolve. Fall back to opaque
+    // service ID only if no path metadata is available.
+    return docs.map((doc, idx) => {
+      const path = doc.metadata?.path;
+      const id = path ? `${basename(path)}#${basename(path)}` : (doc.id ?? `supermemory-${idx}`);
+      return {
+        id,
+        score: typeof doc.score === 'number' ? doc.score : 1 - idx * 0.01,
+        kind: 'knowledge' as const,
+        raw: doc,
+      };
+    });
   }
 
   async destroy(): Promise<void> {
