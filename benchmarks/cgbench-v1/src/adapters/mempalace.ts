@@ -110,8 +110,10 @@ print(json.dumps({"filesTotal": total_files, "projectDir": project_dir}))
     // mempalace indexes its content. The file stem is tracked in knowledgeStems
     // so resultId() can emit bare-stem IDs (matching task-d/task-e gold format).
     if (corpus.knowledgeRoot !== undefined) {
+      // Match patterns like knowledge-001.md or fact-001.md; skip README.md
+      // and other corpus-level prose that isn't a labeled knowledge doc.
       const knowledgeFiles = readdirSync(corpus.knowledgeRoot)
-        .filter((f) => f.endsWith('.md'))
+        .filter((f) => /^[a-z]+-\d+\.md$/i.test(f))
         .sort();
 
       for (const fileName of knowledgeFiles) {
