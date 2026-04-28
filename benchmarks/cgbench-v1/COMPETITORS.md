@@ -46,17 +46,29 @@ This document captures what is known about each competitor at the time of Plan 3
   cd cognee/cognee-mcp && pip install uv && uv sync --dev --all-extras --reinstall
   source .venv/bin/activate && python src/server.py
   ```
-- API keys: **LLM_API_KEY required** (OpenAI by default; other providers configurable). Optional: `COGNEE_SERVICE_URL` + `COGNEE_API_KEY` for Cognee Cloud sync.
-- Local runnable: **YES-WITH-KEY** (LLM key required for graph construction)
-- Plan 3 status: **READY-WITH-KEY**
-- Best ingest API: `cognee.remember(text)` (v2) or `cognify(data)` (v1) — converts text/documents into structured knowledge graphs
-- Best query API: `cognee.recall(query)` — auto-routing semantic search with optional completion types; also `search(query, "GRAPH_COMPLETION")` for graph traversal answers
+- API keys: **none** — uses local Ollama; no external accounts or API keys required
+- Local runnable: **YES** (Ollama required; default model `qwen3.5:9b`)
+- Plan 3 status: **READY-WITH-KEY** (original)
+- Plan 5 status: **WORKING** — `pip install cognee` path confirmed; adapter implemented via Python subprocess. Pivoted to local Ollama in Plan 5 (no API key required). See below for API notes.
+- LLM config: local Ollama at `http://localhost:11434/v1`; default model `openai/qwen3.5:9b`. `LLM_PROVIDER=openai` + custom `LLM_ENDPOINT` triggers litellm's OpenAI-compat path. `LLM_API_KEY` set to placeholder `'ollama'` (Ollama does not validate it).
+- Best ingest API: `cognee.add(file_paths)` (accepts list of absolute file paths or text strings) + `cognee.cognify(datasets=["name"])` (builds knowledge graph via LLM extraction per chunk)
+- Best query API: `cognee.search(query, query_type=SearchType.CHUNKS, top_k=N)` — returns `List[SearchResult]` where `search_result` is a `DocumentChunk` with `.text`, `.is_part_of` (Document with `.raw_data_location`)
+- Storage config: `get_base_config()` from `cognee.base_config`; set `data_root_directory` and `system_root_directory` to isolate benchmark runs
+- Starlette compat: cognee 1.0.3 references `starlette.status.HTTP_422_UNPROCESSABLE_CONTENT` but starlette 0.46.x has `HTTP_422_UNPROCESSABLE_ENTITY`. Monkey-patch required before import: `starlette.status.HTTP_422_UNPROCESSABLE_CONTENT = starlette.status.HTTP_422_UNPROCESSABLE_ENTITY`
 - Quirks:
   - MCP server is not pip-installable; requires repo clone + `uv sync`
   - LLM is used during ingest (graph construction), not just at query time — ingest cost and latency is higher than vector-only systems
   - Python 3.10–3.13 required
   - Optional cloud sync; benchmark should use local-only mode (`COGNEE_SERVICE_URL` unset)
-  - v2 API (`remember`/`recall`) is preferred over v1 (`cognify`/`search`)
+  - v1 API (`add`/`cognify`/`search`) is used; v2 (`remember`/`recall`) may work similarly but not tested here
+
+## Cost note
+
+- Cognee's `cognify()` makes approximately 1 LLM call per chunk (TextChunker default ~512 tokens per chunk)
+- **Free (local inference)** — no API key, no network spend
+- For tiny-ts (3 files, ~80 lines total): expected **10–30 min** on M-series Mac with qwen3.5:9b
+- For zod (~8K files): expected **hours** per full benchmark run — use qwen3.5:4b for faster iteration
+- Alternative models if qwen3.5:9b has tool-calling issues: `gemma4:26b` (17 GB, confirmed tools support) or `qwen3.5:35b-a3b-coding-nvfp4` (21 GB, max capability)
 
 ---
 
@@ -197,7 +209,7 @@ This document captures what is known about each competitor at the time of Plan 3
 
 | Key | Required by | Notes |
 |-----|-------------|-------|
-| LLM_API_KEY (OpenAI or compatible) | Cognee, Hindsight, Mastra | Cognee and Mastra require LLM at ingest time; Hindsight allows Ollama (key-free) |
+| LLM_API_KEY (OpenAI or compatible) | Hindsight, Mastra | Cognee now uses local Ollama (no key); Mastra requires LLM at ingest time; Hindsight allows Ollama (key-free) |
 | SUPERMEMORY_API_KEY (or OAuth) | supermemory | Free tier available; OAuth is key-free but interactive |
 | AUGMENT_API_KEY | Augment Code | Requires paid plan ($20/month minimum); explicit user approval needed before using |
 
@@ -207,7 +219,7 @@ This document captures what is known about each competitor at the time of Plan 3
 
 | Status | Count | Systems |
 |--------|-------|---------|
-| READY | 2 of 7 | mempalace, mcp-codebase-index |
-| READY-WITH-KEY | 4 of 7 | Cognee, hindsight, Mastra, supermemory |
+| READY | 3 of 7 | mempalace, mcp-codebase-index, Cognee (local Ollama, no key required) |
+| READY-WITH-KEY | 3 of 7 | hindsight, Mastra, supermemory |
 | BLOCKED | 1 of 7 | Augment Code |
 | DEFERRED | 0 of 7 | — |
