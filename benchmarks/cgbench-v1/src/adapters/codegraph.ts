@@ -3,7 +3,7 @@ import { join, basename } from 'node:path';
 import { measureDiskBytes } from '../metrics/resources.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
-import { indexProject } from '@codegraph/core';
+import { indexProject, enrichedSearchV2 } from '@codegraph/core';
 import { createClient, createKnowledgeOperations } from '@codegraph/graph';
 import type { GraphClient, QueryOptions, KnowledgeOperations } from '@codegraph/graph';
 
@@ -21,6 +21,29 @@ export interface CodeGraphAdapterOptions {
    *   loaders). Plan 5/6 territory. Requesting these formats throws a clear error.
    */
   documentFormat?: DocumentFormat;
+  /**
+   * Embedding provider for vector search.
+   *
+   * 'local'      — nomic-ai/nomic-embed-text-v1.5 via @huggingface/transformers (~10ms/embedding,
+   *                768-dim, no API key required, first run downloads ~140MB model)
+   * 'voyage'     — voyage-code-3 (1024-dim, requires VOYAGE_API_KEY)
+   * 'openrouter' — text-embedding-3-small (1536-dim, requires OPENROUTER_API_KEY)
+   * 'none'       — disable vector search; fall back to lexical Cypher matching
+   *
+   * Defaults to the CODEGRAPH_EMBEDDING_PROVIDER env var, or 'local' if not set.
+   * Use 'none' for offline/CI environments where no provider is available or desired.
+   */
+  embeddingProvider?: 'local' | 'voyage' | 'openrouter' | 'none';
+  /**
+   * Reranker provider for cross-encoder reranking of vector results.
+   *
+   * 'jina'  — jina-reranker-v2-base-multilingual (requires JINA_API_KEY)
+   * 'voyage' — rerank-2 (requires VOYAGE_API_KEY)
+   * 'none'  — disable reranking; use raw vector similarity scores
+   *
+   * Defaults to 'none' when no API key is set (graceful degradation).
+   */
+  rerankerProvider?: 'jina' | 'voyage' | 'none';
 }
 
 /**
@@ -54,12 +77,42 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   readonly mode = 'native' as const;
   private readonly dataDir: string;
   private readonly documentFormat: DocumentFormat;
+  private readonly embeddingProvider: 'local' | 'voyage' | 'openrouter' | 'none';
+  private readonly rerankerProvider: 'jina' | 'voyage' | 'none';
+  // false = disabled (indexProject convention); object = provider config (enrichedSearchV2 convention)
+  private readonly embeddingConfig: { provider: 'local' | 'voyage' | 'openrouter' } | false;
   private client: GraphClient | null = null;
   private knowledgeOps: KnowledgeOperations | null = null;
 
   constructor(opts: CodeGraphAdapterOptions) {
     this.dataDir = opts.dataDir;
     this.documentFormat = opts.documentFormat ?? 'md';
+
+    // Resolve embedding provider: explicit option > env var > 'local'
+    const envProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
+    const resolvedProvider = opts.embeddingProvider ??
+      (envProvider === 'voyage' || envProvider === 'openrouter' || envProvider === 'local' || envProvider === 'none'
+        ? (envProvider as 'local' | 'voyage' | 'openrouter' | 'none')
+        : 'local');
+    this.embeddingProvider = resolvedProvider;
+
+    // Resolve reranker provider: explicit option > env var > 'none'
+    const envReranker = process.env['CODEGRAPH_RERANK_PROVIDER'];
+    this.rerankerProvider = opts.rerankerProvider ??
+      (envReranker === 'jina' || envReranker === 'voyage' ? (envReranker as 'jina' | 'voyage') : 'none');
+
+    // Build the EmbeddingConfig for indexProject and enrichedSearchV2
+    this.embeddingConfig = resolvedProvider === 'none'
+      ? false
+      : { provider: resolvedProvider };
+
+    // Propagate the resolved provider into the process environment.
+    // ensureSchemaImpl (called by ensureIndexes on every client open) reads
+    // CODEGRAPH_EMBEDDING_PROVIDER to decide which vector index dimension to
+    // create. Without this, reopening the client (after ingest close) would
+    // skip vector index creation, making searchByVector return 0 results.
+    process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = resolvedProvider;
+
     mkdirSync(this.dataDir, { recursive: true });
   }
 
@@ -94,7 +147,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     for (const root of corpus.codeRoots) {
       const result = await indexProject(root.path, {
         client,
-        embeddings: false,
+        embeddings: this.embeddingConfig,
         force: true,
         gitSync: false,
       });
@@ -190,21 +243,135 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   }
 
   async query(question: string, opts?: QueryOpts): Promise<RankedResult[]> {
-    const client = await this.getClient();
     const limit = opts?.topK ?? 20;
 
-    // Lexical fallback: enrichedSearchV2 requires embeddings, which are disabled
-    // during benchmark ingest (embeddings: false). Use a direct Cypher name-match
-    // across all code node types and a text-contains match on Entity nodes so the
-    // benchmark can work without a vector index.
-    //
-    // Strategy:
-    //   1. Extract non-trivial words (≥3 chars) from the question.
-    //   2. For each word, also include a 4-char stem (e.g. "retries" → "retr")
-    //      so morphological variants match (e.g. "retry", "retryWithBackoff").
-    //   3. Match code nodes whose name or filePath contains any term/stem.
-    //   4. Match knowledge Entity nodes whose text contains any term/stem.
-    //   5. Score by number of term/stem hits; merge and rank.
+    if (this.embeddingProvider !== 'none') {
+      return this.queryVector(question, limit);
+    }
+
+    return this.queryLexical(question, limit);
+  }
+
+  /**
+   * Production query path: vector retrieval via enrichedSearchV2.
+   *
+   * Uses the adapter's own FalkorDBLite client (not the global singleton) so
+   * each benchmark run is fully isolated. The reranker is controlled by
+   * CODEGRAPH_RERANK_PROVIDER / JINA_API_KEY / VOYAGE_API_KEY; if no key is
+   * present the reranker gracefully falls back to vector similarity scores.
+   *
+   * When rerankerProvider is explicitly 'none', CODEGRAPH_RERANK=false is set
+   * in the environment so enrichedSearchV2 skips the reranker entirely.
+   */
+  private async queryVector(question: string, limit: number): Promise<RankedResult[]> {
+    const client = await this.getClient();
+
+    // Suppress reranker when caller explicitly opts out
+    const skipReranker = this.rerankerProvider === 'none';
+
+    const embeddings = this.embeddingConfig === false ? undefined : this.embeddingConfig;
+    const result = await enrichedSearchV2(question, client, {
+      limit,
+      skipReranker,
+      ...(embeddings !== undefined ? { embeddings } : {}),
+    });
+
+    if (result.hits.length === 0 && result.meta.notice) {
+      // Embeddings not ready or not configured — fall through to full lexical path
+      return this.queryLexical(question, limit);
+    }
+
+    const codeResults: RankedResult[] = result.hits.map((hit) => ({
+      id: this.vectorResultId(hit),
+      score: 0, // position-based ranking — enrichedSearchV2 orders hits by relevance
+      kind: 'code' as const,
+      raw: hit,
+    }));
+
+    // enrichedSearchV2 searches code nodes only (Function, Class, etc.).
+    // Entity/Document nodes are stored as knowledge and must be queried separately.
+    // Run a lexical-only entity query and merge results — score 0 so they sort
+    // after the ranked code results when both have equal scores.
+    const entityResults = await this.queryLexicalEntitiesOnly(question, limit);
+
+    return [...codeResults, ...entityResults].slice(0, limit);
+  }
+
+  /**
+   * Lexical entity-only query: matches Entity Document nodes by text content.
+   * Used to augment the vector code search with knowledge/document results.
+   */
+  private async queryLexicalEntitiesOnly(question: string, limit: number): Promise<RankedResult[]> {
+    const client = await this.getClient();
+
+    const rawTerms = question
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length >= 3);
+
+    const expanded: string[] = [];
+    for (const t of rawTerms) {
+      expanded.push(t);
+      if (t.length > 4) expanded.push(t.slice(0, 4));
+    }
+    const uniqueTerms = [...new Set(expanded)];
+    if (uniqueTerms.length === 0) return [];
+
+    const entityMatchClause = (i: number): string => `toLower(e.text) CONTAINS $t${i}`;
+    const entityScoreExpr = uniqueTerms
+      .map((_, i) => `CASE WHEN ${entityMatchClause(i)} THEN 1 ELSE 0 END`)
+      .join(' + ');
+
+    const params: QueryOptions['params'] = { limit };
+    for (let i = 0; i < uniqueTerms.length; i++) {
+      params[`t${i}`] = uniqueTerms[i]!;
+    }
+
+    const entityCypher = `
+      MATCH (e:Entity)
+      WHERE e.type = 'Document'
+        AND (${uniqueTerms.map((_, i) => entityMatchClause(i)).join(' OR ')})
+      WITH e, (${entityScoreExpr}) AS matchScore
+      WHERE matchScore > 0
+      RETURN e.text AS text, e.properties AS properties, matchScore
+      ORDER BY matchScore DESC
+      LIMIT $limit
+    `;
+
+    const entityResult = await client.roQuery<{
+      text: string;
+      properties: string | null;
+      matchScore: number;
+    }>(entityCypher, { params }).catch(() => ({
+      data: [] as Array<{ text: string; properties: string | null; matchScore: number }>,
+    }));
+
+    return entityResult.data.map((row) => ({
+      id: this.knowledgeResultId(row),
+      score: row.matchScore,
+      kind: 'knowledge' as const,
+      raw: row,
+    }));
+  }
+
+  /**
+   * Lexical fallback: name+filePath substring matching via direct Cypher.
+   *
+   * Used when embeddingProvider is 'none', or as an automatic fallback when
+   * enrichedSearchV2 returns no hits (e.g., no embeddings in the graph yet).
+   *
+   * Strategy:
+   *   1. Extract non-trivial words (≥3 chars) from the question.
+   *   2. For each word, also include a 4-char stem (e.g. "retries" → "retr")
+   *      so morphological variants match (e.g. "retry", "retryWithBackoff").
+   *   3. Match code nodes whose name or filePath contains any term/stem.
+   *   4. Match knowledge Entity nodes whose text contains any term/stem.
+   *   5. Score by number of term/stem hits; merge and rank.
+   */
+  private async queryLexical(question: string, limit: number): Promise<RankedResult[]> {
+    const client = await this.getClient();
+
     const rawTerms = question
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, ' ')
@@ -303,6 +470,16 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     return [...codeResults, ...knowledgeResults]
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
+  }
+
+  /**
+   * Build a result ID for a vector hit from enrichedSearchV2.
+   * Format: <basename>#<symbolName> (same convention as the lexical path).
+   */
+  private vectorResultId(hit: { filePath?: string; name: string }): string {
+    const file = hit.filePath ?? 'unknown';
+    const base = file.includes('/') ? file.slice(file.lastIndexOf('/') + 1) : file;
+    return `${base}#${hit.name}`;
   }
 
   private resultId(hit: { filePath?: string | null; name?: string | null }): string {

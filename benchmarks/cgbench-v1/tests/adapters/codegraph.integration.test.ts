@@ -5,6 +5,12 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { CodeGraphAdapter } from '../../src/adapters/codegraph.js';
 
+// Detect whether the local HuggingFace transformer can load.
+// The 'local' provider requires @huggingface/transformers which downloads
+// ~140MB on first run. Skip the vector test suite in environments where this
+// is known to fail (e.g., CI without HF cache, memory-constrained runners).
+const skipVector = process.env['CGBENCH_SKIP_VECTOR'] === '1';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_CODE = join(__dirname, '../../fixtures/code/tiny-ts');
 const KNOWLEDGE_DIR = join(__dirname, '../../corpora/knowledge');
@@ -122,4 +128,36 @@ describe('CodeGraphAdapter — document corpus ingest', () => {
       rmSync(binDir, { recursive: true, force: true });
     }
   }, 60_000);
+});
+
+describe.skipIf(skipVector)('CodeGraphAdapter — vector+reranker query path', () => {
+  // Uses the local HuggingFace transformer provider (nomic-ai/nomic-embed-text-v1.5).
+  // No API key required. First run downloads ~140MB model to ~/.cache/huggingface.
+  // Reranker is disabled (rerankerProvider: 'none') — vector similarity scores only.
+  // Use /tmp directly — macOS tmpdir() path is too long for FalkorDBLite's Unix socket
+  const dataDir = mkdtempSync('/tmp/cgbench-cg-vec-');
+  const adapter = new CodeGraphAdapter({
+    dataDir,
+    embeddingProvider: 'local',
+    rerankerProvider: 'none',
+  });
+  afterAll(async () => {
+    await adapter.destroy().catch(() => {});
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('ingests fixture with embeddings and vector-queries the retry function into top 3', async () => {
+    await adapter.ingest({
+      codeRoots: [{ language: 'typescript', path: FIXTURE_CODE, commitSha: 'fixture' }],
+    });
+
+    const results = await adapter.query('function that retries failed requests', { topK: 10 });
+    expect(results.length).toBeGreaterThan(0);
+
+    const ids = results.map((r) => r.id);
+    // The retry function should rank highly with vector embeddings
+    const retryIdx = ids.findIndex((id) => /retry/i.test(id));
+    expect(retryIdx, `retry not found in results; got: ${ids.join(', ')}`).toBeGreaterThanOrEqual(0);
+    expect(retryIdx, `retry ranked at ${retryIdx}, expected top 3`).toBeLessThan(3);
+  }, 180_000);
 });

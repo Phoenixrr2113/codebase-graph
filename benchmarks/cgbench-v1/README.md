@@ -63,14 +63,32 @@ The JSON contains:
 - `src/types.ts` — zod schemas for corpora, questions, ranked results, manifest.
 - `src/score/` — pure functions: MRR, Recall@k, Precision@k, F1, EM.
 - `src/metrics/` — latency aggregation (p50/p95/p99 cold/warm), RSS sampling, disk measurement, ingestion throughput.
-- `src/adapters/codegraph.ts` — native adapter wrapping `@codegraph/core`'s indexer + lexical Cypher search.
+- `src/adapters/codegraph.ts` — native adapter wrapping `@codegraph/core`'s indexer + production vector+reranker search (`enrichedSearchV2`). Falls back to lexical Cypher when `embeddingProvider: 'none'`.
 - `src/runner.ts` — ingest → query loop → score → return `RunResult`.
 - `src/cli.ts` — `bench run --system <name>` writes `RunResult` to `results/<timestamp>/per-system/<system>.json`.
 - `fixtures/` — tiny in-repo corpus + smoke questions for integration tests. Real corpora live in `corpora/`.
 
+## Embedding providers
+
+The CodeGraph adapter supports three embedding providers for vector search:
+
+| Provider | Env | Notes |
+|---|---|---|
+| `local` | (none required) | `nomic-ai/nomic-embed-text-v1.5` via `@huggingface/transformers`. Downloads ~140MB model on first run. ~10ms/embedding on CPU. Default when no API key is set. |
+| `voyage` | `VOYAGE_API_KEY` | `voyage-code-3` (1024-dim, code-optimized). Auto-selected when key is present. |
+| `openrouter` | `OPENROUTER_API_KEY` | `text-embedding-3-small` (1536-dim). Auto-selected when key is present. |
+| `none` | (none) | Lexical fallback only (name+filePath Cypher). Use for offline/CI environments. |
+
+Set `CODEGRAPH_EMBEDDING_PROVIDER=<provider>` to override auto-detection.
+
+The reranker (cross-encoder) is auto-detected from `JINA_API_KEY` / `VOYAGE_API_KEY`. Without a key, the adapter uses raw vector similarity scores. Set `CODEGRAPH_RERANK_PROVIDER=none` to disable explicitly.
+
+### Lexical fallback
+
+When `embeddingProvider: 'none'` (or `CODEGRAPH_EMBEDDING_PROVIDER=none`), the adapter falls back to direct Cypher name-match with 4-char-prefix stem expansion — no API key or model required. This mode is suitable for CI and offline testing but produces lower MRR (~0.21 on the smoke fixture).
+
 ## Plan 1 limitations
 
-- **CodeGraph query is lexical-only.** Ingest sets `embeddings: false` (no API key in CI). `query()` does name+filePath substring matching with 4-char-prefix stem expansion via direct Cypher. Plan 4 will revisit whether to enable embeddings for the public benchmark.
 - **`tokensPerSecond` is approximated** as `diskBytesAfter / 4 / durationMs`. Replace with real token counts when `indexProject` exposes them.
 - **Path-length constraint** on FalkorDBLite Unix socket: keep `--results-dir` short on macOS.
 
