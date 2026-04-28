@@ -1,0 +1,12 @@
+{"id":"a-py-001","task":"A","language":"python","prompt":"function that follows HTTP redirects, rebuilding auth and proxy settings on each hop","gold":["sessions.py#resolve_redirects"],"difficulty":"easy"}
+{"id":"a-py-002","task":"A","language":"python","prompt":"function that loads stored credentials from a .netrc file for a given URL","gold":["utils.py#get_netrc_auth"],"difficulty":"easy"}
+{"id":"a-py-003","task":"A","language":"python","prompt":"function that attaches cookies from a jar to an outgoing request header","gold":["cookies.py#get_cookie_header"],"difficulty":"medium"}
+{"id":"a-ts-001","task":"A","language":"typescript","prompt":"function that computes the floating point safe modulo remainder between two decimal values","gold":["util.ts#floatSafeRemainder"],"difficulty":"easy"}
+{"id":"a-ts-002","task":"A","language":"typescript","prompt":"function that initializes the context object used to track state during JSON schema generation","gold":["to-json-schema.ts#initializeContext"],"difficulty":"medium"}
+{"id":"a-ts-003","task":"A","language":"typescript","prompt":"function that constructs an emoji regex using unicode pictographic character categories","gold":["regexes.ts#emoji"],"difficulty":"hard"}
+{"id":"a-go-001","task":"A","language":"go","prompt":"middleware that limits the number of concurrent requests and queues excess traffic with a backlog timeout","gold":["throttle.go#ThrottleWithOpts","throttle.go#ThrottleBacklog"],"difficulty":"medium"}
+{"id":"a-go-002","task":"A","language":"go","prompt":"middleware that recovers from panics in downstream handlers and prints a formatted stack trace","gold":["recoverer.go#Recoverer"],"difficulty":"easy"}
+{"id":"a-go-003","task":"A","language":"go","prompt":"function that extracts the real client IP from forwarded proxy headers on an incoming request","gold":["realip.go#RealIP","realip.go#realIP"],"difficulty":"hard"}
+{"id":"a-rs-001","task":"A","language":"rust","prompt":"function that renders the options section listing all flags and parameters in roff man page format","gold":["lib.rs#render_options_section"],"difficulty":"medium"}
+{"id":"a-rs-002","task":"A","language":"rust","prompt":"function that appends after-help text to the end of a roff document for a command","gold":["render.rs#after_help"],"difficulty":"easy"}
+{"id":"a-rs-003","task":"A","language":"rust","prompt":"method that checks whether a raw argument string looks like a negative number","gold":["lib.rs#is_negative_number"],"difficulty":"hard"}
