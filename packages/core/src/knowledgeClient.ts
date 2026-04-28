@@ -1,26 +1,32 @@
 /**
  * Shared Knowledge Operations for CodeGraph
  *
- * Singleton pattern — reuses the shared GraphClient to create
- * a KnowledgeOperations instance for knowledge graph tools.
+ * Singleton pattern (default) — reuses the shared GraphClient.
+ * DI hook (when client is provided) — returns a fresh ops instance for
+ * caller-managed lifecycle (e.g. third-party benchmark adapters, embedded
+ * usage with a per-instance client).
  */
 
-import { createKnowledgeOperations, type KnowledgeOperations } from '@codegraph/graph';
+import { createKnowledgeOperations, type KnowledgeOperations, type GraphClient } from '@codegraph/graph';
 import { getGraphClient } from './graphClient';
 
 let knowledgeOps: KnowledgeOperations | null = null;
 
 /**
- * Get the shared KnowledgeOperations instance.
- * Creates on first call from the shared GraphClient.
- * Ensures the knowledge graph schema (Entity, RELATES_TO tables) exists.
+ * Get a KnowledgeOperations instance.
+ * - If `client` is provided: returns fresh ops for that client (no caching).
+ *   Caller manages client lifecycle and schema. Mirrors embed-nodes.ts:330.
+ * - Otherwise: returns the shared singleton bound to getGraphClient(),
+ *   ensuring schema on first call.
  */
-export async function getKnowledgeOps(): Promise<KnowledgeOperations> {
+export async function getKnowledgeOps(client?: GraphClient): Promise<KnowledgeOperations> {
+  if (client) {
+    return createKnowledgeOperations(client);
+  }
   if (!knowledgeOps) {
-    const client = await getGraphClient();
-    // Ensure knowledge graph tables exist (idempotent — safe on every call)
-    await client.ensureIndexes();
-    knowledgeOps = createKnowledgeOperations(client);
+    const c = await getGraphClient();
+    await c.ensureIndexes();
+    knowledgeOps = createKnowledgeOperations(c);
   }
   return knowledgeOps;
 }
