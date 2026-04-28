@@ -41,7 +41,11 @@ export interface DatabaseDriver {
   /** Execute a read-only Cypher query (uses replica if available) */
   roQuery<T>(cypher: string, params?: QueryParams, timeout?: number): Promise<{ data: T[]; metadata: string[] }>;
 
-  /** Ensure the database schema exists (indexes, constraints) */
+  /**
+   * Ensure the database schema exists (indexes, constraints).
+   * @param opts.embeddingDim - Optional embedding dimension override. When provided,
+   *   bypasses env-var detection (CODEGRAPH_EMBEDDING_DIM, provider inference).
+   */
   ensureSchema(opts?: { embeddingDim?: number }): Promise<void>;
 
   /** Close the database connection */

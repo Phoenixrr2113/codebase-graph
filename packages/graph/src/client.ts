@@ -101,7 +101,9 @@ export interface GraphClient {
   roQuery<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>>;
 
   /**
-   * Ensure all required indexes/schema exist
+   * Ensure all required indexes/schema exist.
+   * @param opts.embeddingDim - Optional embedding dimension override. Threads through
+   *   to ensureSchemaImpl. See driver.ts for details.
    */
   ensureIndexes(opts?: { embeddingDim?: number }): Promise<void>;
 
