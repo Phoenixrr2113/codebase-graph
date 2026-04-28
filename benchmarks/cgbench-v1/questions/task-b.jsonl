@@ -1,0 +1,12 @@
+{"id":"b-py-001","task":"B","language":"python","prompt":"functions that call prepare_request","gold":["sessions.py#request"],"difficulty":"medium"}
+{"id":"b-py-002","task":"B","language":"python","prompt":"classes that extend AuthBase","gold":["auth.py#HTTPBasicAuth","auth.py#HTTPProxyAuth","auth.py#HTTPDigestAuth"],"difficulty":"easy"}
+{"id":"b-py-003","task":"B","language":"python","prompt":"functions that call send in sessions.py","gold":["sessions.py#resolve_redirects","sessions.py#request"],"difficulty":"medium"}
+{"id":"b-ts-001","task":"B","language":"typescript","prompt":"constructors or types that call floatSafeRemainder from util.ts","gold":["checks.ts#$ZodCheckMultipleOf"],"difficulty":"medium"}
+{"id":"b-ts-002","task":"B","language":"typescript","prompt":"functions that call initializeContext in to-json-schema.ts","gold":["to-json-schema.ts#createToJSONSchemaMethod","to-json-schema.ts#createStandardJSONSchemaMethod","json-schema-processors.ts#toJSONSchema","json-schema-generator.ts#JSONSchemaGenerator"],"difficulty":"medium"}
+{"id":"b-ts-003","task":"B","language":"typescript","prompt":"functions that call extractDefs from to-json-schema.ts","gold":["json-schema-generator.ts#emit","to-json-schema.ts#createToJSONSchemaMethod","to-json-schema.ts#createStandardJSONSchemaMethod","json-schema-processors.ts#toJSONSchema"],"difficulty":"hard"}
+{"id":"b-go-001","task":"B","language":"go","prompt":"functions that call NewRouter in chi","gold":["mux.go#Route","profiler.go#Profiler"],"difficulty":"medium"}
+{"id":"b-go-002","task":"B","language":"go","prompt":"types that implement ServeHTTP in the chi package","gold":["mux.go#ServeHTTP","chain.go#ServeHTTP"],"difficulty":"easy"}
+{"id":"b-go-003","task":"B","language":"go","prompt":"functions that call updateSubRoutes in mux.go","gold":["mux.go#NotFound","mux.go#MethodNotAllowed"],"difficulty":"medium"}
+{"id":"b-rs-001","task":"B","language":"rust","prompt":"functions that call get_one in ArgMatches","gold":["arg_matches.rs#get_count","arg_matches.rs#get_flag","parser.rs#react"],"difficulty":"medium"}
+{"id":"b-rs-002","task":"B","language":"rust","prompt":"functions that call is_negative_number","gold":["parser.rs#is_new_arg","parser.rs#parse_short_arg"],"difficulty":"medium"}
+{"id":"b-rs-003","task":"B","language":"rust","prompt":"functions that call start_custom_arg in the parser","gold":["parser.rs#react","parser.rs#add_default_value"],"difficulty":"hard"}
