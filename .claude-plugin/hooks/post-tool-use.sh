@@ -41,12 +41,13 @@ if [ "$EDITED" -lt "$EDIT_THRESHOLD" ]; then
   exit 0
 fi
 
-# Trigger incremental reindex via the codegraph CLI in the background
-# Don't block the agent; the reindex runs async.
+# Trigger incremental extract via the codegraph CLI in the background.
+# Don't block the agent; the extract runs async. The extract command is
+# inherently incremental — it skips files whose hashes haven't changed.
 mkdir -p "$PROJECT_ROOT/.codegraph"
 (
   cd "$PROJECT_ROOT" && \
-  pnpm --filter @codegraph/cli start reindex --mode=incremental >/dev/null 2>&1
+  pnpm --filter @codegraph/cli start extract "$PROJECT_ROOT" >/dev/null 2>&1
   touch "$LAST_INDEX_MARKER"
 ) &
 exit 0

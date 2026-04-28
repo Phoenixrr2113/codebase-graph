@@ -135,7 +135,7 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 - **Don't** pass raw user input to `query` — use parameterized queries with `params`
 - **Don't** fetch everything — always use `limit` and `scope` to constrain results
 - **Don't** use `query` for things `search` can do — `search` has better defaults
-- **Don't** call `reindex` repeatedly — use `mode: "incremental"`
+- **Don't** call `codebase({ action: "reindex" })` repeatedly — use `mode: "incremental"` (the default)
 
 ## Environment
 
@@ -145,3 +145,7 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 - **API**: `http://localhost:3001` (REST endpoints for dashboard)
 - **Build**: `pnpm turbo build` (monorepo with Turbo)
 - **Test**: `pnpm turbo test`
+
+## Public Benchmark — CGBench v1
+
+Cross-system retrieval benchmark at `benchmarks/cgbench-v1/`. Compares CodeGraph against 7 named competitors on a uniform 6-task battery (NL→code, structural, multi-hop, bitemporal, linked code+knowledge, document ingestion). Results published in [`benchmarks/cgbench-v1/BENCHMARKS.md`](benchmarks/cgbench-v1/BENCHMARKS.md). Methodology: [`benchmarks/cgbench-v1/COMPETITORS.md`](benchmarks/cgbench-v1/COMPETITORS.md), [`benchmarks/cgbench-v1/questions/REVIEW.md`](benchmarks/cgbench-v1/questions/REVIEW.md).
