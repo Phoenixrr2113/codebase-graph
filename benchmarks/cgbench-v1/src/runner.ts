@@ -4,7 +4,9 @@ import type { BenchmarkAdapter } from './adapter.js';
 import type { BenchmarkCorpus, Question } from './types.js';
 import { QuestionSchema } from './types.js';
 import { mrr } from './score/mrr.js';
-import { recallAtK } from './score/recall.js';
+import { recallAtK, precisionAtK } from './score/recall.js';
+import { f1 } from './score/f1.js';
+import { exactMatch } from './score/em.js';
 import { aggregate, type LatencyReport } from './metrics/latency.js';
 import { ingestionReport, type IngestionReport } from './metrics/ingestion.js';
 
@@ -15,11 +17,20 @@ export interface RunSystemArgs {
   coldQueriesCount?: number;
 }
 
-export interface TaskScore {
-  count: number;
-  mrr?: number;
-  recallAt10?: number;
-}
+export type TaskScore =
+  | { task: 'A'; count: number; mrr: number; recallAt10: number }
+  | { task: 'B'; count: number; recallAt10: number; precisionAt5: number }
+  | { task: 'C'; count: number; f1: number }
+  | {
+      task: 'D';
+      count: number;
+      emPointInTime: number;
+      recallAt10Range: number;
+      pointInTimeCount: number;
+      rangeCount: number;
+    }
+  | { task: 'E'; count: number; recallAt10: number }
+  | { task: 'F'; count: number; recallAt10: number };
 
 export interface RunResult {
   system: string;
@@ -27,6 +38,89 @@ export interface RunResult {
   tasks: Partial<Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F', TaskScore>>;
   latency: LatencyReport;
   ingestion: IngestionReport;
+}
+
+export function scoreTaskA(rankings: string[][], questions: Question[]): TaskScore {
+  const golds = questions.map((q) => new Set(q.gold));
+  const r10s = rankings.map((r, i) => recallAtK(r, golds[i]!, 10));
+  return {
+    task: 'A',
+    count: rankings.length,
+    mrr: mrr(rankings, golds),
+    recallAt10: r10s.reduce((a, b) => a + b, 0) / r10s.length,
+  };
+}
+
+export function scoreTaskB(rankings: string[][], questions: Question[]): TaskScore {
+  const golds = questions.map((q) => new Set(q.gold));
+  const r10s = rankings.map((r, i) => recallAtK(r, golds[i]!, 10));
+  const p5s = rankings.map((r, i) => precisionAtK(r, golds[i]!, 5));
+  return {
+    task: 'B',
+    count: rankings.length,
+    recallAt10: r10s.reduce((a, b) => a + b, 0) / r10s.length,
+    precisionAt5: p5s.reduce((a, b) => a + b, 0) / p5s.length,
+  };
+}
+
+export function scoreTaskC(rankings: string[][], questions: Question[]): TaskScore {
+  const f1s = rankings.map((r, i) => {
+    const retrieved = new Set(r.slice(0, 10));
+    const gold = new Set(questions[i]!.gold);
+    return f1(retrieved, gold);
+  });
+  return {
+    task: 'C',
+    count: rankings.length,
+    f1: f1s.reduce((a, b) => a + b, 0) / f1s.length,
+  };
+}
+
+export function scoreTaskD(rankings: string[][], questions: Question[]): TaskScore {
+  let emHits = 0;
+  let emCount = 0;
+  let r10Sum = 0;
+  let r10Count = 0;
+
+  for (let i = 0; i < rankings.length; i++) {
+    const q = questions[i]!;
+    if (q.validAt !== undefined) {
+      emHits += exactMatch(rankings[i]!, q.gold[0]!);
+      emCount++;
+    } else {
+      r10Sum += recallAtK(rankings[i]!, new Set(q.gold), 10);
+      r10Count++;
+    }
+  }
+
+  return {
+    task: 'D',
+    count: rankings.length,
+    emPointInTime: emCount > 0 ? emHits / emCount : 0,
+    recallAt10Range: r10Count > 0 ? r10Sum / r10Count : 0,
+    pointInTimeCount: emCount,
+    rangeCount: r10Count,
+  };
+}
+
+export function scoreTaskE(rankings: string[][], questions: Question[]): TaskScore {
+  const golds = questions.map((q) => new Set([...q.gold, ...(q.goldKnowledge ?? [])]));
+  const r10s = rankings.map((r, i) => recallAtK(r, golds[i]!, 10));
+  return {
+    task: 'E',
+    count: rankings.length,
+    recallAt10: r10s.reduce((a, b) => a + b, 0) / r10s.length,
+  };
+}
+
+export function scoreTaskF(rankings: string[][], questions: Question[]): TaskScore {
+  const golds = questions.map((q) => new Set(q.gold));
+  const r10s = rankings.map((r, i) => recallAtK(r, golds[i]!, 10));
+  return {
+    task: 'F',
+    count: rankings.length,
+    recallAt10: r10s.reduce((a, b) => a + b, 0) / r10s.length,
+  };
 }
 
 export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
@@ -38,7 +132,7 @@ export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
   const ingestStats = await args.adapter.ingest(args.corpus);
 
   const latencySamples: { ms: number; cold: boolean }[] = [];
-  const perTaskRankings: Map<string, { rankings: string[][]; golds: Set<string>[] }> = new Map();
+  const perTaskGroups: Map<string, { rankings: string[][]; questions: Question[] }> = new Map();
 
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i]!;
@@ -49,21 +143,34 @@ export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
     latencySamples.push({ ms, cold });
 
     const ranking = results.map((r) => r.id);
-    const gold = new Set(q.gold);
-    const bucket = perTaskRankings.get(q.task) ?? { rankings: [], golds: [] };
+    const bucket = perTaskGroups.get(q.task) ?? { rankings: [], questions: [] };
     bucket.rankings.push(ranking);
-    bucket.golds.push(gold);
-    perTaskRankings.set(q.task, bucket);
+    bucket.questions.push(q);
+    perTaskGroups.set(q.task, bucket);
   }
 
   const tasks: RunResult['tasks'] = {};
-  for (const [task, { rankings, golds }] of perTaskRankings) {
-    const r10s = rankings.map((r, i) => recallAtK(r, golds[i]!, 10));
-    tasks[task as keyof RunResult['tasks']] = {
-      count: rankings.length,
-      mrr: mrr(rankings, golds),
-      recallAt10: r10s.reduce((a, b) => a + b, 0) / r10s.length,
-    };
+  for (const [task, { rankings, questions: taskQuestions }] of perTaskGroups) {
+    switch (task) {
+      case 'A':
+        tasks.A = scoreTaskA(rankings, taskQuestions);
+        break;
+      case 'B':
+        tasks.B = scoreTaskB(rankings, taskQuestions);
+        break;
+      case 'C':
+        tasks.C = scoreTaskC(rankings, taskQuestions);
+        break;
+      case 'D':
+        tasks.D = scoreTaskD(rankings, taskQuestions);
+        break;
+      case 'E':
+        tasks.E = scoreTaskE(rankings, taskQuestions);
+        break;
+      case 'F':
+        tasks.F = scoreTaskF(rankings, taskQuestions);
+        break;
+    }
   }
 
   return {

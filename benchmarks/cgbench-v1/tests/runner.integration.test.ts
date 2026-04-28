@@ -27,7 +27,11 @@ describe('runSystem with CodeGraph + smoke questions', () => {
     });
     expect(result.system).toBe('codegraph');
     expect(result.questionCount).toBe(3);
-    expect(result.tasks.A?.mrr).toBeGreaterThan(0);
+    const aScore = result.tasks.A;
+    expect(aScore?.task).toBe('A');
+    if (aScore?.task === 'A') {
+      expect(aScore.mrr).toBeGreaterThan(0);
+    }
     expect(result.latency.all.count).toBe(3);
     expect(result.ingestion.durationMs).toBeGreaterThan(0);
     expect(result.ingestion.diskBytesAfter).toBeGreaterThan(0);
