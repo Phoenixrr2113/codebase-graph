@@ -10,7 +10,7 @@
  * 6. Knowledge search failure is non-fatal — code results still returned
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Shared mock data
@@ -302,6 +302,34 @@ describe('unifiedSearch', () => {
       expect(response.results.length).toBeGreaterThan(0);
       const sources = response.results.map(r => r.source);
       expect(sources.every(s => s === 'code')).toBe(true);
+    });
+  });
+
+  // =========================================================================
+  // Client DI — knowledge branch honors the passed client
+  // =========================================================================
+
+  describe('knowledge branch DI — passes client to getKnowledgeOps', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('passes the search client through to getKnowledgeOps when scope is "all"', async () => {
+      await unifiedSearch('test query', mockClient as never, { searchScope: 'all', limit: 5 });
+
+      const callsFirstArgs = (getKnowledgeOps as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: unknown[]) => c[0],
+      );
+      expect(callsFirstArgs).toContain(mockClient);
+    });
+
+    it('passes the search client through to getKnowledgeOps when scope is "knowledge"', async () => {
+      await unifiedSearch('test query', mockClient as never, { searchScope: 'knowledge', limit: 5 });
+
+      const callsFirstArgs = (getKnowledgeOps as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: unknown[]) => c[0],
+      );
+      expect(callsFirstArgs).toContain(mockClient);
     });
   });
 });

@@ -78,7 +78,7 @@ export async function unifiedSearch(
       : (async () => {
           try {
             const { embedding } = await generateEmbedding(query);
-            const ops = await getKnowledgeOps();
+            const ops = await getKnowledgeOps(client);
             return await ops.searchEntitiesByVector(embedding, limit * 2);
           } catch (err) {
             logger.warn(`Knowledge vector search failed: ${err}`);
