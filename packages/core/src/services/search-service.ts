@@ -7,6 +7,7 @@ import { getGraphClient } from '../graphClient';
 import { getActiveProjectPaths } from '../config';
 import { enrichedSearchV2 } from '../enrichedSearchV2';
 import type { EnrichedV2Result, EnrichedV2Options } from '../enrichedSearchV2';
+import type { GraphClient } from '@codegraph/graph';
 
 // ============================================================================
 // Search
@@ -20,9 +21,9 @@ import type { EnrichedV2Result, EnrichedV2Options } from '../enrichedSearchV2';
  */
 export async function searchImpl(
   query: string,
-  options?: { limit?: number; scope?: string },
+  options?: { limit?: number; scope?: string; client?: GraphClient },
 ): Promise<EnrichedV2Result> {
-  const client = await getGraphClient();
+  const client = options?.client ?? await getGraphClient();
 
   const opts: EnrichedV2Options = {
     limit: options?.limit ?? 20,
