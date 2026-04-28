@@ -8,7 +8,7 @@ export default defineConfig({
     poolOptions: { forks: { singleFork: false } },
     testTimeout: 30_000,
     hookTimeout: 30_000,
-    // Only run .test.ts files in __tests__ directory
-    include: ['src/__tests__/**/*.test.ts'],
+    // Only run .test.ts files in __tests__ directories
+    include: ['src/__tests__/**/*.test.ts', 'src/**/__tests__/**/*.test.ts'],
   },
 });

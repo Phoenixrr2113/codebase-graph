@@ -103,7 +103,7 @@ export interface GraphClient {
   /**
    * Ensure all required indexes/schema exist
    */
-  ensureIndexes(): Promise<void>;
+  ensureIndexes(opts?: { embeddingDim?: number }): Promise<void>;
 
   /**
    * Close the client connection
@@ -165,10 +165,10 @@ class GraphClientImpl implements GraphClient {
   }
 
   @trace()
-  async ensureIndexes(): Promise<void> {
+  async ensureIndexes(opts?: { embeddingDim?: number }): Promise<void> {
     if (this.schemaCreated) return;
     try {
-      await this.driver.ensureSchema();
+      await this.driver.ensureSchema(opts);
       this.schemaCreated = true;
     } catch (error) {
       const errorMessage = toErrorMessage(error);

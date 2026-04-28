@@ -42,7 +42,7 @@ export interface DatabaseDriver {
   roQuery<T>(cypher: string, params?: QueryParams, timeout?: number): Promise<{ data: T[]; metadata: string[] }>;
 
   /** Ensure the database schema exists (indexes, constraints) */
-  ensureSchema(): Promise<void>;
+  ensureSchema(opts?: { embeddingDim?: number }): Promise<void>;
 
   /** Close the database connection */
   close(): Promise<void>;

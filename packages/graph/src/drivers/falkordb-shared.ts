@@ -62,7 +62,10 @@ export async function executeRoQuery<T>(
  * Works identically for both remote FalkorDB and embedded FalkorDBLite
  * since they share the same engine and Graph API.
  */
-export async function ensureSchemaImpl(graph: Graph): Promise<void> {
+export async function ensureSchemaImpl(
+  graph: Graph,
+  opts?: { embeddingDim?: number },
+): Promise<void> {
   // Helper: run a query ignoring "Index already exists" errors
   const safeIndex = async (cypher: string): Promise<void> => {
     try {
@@ -132,7 +135,7 @@ export async function ensureSchemaImpl(graph: Graph): Promise<void> {
   // If no provider is configured, vector indexes are skipped entirely.
   // If existing indexes have a different dimension (e.g. user switched from
   // local/768 to voyage/1024), drop and recreate them + clear stale embeddings.
-  const embDim = resolveEmbeddingDimension();
+  const embDim = resolveEmbeddingDimension(opts?.embeddingDim);
   const vectorTargets = [
     'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Entity',
   ];
@@ -185,7 +188,9 @@ export async function ensureSchemaImpl(graph: Graph): Promise<void> {
  * Resolve the embedding dimension from the configured provider.
  * Priority: CODEGRAPH_EMBEDDING_DIM env > provider-based detection.
  */
-function resolveEmbeddingDimension(): number {
+function resolveEmbeddingDimension(override?: number): number {
+  // Caller-provided override always wins
+  if (override !== undefined) return override;
   // Explicit override always wins
   const explicit = process.env['CODEGRAPH_EMBEDDING_DIM'];
   if (explicit) return parseInt(explicit, 10);

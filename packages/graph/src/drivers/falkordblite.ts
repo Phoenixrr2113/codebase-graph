@@ -69,9 +69,9 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
     return executeRoQuery<T>(this.graph, cypher, params, timeout);
   }
 
-  async ensureSchema(): Promise<void> {
+  async ensureSchema(opts?: { embeddingDim?: number }): Promise<void> {
     if (!this.graph) throw new Error('FalkorDBLiteDriver: not connected');
-    return ensureSchemaImpl(this.graph);
+    return ensureSchemaImpl(this.graph, opts);
   }
 
   async close(): Promise<void> {
