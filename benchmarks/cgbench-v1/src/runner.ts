@@ -40,7 +40,7 @@ export interface RunResult {
   ingestion: IngestionReport;
 }
 
-export function scoreTaskA(rankings: string[][], questions: Question[]): TaskScore {
+export function scoreTaskA(rankings: string[][], questions: Question[]): Extract<TaskScore, { task: 'A' }> {
   const golds = questions.map((q) => new Set(q.gold));
   const r10s = rankings.map((r, i) => recallAtK(r, golds[i]!, 10));
   return {
@@ -51,7 +51,7 @@ export function scoreTaskA(rankings: string[][], questions: Question[]): TaskSco
   };
 }
 
-export function scoreTaskB(rankings: string[][], questions: Question[]): TaskScore {
+export function scoreTaskB(rankings: string[][], questions: Question[]): Extract<TaskScore, { task: 'B' }> {
   const golds = questions.map((q) => new Set(q.gold));
   const r10s = rankings.map((r, i) => recallAtK(r, golds[i]!, 10));
   const p5s = rankings.map((r, i) => precisionAtK(r, golds[i]!, 5));
@@ -63,7 +63,7 @@ export function scoreTaskB(rankings: string[][], questions: Question[]): TaskSco
   };
 }
 
-export function scoreTaskC(rankings: string[][], questions: Question[]): TaskScore {
+export function scoreTaskC(rankings: string[][], questions: Question[]): Extract<TaskScore, { task: 'C' }> {
   const f1s = rankings.map((r, i) => {
     const retrieved = new Set(r.slice(0, 10));
     const gold = new Set(questions[i]!.gold);
@@ -76,7 +76,7 @@ export function scoreTaskC(rankings: string[][], questions: Question[]): TaskSco
   };
 }
 
-export function scoreTaskD(rankings: string[][], questions: Question[]): TaskScore {
+export function scoreTaskD(rankings: string[][], questions: Question[]): Extract<TaskScore, { task: 'D' }> {
   let emHits = 0;
   let emCount = 0;
   let r10Sum = 0;
@@ -103,7 +103,7 @@ export function scoreTaskD(rankings: string[][], questions: Question[]): TaskSco
   };
 }
 
-export function scoreTaskE(rankings: string[][], questions: Question[]): TaskScore {
+export function scoreTaskE(rankings: string[][], questions: Question[]): Extract<TaskScore, { task: 'E' }> {
   const golds = questions.map((q) => new Set([...q.gold, ...(q.goldKnowledge ?? [])]));
   const r10s = rankings.map((r, i) => recallAtK(r, golds[i]!, 10));
   return {
@@ -113,7 +113,7 @@ export function scoreTaskE(rankings: string[][], questions: Question[]): TaskSco
   };
 }
 
-export function scoreTaskF(rankings: string[][], questions: Question[]): TaskScore {
+export function scoreTaskF(rankings: string[][], questions: Question[]): Extract<TaskScore, { task: 'F' }> {
   const golds = questions.map((q) => new Set(q.gold));
   const r10s = rankings.map((r, i) => recallAtK(r, golds[i]!, 10));
   return {

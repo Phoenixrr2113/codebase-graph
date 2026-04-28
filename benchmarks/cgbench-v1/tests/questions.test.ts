@@ -40,9 +40,13 @@ for (const [filename, { task, count }] of Object.entries(expected)) {
     });
 
     if (task === 'C') {
-      it('every gold has a hopDistance entry', () => {
+      it('hopDistance keys are exactly the gold set', () => {
         for (const q of qs) {
           for (const g of q.gold) expect(q.hopDistance?.[g]).toBeDefined();
+          const goldSet = new Set(q.gold);
+          for (const k of Object.keys(q.hopDistance ?? {})) {
+            expect(goldSet.has(k)).toBe(true);
+          }
         }
       });
     }
