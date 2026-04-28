@@ -1,0 +1,37 @@
+{
+  "version": "1",
+  "corpora": [
+    {
+      "name": "psf-requests",
+      "language": "python",
+      "url": "https://github.com/psf/requests.git",
+      "commitSha": "111d2b77790bf49943c0dfa09b365371c24aec7e",
+      "license": "Apache-2.0",
+      "notes": "tag v2.33.1 (lightweight tag, SHA is direct commit)"
+    },
+    {
+      "name": "colinhacks-zod",
+      "language": "typescript",
+      "url": "https://github.com/colinhacks/zod.git",
+      "commitSha": "ca3c8629c0c2715571f70b44c2433cad3db7fe4e",
+      "license": "MIT",
+      "notes": "tag v4.3.6 (latest stable v4; v4 is stable as of 2026-04)"
+    },
+    {
+      "name": "go-chi-chi",
+      "language": "go",
+      "url": "https://github.com/go-chi/chi.git",
+      "commitSha": "05f1ef7bb50b8a8cb33a9dd3ba1c5b94bff0f723",
+      "license": "MIT",
+      "notes": "tag v5.2.5 (lightweight tag, SHA is direct commit)"
+    },
+    {
+      "name": "clap-rs-clap",
+      "language": "rust",
+      "url": "https://github.com/clap-rs/clap.git",
+      "commitSha": "ac5fda6a799e4c640d671edd1111d4a5e723dc1a",
+      "license": "MIT OR Apache-2.0",
+      "notes": "tag v4.6.1 (annotated tag; SHA is dereferenced commit, not tag object)"
+    }
+  ]
+}
