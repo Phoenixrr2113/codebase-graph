@@ -188,6 +188,8 @@ export async function indexProject(
     concurrency?: number;
     /** Run embedding pass in background without blocking index return (default: false) */
     deferEmbeddings?: boolean;
+    /** Sync git commit history into the graph (default: true). Set false for fixtures inside an unrelated repo. */
+    gitSync?: boolean;
   } = {},
 ): Promise<IndexResult> {
   const startTime = Date.now();
@@ -581,7 +583,7 @@ export async function indexProject(
     // Git history sync — creates Commit nodes and temporal edges
     let commitsProcessed = 0;
     let gitEdges = 0;
-    try {
+    if (options.gitSync !== false) try {
       const gitResult = await syncGitHistory(rootPath, graphClient, {
         maxCommits: 200,
         includeStats: true,

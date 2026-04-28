@@ -11,6 +11,22 @@ export interface CodeGraphAdapterOptions {
   dataDir: string;
 }
 
+/**
+ * CodeGraph native adapter for the benchmark harness.
+ *
+ * Lifecycle:
+ *   - constructor: prepares dataDir, no client yet
+ *   - ingest():    opens client, indexes corpus, closes client to flush dump.rdb
+ *   - query():     lazily reopens client (Task 14)
+ *   - destroy():   closes client if open
+ *
+ * After ingest() returns, this.client is null. Any subsequent query() must call
+ * getClient() to reopen — FalkorDBLite only flushes its RDB snapshot on close,
+ * so the close-and-reopen pattern is what makes diskBytesAfter measurable.
+ *
+ * Git sync is disabled because fixture corpora live inside the cgbench worktree;
+ * indexing would otherwise pull the parent repo's commit history into the graph.
+ */
 export class CodeGraphAdapter implements BenchmarkAdapter {
   readonly name = 'codegraph';
   readonly mode = 'native' as const;
@@ -37,26 +53,26 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     let totalDocs = 0;
 
     const client = await this.getClient();
-    await client.ensureIndexes();
 
     for (const root of corpus.codeRoots) {
       const result = await indexProject(root.path, {
         client,
         embeddings: false,
         force: true,
+        gitSync: false,
       });
       totalDocs += result.stats.files;
     }
 
-    // Close and reopen the client to flush the RDB snapshot to disk before
-    // measuring disk bytes. FalkorDBLite only writes dump.rdb on close().
-    await this.client!.close();
+    // Close to flush dump.rdb before disk measurement; query() reopens lazily.
+    await client.close();
     this.client = null;
 
     const durationMs = Date.now() - start;
     const diskBytesAfter = existsSync(this.dataDir)
       ? await measureDiskBytes(this.dataDir)
       : 0;
+    // Rough byte-based proxy until indexProject surfaces a real token count.
     const totalTokens = Math.floor(diskBytesAfter / 4);
 
     return { durationMs, totalDocs, totalTokens, diskBytesAfter };
@@ -67,7 +83,6 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   }
 
   async destroy(): Promise<void> {
-    // Implemented in Task 15
     if (this.client) {
       await this.client.close().catch(() => {});
       this.client = null;
