@@ -3,12 +3,13 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { renderFact, hasPandoc, markdownTablesToCsv } from '../scripts/render-docs.js';
+import { renderFact, hasPandoc, hasPdfEngine, markdownTablesToCsv } from '../scripts/render-docs.js';
 
 const HAVE_PANDOC = (() => {
   try { execFileSync('pandoc', ['--version'], { stdio: 'pipe' }); return true; }
   catch { return false; }
 })();
+const HAVE_PDF = HAVE_PANDOC && hasPdfEngine();
 
 describe('hasPandoc', () => {
   it('matches the actual environment', () => {
@@ -51,9 +52,12 @@ describe.skipIf(!HAVE_PANDOC)('renderFact', () => {
     );
   });
 
-  it('produces all 5 formats with non-empty content', async () => {
+  it('produces md/docx/html/csv formats with non-empty content', async () => {
     await renderFact(join(sourceDir, `${factId}.md`), outDir);
-    for (const fmt of ['md', 'pdf', 'docx', 'html', 'csv'] as const) {
+    const formats = HAVE_PDF
+      ? (['md', 'pdf', 'docx', 'html', 'csv'] as const)
+      : (['md', 'docx', 'html', 'csv'] as const);
+    for (const fmt of formats) {
       const out = join(outDir, fmt, `${factId}.${fmt}`);
       expect(existsSync(out)).toBe(true);
       expect(statSync(out).size).toBeGreaterThan(0);

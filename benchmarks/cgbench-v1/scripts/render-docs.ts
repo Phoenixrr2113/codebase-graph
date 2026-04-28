@@ -15,11 +15,24 @@ export function hasPandoc(): boolean {
   }
 }
 
+export function hasPdfEngine(): boolean {
+  for (const engine of ['pdflatex', 'xelatex', 'lualatex']) {
+    try {
+      execFileSync(engine, ['--version'], { stdio: 'pipe' });
+      return true;
+    } catch {
+      // try next
+    }
+  }
+  return false;
+}
+
 export async function renderFact(sourcePath: string, outRoot: string): Promise<void> {
   const id = basename(sourcePath, extname(sourcePath));
+  const pdfAvailable = hasPdfEngine();
   const formats: Array<['md' | 'pdf' | 'docx' | 'html', string]> = [
     ['md', `${id}.md`],
-    ['pdf', `${id}.pdf`],
+    ...(pdfAvailable ? [['pdf' as const, `${id}.pdf`] as ['pdf', string]] : []),
     ['docx', `${id}.docx`],
     ['html', `${id}.html`],
   ];
@@ -68,6 +81,9 @@ async function main(): Promise<void> {
   if (!hasPandoc()) {
     console.error('pandoc not installed — install with `brew install pandoc` (macOS) or your distro equivalent');
     process.exit(1);
+  }
+  if (!hasPdfEngine()) {
+    console.warn('[warn] no PDF engine found (pdflatex/xelatex/lualatex) — skipping PDF format. Install basictex for PDF coverage: brew install --cask basictex');
   }
   const sourceDir = join(ROOT, 'documents/source');
   const outRoot = join(ROOT, 'documents/rendered');
