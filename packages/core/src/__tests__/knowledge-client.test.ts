@@ -1,12 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getKnowledgeOps, resetKnowledgeOps } from '../knowledgeClient';
-import type { GraphClient } from '@codegraph/graph';
+import type { GraphClient, CypherDialect } from '@codegraph/graph';
+
+const stubDialect: CypherDialect = {
+  driverType: 'stub',
+  labelsExpr: (alias) => `labels(${alias})`,
+  firstLabelExpr: (alias) => `labels(${alias})[0]`,
+  typeExpr: (alias) => `type(${alias})`,
+  labelCheckExpr: (alias, label) => `${alias}:${label}`,
+  labelCaseExpr: (alias, label) => `${alias}:${label}`,
+  supportsOnCreateOnMatch: true,
+  normalizeNode: () => ({ labels: [], properties: {} }),
+  normalizeEdge: () => ({ type: '', properties: {} }),
+};
 
 function makeMockClient(graphName: string): GraphClient {
   return {
     graph: null,
     graphName,
-    dialect: null as unknown as GraphClient['dialect'],
+    dialect: stubDialect,
     query: vi.fn().mockResolvedValue({ data: [], metadata: [] }),
     roQuery: vi.fn().mockResolvedValue({ data: [], metadata: [] }),
     ensureIndexes: vi.fn().mockResolvedValue(undefined),
