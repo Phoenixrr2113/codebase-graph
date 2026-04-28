@@ -1,6 +1,10 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CodeGraphAdapter } from './adapters/codegraph.js';
+import { CogneeAdapter } from './adapters/cognee.js';
+import { HindsightAdapter } from './adapters/hindsight.js';
+import { MastraAdapter } from './adapters/mastra.js';
+import { SupermemoryAdapter } from './adapters/supermemory.js';
 import { runSystem } from './runner.js';
 import type { BenchmarkAdapter } from './adapter.js';
 import { LanguageSchema, type BenchmarkCorpus, type Language } from './types.js';
@@ -49,8 +53,18 @@ function makeAdapter(name: string, dataDir: string): BenchmarkAdapter {
   switch (name) {
     case 'codegraph':
       return new CodeGraphAdapter({ dataDir });
+    case 'cognee':
+      return new CogneeAdapter({ dataDir });
+    case 'hindsight':
+      return new HindsightAdapter({ dataDir });
+    case 'mastra':
+      return new MastraAdapter({ dataDir });
+    case 'supermemory':
+      return new SupermemoryAdapter({ dataDir, apiKey: process.env['SUPERMEMORY_API_KEY'] });
     default:
-      throw new Error(`unknown system: ${name} (Plan 1 supports: codegraph)`);
+      throw new Error(
+        `unknown system: ${name} (supported: codegraph, cognee, hindsight, mastra, supermemory)`,
+      );
   }
 }
 
