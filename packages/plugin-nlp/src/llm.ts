@@ -299,33 +299,6 @@ export async function getLLMComplexModel(): Promise<LanguageModel | null> {
   return model;
 }
 
-/**
- * Synchronous version for cases where the provider is already initialized.
- * Falls back to creating a new OpenRouter instance if needed.
- * Only supports OpenRouter (the default).
- */
-export function getLLMModelSync(config?: LLMConfig): LanguageModel {
-  const provider = getLLMProvider(config);
-  const modelName = getLLMModelName(config);
-
-  if (provider !== 'openrouter') {
-    throw new Error(
-      `getLLMModelSync only supports openrouter. Use getLLMModel() for ${provider}.`,
-    );
-  }
-
-  // Synchronous path: import is already cached after first use
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createOpenRouter } = require('@openrouter/ai-sdk-provider') as {
-    createOpenRouter: () => { chat: (model: string) => LanguageModel };
-  };
-
-  if (!_openrouterProvider) {
-    _openrouterProvider = createOpenRouter();
-  }
-
-  return (_openrouterProvider as { chat: (model: string) => LanguageModel }).chat(modelName);
-}
 
 // ---------------------------------------------------------------------------
 // Provider-specific model creation

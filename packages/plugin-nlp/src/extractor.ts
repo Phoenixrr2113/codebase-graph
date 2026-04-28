@@ -14,7 +14,7 @@ import {
   normalizeEntityType,
   normalizeRelationshipType,
 } from '@codegraph/types';
-import { getLLMModelSync, getLLMModelName } from './llm';
+import { getLLMModel, getLLMModelName } from './llm';
 
 /** Default confidence for LLM-extracted entities (LLM doesn't return scores) */
 const DEFAULT_LLM_CONFIDENCE = 0.9;
@@ -108,7 +108,10 @@ function resolveRelationships(
 
 export class EntityExtractor {
   private config: { model: string; temperature: number; domain: KnowledgeDomain };
-  private model: LanguageModel;
+  /** Pre-supplied model (e.g., from tests). When set, skips async getLLMModel(). */
+  private _modelOverride: LanguageModel | undefined;
+  /** Lazily resolved model instance — cached after first call to getModel(). */
+  private _modelInstance: LanguageModel | undefined;
   private entityTypes: TypeDescription[];
   private relationshipTypes: TypeDescription[];
 
@@ -118,11 +121,24 @@ export class EntityExtractor {
       temperature: config.temperature ?? 0.1,
       domain: config.domain ?? 'se',
     };
-    this.model =
-      config.languageModel ?? getLLMModelSync({ model: this.config.model });
+    this._modelOverride = config.languageModel;
     this.entityTypes = getPreferredEntityTypes(this.config.domain);
     this.relationshipTypes = getPreferredRelationshipTypes(this.config.domain);
     logger.debug(`EntityExtractor created with model: ${this.config.model}, domain: ${this.config.domain}`);
+  }
+
+  /**
+   * Lazily load and cache the LanguageModel.
+   *
+   * If a model was supplied directly at construction time (e.g., a test mock),
+   * it is returned immediately. Otherwise, getLLMModel() is called once and
+   * its result is cached for subsequent calls.
+   */
+  private async getModel(): Promise<LanguageModel> {
+    if (this._modelOverride) return this._modelOverride;
+    if (this._modelInstance) return this._modelInstance;
+    this._modelInstance = await getLLMModel({ model: this.config.model });
+    return this._modelInstance;
   }
 
   /**
@@ -132,9 +148,10 @@ export class EntityExtractor {
   private async safeGenerateExtraction(
     prompt: string,
   ): Promise<ExtractionResponse> {
+    const model = await this.getModel();
     try {
       const { output } = await generateText({
-        model: this.model,
+        model,
         output: Output.object({ schema: ExtractionResponseSchema }),
         prompt,
         temperature: this.config.temperature,
@@ -226,10 +243,11 @@ export class EntityExtractor {
     logger.debug(`extractBatch: ${samples.length} samples`);
 
     const prompt = this.buildBatchPrompt(samples);
+    const model = await this.getModel();
 
     try {
       const { output } = await generateText({
-        model: this.model,
+        model,
         output: Output.object({ schema: BatchExtractionResponseSchema }),
         prompt,
         temperature: this.config.temperature,

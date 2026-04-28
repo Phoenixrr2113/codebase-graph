@@ -17,7 +17,6 @@
 export {
   getLLMModel,
   getLLMComplexModel,
-  getLLMModelSync,
   getLLMModelName,
   getLLMProvider,
   getLLMConfigResolved,
