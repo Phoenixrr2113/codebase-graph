@@ -189,9 +189,9 @@ export async function ensureSchemaImpl(
  * Priority: CODEGRAPH_EMBEDDING_DIM env > provider-based detection.
  */
 function resolveEmbeddingDimension(override?: number): number {
-  // Caller-provided override always wins
+  // Caller-provided override always wins (highest priority)
   if (override !== undefined) return override;
-  // Explicit override always wins
+  // Env var CODEGRAPH_EMBEDDING_DIM — explicit second priority
   const explicit = process.env['CODEGRAPH_EMBEDDING_DIM'];
   if (explicit) return parseInt(explicit, 10);
 

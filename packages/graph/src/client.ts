@@ -166,6 +166,9 @@ class GraphClientImpl implements GraphClient {
 
   @trace()
   async ensureIndexes(opts?: { embeddingDim?: number }): Promise<void> {
+    // Schema is created exactly once per client lifetime. Repeat calls with
+    // different `opts` are no-ops by design — re-applying schema with a
+    // different embeddingDim would require dropping vector indexes first.
     if (this.schemaCreated) return;
     try {
       await this.driver.ensureSchema(opts);
