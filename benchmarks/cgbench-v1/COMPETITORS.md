@@ -49,7 +49,7 @@ This document captures what is known about each competitor at the time of Plan 3
 - API keys: **none** — uses local Ollama; no external accounts or API keys required
 - Local runnable: **YES** (Ollama required; default model `qwen3.5:9b`)
 - Plan 3 status: **READY-WITH-KEY** (original)
-- Plan 5 status: **WORKING** — `pip install cognee` path confirmed; adapter implemented via Python subprocess. Pivoted to local Ollama in Plan 5 (no API key required). See below for API notes.
+- Plan 5 status: **WORKING (smoke); batch run-all crash deferred to v0.1.2**. Standalone smoke against tiny-ts via local Ollama (qwen3.5:9b) returns ranked code matches (e.g., `retry.ts#retry.ts`). The orchestrator integration crashes natively (`libc++ mutex lock failed`) when invoked from `bench run-all`; root cause is concurrent `ingest_data` task starts visible in cognee's logs. Standalone adapter usage is reliable; batch integration requires further work.
 - LLM config: local Ollama at `http://localhost:11434/v1`; default model `openai/qwen3.5:9b`. `LLM_PROVIDER=openai` + custom `LLM_ENDPOINT` triggers litellm's OpenAI-compat path. `LLM_API_KEY` set to placeholder `'ollama'` (Ollama does not validate it).
 - Best ingest API: `cognee.add(file_paths)` (accepts list of absolute file paths or text strings) + `cognee.cognify(datasets=["name"])` (builds knowledge graph via LLM extraction per chunk)
 - Best query API: `cognee.search(query, query_type=SearchType.CHUNKS, top_k=N)` — returns `List[SearchResult]` where `search_result` is a `DocumentChunk` with `.text`, `.is_part_of` (Document with `.raw_data_location`)
