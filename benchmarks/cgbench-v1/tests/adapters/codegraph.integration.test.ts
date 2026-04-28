@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { CodeGraphAdapter } from '../../src/adapters/codegraph.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE = join(__dirname, '../../fixtures/code/tiny-ts');
+const FIXTURE_CODE = join(__dirname, '../../fixtures/code/tiny-ts');
+const KNOWLEDGE_DIR = join(__dirname, '../../corpora/knowledge');
 
 describe('CodeGraphAdapter — ingest', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'cgbench-cg-'));
@@ -18,7 +19,7 @@ describe('CodeGraphAdapter — ingest', () => {
 
   it('ingests fixture corpus and returns non-zero stats', async () => {
     const stats = await adapter.ingest({
-      codeRoots: [{ language: 'typescript', path: FIXTURE, commitSha: 'fixture' }],
+      codeRoots: [{ language: 'typescript', path: FIXTURE_CODE, commitSha: 'fixture' }],
     });
     expect(stats.durationMs).toBeGreaterThan(0);
     expect(stats.totalDocs).toBeGreaterThan(0);
@@ -37,9 +38,40 @@ describe('CodeGraphAdapter — ingest', () => {
     const localDir = mkdtempSync(join('/tmp', 'cg-dst-'));
     const a = new CodeGraphAdapter({ dataDir: localDir });
     await a.ingest({
-      codeRoots: [{ language: 'typescript', path: FIXTURE, commitSha: 'fixture' }],
+      codeRoots: [{ language: 'typescript', path: FIXTURE_CODE, commitSha: 'fixture' }],
     });
     await a.destroy();
     expect(existsSync(localDir)).toBe(false);
   }, 60_000);
+});
+
+describe('CodeGraphAdapter — code + knowledge ingest', () => {
+  const dataDir = mkdtempSync(join('/tmp', 'cgk-'));
+  const adapter = new CodeGraphAdapter({ dataDir });
+  afterAll(async () => {
+    await adapter.destroy().catch(() => {});
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('ingests code + knowledge and queries surface both kinds', async () => {
+    const stats = await adapter.ingest({
+      codeRoots: [{ language: 'typescript', path: FIXTURE_CODE, commitSha: 'fixture' }],
+      knowledgeRoot: KNOWLEDGE_DIR,
+    });
+    // 3 code files + 10 knowledge files = > 3
+    expect(stats.totalDocs).toBeGreaterThan(3);
+
+    // knowledge-001.md is about "retry policy decision" — query should surface it
+    const results = await adapter.query('retry policy decision', { topK: 10 });
+    expect(results.length).toBeGreaterThan(0);
+
+    // At least one knowledge result should be present
+    const knowledgeResults = results.filter((r) => r.kind === 'knowledge');
+    expect(knowledgeResults.length).toBeGreaterThan(0);
+
+    // The knowledge-001 document should appear with correct ID format
+    const ids = knowledgeResults.map((r) => r.id);
+    const hasKnowledge001 = ids.some((id) => id.includes('knowledge-001'));
+    expect(hasKnowledge001).toBe(true);
+  }, 90_000);
 });

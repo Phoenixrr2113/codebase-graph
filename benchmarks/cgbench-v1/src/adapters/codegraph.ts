@@ -1,11 +1,11 @@
-import { mkdirSync, existsSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
+import { join, basename } from 'node:path';
 import { measureDiskBytes } from '../metrics/resources.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
 import { indexProject } from '@codegraph/core';
-import { createClient } from '@codegraph/graph';
-import type { GraphClient, QueryOptions } from '@codegraph/graph';
+import { createClient, createKnowledgeOperations } from '@codegraph/graph';
+import type { GraphClient, QueryOptions, KnowledgeOperations } from '@codegraph/graph';
 
 export interface CodeGraphAdapterOptions {
   dataDir: string;
@@ -16,8 +16,8 @@ export interface CodeGraphAdapterOptions {
  *
  * Lifecycle:
  *   - constructor: prepares dataDir, no client yet
- *   - ingest():    opens client, indexes corpus, closes client to flush dump.rdb
- *   - query():     lazily reopens client (Task 14)
+ *   - ingest():    opens client, indexes corpus (code + knowledge), closes client to flush dump.rdb
+ *   - query():     lazily reopens client
  *   - destroy():   closes client if open
  *
  * After ingest() returns, this.client is null. Any subsequent query() must call
@@ -26,12 +26,23 @@ export interface CodeGraphAdapterOptions {
  *
  * Git sync is disabled because fixture corpora live inside the cgbench worktree;
  * indexing would otherwise pull the parent repo's commit history into the graph.
+ *
+ * Knowledge ingest:
+ *   Each .md file in corpus.knowledgeRoot is stored as a Document Entity using
+ *   KnowledgeOperations.createEntity() directly — no LLM required. The full
+ *   file content (frontmatter + body) is stored as entity text. The file path
+ *   is stored in the entity's properties for provenance.
+ *
+ *   LLM extraction is NOT attempted (benchmarks run without API keys). The
+ *   lexical query path is extended to match Entity nodes by text content so
+ *   knowledge results surface alongside code results.
  */
 export class CodeGraphAdapter implements BenchmarkAdapter {
   readonly name = 'codegraph';
   readonly mode = 'native' as const;
   private readonly dataDir: string;
   private client: GraphClient | null = null;
+  private knowledgeOps: KnowledgeOperations | null = null;
 
   constructor(opts: CodeGraphAdapterOptions) {
     this.dataDir = opts.dataDir;
@@ -44,8 +55,19 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         driver: 'falkordblite',
         databasePath: join(this.dataDir, 'falkordb'),
       });
+      // Wire knowledge ops to this adapter's own client (not the global singleton).
+      await this.client.ensureIndexes();
+      this.knowledgeOps = createKnowledgeOperations(this.client);
     }
     return this.client;
+  }
+
+  private async getKnowledgeOps(): Promise<KnowledgeOperations> {
+    await this.getClient(); // ensures this.knowledgeOps is initialized
+    if (!this.knowledgeOps) {
+      throw new Error('CodeGraphAdapter: knowledgeOps not initialized after getClient()');
+    }
+    return this.knowledgeOps;
   }
 
   async ingest(corpus: BenchmarkCorpus): Promise<IngestStats> {
@@ -54,6 +76,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
 
     const client = await this.getClient();
 
+    // Ingest code roots.
     for (const root of corpus.codeRoots) {
       const result = await indexProject(root.path, {
         client,
@@ -69,9 +92,37 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       totalDocs += result.stats.files;
     }
 
+    // Ingest knowledge corpus if provided.
+    // Each .md file is stored as a Document Entity directly — no LLM required.
+    // The full file content is the entity text; the file path is stored in properties
+    // so the result ID can be reconstructed as <basename>#<basename>.
+    if (corpus.knowledgeRoot) {
+      const ops = await this.getKnowledgeOps();
+      const knowledgeDocs = readdirSync(corpus.knowledgeRoot)
+        .filter((f) => f.endsWith('.md'))
+        .sort();
+
+      for (const fileName of knowledgeDocs) {
+        const filePath = join(corpus.knowledgeRoot, fileName);
+        const content = readFileSync(filePath, 'utf-8');
+        const base = basename(fileName, '.md');
+
+        await ops.createEntity({
+          text: content,
+          type: 'Document',
+          confidence: 1.0,
+          sampleId: `cgbench-knowledge/${base}`,
+          properties: { path: filePath },
+        });
+
+        totalDocs += 1;
+      }
+    }
+
     // Close to flush dump.rdb before disk measurement; query() reopens lazily.
     await client.close();
     this.client = null;
+    this.knowledgeOps = null;
 
     const durationMs = Date.now() - start;
     const diskBytesAfter = existsSync(this.dataDir)
@@ -89,14 +140,16 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
 
     // Lexical fallback: enrichedSearchV2 requires embeddings, which are disabled
     // during benchmark ingest (embeddings: false). Use a direct Cypher name-match
-    // across all code node types so the benchmark can work without a vector index.
+    // across all code node types and a text-contains match on Entity nodes so the
+    // benchmark can work without a vector index.
     //
     // Strategy:
     //   1. Extract non-trivial words (≥3 chars) from the question.
     //   2. For each word, also include a 4-char stem (e.g. "retries" → "retr")
     //      so morphological variants match (e.g. "retry", "retryWithBackoff").
-    //   3. Match nodes whose name or filePath contains any of the terms/stems.
-    //   4. Score by number of term/stem hits.
+    //   3. Match code nodes whose name or filePath contains any term/stem.
+    //   4. Match knowledge Entity nodes whose text contains any term/stem.
+    //   5. Score by number of term/stem hits; merge and rank.
     const rawTerms = question
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, ' ')
@@ -119,11 +172,19 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
 
     // Build a CASE-based score expression: +1 for each term/stem that appears in
     // the node name or filePath. Nodes with no match are excluded.
-    const matchClause = (i: number): string =>
+    const codeMatchClause = (i: number): string =>
       `(toLower(n.name) CONTAINS $t${i} OR toLower(n.filePath) CONTAINS $t${i})`;
 
-    const scoreExpr = uniqueTerms
-      .map((_, i) => `CASE WHEN ${matchClause(i)} THEN 1 ELSE 0 END`)
+    const codeScoreExpr = uniqueTerms
+      .map((_, i) => `CASE WHEN ${codeMatchClause(i)} THEN 1 ELSE 0 END`)
+      .join(' + ');
+
+    // For Entity nodes: score by how many terms appear in the text field.
+    const entityMatchClause = (i: number): string =>
+      `toLower(e.text) CONTAINS $t${i}`;
+
+    const entityScoreExpr = uniqueTerms
+      .map((_, i) => `CASE WHEN ${entityMatchClause(i)} THEN 1 ELSE 0 END`)
       .join(' + ');
 
     const params: QueryOptions['params'] = { limit };
@@ -131,37 +192,100 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       params[`t${i}`] = uniqueTerms[i]!;
     }
 
-    const cypher = `
+    // Query 1: code nodes (Function, Class, etc.)
+    const codeCypher = `
       MATCH (n)
       WHERE n.name IS NOT NULL
-        AND (${uniqueTerms.map((_, i) => matchClause(i)).join(' OR ')})
-      WITH n, (${scoreExpr}) AS matchScore
+        AND (${uniqueTerms.map((_, i) => codeMatchClause(i)).join(' OR ')})
+      WITH n, (${codeScoreExpr}) AS matchScore
       WHERE matchScore > 0
       RETURN n.name AS name, n.filePath AS filePath, labels(n)[0] AS nodeType, matchScore
       ORDER BY matchScore DESC
       LIMIT $limit
     `;
 
-    const result = await client.roQuery<{
-      name: string;
-      filePath: string | null;
-      nodeType: string;
-      matchScore: number;
-    }>(cypher, { params });
+    // Query 2: knowledge Entity nodes
+    const entityCypher = `
+      MATCH (e:Entity)
+      WHERE e.type = 'Document'
+        AND (${uniqueTerms.map((_, i) => entityMatchClause(i)).join(' OR ')})
+      WITH e, (${entityScoreExpr}) AS matchScore
+      WHERE matchScore > 0
+      RETURN e.text AS text, e.properties AS properties, matchScore
+      ORDER BY matchScore DESC
+      LIMIT $limit
+    `;
 
-    return result.data.map((row) => ({
+    const [codeResult, entityResult] = await Promise.all([
+      client.roQuery<{
+        name: string;
+        filePath: string | null;
+        nodeType: string;
+        matchScore: number;
+      }>(codeCypher, { params }),
+      client.roQuery<{
+        text: string;
+        properties: string | null;
+        matchScore: number;
+      }>(entityCypher, { params }).catch(() => ({ data: [] as Array<{ text: string; properties: string | null; matchScore: number }> })),
+    ]);
+
+    const codeResults: RankedResult[] = codeResult.data.map((row) => ({
       id: this.resultId(row),
       score: row.matchScore,
       kind: 'code' as const,
       raw: row,
     }));
+
+    const knowledgeResults: RankedResult[] = entityResult.data.map((row) => ({
+      id: this.knowledgeResultId(row),
+      score: row.matchScore,
+      kind: 'knowledge' as const,
+      raw: row,
+    }));
+
+    // Merge and re-sort by score descending, then truncate to limit.
+    return [...codeResults, ...knowledgeResults]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
   }
 
   private resultId(hit: { filePath?: string | null; name?: string | null }): string {
     const file = hit.filePath ?? 'unknown';
-    const basename = file.includes('/') ? file.slice(file.lastIndexOf('/') + 1) : file;
+    const base = file.includes('/') ? file.slice(file.lastIndexOf('/') + 1) : file;
     const name = hit.name ?? 'unknown';
-    return `${basename}#${name}`;
+    return `${base}#${name}`;
+  }
+
+  /**
+   * Build a result ID for a knowledge Entity row.
+   *
+   * The Entity's `properties` JSON field may contain `{ path: "/abs/path/to/knowledge-001.md" }`.
+   * We extract the stem (e.g. "knowledge-001") and return `<stem>#<stem>` to match the
+   * gold ID format used in Plan 2's task-d/task-e questions.
+   *
+   * If properties can't be parsed or path is missing, fall back to hashing the
+   * first 60 chars of the text.
+   */
+  private knowledgeResultId(hit: { text: string; properties: string | null }): string {
+    if (hit.properties) {
+      try {
+        const props = JSON.parse(hit.properties) as Record<string, unknown>;
+        const filePath = props['path'];
+        if (typeof filePath === 'string') {
+          const base = filePath.includes('/')
+            ? filePath.slice(filePath.lastIndexOf('/') + 1)
+            : filePath;
+          const stem = base.endsWith('.md') ? base.slice(0, -3) : base;
+          return `${stem}#${stem}`;
+        }
+      } catch {
+        // fall through
+      }
+    }
+    // Fallback: use first 60 chars of text as a degenerate ID.
+    const slug = hit.text.slice(0, 60).replace(/\s+/g, '-').replace(/[^a-z0-9-]/gi, '');
+    return `knowledge#${slug}`;
   }
 
   async destroy(): Promise<void> {
@@ -170,6 +294,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         // FalkorDBLite emits SocketClosedUnexpectedlyError on clean shutdown — that's noise.
       });
       this.client = null;
+      this.knowledgeOps = null;
     }
     try {
       rmSync(this.dataDir, { recursive: true, force: true });
