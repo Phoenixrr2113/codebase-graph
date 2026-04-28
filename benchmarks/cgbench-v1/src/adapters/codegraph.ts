@@ -61,6 +61,11 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         force: true,
         gitSync: false,
       });
+      if (!result.success) {
+        throw new Error(
+          `indexProject failed for ${root.path}: ${result.errorMessages.join('; ')}`,
+        );
+      }
       totalDocs += result.stats.files;
     }
 

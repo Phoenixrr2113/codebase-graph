@@ -1,9 +1,9 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CodeGraphAdapter } from './adapters/codegraph.js';
 import { runSystem } from './runner.js';
 import type { BenchmarkAdapter } from './adapter.js';
-import type { BenchmarkCorpus, Language } from './types.js';
+import { LanguageSchema, type BenchmarkCorpus, type Language } from './types.js';
 
 interface ParsedArgs {
   command: 'run';
@@ -11,7 +11,7 @@ interface ParsedArgs {
   corpus: string;
   questions: string;
   resultsDir: string;
-  language?: Language;
+  language: Language;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -28,13 +28,20 @@ function parseArgs(argv: string[]): ParsedArgs {
   if (!flags['system']) throw new Error('--system required');
   if (!flags['corpus']) throw new Error('--corpus required');
   if (!flags['questions']) throw new Error('--questions required');
+  if (!existsSync(flags['corpus'])) {
+    throw new Error(`--corpus path does not exist: ${flags['corpus']}`);
+  }
+  if (!existsSync(flags['questions'])) {
+    throw new Error(`--questions path does not exist: ${flags['questions']}`);
+  }
+  const language = LanguageSchema.parse(flags['language'] ?? 'typescript');
   return {
     command: 'run',
     system: flags['system']!,
     corpus: flags['corpus']!,
     questions: flags['questions']!,
     resultsDir: flags['results-dir'] ?? join(process.cwd(), 'results'),
-    language: (flags['language'] as Language) ?? 'typescript',
+    language,
   };
 }
 
@@ -58,7 +65,7 @@ async function main(): Promise<void> {
 
   const adapter = makeAdapter(args.system, dataDir);
   const corpus: BenchmarkCorpus = {
-    codeRoots: [{ language: args.language ?? 'typescript', path: args.corpus, commitSha: 'cli-run' }],
+    codeRoots: [{ language: args.language, path: args.corpus, commitSha: 'cli-run' }],
   };
 
   try {
@@ -74,7 +81,10 @@ async function main(): Promise<void> {
     );
     console.log(`[done] wrote ${join(perSystemDir, `${args.system}.json`)}`);
   } finally {
-    await adapter.destroy();
+    // Don't let destroy errors mask the original error if main body threw.
+    try { await adapter.destroy(); } catch (destroyErr) {
+      console.error('destroy() failed:', destroyErr);
+    }
   }
 }
 
