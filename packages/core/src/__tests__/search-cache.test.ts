@@ -51,3 +51,26 @@ describe('SearchCache', () => {
     expect(cache.stats()).toEqual({ hits: 2, misses: 1, size: 1 });
   });
 });
+
+describe('searchCacheKey()', () => {
+  it('produces different keys for different graphIds with same query', async () => {
+    const { searchCacheKey } = await import('../searchCache');
+    const keyA = searchCacheKey({ graphId: 'graph-a', query: 'hello' });
+    const keyB = searchCacheKey({ graphId: 'graph-b', query: 'hello' });
+    expect(keyA).not.toBe(keyB);
+  });
+
+  it('produces same key for identical graphId+query+options', async () => {
+    const { searchCacheKey } = await import('../searchCache');
+    const a = searchCacheKey({ graphId: 'g', query: 'q', limit: 10, scope: 'all' });
+    const b = searchCacheKey({ graphId: 'g', query: 'q', limit: 10, scope: 'all' });
+    expect(a).toBe(b);
+  });
+
+  it('produces different keys when limits differ', async () => {
+    const { searchCacheKey } = await import('../searchCache');
+    const a = searchCacheKey({ graphId: 'g', query: 'q', limit: 10 });
+    const b = searchCacheKey({ graphId: 'g', query: 'q', limit: 20 });
+    expect(a).not.toBe(b);
+  });
+});

@@ -63,11 +63,15 @@ export const searchCache = new SearchCache<EnrichedV2Result>(100);
 /**
  * Build a stable cache key from search inputs.
  *
- * Fields mirror the EnrichedV2Options fields actually accepted by
+ * `graphId` MUST identify the underlying graph (e.g. `client.graphName`)
+ * so cross-corpus runs in a single process don't collide on cached results.
+ *
+ * Other fields mirror the EnrichedV2Options fields actually accepted by
  * enrichedSearchV2Impl: scope, limit, skipReranker (plus query and searchScope which
  * live at the call site or in the router layer).
  */
 export function searchCacheKey(parts: {
+  graphId: string;
   projectPath?: string;
   query: string;
   scope?: string;
@@ -76,11 +80,12 @@ export function searchCacheKey(parts: {
   skipReranker?: boolean;
 }): string {
   return [
+    parts.graphId,
     parts.projectPath ?? '',
     parts.query,
     parts.scope ?? '',
-    parts.limit ?? 0,
-    parts.searchScope ?? 'code',
+    parts.limit ?? '',
+    parts.searchScope ?? '',
     parts.skipReranker ? '1' : '0',
-  ].join('\x00');
+  ].join('|');
 }
