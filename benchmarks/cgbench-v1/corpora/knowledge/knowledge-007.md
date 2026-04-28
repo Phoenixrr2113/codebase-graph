@@ -4,7 +4,7 @@ title: "Ticket: chi Mount strips trailing slashes on nested routes"
 author: carol@example.com
 valid_at: 2026-02-25T16:30:00Z
 references:
-  - mux.go#NewRouter
+  - chi.go#NewRouter
   - mux.go#Route
   - mux.go#Mount
 category: ticket

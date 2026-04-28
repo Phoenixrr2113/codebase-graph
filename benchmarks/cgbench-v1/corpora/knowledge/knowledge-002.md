@@ -6,7 +6,7 @@ valid_at: 2025-12-18T14:00:00Z
 references:
   - types.ts#ZodObject
   - types.ts#ZodString
-  - types.ts#ZodError
+  - ZodError.ts#ZodError
 category: spec
 ---
 

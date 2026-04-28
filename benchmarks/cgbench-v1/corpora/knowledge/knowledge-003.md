@@ -5,7 +5,7 @@ author: carol@example.com
 valid_at: 2026-01-08T09:30:00Z
 invalid_at: 2026-03-15T11:00:00Z
 references:
-  - mux.go#NewRouter
+  - chi.go#NewRouter
   - mux.go#ServeHTTP
   - mux.go#Use
 category: decision

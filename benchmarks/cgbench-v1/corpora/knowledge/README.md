@@ -49,8 +49,8 @@ The `invalid_at` on `knowledge-003` matches the `valid_at` on `knowledge-009`, m
 | Corpus | Language | Files Referenced | Symbols Referenced |
 |--------|----------|-----------------|-------------------|
 | psf-requests | Python | `sessions.py`, `adapters.py`, `models.py` | `prepare_request`, `Session`, `resolve_redirects`, `rebuild_auth`, `HTTPAdapter`, `send` |
-| colinhacks-zod | TypeScript | `types.ts` | `ZodObject`, `ZodString`, `ZodError`, `ZodUnion`, `ZodOptional` |
-| go-chi-chi | Go | `mux.go`, `chi.go`, `context.go` | `NewRouter`, `ServeHTTP`, `Use`, `Route`, `Mount`, `Group` |
+| colinhacks-zod | TypeScript | `types.ts`, `ZodError.ts` | `ZodObject`, `ZodString`, `ZodError`, `ZodUnion`, `ZodOptional` |
+| go-chi-chi | Go | `chi.go`, `mux.go` | `NewRouter`, `ServeHTTP`, `Use`, `Route`, `Mount`, `Group` |
 | clap-rs-clap | Rust | `command.rs`, `arg.rs`, `arg_matches.rs` | `Command`, `Arg`, `ArgMatches`, `get_matches` |
 
 ## Authors
