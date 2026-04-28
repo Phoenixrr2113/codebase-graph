@@ -73,4 +73,11 @@ describe('searchCacheKey()', () => {
     const b = searchCacheKey({ graphId: 'g', query: 'q', limit: 20 });
     expect(a).not.toBe(b);
   });
+
+  it('produces different keys when searchScope differs', async () => {
+    const { searchCacheKey } = await import('../searchCache');
+    const a = searchCacheKey({ graphId: 'g', query: 'q', searchScope: 'code' });
+    const b = searchCacheKey({ graphId: 'g', query: 'q', searchScope: 'knowledge' });
+    expect(a).not.toBe(b);
+  });
 });

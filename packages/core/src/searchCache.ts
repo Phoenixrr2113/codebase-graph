@@ -87,5 +87,5 @@ export function searchCacheKey(parts: {
     parts.limit ?? '',
     parts.searchScope ?? '',
     parts.skipReranker ? '1' : '0',
-  ].join('|');
+  ].join('\x00');
 }
