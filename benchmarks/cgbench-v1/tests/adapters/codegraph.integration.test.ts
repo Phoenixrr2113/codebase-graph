@@ -24,4 +24,12 @@ describe('CodeGraphAdapter — ingest', () => {
     expect(stats.totalDocs).toBeGreaterThan(0);
     expect(stats.diskBytesAfter).toBeGreaterThan(0);
   }, 90_000);
+
+  it('returns ranked results that include the retry function', async () => {
+    const results = await adapter.query('function that retries failed requests', { topK: 10 });
+    expect(results.length).toBeGreaterThan(0);
+    const ids = results.map((r) => r.id);
+    const hasRetry = ids.some((id) => /retry/i.test(id));
+    expect(hasRetry).toBe(true);
+  }, 60_000);
 });

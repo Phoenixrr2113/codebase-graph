@@ -5,7 +5,7 @@ import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
 import { indexProject } from '@codegraph/core';
 import { createClient } from '@codegraph/graph';
-import type { GraphClient } from '@codegraph/graph';
+import type { GraphClient, QueryOptions } from '@codegraph/graph';
 
 export interface CodeGraphAdapterOptions {
   dataDir: string;
@@ -78,8 +78,84 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     return { durationMs, totalDocs, totalTokens, diskBytesAfter };
   }
 
-  async query(_question: string, _opts?: QueryOpts): Promise<RankedResult[]> {
-    throw new Error('query() not implemented yet — see Task 14');
+  async query(question: string, opts?: QueryOpts): Promise<RankedResult[]> {
+    const client = await this.getClient();
+    const limit = opts?.topK ?? 20;
+
+    // Lexical fallback: enrichedSearchV2 requires embeddings, which are disabled
+    // during benchmark ingest (embeddings: false). Use a direct Cypher name-match
+    // across all code node types so the benchmark can work without a vector index.
+    //
+    // Strategy:
+    //   1. Extract non-trivial words (≥3 chars) from the question.
+    //   2. For each word, also include a 4-char stem (e.g. "retries" → "retr")
+    //      so morphological variants match (e.g. "retry", "retryWithBackoff").
+    //   3. Match nodes whose name or filePath contains any of the terms/stems.
+    //   4. Score by number of term/stem hits.
+    const rawTerms = question
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length >= 3);
+
+    // Expand with 4-char stems for each term longer than 4 chars.
+    const expanded: string[] = [];
+    for (const t of rawTerms) {
+      expanded.push(t);
+      if (t.length > 4) {
+        expanded.push(t.slice(0, 4));
+      }
+    }
+    const uniqueTerms = [...new Set(expanded)];
+
+    if (uniqueTerms.length === 0) {
+      return [];
+    }
+
+    // Build a CASE-based score expression: +1 for each term/stem that appears in
+    // the node name or filePath. Nodes with no match are excluded.
+    const matchClause = (i: number): string =>
+      `(toLower(n.name) CONTAINS $t${i} OR toLower(n.filePath) CONTAINS $t${i})`;
+
+    const scoreExpr = uniqueTerms
+      .map((_, i) => `CASE WHEN ${matchClause(i)} THEN 1 ELSE 0 END`)
+      .join(' + ');
+
+    const params: QueryOptions['params'] = { limit };
+    for (let i = 0; i < uniqueTerms.length; i++) {
+      params[`t${i}`] = uniqueTerms[i]!;
+    }
+
+    const cypher = `
+      MATCH (n)
+      WHERE n.name IS NOT NULL
+        AND (${uniqueTerms.map((_, i) => matchClause(i)).join(' OR ')})
+      WITH n, (${scoreExpr}) AS matchScore
+      WHERE matchScore > 0
+      RETURN n.name AS name, n.filePath AS filePath, labels(n)[0] AS nodeType, matchScore
+      ORDER BY matchScore DESC
+      LIMIT $limit
+    `;
+
+    const result = await client.roQuery<{
+      name: string;
+      filePath: string | null;
+      nodeType: string;
+      matchScore: number;
+    }>(cypher, { params });
+
+    return result.data.map((row) => ({
+      id: this.resultId(row),
+      score: row.matchScore,
+      kind: 'code' as const,
+      raw: row,
+    }));
+  }
+
+  private resultId(hit: { filePath?: string | null; name?: string | null }): string {
+    const file = hit.filePath ?? 'unknown';
+    const name = hit.name ?? 'unknown';
+    return `${file}#${name}`;
   }
 
   async destroy(): Promise<void> {
