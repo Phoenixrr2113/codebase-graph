@@ -1,9 +1,13 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { AugmentAdapter } from './adapters/augment.js';
 import { CodeGraphAdapter } from './adapters/codegraph.js';
 import { CogneeAdapter } from './adapters/cognee.js';
 import { HindsightAdapter } from './adapters/hindsight.js';
 import { MastraAdapter } from './adapters/mastra.js';
+import { McpCodebaseIndexAdapter } from './adapters/mcp-codebase-index.js';
+import { MempalaceAdapter } from './adapters/mempalace.js';
 import { SupermemoryAdapter } from './adapters/supermemory.js';
 import { runSystem } from './runner.js';
 import type { BenchmarkAdapter } from './adapter.js';
@@ -49,21 +53,27 @@ function parseArgs(argv: string[]): ParsedArgs {
   };
 }
 
-function makeAdapter(name: string, dataDir: string): BenchmarkAdapter {
+export function makeAdapter(name: string, dataDir: string): BenchmarkAdapter {
   switch (name) {
     case 'codegraph':
       return new CodeGraphAdapter({ dataDir });
+    case 'mcp-codebase-index':
+      return new McpCodebaseIndexAdapter({ dataDir });
+    case 'mempalace':
+      return new MempalaceAdapter({ dataDir });
     case 'cognee':
       return new CogneeAdapter({ dataDir });
     case 'hindsight':
-      return new HindsightAdapter({ dataDir });
-    case 'mastra':
+      return new HindsightAdapter({ dataDir, baseUrl: process.env['HINDSIGHT_URL'] });
+    case 'mastra-memory':
       return new MastraAdapter({ dataDir });
     case 'supermemory':
       return new SupermemoryAdapter({ dataDir, apiKey: process.env['SUPERMEMORY_API_KEY'] });
+    case 'augment':
+      return new AugmentAdapter({ dataDir });
     default:
       throw new Error(
-        `unknown system: ${name} (supported: codegraph, cognee, hindsight, mastra, supermemory)`,
+        `unknown system: ${name} (supported: codegraph, mcp-codebase-index, mempalace, cognee, hindsight, mastra-memory, supermemory, augment)`,
       );
   }
 }
@@ -102,7 +112,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Only run when this file is the entry point, not when imported by tests.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
