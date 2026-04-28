@@ -28,10 +28,24 @@ describe('ManifestSchema rejection cases', () => {
   const validEntry = {
     name: 'x',
     language: 'python' as const,
-    url: 'https://example.com/x.git',
+    url: 'https://github.com/foo/bar.git',
     commitSha: '0123456789abcdef0123456789abcdef01234567',
     license: 'MIT',
   };
+
+  it('rejects shell-metacharacters in name', () => {
+    const bad = { ...validEntry, name: 'x; rm -rf /' };
+    expect(() =>
+      ManifestSchema.parse({ version: '1', corpora: [bad, validEntry, validEntry, validEntry] }),
+    ).toThrow();
+  });
+
+  it('rejects non-github URLs', () => {
+    const bad = { ...validEntry, url: 'https://evil.example.com/x.git' };
+    expect(() =>
+      ManifestSchema.parse({ version: '1', corpora: [bad, validEntry, validEntry, validEntry] }),
+    ).toThrow();
+  });
 
   it('rejects wrong version literal', () => {
     expect(() =>

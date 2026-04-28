@@ -46,13 +46,15 @@ export const RankedResultSchema = z.object({
 export type RankedResult = z.infer<typeof RankedResultSchema>;
 
 // Bump `version` when adding required fields and fork ManifestSchema.
+// `name` and `url` are passed to `git clone`; the regexes block shell
+// metacharacters as defense-in-depth (the script also uses execFileSync, no shell).
 export const ManifestSchema = z.object({
   version: z.literal('1'),
   corpora: z.array(
     z.object({
-      name: z.string(),
+      name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
       language: LanguageSchema,
-      url: z.string().url(),
+      url: z.string().regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\.git$/),
       commitSha: z.string().regex(/^[0-9a-f]{40}$/),
       license: z.string(),
       notes: z.string().optional(),
