@@ -96,11 +96,13 @@ export interface EnrichedV2Options {
 }
 
 // Dynamic discovery: find which node labels actually have embeddings.
-// Cached after first call — invalidated on reindex via clearEmbeddedLabelCache().
-let _embeddedLabelsCache: string[] | null = null;
+// Cached after first call per graph — invalidated on reindex via clearEmbeddedLabelCache().
+const _embeddedLabelsCache = new Map<string, string[]>();
 
-async function getEmbeddedLabels(client: GraphClient): Promise<string[]> {
-  if (_embeddedLabelsCache) return _embeddedLabelsCache;
+export async function getEmbeddedLabels(client: GraphClient): Promise<string[]> {
+  const graphId = client.graphName;
+  const cached = _embeddedLabelsCache.get(graphId);
+  if (cached) return cached;
   try {
     // Find which labels have nodes with embeddings
     const result = await client.roQuery<{ label: string }>(
@@ -110,19 +112,26 @@ async function getEmbeddedLabels(client: GraphClient): Promise<string[]> {
     );
     // Only include code node types that support vector search
     const validLabels = new Set(['Function', 'Class', 'Interface', 'Component', 'Variable', 'Type', 'File']);
-    _embeddedLabelsCache = result.data.map(r => r.label).filter(l => validLabels.has(l));
-    logger.info(`Discovered embedded labels: ${_embeddedLabelsCache.join(', ')}`);
+    const labels = result.data.map(r => r.label).filter(l => validLabels.has(l));
+    _embeddedLabelsCache.set(graphId, labels);
+    logger.info(`Discovered embedded labels for ${graphId}: ${labels.join(', ')}`);
+    return labels;
   } catch {
     // Fallback: common labels that typically have embeddings
-    _embeddedLabelsCache = ['Function', 'Class', 'Interface', 'Component'];
+    const fallback = ['Function', 'Class', 'Interface', 'Component'];
+    _embeddedLabelsCache.set(graphId, fallback);
     logger.warn('Failed to discover embedded labels, using fallback');
+    return fallback;
   }
-  return _embeddedLabelsCache;
 }
 
-/** Call after reindex to refresh the label cache */
-export function clearEmbeddedLabelCache(): void {
-  _embeddedLabelsCache = null;
+/** Call after reindex to refresh the label cache. Pass graphId to clear one entry, omit to clear all. */
+export function clearEmbeddedLabelCache(graphId?: string): void {
+  if (graphId) {
+    _embeddedLabelsCache.delete(graphId);
+  } else {
+    _embeddedLabelsCache.clear();
+  }
 }
 
 // ============================================================================
