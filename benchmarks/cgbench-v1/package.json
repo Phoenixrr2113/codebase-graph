@@ -1,0 +1,26 @@
+{
+  "name": "@codegraph/cgbench-v1",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench": "tsx src/cli.ts",
+    "bench:clone-corpora": "tsx scripts/clone-corpora.ts",
+    "bench:render-docs": "tsx scripts/render-docs.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codegraph/core": "workspace:*",
+    "@codegraph/graph": "workspace:*",
+    "@codegraph/types": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.12.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.0"
+  }
+}

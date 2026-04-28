@@ -1,0 +1,6 @@
+dist/
+results/
+corpora/code/*/
+!corpora/code/manifest.json
+documents/rendered/
+node_modules/
