@@ -142,8 +142,95 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     return { totalDocs, totalTokens, durationMs, diskBytesAfter };
   }
 
-  async query(_question: string, _opts: QueryOpts = {}): Promise<RankedResult[]> {
-    throw new Error('Not yet implemented (Tasks 10/11)');
+  async query(question: string, opts: QueryOpts = {}): Promise<RankedResult[]> {
+    const client = await this.getClient();
+    const limit = opts.topK ?? 10;
+    const task = opts.task;
+
+    if (task === 'A') {
+      const result = (await callMCPTool<{ results?: Array<{ id?: string; name?: string; filePath?: string; score?: number }> }>(
+        client,
+        'search',
+        { action: 'find', query: question, limit },
+      )) ?? {};
+      return (result.results ?? []).map((r, i) => ({
+        id: this.codeId(r.filePath, r.name),
+        score: r.score ?? 1 / (i + 1),
+        kind: 'code' as const,
+      }));
+    }
+
+    if (task === 'D') {
+      const args: Record<string, unknown> = { action: 'recall', text: question };
+      if (opts.validAt) args['at'] = opts.validAt;
+      const result = (await callMCPTool<{ results?: Array<{ slug?: string; sampleIds?: string[]; text?: string; score?: number }> }>(
+        client,
+        'knowledge',
+        args,
+      )) ?? {};
+      return (result.results ?? []).map((r, i) => ({
+        id: this.knowledgeId(r),
+        score: r.score ?? 1 / (i + 1),
+        kind: 'knowledge' as const,
+      }));
+    }
+
+    if (task === 'E') {
+      const result = (await callMCPTool<{ results?: Array<{ source?: string; name?: string; filePath?: string; slug?: string; sampleIds?: string[]; text?: string; score?: number }> }>(
+        client,
+        'search',
+        { action: 'find', query: question, searchScope: 'all', limit },
+      )) ?? {};
+      return (result.results ?? []).map((r, i) => ({
+        id: r.source === 'knowledge' ? this.knowledgeId(r) : this.codeId(r.filePath, r.name),
+        score: r.score ?? 1 / (i + 1),
+        kind: r.source === 'knowledge' ? ('knowledge' as const) : ('code' as const),
+      }));
+    }
+
+    if (task === 'F') {
+      const result = (await callMCPTool<{ results?: Array<{ slug?: string; sampleIds?: string[]; text?: string; score?: number }> }>(
+        client,
+        'knowledge',
+        { action: 'recall', text: question },
+      )) ?? {};
+      return (result.results ?? []).map((r, i) => ({
+        id: this.knowledgeId(r),
+        score: r.score ?? 1 / (i + 1),
+        kind: 'knowledge' as const,
+      }));
+    }
+
+    // Tasks B/C handled in Task 11
+    if (task === 'B' || task === 'C') {
+      throw new Error('Task 11 not yet implemented — Cypher dispatch');
+    }
+
+    // Default fallback (no task metadata) — text retrieval semantics
+    const result = (await callMCPTool<{ results?: Array<{ name?: string; filePath?: string; score?: number }> }>(
+      client,
+      'search',
+      { action: 'find', query: question, limit },
+    )) ?? {};
+    return (result.results ?? []).map((r, i) => ({
+      id: this.codeId(r.filePath, r.name),
+      score: r.score ?? 1 / (i + 1),
+      kind: 'code' as const,
+    }));
+  }
+
+  private codeId(filePath: string | undefined, name: string | undefined): string {
+    const basename = (filePath ?? 'unknown').split('/').pop() ?? 'unknown';
+    return `${basename}#${name ?? 'unknown'}`;
+  }
+
+  private knowledgeId(result: { slug?: string; sampleIds?: string[]; text?: string }): string {
+    if (result.sampleIds) {
+      for (const sid of result.sampleIds) {
+        if (sid.startsWith('cgbench:')) return sid.slice('cgbench:'.length);
+      }
+    }
+    return result.slug ?? result.text ?? 'unknown';
   }
 
   async destroy(): Promise<void> {
