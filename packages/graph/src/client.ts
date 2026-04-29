@@ -72,7 +72,7 @@ export interface QueryResult<T> {
 export class GraphClientError extends Error {
   constructor(
     message: string,
-    public readonly code: 'CONNECTION_FAILED' | 'QUERY_FAILED' | 'INDEX_FAILED' | 'UNKNOWN'
+    public readonly code: 'CONNECTION_FAILED' | 'QUERY_FAILED' | 'INDEX_FAILED' | 'INDEX_DIM_CONFLICT' | 'UNKNOWN'
   ) {
     super(message);
     this.name = 'GraphClientError';
@@ -119,6 +119,8 @@ export interface GraphClient {
 class GraphClientImpl implements GraphClient {
   readonly graphName: string;
   private schemaCreated = false;
+  /** The embeddingDim used when the schema was first created, if any. */
+  private firstEmbeddingDim: number | undefined = undefined;
 
   constructor(
     private readonly driver: DatabaseDriver,
@@ -171,10 +173,27 @@ class GraphClientImpl implements GraphClient {
     // Schema is created exactly once per client lifetime. Repeat calls with
     // different `opts` are no-ops by design — re-applying schema with a
     // different embeddingDim would require dropping vector indexes first.
-    if (this.schemaCreated) return;
+    if (this.schemaCreated) {
+      // Guard: if the caller passes a different embeddingDim than was used at
+      // creation time, throw rather than silently no-op. Silently accepting a
+      // conflicting dim would leave the vector index at the wrong dimension.
+      if (
+        opts?.embeddingDim !== undefined &&
+        this.firstEmbeddingDim !== undefined &&
+        opts.embeddingDim !== this.firstEmbeddingDim
+      ) {
+        throw new GraphClientError(
+          `ensureIndexes called with embeddingDim=${opts.embeddingDim} but schema was created with embeddingDim=${this.firstEmbeddingDim}. ` +
+          `Close and recreate the client to change dimension.`,
+          'INDEX_DIM_CONFLICT',
+        );
+      }
+      return;
+    }
     try {
       await this.driver.ensureSchema(opts);
       this.schemaCreated = true;
+      this.firstEmbeddingDim = opts?.embeddingDim;
     } catch (error) {
       const errorMessage = toErrorMessage(error);
       // FalkorDB says "already indexed"
@@ -182,6 +201,7 @@ class GraphClientImpl implements GraphClient {
         throw new GraphClientError(`Index creation failed: ${errorMessage}`, 'INDEX_FAILED');
       }
       this.schemaCreated = true;
+      this.firstEmbeddingDim = opts?.embeddingDim;
     }
   }
 
