@@ -52,6 +52,22 @@ export class SearchCache<V> {
     this.missCount = 0;
   }
 
+  /**
+   * Clear all entries whose key starts with the given prefix.
+   * Used for graph-scoped eviction (graphId is the first key component, separated by `\x00`).
+   */
+  clearByPrefix(prefix: string): void {
+    const toDelete: string[] = [];
+    for (const key of this.map.keys()) {
+      if (key.startsWith(prefix)) {
+        toDelete.push(key);
+      }
+    }
+    for (const key of toDelete) {
+      this.map.delete(key);
+    }
+  }
+
   stats(): { hits: number; misses: number; size: number } {
     return { hits: this.hitCount, misses: this.missCount, size: this.map.size };
   }

@@ -261,7 +261,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     // so subsequent runs (different corpus) don't read stale results.
     try {
       clearEmbeddedLabelCache(this.graphId);
-      searchCache.clear();
+      searchCache.clearByPrefix(`${this.graphId}\x00`);
     } catch (err) {
       // Cache clear failure is non-fatal; log and continue
       console.warn('[codegraph adapter] cache clear failed:', err);

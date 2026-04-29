@@ -43,6 +43,21 @@ describe('SearchCache', () => {
     expect(cache.get('a')).toBeUndefined();
   });
 
+  describe('clearByPrefix()', () => {
+    it('clears only entries whose key starts with the prefix', () => {
+      const cache = new SearchCache<string>();
+      cache.set('graph-a\x00query1', 'va1');
+      cache.set('graph-a\x00query2', 'va2');
+      cache.set('graph-b\x00query1', 'vb1');
+
+      cache.clearByPrefix('graph-a\x00');
+
+      expect(cache.get('graph-a\x00query1')).toBeUndefined();
+      expect(cache.get('graph-a\x00query2')).toBeUndefined();
+      expect(cache.get('graph-b\x00query1')).toBe('vb1');
+    });
+  });
+
   it('reports hit/miss counts', () => {
     cache.set('a', '1');
     cache.get('a'); // hit
