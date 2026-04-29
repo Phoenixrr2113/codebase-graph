@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks';
 import type { BenchmarkAdapter } from './adapter.js';
 import type { BenchmarkCorpus, Question, QuestionScore, TaskLetter } from './types.js';
 import { QuestionSchema } from './types.js';
-import { mrr } from './score/mrr.js';
+import { mrr, reciprocalRank } from './score/mrr.js';
 import { recallAtK, precisionAtK } from './score/recall.js';
 import { f1 } from './score/f1.js';
 import { exactMatch } from './score/em.js';
@@ -126,7 +126,8 @@ export function scoreTaskF(rankings: string[][], questions: Question[]): Extract
 /**
  * Score a single question's ranking against its gold.
  * Shape of the returned object depends on task type:
- * - A: { mrr, recallAt10 }
+ * - A: { mrr, recallAt10 } — mrr is the reciprocal rank for this single question
+ *                            (the batch `mrr` function divides by N; per-question, mrr === rr)
  * - B: { recallAt10, precisionAt5 }
  * - C: { f1 }
  * - D: { exactMatch } if validAt is set, else { recallAt10 }
@@ -142,7 +143,7 @@ export function scoreQuestion(
   switch (taskType) {
     case 'A': {
       const r = recallAtK(ranking, gold, 10);
-      const m = mrr([ranking], [gold]);
+      const m = reciprocalRank(ranking, gold);
       return { mrr: m, recallAt10: r };
     }
     case 'B': {
