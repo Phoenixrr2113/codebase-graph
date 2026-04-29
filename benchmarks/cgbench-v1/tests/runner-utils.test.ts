@@ -5,6 +5,11 @@ import { join } from 'node:path';
 import { Semaphore, writeAtomic, scanResultsDir } from '../src/runner-utils';
 
 describe('Semaphore', () => {
+  it('rejects non-positive maxConcurrent in constructor', () => {
+    expect(() => new Semaphore(0)).toThrow();
+    expect(() => new Semaphore(-1)).toThrow();
+  });
+
   it('limits concurrent operations', async () => {
     const sem = new Semaphore(2);
     const inFlight: number[] = [];

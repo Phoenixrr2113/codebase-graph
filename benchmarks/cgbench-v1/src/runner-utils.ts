@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 /**
@@ -35,11 +36,11 @@ export class Semaphore {
 export async function writeAtomic(targetPath: string, contents: string): Promise<void> {
   const dir = dirname(targetPath);
   if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+    await mkdir(dir, { recursive: true });
   }
   const tmpPath = `${targetPath}.tmp`;
-  writeFileSync(tmpPath, contents, 'utf-8');
-  renameSync(tmpPath, targetPath);
+  await writeFile(tmpPath, contents, 'utf-8');
+  await rename(tmpPath, targetPath);
 }
 
 /**
