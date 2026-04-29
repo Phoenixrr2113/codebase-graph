@@ -10,6 +10,22 @@ import { measureDiskBytes } from '../metrics/resources.js';
 // Re-exported so cli.ts `import { CodeGraphAdapter, type DocumentFormat }` continues to compile.
 export type DocumentFormat = 'md' | 'pdf' | 'docx' | 'html' | 'csv';
 
+type MCPCodeResult = {
+  source?: string;
+  id?: string;
+  name?: string;
+  filePath?: string;
+  score?: number;
+};
+
+type MCPKnowledgeResult = {
+  source?: string;
+  slug?: string;
+  sampleIds?: string[];
+  text?: string;
+  score?: number;
+};
+
 export interface CodeGraphAdapterOptions {
   /** Where the adapter stores per-corpus state (FalkorDB data dir, etc.) */
   dataDir: string;
@@ -148,7 +164,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     const task = opts.task;
 
     if (task === 'A') {
-      const result = (await callMCPTool<{ results?: Array<{ id?: string; name?: string; filePath?: string; score?: number }> }>(
+      const result = (await callMCPTool<{ results?: Array<MCPCodeResult> }>(
         client,
         'search',
         { action: 'find', query: question, limit },
@@ -163,7 +179,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     if (task === 'D') {
       const args: Record<string, unknown> = { action: 'recall', text: question };
       if (opts.validAt) args['at'] = opts.validAt;
-      const result = (await callMCPTool<{ results?: Array<{ slug?: string; sampleIds?: string[]; text?: string; score?: number }> }>(
+      const result = (await callMCPTool<{ results?: Array<MCPKnowledgeResult> }>(
         client,
         'knowledge',
         args,
@@ -176,7 +192,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     }
 
     if (task === 'E') {
-      const result = (await callMCPTool<{ results?: Array<{ source?: string; name?: string; filePath?: string; slug?: string; sampleIds?: string[]; text?: string; score?: number }> }>(
+      const result = (await callMCPTool<{ results?: Array<MCPCodeResult & MCPKnowledgeResult> }>(
         client,
         'search',
         { action: 'find', query: question, searchScope: 'all', limit },
@@ -189,7 +205,9 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     }
 
     if (task === 'F') {
-      const result = (await callMCPTool<{ results?: Array<{ slug?: string; sampleIds?: string[]; text?: string; score?: number }> }>(
+      // Task F is non-temporal document retrieval — validAt is deliberately omitted
+      // (vs Task D which honors validAt for point-in-time queries).
+      const result = (await callMCPTool<{ results?: Array<MCPKnowledgeResult> }>(
         client,
         'knowledge',
         { action: 'recall', text: question },
@@ -207,7 +225,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     }
 
     // Default fallback (no task metadata) — text retrieval semantics
-    const result = (await callMCPTool<{ results?: Array<{ name?: string; filePath?: string; score?: number }> }>(
+    const result = (await callMCPTool<{ results?: Array<MCPCodeResult> }>(
       client,
       'search',
       { action: 'find', query: question, limit },
