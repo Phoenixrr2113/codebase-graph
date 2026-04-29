@@ -7,7 +7,7 @@
  * Prerequisites: FalkorDB running on localhost:6379
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 
 // These tests use local embeddings
 vi.stubEnv('CODEGRAPH_EMBEDDING_PROVIDER', 'local');
@@ -76,16 +76,24 @@ function makeInterface(overrides?: Partial<InterfaceEntity>): InterfaceEntity {
 // Tests
 // ============================================================================
 
+let falkordbAvailableNameMatching = true;
+
 describe('Bridge Linker (name matching)', () => {
   let client: GraphClient;
   let ops: GraphOperations;
   let kg: KnowledgeOperations;
 
   beforeAll(async () => {
-    client = await createClient({
-      driver: 'falkordb',
-      graphName: TEST_GRAPH,
-    });
+    try {
+      client = await createClient({
+        driver: 'falkordb',
+        graphName: TEST_GRAPH,
+      });
+    } catch {
+      console.warn('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      falkordbAvailableNameMatching = false;
+      return;
+    }
     await client.ensureIndexes();
     ops = createOperations(client);
     kg = createKnowledgeOperations(client);
@@ -119,6 +127,10 @@ describe('Bridge Linker (name matching)', () => {
     await kg.createEntity({ text: 'retryWithBackoff', type: 'CodeEntity', confidence: 0.88 });
     await kg.createEntity({ text: 'PROCESSPAYMENT', type: 'CodeEntity', confidence: 0.80 });
   }, 30_000);
+
+  beforeEach((ctx) => {
+    if (!falkordbAvailableNameMatching) ctx.skip('FalkorDB not available — run: docker compose up -d falkordb');
+  });
 
   afterAll(async () => {
     if (client) {
@@ -324,6 +336,8 @@ function makeVec(weights: Record<number, number>): number[] {
   return vec;
 }
 
+let falkordbAvailableEmbedding = true;
+
 describe('Bridge Linker (embedding similarity)', () => {
   let client: GraphClient;
   let ops: GraphOperations;
@@ -340,8 +354,9 @@ describe('Bridge Linker (embedding similarity)', () => {
         graphName: GRAPH_NAME,
       });
     } catch {
-      console.error('FalkorDB not available');
-      throw new Error('FalkorDB not available');
+      console.warn('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      falkordbAvailableEmbedding = false;
+      return;
     }
 
     await client.ensureIndexes();
@@ -381,6 +396,10 @@ describe('Bridge Linker (embedding similarity)', () => {
     await kg.createEntity({ text: 'chart rendering optimization', type: 'Decision', confidence: 0.95 });
     await kg.createEntity({ text: 'John Smith', type: 'Person', confidence: 0.8 });
   }, 30_000);
+
+  beforeEach((ctx) => {
+    if (!falkordbAvailableEmbedding) ctx.skip('FalkorDB not available — run: docker compose up -d falkordb');
+  });
 
   afterAll(async () => {
     try { await client.query('MATCH (n) DETACH DELETE n', { params: {} }); } catch { /* */ }

@@ -13,7 +13,7 @@
  * Prerequisites: docker compose up -d falkordb
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { MockLanguageModelV3 } from 'ai/test';
 import {
   createClient,
@@ -114,6 +114,8 @@ function makeMockModel() {
 // Tests
 // ============================================================================
 
+let falkordbAvailable = true;
+
 describe('Episodic Extraction (FalkorDB)', () => {
   let client: GraphClient;
   let ops: KnowledgeOperations;
@@ -127,15 +129,18 @@ describe('Episodic Extraction (FalkorDB)', () => {
         graphName: GRAPH_NAME,
       });
     } catch {
-      console.error(
-        'FalkorDB not available — skipping tests. Run: docker compose up -d falkordb',
-      );
-      throw new Error('FalkorDB not available');
+      console.warn('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      falkordbAvailable = false;
+      return;
     }
 
     await client.ensureIndexes();
     ops = createKnowledgeOperations(client);
   }, 30_000);
+
+  beforeEach((ctx) => {
+    if (!falkordbAvailable) ctx.skip('FalkorDB not available — run: docker compose up -d falkordb');
+  });
 
   afterAll(async () => {
     try {

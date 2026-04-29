@@ -75,6 +75,8 @@ function mixedVec(dim1: number, w1: number, dim2: number, w2: number): number[] 
 
 const GRAPH_NAME = `test_bridge_emb_${Date.now()}`;
 
+let falkordbAvailable = true;
+
 describe('Bridge-Linker Embedding Similarity', () => {
   let client: GraphClient;
   let ops: GraphOperations;
@@ -89,8 +91,9 @@ describe('Bridge-Linker Embedding Similarity', () => {
         graphName: GRAPH_NAME,
       });
     } catch {
-      console.error('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
-      throw new Error('FalkorDB not available');
+      console.warn('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      falkordbAvailable = false;
+      return;
     }
 
     await client.ensureIndexes();
@@ -155,7 +158,11 @@ describe('Bridge-Linker Embedding Similarity', () => {
     }
   }, 15_000);
 
-  beforeEach(async () => {
+  beforeEach(async (ctx) => {
+    if (!falkordbAvailable) {
+      ctx.skip('FalkorDB not available — run: docker compose up -d falkordb');
+      return;
+    }
     // Remove all Entity nodes and ABOUT edges between tests
     try {
       await client.query('MATCH (e:Entity) DETACH DELETE e', { params: {} });

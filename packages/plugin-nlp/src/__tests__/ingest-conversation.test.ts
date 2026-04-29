@@ -132,6 +132,8 @@ function makeMockModel() {
 // Tests
 // ============================================================================
 
+let falkordbAvailable = true;
+
 describe('ingestConversation (FalkorDB)', () => {
   let client: GraphClient;
   let ops: KnowledgeOperations;
@@ -145,17 +147,20 @@ describe('ingestConversation (FalkorDB)', () => {
         graphName: GRAPH_NAME,
       });
     } catch {
-      console.error(
-        'FalkorDB not available — skipping tests. Run: docker compose up -d falkordb',
-      );
-      throw new Error('FalkorDB not available');
+      console.warn('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      falkordbAvailable = false;
+      return;
     }
 
     await client.ensureIndexes();
     ops = createKnowledgeOperations(client);
   }, 30_000);
 
-  beforeEach(async () => {
+  beforeEach(async (ctx) => {
+    if (!falkordbAvailable) {
+      ctx.skip('FalkorDB not available — run: docker compose up -d falkordb');
+      return;
+    }
     // Clean the graph between tests to prevent cross-test interference
     try {
       await client.query('MATCH (n) DETACH DELETE n', { params: {} });
