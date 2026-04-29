@@ -24,7 +24,6 @@
         "${__dirname}/server/index.mjs"
       ],
       "env": {
-        "CODEGRAPH_LICENSE": "${user_config.license_key}",
         "VOYAGE_API_KEY": "${user_config.voyage_api_key}",
         "JINA_API_KEY": "${user_config.jina_api_key}",
         "CODEGRAPH_PROJECTS": "${user_config.project_paths}",
@@ -63,13 +62,6 @@
   ],
   "license": "MIT",
   "user_config": {
-    "license_key": {
-      "type": "string",
-      "title": "CodeGraph License Key",
-      "description": "License key (purchase at polar.sh/codegraph)",
-      "sensitive": true,
-      "required": true
-    },
     "voyage_api_key": {
       "type": "string",
       "title": "Voyage AI API Key",
