@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import type { BenchmarkAdapter } from './adapter.js';
-import type { BenchmarkCorpus, Question, QuestionScore, TaskLetter } from './types.js';
+import type { BenchmarkCorpus, PerQuestionResult, Question, QuestionScore, TaskLetter } from './types.js';
 import { QuestionSchema } from './types.js';
 import { mrr, reciprocalRank } from './score/mrr.js';
 import { recallAtK, precisionAtK } from './score/recall.js';
@@ -9,11 +10,16 @@ import { f1 } from './score/f1.js';
 import { exactMatch } from './score/em.js';
 import { aggregate, type LatencyReport } from './metrics/latency.js';
 import { ingestionReport, type IngestionReport } from './metrics/ingestion.js';
+import { Semaphore, writeAtomic, scanResultsDir } from './runner-utils.js';
 
 export interface RunSystemArgs {
   adapter: BenchmarkAdapter;
   corpus: BenchmarkCorpus;
   questionsPath: string;
+  /** Directory where per-question result files land. Required. */
+  resultsDir: string;
+  /** Max concurrent queries. Default 3. */
+  concurrency?: number;
   coldQueriesCount?: number;
 }
 
@@ -171,30 +177,96 @@ export function scoreQuestion(
   }
 }
 
+async function runOne(
+  question: Question,
+  adapter: BenchmarkAdapter,
+  resultsDir: string,
+): Promise<PerQuestionResult> {
+  const start = performance.now();
+  let result: PerQuestionResult;
+  try {
+    const results = await adapter.query(question.prompt, {
+      task: question.task,
+      ...(question.validAt !== undefined ? { validAt: question.validAt } : {}),
+      topK: 10,
+    });
+    const ranking = results.map((r) => r.id);
+    const score = scoreQuestion(question, ranking, question.task);
+    const latencyMs = performance.now() - start;
+    result = {
+      questionId: question.id,
+      taskType: question.task,
+      prompt: question.prompt,
+      gold: question.gold,
+      ...(question.goldKnowledge !== undefined ? { goldKnowledge: question.goldKnowledge } : {}),
+      ranking: results,
+      score,
+      latencyMs,
+      status: 'ok',
+    };
+  } catch (err) {
+    const latencyMs = performance.now() - start;
+    result = {
+      questionId: question.id,
+      taskType: question.task,
+      prompt: question.prompt,
+      gold: question.gold,
+      ...(question.goldKnowledge !== undefined ? { goldKnowledge: question.goldKnowledge } : {}),
+      ranking: [],
+      score: { recallAt10: 0 },
+      latencyMs,
+      status: 'error',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  await writeAtomic(
+    join(resultsDir, 'per-question', `${question.task}-${question.id}.json`),
+    JSON.stringify(result, null, 2),
+  );
+  return result;
+}
+
 export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
-  const questions: Question[] = readFileSync(args.questionsPath, 'utf-8')
+  const allQuestions: Question[] = readFileSync(args.questionsPath, 'utf-8')
     .split('\n')
     .filter((l) => l.trim().length > 0)
     .map((l) => QuestionSchema.parse(JSON.parse(l)));
 
   const ingestStats = await args.adapter.ingest(args.corpus);
 
-  const latencySamples: { ms: number; cold: boolean }[] = [];
-  const perTaskGroups: Map<string, { rankings: string[][]; questions: Question[] }> = new Map();
+  // Resume: scan existing per-question files
+  const done = scanResultsDir(args.resultsDir);
+  const remaining = allQuestions.filter((q) => !done.has(q.id));
+  if (done.size > 0) {
+    console.log(
+      `[runner] Resuming: ${done.size}/${allQuestions.length} already complete; ${remaining.length} remaining.`,
+    );
+  }
 
-  for (let i = 0; i < questions.length; i++) {
-    const q = questions[i]!;
-    const cold = i < (args.coldQueriesCount ?? 0);
-    const t0 = performance.now();
-    const results = await args.adapter.query(q.prompt, { topK: 10 });
-    const ms = performance.now() - t0;
-    latencySamples.push({ ms, cold });
+  // Parallel dispatch with bounded concurrency
+  const sem = new Semaphore(args.concurrency ?? 3);
+  const fresh = await Promise.all(
+    remaining.map((q) => sem.run(() => runOne(q, args.adapter, args.resultsDir))),
+  );
 
-    const ranking = results.map((r) => r.id);
-    const bucket = perTaskGroups.get(q.task) ?? { rankings: [], questions: [] };
-    bucket.rankings.push(ranking);
+  // Reload completed-from-disk results and merge with fresh
+  const completedFromDisk: PerQuestionResult[] = allQuestions
+    .filter((q) => done.has(q.id))
+    .map((q) => {
+      const path = join(args.resultsDir, 'per-question', `${q.task}-${q.id}.json`);
+      return JSON.parse(readFileSync(path, 'utf-8')) as PerQuestionResult;
+    });
+  const allResults: PerQuestionResult[] = [...completedFromDisk, ...fresh];
+
+  // Group by task and compute per-task means via existing batch scorers
+  const perTaskGroups = new Map<string, { rankings: string[][]; questions: Question[] }>();
+  for (const r of allResults) {
+    const q = allQuestions.find((qq) => qq.id === r.questionId)!;
+    const bucket = perTaskGroups.get(r.taskType) ?? { rankings: [], questions: [] };
+    bucket.rankings.push(r.ranking.map((rr) => rr.id));
     bucket.questions.push(q);
-    perTaskGroups.set(q.task, bucket);
+    perTaskGroups.set(r.taskType, bucket);
   }
 
   const tasks: RunResult['tasks'] = {};
@@ -221,9 +293,15 @@ export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
     }
   }
 
+  // Latency from per-question results
+  const latencySamples = allResults.map((r, i) => ({
+    ms: r.latencyMs,
+    cold: i < (args.coldQueriesCount ?? 0),
+  }));
+
   return {
     system: args.adapter.name,
-    questionCount: questions.length,
+    questionCount: allQuestions.length,
     tasks,
     latency: aggregate(latencySamples),
     ingestion: ingestionReport(ingestStats),

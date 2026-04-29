@@ -12,10 +12,12 @@ const QUESTIONS = join(__dirname, '../fixtures/questions/smoke.jsonl');
 describe('runSystem with CodeGraph + smoke questions', () => {
   // Use /tmp directly — macOS tmpdir() path is too long for FalkorDBLite's Unix socket
   const dataDir = mkdtempSync('/tmp/cgbench-runner-');
+  const resultsDir = mkdtempSync('/tmp/cgbench-runner-results-');
   const adapter = new CodeGraphAdapter({ dataDir });
   afterAll(async () => {
     await adapter.destroy().catch(() => {});
     rmSync(dataDir, { recursive: true, force: true });
+    rmSync(resultsDir, { recursive: true, force: true });
   });
 
   it('runs end to end and returns scored results', async () => {
@@ -23,6 +25,7 @@ describe('runSystem with CodeGraph + smoke questions', () => {
       adapter,
       corpus: { codeRoots: [{ language: 'typescript', path: FIXTURE, commitSha: 'fixture' }] },
       questionsPath: QUESTIONS,
+      resultsDir,
       coldQueriesCount: 1,
     });
     expect(result.system).toBe('codegraph');

@@ -180,6 +180,7 @@ async function runSingle(args: ParsedRunArgs): Promise<void> {
       adapter,
       corpus,
       questionsPath: args.questions,
+      resultsDir: runDir,
       coldQueriesCount: 5,
     });
     writeFileSync(
@@ -249,6 +250,7 @@ async function runAll(args: ParsedRunAllArgs): Promise<void> {
         adapter,
         corpus,
         questionsPath: tempQuestionsPath,
+        resultsDir: runDir,
         coldQueriesCount: 5,
       });
       const outPath = join(perSystemDir, `${system}.json`);
