@@ -208,7 +208,21 @@ function resolveEmbeddingDimension(override?: number): number {
   if (process.env['VOYAGE_API_KEY']) return 1024;
   if (process.env['OPENROUTER_API_KEY']) return 1536;
 
-  return 0; // No provider — skip vector indexes
+  // No provider configured and no explicit dimension — fail loudly rather than
+  // silently skipping vector index creation. A graph without vector indexes
+  // accepts writes normally but produces cryptic "Invalid arguments" errors on
+  // every vector search, with no indication that setup is incomplete.
+  //
+  // To intentionally skip vector indexes (structural-only graph), set:
+  //   CODEGRAPH_EMBEDDING_PROVIDER=none
+  // To use the built-in local model (nomic-embed-text-v1.5, 768-dim), set:
+  //   CODEGRAPH_EMBEDDING_PROVIDER=local
+  throw new Error(
+    'Cannot determine embedding dimension. ' +
+    'Set CODEGRAPH_EMBEDDING_PROVIDER (local | voyage | openrouter | none), ' +
+    'CODEGRAPH_EMBEDDING_DIM, or pass the embeddingDim option to ensureIndexes(). ' +
+    'To skip vector indexes entirely (structural graph only), set CODEGRAPH_EMBEDDING_PROVIDER=none.'
+  );
 }
 
 /**

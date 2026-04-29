@@ -42,7 +42,8 @@ describeIfAvailable('Temporal Queries (FalkorDBLite)', () => {
       redisServerPath: '/opt/homebrew/bin/redis-server',
     });
 
-    await client.ensureIndexes();
+    // Pass embeddingDim so vector indexes are created regardless of env vars.
+    await client.ensureIndexes({ embeddingDim: 768 });
     kg = createKnowledgeOperations(client);
 
     // Seed test data: entities

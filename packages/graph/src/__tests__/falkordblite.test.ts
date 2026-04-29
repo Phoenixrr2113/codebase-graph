@@ -212,7 +212,8 @@ describeIfAvailable('FalkorDBLite Knowledge Operations', () => {
       graphName: `test_lite_kg_${Date.now()}`,
     });
 
-    await client.ensureIndexes();
+    // Pass embeddingDim so vector indexes are created regardless of env vars.
+    await client.ensureIndexes({ embeddingDim: 768 });
     kg = createKnowledgeOperations(client);
   }, 30_000);
 
