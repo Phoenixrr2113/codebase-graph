@@ -62,3 +62,37 @@ export const ManifestSchema = z.object({
   ).length(4),
 });
 export type Manifest = z.infer<typeof ManifestSchema>;
+
+/**
+ * Score for a single question.
+ * Shape varies by task — A/E/F use mrr+recallAt10, B uses recallAt10+precisionAt5,
+ * C uses f1, D point-in-time uses exactMatch, D range uses recallAt10.
+ */
+export type QuestionScore = Record<string, number>;
+
+/**
+ * Per-question result written atomically to disk after each question completes.
+ * Used by the runner for resume detection and the aggregator for per-task means.
+ */
+export interface PerQuestionResult {
+  /** Stable question identifier (e.g., "a-py-001") */
+  questionId: string;
+  /** Task letter A-F */
+  taskType: 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+  /** Original prompt for traceability */
+  prompt: string;
+  /** Gold answer set */
+  gold: string[];
+  /** Optional gold knowledge IDs (Task E) */
+  goldKnowledge?: string[];
+  /** What the adapter returned, in rank order */
+  ranking: RankedResult[];
+  /** Per-question score (shape depends on task) */
+  score: QuestionScore;
+  /** Wall-clock time for adapter.query() in ms */
+  latencyMs: number;
+  /** Status — 'ok' | 'error' */
+  status: 'ok' | 'error';
+  /** Error message if status === 'error' */
+  error?: string;
+}

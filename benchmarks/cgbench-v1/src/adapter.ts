@@ -12,6 +12,10 @@ export interface IngestStats {
 export interface QueryOpts {
   topK?: number;
   scope?: 'code' | 'knowledge' | 'all';
+  /** Task type — used by adapters to route to the correct production capability */
+  task?: 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+  /** Bitemporal point-in-time filter (ISO timestamp) — used by Task D */
+  validAt?: string;
 }
 
 export interface BenchmarkAdapter {
