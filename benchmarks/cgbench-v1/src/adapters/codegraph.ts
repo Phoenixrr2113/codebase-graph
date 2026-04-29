@@ -74,18 +74,33 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   }
 
   /**
-   * Lazily spawn the MCP server subprocess on first call. The subprocess
-   * inherits CGBENCH_FALKORDB_HOST/PORT and CODEGRAPH_* env from the
-   * benchmark CLI. CODEGRAPH_DATA_DIR is set to the adapter's dataDir.
+   * Lazily spawn the MCP server subprocess on first call. Translates
+   * CGBENCH_FALKORDB_HOST/PORT → FALKORDB_HOST/PORT so the MCP server
+   * connects to the correct FalkorDB instance when cgbench env vars are set.
+   * CODEGRAPH_DATA_DIR is set to the adapter's dataDir.
    */
   private async getClient(): Promise<Client> {
     if (this.client) return this.client;
+
+    // Translate cgbench env vars to the names the codegraph MCP server expects
+    const cgbenchHost = process.env['CGBENCH_FALKORDB_HOST'];
+    const cgbenchPort = process.env['CGBENCH_FALKORDB_PORT'];
+    const translatedEnv: Record<string, string> = {};
+    if (cgbenchHost) {
+      translatedEnv['FALKORDB_HOST'] = cgbenchHost;
+      // When CGBENCH_FALKORDB_HOST is set, force the falkordb (Docker) driver
+      translatedEnv['CODEGRAPH_DRIVER'] = process.env['CODEGRAPH_DRIVER'] ?? 'falkordb';
+    }
+    if (cgbenchPort) {
+      translatedEnv['FALKORDB_PORT'] = cgbenchPort;
+    }
 
     this.client = await spawnMCPClient({
       command: this.mcpServerCommand.command,
       args: this.mcpServerCommand.args,
       env: {
         ...process.env,
+        ...translatedEnv,
         CODEGRAPH_DATA_DIR: this.dataDir,
         // Force local embeddings + no reranker for benchmark — no API spend.
         // Caller can override via env.
