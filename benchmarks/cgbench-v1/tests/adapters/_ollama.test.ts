@@ -78,9 +78,9 @@ describe('generateCypher', () => {
   });
 
   it('passes timeoutMs through to fetch via AbortSignal', async () => {
-    let capturedSignal: AbortSignal | null = null;
+    const captured: { signal?: AbortSignal } = {};
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
-      capturedSignal = init?.signal as AbortSignal;
+      captured.signal = init?.signal as AbortSignal;
       return {
         ok: true,
         json: async () => ({ choices: [{ message: { content: '```cypher\nMATCH (n) RETURN n\n```' } }] }),
@@ -88,9 +88,9 @@ describe('generateCypher', () => {
     });
 
     await generateCypher({ question: 'q', taskHint: 'B', timeoutMs: 5000 });
-    expect(capturedSignal).not.toBeNull();
+    expect(captured.signal).toBeDefined();
     // AbortSignal.timeout produces a signal with `aborted: false` initially
-    expect(capturedSignal?.aborted).toBe(false);
+    expect(captured.signal?.aborted).toBe(false);
   });
 
   it('includes response body in error when Ollama returns non-200', async () => {
