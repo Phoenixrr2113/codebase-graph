@@ -6,6 +6,7 @@ import { spawnMCPClient, callMCPTool, closeMCPClient } from './_mcp-base.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
 import { measureDiskBytes } from '../metrics/resources.js';
+import { generateCypher } from './_ollama.js';
 
 // Re-exported so cli.ts `import { CodeGraphAdapter, type DocumentFormat }` continues to compile.
 export type DocumentFormat = 'md' | 'pdf' | 'docx' | 'html' | 'csv';
@@ -219,9 +220,36 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       }));
     }
 
-    // Tasks B/C handled in Task 11
     if (task === 'B' || task === 'C') {
-      throw new Error('Task 11 not yet implemented — Cypher dispatch');
+      const gen = await generateCypher({ question, taskHint: task });
+
+      if (gen.cypher === null) {
+        // LLM failed twice; return empty ranking (will score as 0)
+        console.warn(`[codegraph adapter] Ollama failed to generate valid Cypher for ${task} question; scoring as 0`);
+        return [];
+      }
+
+      const result = (await callMCPTool<{ rows?: Array<Record<string, unknown>> }>(
+        client,
+        'query',
+        { cypher: gen.cypher, limit },
+      )) ?? {};
+
+      return (result.rows ?? []).slice(0, limit).map((row, i) => {
+        // Find the first node-shaped value in the row (has filePath + name)
+        let node: { filePath?: string; name?: string } | null = null;
+        for (const v of Object.values(row)) {
+          if (v && typeof v === 'object' && 'name' in v && 'filePath' in v) {
+            node = v as { filePath?: string; name?: string };
+            break;
+          }
+        }
+        return {
+          id: this.codeId(node?.filePath, node?.name),
+          score: 1 / (i + 1),
+          kind: 'code' as const,
+        };
+      });
     }
 
     // Default fallback (no task metadata) — text retrieval semantics
