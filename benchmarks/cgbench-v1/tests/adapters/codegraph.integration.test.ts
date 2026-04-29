@@ -154,11 +154,9 @@ describe.skipIf(skipVector)('CodeGraphAdapter — vector+reranker query path', (
   // Reranker is disabled (rerankerProvider: 'none') — vector similarity scores only.
   // Use /tmp directly — macOS tmpdir() path is too long for FalkorDBLite's Unix socket
   const dataDir = mkdtempSync('/tmp/cgbench-cg-vec-');
-  const adapter = new CodeGraphAdapter({
-    dataDir,
-    embeddingProvider: 'local',
-    rerankerProvider: 'none',
-  });
+  // v2 adapter: embedding/reranker config is passed via env to the MCP subprocess.
+  // CODEGRAPH_EMBEDDING_PROVIDER and CODEGRAPH_RERANK_PROVIDER env vars control this.
+  const adapter = new CodeGraphAdapter({ dataDir });
   afterAll(async () => {
     await adapter.destroy().catch(() => {});
     rmSync(dataDir, { recursive: true, force: true });

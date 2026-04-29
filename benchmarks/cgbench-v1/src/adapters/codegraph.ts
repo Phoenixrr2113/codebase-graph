@@ -1,306 +1,86 @@
-import { mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { measureDiskBytes } from '../metrics/resources.js';
+import { mkdirSync } from 'node:fs';
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { spawnMCPClient, closeMCPClient } from './_mcp-base.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
-import { indexProject, add, warmupSearch, clearEmbeddedLabelCache, searchCache, unifiedSearch } from '@codegraph/core';
-import type { UnifiedSearchResult } from '@codegraph/core';
-import { createClient } from '@codegraph/graph';
-import type { GraphClient } from '@codegraph/graph';
 
+// Re-exported so cli.ts `import { CodeGraphAdapter, type DocumentFormat }` continues to compile.
 export type DocumentFormat = 'md' | 'pdf' | 'docx' | 'html' | 'csv';
 
 export interface CodeGraphAdapterOptions {
+  /** Where the adapter stores per-corpus state (FalkorDB data dir, etc.) */
   dataDir: string;
   /**
-   * Document format to ingest from corpus.documentRoot.
-   *
-   * @deprecated documentFormat is no longer used; documentIngestion.add() handles
-   * all formats (md, html, csv, pdf, docx, URLs) natively via auto-detection.
-   * This option is accepted but ignored.
+   * Path to the codegraph MCP server entry point. Defaults to spawning via
+   * `pnpm tsx packages/mcp-server/src/index.ts` from the workspace root,
+   * because `dist/index.js` has a pre-existing extensionless-ESM-import issue.
+   */
+  mcpServerCommand?: { command: string; args: string[] };
+  /**
+   * @deprecated Accepted for backwards compatibility with cli.ts call sites that
+   * still pass documentFormat. Has no effect — the MCP server auto-detects format.
    */
   documentFormat?: DocumentFormat;
-  /**
-   * Embedding provider for vector search.
-   *
-   * 'local'      — nomic-ai/nomic-embed-text-v1.5 via @huggingface/transformers (~10ms/embedding,
-   *                768-dim, no API key required, first run downloads ~140MB model)
-   * 'voyage'     — voyage-code-3 (1024-dim, requires VOYAGE_API_KEY)
-   * 'openrouter' — text-embedding-3-small (1536-dim, requires OPENROUTER_API_KEY)
-   * 'none'       — disable vector search; fall back to lexical Cypher matching
-   *
-   * Defaults to the CODEGRAPH_EMBEDDING_PROVIDER env var, or 'local' if not set.
-   * Use 'none' for offline/CI environments where no provider is available or desired.
-   */
-  embeddingProvider?: 'local' | 'voyage' | 'openrouter' | 'none';
-  /**
-   * Reranker provider for cross-encoder reranking of vector results.
-   *
-   * 'jina'  — jina-reranker-v2-base-multilingual (requires JINA_API_KEY)
-   * 'voyage' — rerank-2 (requires VOYAGE_API_KEY)
-   * 'none'  — disable reranking; use raw vector similarity scores
-   *
-   * Defaults to 'none' when no API key is set (graceful degradation).
-   */
-  rerankerProvider?: 'jina' | 'voyage' | 'none';
 }
 
-/**
- * CodeGraph native adapter for the benchmark harness.
- *
- * Lifecycle:
- *   - constructor: prepares dataDir, no client yet
- *   - ingest():    opens client, indexes corpus (code + knowledge), closes client to flush dump.rdb
- *   - query():     lazily reopens client
- *   - destroy():   closes client if open
- *
- * After ingest() returns, this.client is null. Any subsequent query() must call
- * getClient() to reopen — FalkorDBLite only flushes its RDB snapshot on close,
- * so the close-and-reopen pattern is what makes diskBytesAfter measurable.
- *
- * Git sync is disabled because fixture corpora live inside the cgbench worktree;
- * indexing would otherwise pull the parent repo's commit history into the graph.
- *
- * Knowledge ingest:
- *   Each file in corpus.documentRoot is ingested via documentIngestion.add(),
- *   which auto-detects format, chunks, extracts entities/relationships, and
- *   stores with source provenance (`cgbench:<stem>`).
- *
- * Query:
- *   unifiedSearch() runs code (enrichedSearchV2) and knowledge (vector entity
- *   search) in parallel and fuses via RRF. opts.scope maps to searchScope.
- */
 export class CodeGraphAdapter implements BenchmarkAdapter {
   readonly name = 'codegraph';
-  readonly mode = 'native' as const;
+  readonly mode = 'mcp' as const;
+  private client: Client | null = null;
   private readonly dataDir: string;
-  private readonly embeddingProvider: 'local' | 'voyage' | 'openrouter' | 'none';
-  private readonly rerankerProvider: 'jina' | 'voyage' | 'none';
-  // false = disabled; object = provider config passed to unifiedSearch / indexProject
-  private readonly embeddingConfig: { provider: 'local' | 'voyage' | 'openrouter' } | false;
-  private graphId!: string;
-  private client: GraphClient | null = null;
-  private warmedUp = false;
-  private scopePaths: string[] = [];
+  private readonly mcpServerCommand: { command: string; args: string[] };
 
   constructor(opts: CodeGraphAdapterOptions) {
     this.dataDir = opts.dataDir;
-
-    // Resolve embedding provider: explicit option > env var > 'local'
-    const envProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
-    const resolvedProvider = opts.embeddingProvider ??
-      (envProvider === 'voyage' || envProvider === 'openrouter' || envProvider === 'local' || envProvider === 'none'
-        ? (envProvider as 'local' | 'voyage' | 'openrouter' | 'none')
-        : 'local');
-    this.embeddingProvider = resolvedProvider;
-
-    // Resolve reranker provider: explicit option > env var > 'none'
-    const envReranker = process.env['CODEGRAPH_RERANK_PROVIDER'];
-    this.rerankerProvider = opts.rerankerProvider ??
-      (envReranker === 'jina' || envReranker === 'voyage' ? (envReranker as 'jina' | 'voyage') : 'none');
-
-    // Build the EmbeddingConfig for indexProject and unifiedSearch
-    this.embeddingConfig = resolvedProvider === 'none'
-      ? false
-      : { provider: resolvedProvider };
-
-    // graphId: stable identifier for cache scoping (Tasks 5+6 use this)
-    const useDocker = process.env['CGBENCH_FALKORDB_HOST'] !== undefined;
-    if (useDocker) {
-      const host = process.env['CGBENCH_FALKORDB_HOST']!;
-      const port = process.env['CGBENCH_FALKORDB_PORT'] ?? '6379';
-      const safeName = `cgbench-${this.dataDir.split('/').pop()!.replace(/[^a-z0-9-]/gi, '')}`;
-      this.dockerGraphName = safeName;
-      this.graphId = `${host}:${port}:${safeName}`;
-    } else {
-      this.graphId = join(this.dataDir, 'falkordb');
-    }
-    // NO process.env mutation — embedding dim now passed via ensureIndexes opts
-
     mkdirSync(this.dataDir, { recursive: true });
-  }
 
-  /** Stable graph name for FalkorDB Docker mode — set in constructor, reused on reopen. */
-  private dockerGraphName?: string;
+    // Default: spawn via tsx in dev mode (dist/index.js has a pre-existing
+    // ESM-resolution issue that blocks `node dist/index.js`).
+    this.mcpServerCommand = opts.mcpServerCommand ?? {
+      command: 'pnpm',
+      args: ['tsx', 'packages/mcp-server/src/index.ts'],
+    };
+  }
 
   /**
-   * Open a fresh client using the configured driver and connection settings.
-   * Centralises the createClient config so getClient() and destroy() always
-   * use the same connection parameters — avoiding silent config drift.
+   * Lazily spawn the MCP server subprocess on first call. The subprocess
+   * inherits CGBENCH_FALKORDB_HOST/PORT and CODEGRAPH_* env from the
+   * benchmark CLI. CODEGRAPH_DATA_DIR is set to the adapter's dataDir.
    */
-  private async openClient(): Promise<GraphClient> {
-    if (this.dockerGraphName !== undefined) {
-      return createClient({
-        driver: 'falkordb',
-        host: process.env['CGBENCH_FALKORDB_HOST']!,
-        port: parseInt(process.env['CGBENCH_FALKORDB_PORT'] ?? '6379', 10),
-        graphName: this.dockerGraphName,
-      });
-    }
-    return createClient({
-      driver: 'falkordblite',
-      databasePath: join(this.dataDir, 'falkordb'),
-    });
-  }
+  private async getClient(): Promise<Client> {
+    if (this.client) return this.client;
 
-  private async getClient(): Promise<GraphClient> {
-    if (!this.client) {
-      // Allow swapping to FalkorDB Docker via env vars for diagnosing
-      // FalkorDBLite-specific issues (e.g., concurrent vector-query hangs).
-      this.client = await this.openClient();
-      const embeddingDim = this.embeddingProvider === 'voyage' ? 1024
-        : this.embeddingProvider === 'openrouter' ? 1536
-        : 768; // 'local' or 'none' (default)
-      await this.client.ensureIndexes({ embeddingDim });
-      if (!this.warmedUp) {
-        await warmupSearch();
-        this.warmedUp = true;
-      }
-    }
+    this.client = await spawnMCPClient({
+      command: this.mcpServerCommand.command,
+      args: this.mcpServerCommand.args,
+      env: {
+        ...process.env,
+        CODEGRAPH_DATA_DIR: this.dataDir,
+        // Force local embeddings + no reranker for benchmark — no API spend.
+        // Caller can override via env.
+        CODEGRAPH_EMBEDDING_PROVIDER: process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'local',
+        CODEGRAPH_RERANK_PROVIDER: process.env['CODEGRAPH_RERANK_PROVIDER'] ?? 'none',
+      } as Record<string, string>,
+    });
     return this.client;
   }
 
-  async ingest(corpus: BenchmarkCorpus): Promise<IngestStats> {
-    const start = Date.now();
-    let totalDocs = 0;
-
-    this.scopePaths = corpus.codeRoots.map(r => r.path);
-
-    const client = await this.getClient();
-
-    // Ingest code roots.
-    for (const root of corpus.codeRoots) {
-      const result = await indexProject(root.path, {
-        client,
-        embeddings: this.embeddingConfig,
-        force: true,
-        gitSync: false,
-      });
-      if (!result.success) {
-        throw new Error(
-          `indexProject failed for ${root.path}: ${result.errorMessages.join('; ')}`,
-        );
-      }
-      totalDocs += result.stats.files;
-    }
-
-    // Ingest document corpus if provided.
-    // documentIngestion.add() auto-detects format, chunks, extracts entities/relationships,
-    // and stores with provenance — supports md, html, csv, pdf, docx, URLs, and raw text.
-    if (corpus.documentRoot) {
-      const fs = await import('node:fs/promises');
-      const path = await import('node:path');
-      const docsDir = corpus.documentRoot;
-
-      const entries = await fs.readdir(docsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isFile()) continue;
-        if (entry.name.startsWith('.')) continue;
-        const filePath = path.join(docsDir, entry.name);
-        await add(filePath, {
-          client,
-          source: `cgbench:${path.basename(entry.name, path.extname(entry.name))}`,
-        });
-        totalDocs += 1;
-      }
-    }
-
-    // Close to flush dump.rdb before disk measurement; query() reopens lazily.
-    await client.close();
-    this.client = null;
-
-    const durationMs = Date.now() - start;
-    // dataDir is guaranteed to exist — mkdirSync(this.dataDir, { recursive: true }) ran in constructor.
-    const diskBytesAfter = await measureDiskBytes(this.dataDir);
-    // Rough byte-based proxy until indexProject surfaces a real token count.
-    const totalTokens = Math.floor(diskBytesAfter / 4);
-
-    return { durationMs, totalDocs, totalTokens, diskBytesAfter };
+  async ingest(_corpus: BenchmarkCorpus): Promise<IngestStats> {
+    // TODO Task 9: implement via MCP tools
+    await this.getClient(); // will be used by Task 9 implementation
+    throw new Error('Not yet implemented (Task 9)');
   }
 
-  async query(question: string, opts: QueryOpts = {}): Promise<RankedResult[]> {
-    const client = await this.getClient();
-
-    const limit = opts.topK ?? 10;
-    const skipReranker = this.rerankerProvider === 'none';
-    const embeddings = this.embeddingConfig === false ? undefined : this.embeddingConfig;
-
-    const result = await unifiedSearch(question, client, {
-      searchScope: opts.scope ?? 'all',
-      limit,
-      skipReranker,
-      ...(embeddings !== undefined ? { embeddings } : {}),
-      ...(this.scopePaths.length > 0 ? { scopePaths: this.scopePaths } : {}),
-    });
-
-    return result.results.map((r) => ({
-      id: this.unifiedResultToId(r),
-      score: r.score,
-      kind: r.source,
-    }));
-  }
-
-  /**
-   * Convert a UnifiedSearchResult to the gold-shaped ID expected by the benchmark.
-   * - Code: `<basename>#<symbol>`
-   * - Knowledge: slug derived from the entity name (text content).
-   */
-  private unifiedResultToId(r: UnifiedSearchResult): string {
-    if (r.source === 'code') {
-      const basename = (r.filePath ?? 'unknown').split('/').pop() ?? 'unknown';
-      return `${basename}#${r.name}`;
-    }
-    // Knowledge — extract slug from cgbench: source label in sampleIds
-    const sampleIds = r.properties['sampleIds'] as string[] | undefined;
-    if (sampleIds) {
-      for (const sid of sampleIds) {
-        if (sid.startsWith('cgbench:')) {
-          return sid.slice('cgbench:'.length);
-        }
-      }
-    }
-    // Fallback: entity text/name
-    return r.name;
+  async query(_question: string, _opts: QueryOpts = {}): Promise<RankedResult[]> {
+    // TODO Tasks 10/11: implement task-routed MCP calls
+    await this.getClient(); // will be used by Tasks 10/11 implementation
+    throw new Error('Not yet implemented (Tasks 10/11)');
   }
 
   async destroy(): Promise<void> {
-    // Clear in-process caches scoped to this adapter's graph BEFORE close,
-    // so subsequent runs (different corpus) don't read stale results.
-    try {
-      clearEmbeddedLabelCache(this.graphId);
-      searchCache.clearByPrefix(`${this.graphId}\x00`);
-    } catch (err) {
-      // Cache clear failure is non-fatal; log and continue
-      console.warn('[codegraph adapter] cache clear failed:', err);
-    }
-
-    const useDocker = process.env['CGBENCH_FALKORDB_HOST'] !== undefined;
-    if (useDocker) {
-      // Docker graph leak fix: ensure we have a client to issue DETACH DELETE.
-      // After ingest() the client may have been closed; reopen if needed.
-      if (!this.client) {
-        this.client = await this.openClient();
-      }
-      try {
-        await this.client.query('MATCH (n) DETACH DELETE n');
-      } catch (err) {
-        console.warn('[codegraph adapter] DETACH DELETE failed:', err);
-      }
-      await this.client.close();
+    if (this.client) {
+      await closeMCPClient(this.client);
       this.client = null;
-    } else {
-      if (this.client) {
-        await this.client.close().catch(() => {
-          // FalkorDBLite emits SocketClosedUnexpectedlyError on clean shutdown — that's noise.
-        });
-        this.client = null;
-      }
-      // FalkorDBLite cleanup: drop the data directory.
-      try {
-        rmSync(this.dataDir, { recursive: true, force: true });
-      } catch {
-        // best-effort — caller may have already cleaned up
-      }
     }
   }
 }
