@@ -1,4 +1,6 @@
 import { mkdirSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
+import { basename, extname, join } from 'node:path';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { spawnMCPClient, callMCPTool, closeMCPClient } from './_mcp-base.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
@@ -92,36 +94,51 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
     const POLL_INTERVAL_MS = 2000;
     const pollStart = Date.now();
+    let indexingComplete = false;
     while (Date.now() - pollStart < POLL_TIMEOUT_MS) {
       const status = (await callMCPTool<{ indexing?: boolean }>(client, 'codebase', {
         action: 'status',
       })) ?? {};
-      if (status.indexing !== true) break;
+      if (status.indexing !== true) {
+        indexingComplete = true;
+        break;
+      }
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    }
+    if (!indexingComplete) {
+      throw new Error('CodeGraph reindex timed out after 5 minutes');
     }
 
     // 4) Knowledge corpus ingest via knowledge persona
+    let knowledgeFileCount = 0;
     if (corpus.documentRoot) {
-      const fs = await import('node:fs/promises');
-      const path = await import('node:path');
-      const entries = await fs.readdir(corpus.documentRoot, { withFileTypes: true });
+      const entries = await readdir(corpus.documentRoot, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isFile()) continue;
         if (entry.name.startsWith('.')) continue;
-        const filePath = path.join(corpus.documentRoot, entry.name);
-        const slug = path.basename(entry.name, path.extname(entry.name));
-        await callMCPTool(client, 'knowledge', {
-          action: 'add',
-          input: filePath,
-          source: `cgbench:${slug}`,
-        });
+        const filePath = join(corpus.documentRoot, entry.name);
+        const slug = basename(entry.name, extname(entry.name));
+        try {
+          await callMCPTool(client, 'knowledge', {
+            action: 'add',
+            input: filePath,
+            source: `cgbench:${slug}`,
+          });
+          knowledgeFileCount++;
+        } catch (err) {
+          console.warn(
+            `[codegraph adapter] knowledge.add failed for ${filePath}: ${
+              err instanceof Error ? err.message : String(err)
+            }. Skipping.`,
+          );
+        }
       }
     }
 
     const durationMs = Date.now() - start;
     const diskBytesAfter = await measureDiskBytes(this.dataDir);
     const totalTokens = Math.floor(diskBytesAfter / 4);
-    const totalDocs = codeRootPaths.length + (corpus.documentRoot ? 1 : 0);
+    const totalDocs = codeRootPaths.length + knowledgeFileCount;
     return { totalDocs, totalTokens, durationMs, diskBytesAfter };
   }
 
