@@ -41,7 +41,7 @@ export type { EmbedNodesOptions, EmbedNodesResult } from './embed-nodes';
 export type { EmbeddableNodeType } from './embed-nodes';
 
 // Search (enrichedSearchV2 is the only search)
-export { enrichedSearchV2 } from './enrichedSearchV2';
+export { enrichedSearchV2, clearEmbeddedLabelCache } from './enrichedSearchV2';
 export type { EnrichedV2Result, EnrichedV2Hit, EnrichedV2Options } from './enrichedSearchV2';
 
 // Query sanitizer

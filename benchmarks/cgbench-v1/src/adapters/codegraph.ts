@@ -1,11 +1,11 @@
-import { mkdirSync, existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { mkdirSync, existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { measureDiskBytes } from '../metrics/resources.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
-import { indexProject, enrichedSearchV2 } from '@codegraph/core';
-import { createClient, createKnowledgeOperations } from '@codegraph/graph';
-import type { GraphClient, QueryOptions, KnowledgeOperations } from '@codegraph/graph';
+import { indexProject, enrichedSearchV2, add, warmupSearch, clearEmbeddedLabelCache } from '@codegraph/core';
+import { createClient } from '@codegraph/graph';
+import type { GraphClient, QueryOptions } from '@codegraph/graph';
 
 export type DocumentFormat = 'md' | 'pdf' | 'docx' | 'html' | 'csv';
 
@@ -76,17 +76,16 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   readonly name = 'codegraph';
   readonly mode = 'native' as const;
   private readonly dataDir: string;
-  private readonly documentFormat: DocumentFormat;
   private readonly embeddingProvider: 'local' | 'voyage' | 'openrouter' | 'none';
   private readonly rerankerProvider: 'jina' | 'voyage' | 'none';
   // false = disabled (indexProject convention); object = provider config (enrichedSearchV2 convention)
   private readonly embeddingConfig: { provider: 'local' | 'voyage' | 'openrouter' } | false;
+  private graphId!: string;
   private client: GraphClient | null = null;
-  private knowledgeOps: KnowledgeOperations | null = null;
+  private warmedUp = false;
 
   constructor(opts: CodeGraphAdapterOptions) {
     this.dataDir = opts.dataDir;
-    this.documentFormat = opts.documentFormat ?? 'md';
 
     // Resolve embedding provider: explicit option > env var > 'local'
     const envProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
@@ -106,30 +105,30 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       ? false
       : { provider: resolvedProvider };
 
-    // Propagate the resolved provider into the process environment.
-    // ensureSchemaImpl (called by ensureIndexes on every client open) reads
-    // CODEGRAPH_EMBEDDING_PROVIDER to decide which vector index dimension to
-    // create. Without this, reopening the client (after ingest close) would
-    // skip vector index creation, making searchByVector return 0 results.
-    process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = resolvedProvider;
+    // graphId: stable identifier for cache scoping (Tasks 5+6 use this)
+    const useDocker = process.env['CGBENCH_FALKORDB_HOST'] !== undefined;
+    if (useDocker) {
+      const host = process.env['CGBENCH_FALKORDB_HOST']!;
+      const port = process.env['CGBENCH_FALKORDB_PORT'] ?? '6379';
+      const safeName = `cgbench-${this.dataDir.split('/').pop()!.replace(/[^a-z0-9-]/gi, '')}`;
+      this.dockerGraphName = safeName;
+      this.graphId = `${host}:${port}:${safeName}`;
+    } else {
+      this.graphId = join(this.dataDir, 'falkordb');
+    }
+    // NO process.env mutation — embedding dim now passed via ensureIndexes opts
 
     mkdirSync(this.dataDir, { recursive: true });
   }
 
-  /** Stable graph name for FalkorDB Docker mode — set on first getClient(), reused on reopen. */
+  /** Stable graph name for FalkorDB Docker mode — set in constructor, reused on reopen. */
   private dockerGraphName?: string;
 
   private async getClient(): Promise<GraphClient> {
     if (!this.client) {
       // Allow swapping to FalkorDB Docker via env vars for diagnosing
       // FalkorDBLite-specific issues (e.g., concurrent vector-query hangs).
-      const useDocker = process.env['CGBENCH_FALKORDB_HOST'] !== undefined;
-      if (useDocker) {
-        // Reuse the same graph name across reopen cycles so query() sees what
-        // ingest() wrote. dataDir is unique per adapter instance — derive from it.
-        if (!this.dockerGraphName) {
-          this.dockerGraphName = `cgbench-${this.dataDir.split('/').pop()!.replace(/[^a-z0-9-]/gi, '')}`;
-        }
+      if (this.dockerGraphName !== undefined) {
         this.client = await createClient({
           driver: 'falkordb',
           host: process.env['CGBENCH_FALKORDB_HOST']!,
@@ -142,19 +141,16 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
           databasePath: join(this.dataDir, 'falkordb'),
         });
       }
-      // Wire knowledge ops to this adapter's own client (not the global singleton).
-      await this.client.ensureIndexes();
-      this.knowledgeOps = createKnowledgeOperations(this.client);
+      const embeddingDim = process.env['CODEGRAPH_EMBEDDING_PROVIDER'] === 'local' ? 768
+        : process.env['VOYAGE_API_KEY'] ? 1024
+        : 768;
+      await this.client.ensureIndexes({ embeddingDim });
+      if (!this.warmedUp) {
+        await warmupSearch();
+        this.warmedUp = true;
+      }
     }
     return this.client;
-  }
-
-  private async getKnowledgeOps(): Promise<KnowledgeOperations> {
-    await this.getClient(); // ensures this.knowledgeOps is initialized
-    if (!this.knowledgeOps) {
-      throw new Error('CodeGraphAdapter: knowledgeOps not initialized after getClient()');
-    }
-    return this.knowledgeOps;
   }
 
   async ingest(corpus: BenchmarkCorpus): Promise<IngestStats> {
@@ -179,78 +175,32 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       totalDocs += result.stats.files;
     }
 
-    // Ingest knowledge corpus if provided.
-    // Each .md file is stored as a Document Entity directly — no LLM required.
-    // The full file content is the entity text; the file path is stored in properties
-    // so the result ID can be reconstructed as <basename>#<basename>.
-    if (corpus.knowledgeRoot) {
-      const ops = await this.getKnowledgeOps();
-      const knowledgeDocs = readdirSync(corpus.knowledgeRoot)
-        .filter((f) => f.endsWith('.md'))
-        .sort();
-
-      for (const fileName of knowledgeDocs) {
-        const filePath = join(corpus.knowledgeRoot, fileName);
-        const content = readFileSync(filePath, 'utf-8');
-        const base = basename(fileName, '.md');
-
-        await ops.createEntity({
-          text: content,
-          type: 'Document',
-          confidence: 1.0,
-          sampleId: `cgbench-knowledge/${base}`,
-          properties: { path: filePath },
-        });
-
-        totalDocs += 1;
-      }
-    }
-
     // Ingest document corpus if provided.
-    // Text formats (md, html, csv) are read and stored as Entity nodes with
-    // metadata.format tagged for per-format scoring in Plan 4 Task F.
-    // Binary formats (pdf, docx) are deferred — see CodeGraphAdapterOptions docstring.
+    // documentIngestion.add() auto-detects format, chunks, extracts entities/relationships,
+    // and stores with provenance — supports md, html, csv, pdf, docx, URLs, and raw text.
     if (corpus.documentRoot) {
-      const fmt = this.documentFormat;
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      const docsDir = corpus.documentRoot;
 
-      if (fmt === 'pdf' || fmt === 'docx') {
-        throw new Error(
-          `DEFERRED: documentFormat '${fmt}' requires documentIngestion.add() loader path ` +
-            `(pandoc/PDF loaders). Not supported in v0.1. Use md, html, or csv instead.`,
-        );
-      }
-
-      const ops = await this.getKnowledgeOps();
-      const formatDir = join(corpus.documentRoot, fmt);
-      // Fall back to documentRoot directly if no sub-directory exists for the format.
-      // This supports passing documents/source/ (md files at root) without a sub-folder.
-      const scanDir = existsSync(formatDir) ? formatDir : corpus.documentRoot;
-
-      const docFiles = readdirSync(scanDir)
-        .filter((f) => f.endsWith(`.${fmt}`))
-        .sort();
-
-      for (const fileName of docFiles) {
-        const filePath = join(scanDir, fileName);
-        const content = readFileSync(filePath, 'utf-8');
-        const base = basename(fileName, `.${fmt}`);
-
-        await ops.createEntity({
-          text: content,
-          type: 'Document',
-          confidence: 1.0,
-          sampleId: `cgbench-document/${fmt}/${base}`,
-          properties: { path: filePath, format: fmt },
+      const entries = await fs.readdir(docsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (entry.name.startsWith('.')) continue;
+        const filePath = path.join(docsDir, entry.name);
+        await add(filePath, {
+          client,
+          source: `cgbench:${path.basename(entry.name, path.extname(entry.name))}`,
         });
-
         totalDocs += 1;
       }
     }
 
     // Close to flush dump.rdb before disk measurement; query() reopens lazily.
+    // Clear the embedded-label cache for this graph so query() rediscovers labels after reopen.
+    clearEmbeddedLabelCache(this.graphId);
     await client.close();
     this.client = null;
-    this.knowledgeOps = null;
 
     const durationMs = Date.now() - start;
     const diskBytesAfter = existsSync(this.dataDir)
@@ -560,7 +510,6 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         // FalkorDBLite emits SocketClosedUnexpectedlyError on clean shutdown — that's noise.
       });
       this.client = null;
-      this.knowledgeOps = null;
     }
     try {
       rmSync(this.dataDir, { recursive: true, force: true });
