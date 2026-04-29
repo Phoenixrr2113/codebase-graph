@@ -229,14 +229,16 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         return [];
       }
 
-      const result = (await callMCPTool<{ rows?: Array<Record<string, unknown>> }>(
+      const result = (await callMCPTool<{ success?: boolean; data?: Array<Record<string, unknown>> }>(
         client,
         'query',
-        { cypher: gen.cypher, limit },
+        { cypher: gen.cypher },  // limit removed — query tool doesn't accept it; rely on .slice() below
       )) ?? {};
 
-      return (result.rows ?? []).slice(0, limit).map((row, i) => {
-        // Find the first node-shaped value in the row (has filePath + name)
+      return (result.data ?? []).slice(0, limit).map((row, i) => {
+        // Find the first node-shaped value in the row (has filePath + name).
+        // NOTE: when Cypher returns multiple node columns (e.g. RETURN caller, callee),
+        // the winner depends on column order — Object.values is insertion-order stable.
         let node: { filePath?: string; name?: string } | null = null;
         for (const v of Object.values(row)) {
           if (v && typeof v === 'object' && 'name' in v && 'filePath' in v) {
