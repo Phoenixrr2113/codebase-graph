@@ -1,8 +1,9 @@
 import { mkdirSync } from 'node:fs';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { spawnMCPClient, closeMCPClient } from './_mcp-base.js';
+import { spawnMCPClient, callMCPTool, closeMCPClient } from './_mcp-base.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
+import { measureDiskBytes } from '../metrics/resources.js';
 
 // Re-exported so cli.ts `import { CodeGraphAdapter, type DocumentFormat }` continues to compile.
 export type DocumentFormat = 'md' | 'pdf' | 'docx' | 'html' | 'csv';
@@ -48,11 +49,8 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
    * Lazily spawn the MCP server subprocess on first call. The subprocess
    * inherits CGBENCH_FALKORDB_HOST/PORT and CODEGRAPH_* env from the
    * benchmark CLI. CODEGRAPH_DATA_DIR is set to the adapter's dataDir.
-   *
-   * Tasks 9-11 will call this when implementing ingest() and query().
    */
-  // @ts-expect-error TS6133: Tasks 9-11 will add callers — method is intentionally unused until then
-  private async _getClient(): Promise<Client> {
+  private async getClient(): Promise<Client> {
     if (this.client) return this.client;
 
     this.client = await spawnMCPClient({
@@ -70,8 +68,61 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     return this.client;
   }
 
-  async ingest(_corpus: BenchmarkCorpus): Promise<IngestStats> {
-    throw new Error('Not yet implemented (Task 9)');
+  async ingest(corpus: BenchmarkCorpus): Promise<IngestStats> {
+    const start = Date.now();
+    const client = await this.getClient();
+
+    // 1) Configure projects via codebase persona
+    const codeRootPaths = corpus.codeRoots.map((r) => r.path);
+    if (codeRootPaths.length > 0) {
+      await callMCPTool(client, 'codebase', {
+        action: 'configure',
+        projectAction: 'set',
+        projects: codeRootPaths,
+      });
+    }
+
+    // 2) Trigger full reindex
+    await callMCPTool(client, 'codebase', {
+      action: 'reindex',
+      mode: 'full',
+    });
+
+    // 3) Poll status until indexing complete (or timeout)
+    const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+    const POLL_INTERVAL_MS = 2000;
+    const pollStart = Date.now();
+    while (Date.now() - pollStart < POLL_TIMEOUT_MS) {
+      const status = (await callMCPTool<{ indexing?: boolean }>(client, 'codebase', {
+        action: 'status',
+      })) ?? {};
+      if (status.indexing !== true) break;
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    }
+
+    // 4) Knowledge corpus ingest via knowledge persona
+    if (corpus.documentRoot) {
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      const entries = await fs.readdir(corpus.documentRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (entry.name.startsWith('.')) continue;
+        const filePath = path.join(corpus.documentRoot, entry.name);
+        const slug = path.basename(entry.name, path.extname(entry.name));
+        await callMCPTool(client, 'knowledge', {
+          action: 'add',
+          input: filePath,
+          source: `cgbench:${slug}`,
+        });
+      }
+    }
+
+    const durationMs = Date.now() - start;
+    const diskBytesAfter = await measureDiskBytes(this.dataDir);
+    const totalTokens = Math.floor(diskBytesAfter / 4);
+    const totalDocs = codeRootPaths.length + (corpus.documentRoot ? 1 : 0);
+    return { totalDocs, totalTokens, durationMs, diskBytesAfter };
   }
 
   async query(_question: string, _opts: QueryOpts = {}): Promise<RankedResult[]> {
