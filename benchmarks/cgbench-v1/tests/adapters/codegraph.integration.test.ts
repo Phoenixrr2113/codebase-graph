@@ -11,6 +11,23 @@ import { CodeGraphAdapter } from '../../src/adapters/codegraph.js';
 // is known to fail (e.g., CI without HF cache, memory-constrained runners).
 const skipVector = process.env['CGBENCH_SKIP_VECTOR'] === '1';
 
+// Detect whether an LLM is available for entity extraction.
+// documentIngestion.add() requires a configured LLM to produce Entity nodes.
+// Without one, chunks are processed but no entities are extracted, so
+// knowledge-kind results cannot be asserted.
+// Mirrors the provider resolution in @codegraph/plugin-nlp isLLMAvailable():
+//   cerebras (default) requires CEREBRAS_API_KEY
+//   openrouter requires OPENROUTER_API_KEY
+//   ollama is always available (no key needed)
+const llmAvailable = ((): boolean => {
+  const provider = process.env['LLM_PROVIDER']?.toLowerCase();
+  if (provider === 'ollama') return true;
+  if (provider === 'openrouter') return !!process.env['OPENROUTER_API_KEY'];
+  if (provider === 'cerebras') return !!process.env['CEREBRAS_API_KEY'];
+  // default: cerebras first, then openrouter
+  return !!process.env['CEREBRAS_API_KEY'] || !!process.env['OPENROUTER_API_KEY'];
+})();
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_CODE = join(__dirname, '../../fixtures/code/tiny-ts');
 const KNOWLEDGE_DIR = join(__dirname, '../../corpora/knowledge');
@@ -96,10 +113,22 @@ describe('CodeGraphAdapter — document corpus ingest', () => {
     // 3 code files + N document files counted by totalDocs
     expect(stats.totalDocs).toBeGreaterThan(3);
     expect(stats.durationMs).toBeGreaterThan(0);
+    // diskBytesAfter > 0 confirms the loader+chunker pipeline ran and wrote to the graph
+    expect(stats.diskBytesAfter).toBeGreaterThan(0);
 
     // Code results should still surface (entity extraction does not affect code index)
     const results = await adapter.query('Q1 retro date', { topK: 10 });
     expect(results.length).toBeGreaterThan(0);
+
+    // When an LLM is available, entity extraction runs and knowledge-kind results
+    // should surface. fact-001.md contains the Q1 retro date "2026-04-15".
+    if (llmAvailable) {
+      const knowledgeResults = results.filter((r) => r.kind === 'knowledge');
+      expect(knowledgeResults.length, 'expected knowledge-kind results when LLM is available').toBeGreaterThan(0);
+      const ids = knowledgeResults.map((r) => r.id);
+      const hasFact001 = ids.some((id) => id.includes('fact-001'));
+      expect(hasFact001, `fact-001 not found in knowledge results; got: ${ids.join(', ')}`).toBe(true);
+    }
   }, 90_000);
 
   it('accepts pdf documentFormat without throwing (add() handles all formats)', async () => {

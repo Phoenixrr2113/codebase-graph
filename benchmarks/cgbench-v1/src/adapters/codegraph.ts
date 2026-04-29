@@ -13,12 +13,10 @@ export interface CodeGraphAdapterOptions {
   dataDir: string;
   /**
    * Document format to ingest from corpus.documentRoot.
-   * Defaults to 'md'.
    *
-   * Text formats (md, html, csv): file content is read and stored directly as entity text.
-   * Binary formats (pdf, docx): NOT supported in v0.1.
-   *   DEFERRED: pdf/docx support requires documentIngestion.add() loader path (pandoc/PDF
-   *   loaders). Plan 5/6 territory. Requesting these formats throws a clear error.
+   * @deprecated documentFormat is no longer used; documentIngestion.add() handles
+   * all formats (md, html, csv, pdf, docx, URLs) natively via auto-detection.
+   * This option is accepted but ignored.
    */
   documentFormat?: DocumentFormat;
   /**
@@ -141,9 +139,9 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
           databasePath: join(this.dataDir, 'falkordb'),
         });
       }
-      const embeddingDim = process.env['CODEGRAPH_EMBEDDING_PROVIDER'] === 'local' ? 768
-        : process.env['VOYAGE_API_KEY'] ? 1024
-        : 768;
+      const embeddingDim = this.embeddingProvider === 'voyage' ? 1024
+        : this.embeddingProvider === 'openrouter' ? 1536
+        : 768; // 'local' or 'none' (default)
       await this.client.ensureIndexes({ embeddingDim });
       if (!this.warmedUp) {
         await warmupSearch();
