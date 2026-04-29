@@ -30,6 +30,18 @@ export async function callMCPTool<T = unknown>(
   if (result.isError) {
     throw new Error(`MCP tool ${name} failed: ${JSON.stringify(result.content)}`);
   }
+  // MCP tool results carry their payload as a JSON-serialized string in
+  // content[0].text (CodeGraph's server wraps every return value with
+  // JSON.stringify). Parse it here so callers get the actual data shape.
+  const first = Array.isArray(result.content) ? result.content[0] : undefined;
+  if (first && typeof first === 'object' && 'text' in first && typeof first.text === 'string') {
+    try {
+      return JSON.parse(first.text) as T;
+    } catch {
+      // Not valid JSON (plain string response) — return text directly
+      return first.text as unknown as T;
+    }
+  }
   return result.content as T;
 }
 
