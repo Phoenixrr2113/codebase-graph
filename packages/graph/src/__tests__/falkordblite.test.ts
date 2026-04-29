@@ -80,7 +80,9 @@ describeIfAvailable('FalkorDBLite Driver', () => {
       graphName: `test_lite_${Date.now()}`,
     });
 
-    await client.ensureIndexes();
+    // Pass embeddingDim so vector indexes are created regardless of env vars.
+    // The vector search test uses 768-dim embeddings.
+    await client.ensureIndexes({ embeddingDim: 768 });
     ops = createOperations(client);
   }, 30_000); // FalkorDBLite startup can take a few seconds
 
