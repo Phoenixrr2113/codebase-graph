@@ -21,10 +21,22 @@ const FORBIDDEN_TOKENS = new Set([
   'drop',
 ]);
 
+/**
+ * Validate that a Cypher query is read-only.
+ *
+ * @param cypher - the Cypher query string
+ * @returns true if no mutation keywords appear outside string literals or comments
+ */
 export function isReadOnlyCypher(cypher: string): boolean {
-  // Strip string literals first — anything in 'single' or "double" quotes
+  // Strip comments first — both line (//) and block (/* */).
+  // Comments may contain quotes, so they must be stripped before string literals.
+  const withoutComments = cypher
+    .replace(/\/\/[^\n]*/g, '')      // line comments
+    .replace(/\/\*[\s\S]*?\*\//g, ''); // block comments
+
+  // Then strip string literals — anything in 'single' or "double" quotes
   // is a value, not Cypher syntax. This handles the create-inside-string case.
-  const withoutStrings = cypher
+  const withoutStrings = withoutComments
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
     .replace(/"(?:\\.|[^"\\])*"/g, '""');
 

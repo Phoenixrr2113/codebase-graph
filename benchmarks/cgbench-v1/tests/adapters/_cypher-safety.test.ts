@@ -41,4 +41,22 @@ describe('isReadOnlyCypher', () => {
   it('does NOT reject "create" as a substring of a node label', () => {
     expect(isReadOnlyCypher(`MATCH (creator:Function) RETURN creator`)).toBe(true);
   });
+
+  it('does NOT reject CREATE inside a // line comment', () => {
+    expect(isReadOnlyCypher('MATCH (n) RETURN n // skip CREATE results')).toBe(true);
+  });
+
+  it('does NOT reject DELETE inside a /* */ block comment', () => {
+    expect(isReadOnlyCypher('MATCH (n) /* DELETE was the old behavior */ RETURN n')).toBe(true);
+  });
+
+  it('does NOT reject keywords spanning multi-line block comments', () => {
+    const cypher = `MATCH (n)
+/*
+  Old:
+    SET n.foo = "bar"
+*/
+RETURN n`;
+    expect(isReadOnlyCypher(cypher)).toBe(true);
+  });
 });
