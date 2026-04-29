@@ -6,13 +6,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createLogger, logger, trace, traced, withTrace } from '../src';
 
 describe('Logger', () => {
-  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(console, 'debug').mockImplementation(() => {});
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -31,23 +28,22 @@ describe('Logger', () => {
 
     it('should respect log level configuration', () => {
       const log = createLogger({ level: 'warn' });
-      
+
       log.debug('debug message');
       log.info('info message');
       log.warn('warn message');
       log.error('error message');
-      
-      expect(console.debug).not.toHaveBeenCalled();
-      expect(console.log).not.toHaveBeenCalled();
-      expect(console.warn).toHaveBeenCalledTimes(1);
-      expect(console.error).toHaveBeenCalledTimes(1);
+
+      // All output routes to console.error regardless of level (MCP stdio safety).
+      // debug and info are below the 'warn' threshold so they are suppressed.
+      expect(console.error).toHaveBeenCalledTimes(2);
     });
 
     it('should include namespace in output', () => {
       const log = createLogger({ level: 'info', namespace: 'Test' });
       log.info('test message');
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
+
+      expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('[Test]')
       );
     });
@@ -55,10 +51,10 @@ describe('Logger', () => {
     it('should create child loggers with extended namespace', () => {
       const parent = createLogger({ level: 'info', namespace: 'Parent' });
       const child = parent.child('Child');
-      
+
       child.info('child message');
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
+
+      expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('[Parent:Child]')
       );
     });
