@@ -1,4 +1,4 @@
-import type { BenchmarkCorpus, RankedResult } from './types.js';
+import type { BenchmarkCorpus, RankedResult, TaskLetter } from './types.js';
 
 export type AdapterMode = 'mcp' | 'native';
 
@@ -13,7 +13,7 @@ export interface QueryOpts {
   topK?: number;
   scope?: 'code' | 'knowledge' | 'all';
   /** Task type — used by adapters to route to the correct production capability */
-  task?: 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+  task?: TaskLetter;
   /** Bitemporal point-in-time filter (ISO timestamp) — used by Task D */
   validAt?: string;
 }

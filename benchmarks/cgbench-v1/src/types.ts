@@ -78,7 +78,7 @@ export interface PerQuestionResult {
   /** Stable question identifier (e.g., "a-py-001") */
   questionId: string;
   /** Task letter A-F */
-  taskType: 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+  taskType: TaskLetter;
   /** Original prompt for traceability */
   prompt: string;
   /** Gold answer set */
