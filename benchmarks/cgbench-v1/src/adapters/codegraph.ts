@@ -106,6 +106,15 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         // Caller can override via env.
         CODEGRAPH_EMBEDDING_PROVIDER: process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'local',
         CODEGRAPH_RERANK_PROVIDER: process.env['CODEGRAPH_RERANK_PROVIDER'] ?? 'none',
+        // Enable raw tools so the 'add' document ingestion tool is available
+        // (the 'knowledge' persona only exposes store/recall).
+        CODEGRAPH_RAW_TOOLS: 'true',
+        // Use Ollama for LLM-based entity extraction in knowledge.add.
+        // Caller can override via env; falls back to no LLM if OLLAMA is unavailable.
+        LLM_PROVIDER: process.env['LLM_PROVIDER'] ?? 'ollama',
+        OLLAMA_BASE_URL: process.env['OLLAMA_BASE_URL'] ?? 'http://localhost:11434/v1',
+        // LLM_MODEL is the generic model override used by plugin-nlp's llm.ts
+        LLM_MODEL: process.env['LLM_MODEL'] ?? process.env['OLLAMA_MODEL'] ?? 'gemma4:26b',
       } as Record<string, string>,
     });
     return this.client;
@@ -125,11 +134,14 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       });
     }
 
-    // 2) Trigger full reindex
-    await callMCPTool(client, 'codebase', {
-      action: 'reindex',
-      mode: 'full',
-    });
+    // 2) Trigger full reindex — use extended timeout (5 min) because embedding
+    //    1700+ entities exceeds the MCP SDK's default 60s request timeout.
+    await callMCPTool(
+      client,
+      'codebase',
+      { action: 'reindex', mode: 'full' },
+      5 * 60 * 1000,
+    );
 
     // 3) Poll status until indexing complete (or timeout)
     const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -150,7 +162,8 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       throw new Error('CodeGraph reindex timed out after 5 minutes');
     }
 
-    // 4) Knowledge corpus ingest via knowledge persona
+    // 4) Knowledge corpus ingest via raw 'add' tool (requires CODEGRAPH_RAW_TOOLS=true).
+    //    The 'knowledge' persona only exposes store/recall — use the raw tool directly.
     let knowledgeFileCount = 0;
     if (corpus.documentRoot) {
       const entries = await readdir(corpus.documentRoot, { withFileTypes: true });
@@ -160,15 +173,16 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         const filePath = join(corpus.documentRoot, entry.name);
         const slug = basename(entry.name, extname(entry.name));
         try {
-          await callMCPTool(client, 'knowledge', {
-            action: 'add',
-            input: filePath,
-            source: `cgbench:${slug}`,
-          });
+          await callMCPTool(
+            client,
+            'add',
+            { input: filePath, source: `cgbench:${slug}` },
+            60_000,
+          );
           knowledgeFileCount++;
         } catch (err) {
           console.warn(
-            `[codegraph adapter] knowledge.add failed for ${filePath}: ${
+            `[codegraph adapter] add failed for ${filePath}: ${
               err instanceof Error ? err.message : String(err)
             }. Skipping.`,
           );

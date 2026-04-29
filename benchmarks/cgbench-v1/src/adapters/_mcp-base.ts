@@ -25,8 +25,13 @@ export async function callMCPTool<T = unknown>(
   client: Client,
   name: string,
   args: Record<string, unknown>,
+  timeoutMs?: number,
 ): Promise<T> {
-  const result = await client.callTool({ name, arguments: args });
+  const result = await client.callTool(
+    { name, arguments: args },
+    undefined,
+    timeoutMs !== undefined ? { timeout: timeoutMs } : undefined,
+  );
   if (result.isError) {
     throw new Error(`MCP tool ${name} failed: ${JSON.stringify(result.content)}`);
   }
