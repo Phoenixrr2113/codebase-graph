@@ -44,6 +44,9 @@ export type { EmbeddableNodeType } from './embed-nodes';
 export { enrichedSearchV2, clearEmbeddedLabelCache } from './enrichedSearchV2';
 export type { EnrichedV2Result, EnrichedV2Hit, EnrichedV2Options } from './enrichedSearchV2';
 
+// Search result cache (module-level singleton)
+export { searchCache, searchCacheKey } from './searchCache';
+
 // Query sanitizer
 export { sanitizeQuery } from './querySanitizer';
 export type { SanitizedQuery } from './querySanitizer';

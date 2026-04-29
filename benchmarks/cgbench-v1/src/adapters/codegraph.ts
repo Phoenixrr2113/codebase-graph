@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { measureDiskBytes } from '../metrics/resources.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
-import { indexProject, add, warmupSearch, clearEmbeddedLabelCache, unifiedSearch } from '@codegraph/core';
+import { indexProject, add, warmupSearch, clearEmbeddedLabelCache, searchCache, unifiedSearch } from '@codegraph/core';
 import type { UnifiedSearchResult } from '@codegraph/core';
 import { createClient } from '@codegraph/graph';
 import type { GraphClient } from '@codegraph/graph';
@@ -198,8 +198,6 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     }
 
     // Close to flush dump.rdb before disk measurement; query() reopens lazily.
-    // Clear the embedded-label cache for this graph so query() rediscovers labels after reopen.
-    clearEmbeddedLabelCache(this.graphId);
     await client.close();
     this.client = null;
 
@@ -259,25 +257,48 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   }
 
   async destroy(): Promise<void> {
-    // For FalkorDB Docker mode, drop the graph before closing so the server
-    // doesn't accumulate data across benchmark runs.
-    if (this.client && this.dockerGraphName !== undefined) {
-      try {
-        await this.client.query(`MATCH (n) DETACH DELETE n`, { params: {} });
-      } catch {
-        // best-effort cleanup
-      }
-    }
-    if (this.client) {
-      await this.client.close().catch(() => {
-        // FalkorDBLite emits SocketClosedUnexpectedlyError on clean shutdown — that's noise.
-      });
-      this.client = null;
-    }
+    // Clear in-process caches scoped to this adapter's graph BEFORE close,
+    // so subsequent runs (different corpus) don't read stale results.
     try {
-      rmSync(this.dataDir, { recursive: true, force: true });
-    } catch {
-      // best-effort — caller may have already cleaned up
+      clearEmbeddedLabelCache(this.graphId);
+      searchCache.clear();
+    } catch (err) {
+      // Cache clear failure is non-fatal; log and continue
+      console.warn('[codegraph adapter] cache clear failed:', err);
+    }
+
+    const useDocker = process.env['CGBENCH_FALKORDB_HOST'] !== undefined;
+    if (useDocker) {
+      // Docker graph leak fix: ensure we have a client to issue DETACH DELETE.
+      // After ingest() the client may have been closed; reopen if needed.
+      if (!this.client) {
+        this.client = await createClient({
+          driver: 'falkordb',
+          host: process.env['CGBENCH_FALKORDB_HOST']!,
+          port: parseInt(process.env['CGBENCH_FALKORDB_PORT'] ?? '6379', 10),
+          graphName: this.dockerGraphName!,
+        });
+      }
+      try {
+        await this.client.query('MATCH (n) DETACH DELETE n');
+      } catch (err) {
+        console.warn('[codegraph adapter] DETACH DELETE failed:', err);
+      }
+      await this.client.close();
+      this.client = null;
+    } else {
+      if (this.client) {
+        await this.client.close().catch(() => {
+          // FalkorDBLite emits SocketClosedUnexpectedlyError on clean shutdown — that's noise.
+        });
+        this.client = null;
+      }
+      // FalkorDBLite cleanup: drop the data directory.
+      try {
+        rmSync(this.dataDir, { recursive: true, force: true });
+      } catch {
+        // best-effort — caller may have already cleaned up
+      }
     }
   }
 }
