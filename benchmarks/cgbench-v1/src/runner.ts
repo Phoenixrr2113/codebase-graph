@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import type { BenchmarkAdapter } from './adapter.js';
-import type { BenchmarkCorpus, Question } from './types.js';
+import type { BenchmarkCorpus, Question, QuestionScore, TaskLetter } from './types.js';
 import { QuestionSchema } from './types.js';
 import { mrr } from './score/mrr.js';
 import { recallAtK, precisionAtK } from './score/recall.js';
@@ -121,6 +121,53 @@ export function scoreTaskF(rankings: string[][], questions: Question[]): Extract
     count: rankings.length,
     recallAt10: r10s.reduce((a, b) => a + b, 0) / r10s.length,
   };
+}
+
+/**
+ * Score a single question's ranking against its gold.
+ * Shape of the returned object depends on task type:
+ * - A: { mrr, recallAt10 }
+ * - B: { recallAt10, precisionAt5 }
+ * - C: { f1 }
+ * - D: { exactMatch } if validAt is set, else { recallAt10 }
+ * - E: { recallAt10 } across gold + goldKnowledge
+ * - F: { recallAt10 }
+ */
+export function scoreQuestion(
+  question: Question,
+  ranking: string[],
+  taskType: TaskLetter,
+): QuestionScore {
+  const gold = new Set(question.gold);
+  switch (taskType) {
+    case 'A': {
+      const r = recallAtK(ranking, gold, 10);
+      const m = mrr([ranking], [gold]);
+      return { mrr: m, recallAt10: r };
+    }
+    case 'B': {
+      const r = recallAtK(ranking, gold, 10);
+      const p = precisionAtK(ranking, gold, 5);
+      return { recallAt10: r, precisionAt5: p };
+    }
+    case 'C': {
+      const retrieved = new Set(ranking.slice(0, 10));
+      return { f1: f1(retrieved, gold) };
+    }
+    case 'D': {
+      if (question.validAt !== undefined) {
+        return { exactMatch: exactMatch(ranking, question.gold[0]!) };
+      }
+      return { recallAt10: recallAtK(ranking, gold, 10) };
+    }
+    case 'E': {
+      const combined = new Set([...question.gold, ...(question.goldKnowledge ?? [])]);
+      return { recallAt10: recallAtK(ranking, combined, 10) };
+    }
+    case 'F': {
+      return { recallAt10: recallAtK(ranking, gold, 10) };
+    }
+  }
 }
 
 export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
