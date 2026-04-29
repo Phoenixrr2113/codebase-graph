@@ -55,6 +55,18 @@ export interface UnifiedSearchResponse {
 // Unified Search
 // ============================================================================
 
+/**
+ * Search code and/or knowledge in parallel and fuse results via RRF.
+ *
+ * @remarks
+ * **scopePaths limitation:** `options.scopePaths` (inherited from {@link EnrichedV2Options})
+ * only filters *code* results. Knowledge entities have no path concept — they are stored
+ * globally per graph — so `scopePaths` is silently ignored for the knowledge branch.
+ * For CGBench this is intentional: each run uses a dedicated graph with a scoped
+ * knowledge corpus (deduped by `source` label), so path-scoping is unnecessary.
+ * If path-scoped knowledge filtering is needed in the future, it must be implemented
+ * inside `searchEntitiesByVector` or as a post-filter here.
+ */
 export async function unifiedSearch(
   query: string,
   client: GraphClient,

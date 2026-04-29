@@ -83,8 +83,7 @@ export const searchCache = new SearchCache<EnrichedV2Result>(100);
  * so cross-corpus runs in a single process don't collide on cached results.
  *
  * Other fields mirror the EnrichedV2Options fields actually accepted by
- * enrichedSearchV2Impl: scope, limit, skipReranker (plus query and searchScope which
- * live at the call site or in the router layer).
+ * enrichedSearchV2Impl: scope, limit, and skipReranker.
  */
 export function searchCacheKey(parts: {
   graphId: string;
@@ -92,7 +91,6 @@ export function searchCacheKey(parts: {
   query: string;
   scope?: string;
   limit?: number;
-  searchScope?: string;
   skipReranker?: boolean;
 }): string {
   return [
@@ -101,7 +99,6 @@ export function searchCacheKey(parts: {
     parts.query,
     parts.scope ?? '',
     parts.limit ?? '',
-    parts.searchScope ?? '',
     parts.skipReranker ? '1' : '0',
   ].join('\x00');
 }
