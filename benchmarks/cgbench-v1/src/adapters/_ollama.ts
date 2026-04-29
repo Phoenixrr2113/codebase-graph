@@ -13,6 +13,7 @@ export interface GenerateCypherOptions {
   taskHint: 'B' | 'C';
   model?: string;
   endpoint?: string;
+  timeoutMs?: number;
 }
 
 export interface GenerateCypherResult {
@@ -70,10 +71,12 @@ async function callOllama(
   messages: Array<{ role: string; content: string }>,
   model: string,
   endpoint: string,
+  timeoutMs: number = 90_000,
 ): Promise<string> {
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(timeoutMs),
     body: JSON.stringify({
       model,
       messages,
@@ -81,7 +84,10 @@ async function callOllama(
     }),
   });
   if (!res.ok) {
-    throw new Error(`Ollama request failed: ${res.status} ${res.statusText}`);
+    const body = await res.text().catch(() => '<unable to read body>');
+    throw new Error(
+      `Ollama request failed: ${res.status} ${res.statusText} — ${body}`,
+    );
   }
   const json = (await res.json()) as { choices: Array<{ message: { content: string } }> };
   return json.choices?.[0]?.message?.content ?? '';
@@ -97,6 +103,7 @@ async function callOllama(
 export async function generateCypher(opts: GenerateCypherOptions): Promise<GenerateCypherResult> {
   const model = opts.model ?? DEFAULT_MODEL;
   const endpoint = opts.endpoint ?? DEFAULT_ENDPOINT;
+  const timeoutMs = opts.timeoutMs ?? 90_000;
   const userPrompt = buildUserPrompt(opts.question, opts.taskHint);
 
   // Attempt 1
@@ -104,7 +111,7 @@ export async function generateCypher(opts: GenerateCypherOptions): Promise<Gener
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: userPrompt },
   ];
-  const first = await callOllama(messages, model, endpoint);
+  const first = await callOllama(messages, model, endpoint, timeoutMs);
   const firstCypher = extractCypher(first);
   if (isReadOnlyCypher(firstCypher)) {
     return { cypher: firstCypher, attempts: 1 };
@@ -116,7 +123,7 @@ export async function generateCypher(opts: GenerateCypherOptions): Promise<Gener
     role: 'user',
     content: 'Your previous response contained a forbidden clause (CREATE, MERGE, DELETE, SET, REMOVE, DROP). Generate a read-only Cypher query (MATCH ... RETURN) only.',
   });
-  const second = await callOllama(messages, model, endpoint);
+  const second = await callOllama(messages, model, endpoint, timeoutMs);
   const secondCypher = extractCypher(second);
   if (isReadOnlyCypher(secondCypher)) {
     return { cypher: secondCypher, attempts: 2 };

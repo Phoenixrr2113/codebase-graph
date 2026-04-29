@@ -76,4 +76,32 @@ describe('generateCypher', () => {
     expect(result.cypher).toBeNull();
     expect(result.attempts).toBe(2);
   });
+
+  it('passes timeoutMs through to fetch via AbortSignal', async () => {
+    let capturedSignal: AbortSignal | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      capturedSignal = init?.signal as AbortSignal;
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '```cypher\nMATCH (n) RETURN n\n```' } }] }),
+      } as Response;
+    });
+
+    await generateCypher({ question: 'q', taskHint: 'B', timeoutMs: 5000 });
+    expect(capturedSignal).not.toBeNull();
+    // AbortSignal.timeout produces a signal with `aborted: false` initially
+    expect(capturedSignal?.aborted).toBe(false);
+  });
+
+  it('includes response body in error when Ollama returns non-200', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      text: async () => 'model not loaded',
+      json: async () => ({}),
+    } as never);
+
+    await expect(generateCypher({ question: 'q', taskHint: 'B' })).rejects.toThrow(/model not loaded/);
+  });
 });
