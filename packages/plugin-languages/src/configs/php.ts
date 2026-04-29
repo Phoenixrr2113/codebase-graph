@@ -438,6 +438,36 @@ export const phpConfig: Omit<GenericLanguageConfig, 'grammar'> = {
     calls: ['function_call_expression', 'member_call_expression', 'scoped_call_expression'],
   },
 
+  fields: {
+    name: 'name',
+    parameters: 'parameters',
+    body: 'body',
+  },
+
+  visibilityConfig: {
+    strategy: 'modifier',
+    modifierNodeTypes: ['visibility_modifier'],
+    exportedModifiers: ['public'],
+  },
+
+  docstringConfig: {
+    strategy: 'preceding-comment',
+    commentNodeTypes: ['comment'],
+    stripPrefixes: ['/**', '*/', '*'],
+  },
+
+  paramConfig: {
+    identifierNodeTypes: ['variable_name'],
+    typedParamNodeTypes: ['simple_parameter'],
+    defaultParamNodeTypes: ['simple_parameter'],
+    filterNames: [],
+  },
+
+  importConfig: {
+    moduleNodeTypes: ['qualified_name', 'namespace_name'],
+    stripQuotes: false,
+  },
+
   overrides: {
     extractFunctions,
     extractClasses,

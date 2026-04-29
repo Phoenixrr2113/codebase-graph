@@ -355,6 +355,36 @@ export const csharpConfig: Omit<GenericLanguageConfig, 'grammar'> = {
     calls: ['invocation_expression'],
   },
 
+  fields: {
+    name: 'name',
+    parameters: 'parameters',
+    body: 'body',
+  },
+
+  visibilityConfig: {
+    strategy: 'modifier',
+    modifierNodeTypes: ['modifier'],
+    exportedModifiers: ['public', 'protected', 'internal'],
+  },
+
+  docstringConfig: {
+    strategy: 'preceding-comment',
+    commentNodeTypes: ['comment'],
+    stripPrefixes: ['///', '//'],
+  },
+
+  paramConfig: {
+    identifierNodeTypes: ['identifier'],
+    typedParamNodeTypes: ['parameter'],
+    defaultParamNodeTypes: ['parameter'],
+    filterNames: [],
+  },
+
+  importConfig: {
+    moduleNodeTypes: ['identifier', 'qualified_name'],
+    stripQuotes: false,
+  },
+
   overrides: {
     extractFunctions,
     extractClasses,

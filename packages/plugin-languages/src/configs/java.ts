@@ -318,6 +318,30 @@ export const javaConfig: Omit<GenericLanguageConfig, 'grammar'> = {
     callee: 'name',
   },
 
+  visibilityConfig: {
+    strategy: 'modifier',
+    modifierNodeTypes: ['modifiers'],
+    exportedModifiers: ['public', 'protected'],
+  },
+
+  docstringConfig: {
+    strategy: 'preceding-comment',
+    commentNodeTypes: ['block_comment', 'line_comment'],
+    stripPrefixes: ['/**', '*/', '*', '//'],
+  },
+
+  paramConfig: {
+    identifierNodeTypes: ['identifier'],
+    typedParamNodeTypes: ['formal_parameter'],
+    defaultParamNodeTypes: [],
+    filterNames: ['this'],
+  },
+
+  importConfig: {
+    moduleNodeTypes: ['identifier', 'scoped_identifier'],
+    stripQuotes: false,
+  },
+
   overrides: {
     extractFunctions,
     extractClasses,
