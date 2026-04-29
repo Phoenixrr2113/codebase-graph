@@ -42,6 +42,7 @@ const mockKnowledgeEntities = [
     confidence: 0.9,
     relevanceScore: 0.88,
     createdAt: Date.now(),
+    sampleIds: ['cgbench:jwt-spec'],
   },
   {
     text: 'Session expiry policy',
@@ -302,6 +303,36 @@ describe('unifiedSearch', () => {
       expect(response.results.length).toBeGreaterThan(0);
       const sources = response.results.map(r => r.source);
       expect(sources.every(s => s === 'code')).toBe(true);
+    });
+  });
+
+  // =========================================================================
+  // sampleIds flow-through
+  // =========================================================================
+
+  describe('knowledge sampleIds flow-through', () => {
+    it('sampleIds on a knowledge entity appear in result.properties.sampleIds (knowledge-only scope)', async () => {
+      const response = await unifiedSearch('authentication', mockClient as never, { searchScope: 'knowledge' });
+
+      const jwtResult = response.results.find(r => r.name === 'JWT authentication decision');
+      expect(jwtResult).toBeDefined();
+      expect(jwtResult!.properties.sampleIds).toEqual(['cgbench:jwt-spec']);
+    });
+
+    it('sampleIds on a knowledge entity appear in result.properties.sampleIds (all scope / RRF path)', async () => {
+      const response = await unifiedSearch('authentication', mockClient as never, { searchScope: 'all' });
+
+      const jwtResult = response.results.find(r => r.name === 'JWT authentication decision');
+      expect(jwtResult).toBeDefined();
+      expect(jwtResult!.properties.sampleIds).toEqual(['cgbench:jwt-spec']);
+    });
+
+    it('entity without sampleIds gets an empty array in result.properties.sampleIds', async () => {
+      const response = await unifiedSearch('authentication', mockClient as never, { searchScope: 'knowledge' });
+
+      const policyResult = response.results.find(r => r.name === 'Session expiry policy');
+      expect(policyResult).toBeDefined();
+      expect(policyResult!.properties.sampleIds).toEqual([]);
     });
   });
 
