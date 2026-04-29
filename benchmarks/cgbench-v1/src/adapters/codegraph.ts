@@ -115,6 +115,15 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         OLLAMA_BASE_URL: process.env['OLLAMA_BASE_URL'] ?? 'http://localhost:11434/v1',
         // LLM_MODEL is the generic model override used by plugin-nlp's llm.ts
         LLM_MODEL: process.env['LLM_MODEL'] ?? process.env['OLLAMA_MODEL'] ?? 'gemma4:26b',
+        // Forward LLM provider config so entity extraction in the spawned MCP
+        // server uses the same model/endpoint/key as the adapter's NL→Cypher hop.
+        // The ...process.env spread above already covers these, but the explicit
+        // conditional spreads below document intent and ensure non-empty values
+        // propagate even if process.env has them as undefined at spread time.
+        ...(process.env['LLM_ENDPOINT'] ? { LLM_ENDPOINT: process.env['LLM_ENDPOINT'] } : {}),
+        ...(process.env['LLM_API_KEY'] ? { LLM_API_KEY: process.env['LLM_API_KEY'] } : {}),
+        ...(process.env['OPENROUTER_API_KEY'] ? { OPENROUTER_API_KEY: process.env['OPENROUTER_API_KEY'] } : {}),
+        ...(process.env['CEREBRAS_API_KEY'] ? { CEREBRAS_API_KEY: process.env['CEREBRAS_API_KEY'] } : {}),
       } as Record<string, string>,
     });
     return this.client;
