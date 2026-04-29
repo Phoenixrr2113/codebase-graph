@@ -81,6 +81,7 @@ export interface EntitySearchResult {
   relevanceScore: number;
   createdAt: number;
   lastAccessedAt: number;
+  sampleIds?: string[] | undefined;
   embedding?: number[] | undefined;
 }
 
@@ -705,7 +706,7 @@ const KG_CYPHER = {
     RETURN node.id AS id, node.text AS text, node.type AS type,
            node.confidence AS confidence, node.relevanceScore AS relevanceScore,
            node.createdAt AS createdAt, node.lastAccessedAt AS lastAccessedAt,
-           score
+           node.sampleIds AS sampleIds, score
   `,
 
   /** Vector similarity search on RELATES_TO fact embeddings */

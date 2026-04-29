@@ -116,6 +116,7 @@ export async function unifiedSearch(
         confidence: e.confidence,
         relevance: e.relevanceScore,
         createdAt: new Date(e.createdAt).toISOString(),
+        sampleIds: e.sampleIds ?? [],
       },
     }));
     return {
@@ -152,6 +153,7 @@ export async function unifiedSearch(
         confidence: e.confidence,
         relevance: e.relevanceScore,
         createdAt: new Date(e.createdAt).toISOString(),
+        sampleIds: e.sampleIds ?? [],
       },
     },
   }));

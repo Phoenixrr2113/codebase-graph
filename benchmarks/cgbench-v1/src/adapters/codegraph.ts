@@ -81,6 +81,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   private graphId!: string;
   private client: GraphClient | null = null;
   private warmedUp = false;
+  private scopePaths: string[] = [];
 
   constructor(opts: CodeGraphAdapterOptions) {
     this.dataDir = opts.dataDir;
@@ -155,6 +156,8 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     const start = Date.now();
     let totalDocs = 0;
 
+    this.scopePaths = corpus.codeRoots.map(r => r.path);
+
     const client = await this.getClient();
 
     // Ingest code roots.
@@ -222,6 +225,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       limit,
       skipReranker,
       ...(embeddings !== undefined ? { embeddings } : {}),
+      ...(this.scopePaths.length > 0 ? { scopePaths: this.scopePaths } : {}),
     });
 
     return result.results.map((r) => ({
@@ -241,11 +245,17 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       const basename = (r.filePath ?? 'unknown').split('/').pop() ?? 'unknown';
       return `${basename}#${r.name}`;
     }
-    // Knowledge — derive a slug from the entity name (entity text).
-    // sampleIds / source labels are not returned by searchEntitiesByVector,
-    // so we fall back to generating a slug from the entity text content.
-    const slug = r.name.slice(0, 60).replace(/\s+/g, '-').replace(/[^a-z0-9-]/gi, '');
-    return `knowledge-${slug}`;
+    // Knowledge — extract slug from cgbench: source label in sampleIds
+    const sampleIds = r.properties['sampleIds'] as string[] | undefined;
+    if (sampleIds) {
+      for (const sid of sampleIds) {
+        if (sid.startsWith('cgbench:')) {
+          return sid.slice('cgbench:'.length);
+        }
+      }
+    }
+    // Fallback: entity text/name
+    return r.name;
   }
 
   async destroy(): Promise<void> {
