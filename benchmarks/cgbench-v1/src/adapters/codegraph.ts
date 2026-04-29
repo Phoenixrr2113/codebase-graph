@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { measureDiskBytes } from '../metrics/resources.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
@@ -123,23 +123,31 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   /** Stable graph name for FalkorDB Docker mode — set in constructor, reused on reopen. */
   private dockerGraphName?: string;
 
+  /**
+   * Open a fresh client using the configured driver and connection settings.
+   * Centralises the createClient config so getClient() and destroy() always
+   * use the same connection parameters — avoiding silent config drift.
+   */
+  private async openClient(): Promise<GraphClient> {
+    if (this.dockerGraphName !== undefined) {
+      return createClient({
+        driver: 'falkordb',
+        host: process.env['CGBENCH_FALKORDB_HOST']!,
+        port: parseInt(process.env['CGBENCH_FALKORDB_PORT'] ?? '6379', 10),
+        graphName: this.dockerGraphName,
+      });
+    }
+    return createClient({
+      driver: 'falkordblite',
+      databasePath: join(this.dataDir, 'falkordb'),
+    });
+  }
+
   private async getClient(): Promise<GraphClient> {
     if (!this.client) {
       // Allow swapping to FalkorDB Docker via env vars for diagnosing
       // FalkorDBLite-specific issues (e.g., concurrent vector-query hangs).
-      if (this.dockerGraphName !== undefined) {
-        this.client = await createClient({
-          driver: 'falkordb',
-          host: process.env['CGBENCH_FALKORDB_HOST']!,
-          port: parseInt(process.env['CGBENCH_FALKORDB_PORT'] ?? '6379', 10),
-          graphName: this.dockerGraphName,
-        });
-      } else {
-        this.client = await createClient({
-          driver: 'falkordblite',
-          databasePath: join(this.dataDir, 'falkordb'),
-        });
-      }
+      this.client = await this.openClient();
       const embeddingDim = this.embeddingProvider === 'voyage' ? 1024
         : this.embeddingProvider === 'openrouter' ? 1536
         : 768; // 'local' or 'none' (default)
@@ -202,9 +210,8 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     this.client = null;
 
     const durationMs = Date.now() - start;
-    const diskBytesAfter = existsSync(this.dataDir)
-      ? await measureDiskBytes(this.dataDir)
-      : 0;
+    // dataDir is guaranteed to exist — mkdirSync(this.dataDir, { recursive: true }) ran in constructor.
+    const diskBytesAfter = await measureDiskBytes(this.dataDir);
     // Rough byte-based proxy until indexProject surfaces a real token count.
     const totalTokens = Math.floor(diskBytesAfter / 4);
 
@@ -272,12 +279,7 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       // Docker graph leak fix: ensure we have a client to issue DETACH DELETE.
       // After ingest() the client may have been closed; reopen if needed.
       if (!this.client) {
-        this.client = await createClient({
-          driver: 'falkordb',
-          host: process.env['CGBENCH_FALKORDB_HOST']!,
-          port: parseInt(process.env['CGBENCH_FALKORDB_PORT'] ?? '6379', 10),
-          graphName: this.dockerGraphName!,
-        });
+        this.client = await this.openClient();
       }
       try {
         await this.client.query('MATCH (n) DETACH DELETE n');
