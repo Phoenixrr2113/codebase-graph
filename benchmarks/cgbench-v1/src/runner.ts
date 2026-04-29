@@ -177,6 +177,11 @@ export function scoreQuestion(
   }
 }
 
+/**
+ * Run a single question against the adapter, persist the result, and return it.
+ * Throws on writeAtomic failure so the caller can surface disk errors without
+ * silently swallowing them.
+ */
 async function runOne(
   question: Question,
   adapter: BenchmarkAdapter,
@@ -220,13 +225,32 @@ async function runOne(
     };
   }
 
-  await writeAtomic(
-    join(resultsDir, 'per-question', `${question.task}-${question.id}.json`),
-    JSON.stringify(result, null, 2),
-  );
+  try {
+    await writeAtomic(
+      join(resultsDir, 'per-question', `${question.task}-${question.id}.json`),
+      JSON.stringify(result, null, 2),
+    );
+  } catch (writeErr) {
+    console.error(
+      `[runner] Failed to persist per-question result for ${question.id}: ${
+        writeErr instanceof Error ? writeErr.message : String(writeErr)
+      }`,
+    );
+    // Re-throw — disk failure during a benchmark run is fatal enough to surface,
+    // but other already-completed Promise.all branches still have their result
+    // files persisted, so this is recoverable on resume.
+    throw writeErr;
+  }
   return result;
 }
 
+/**
+ * Run all questions in the corpus against the adapter and return aggregated scores.
+ *
+ * Idempotent on resume: questions whose per-question files already exist on disk
+ * are reloaded and skipped. Malformed or missing files are treated as not-done and
+ * the question is re-run. Results are dispatched in parallel (bounded by concurrency).
+ */
 export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
   const allQuestions: Question[] = readFileSync(args.questionsPath, 'utf-8')
     .split('\n')
@@ -235,12 +259,30 @@ export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
 
   const ingestStats = await args.adapter.ingest(args.corpus);
 
-  // Resume: scan existing per-question files
+  // Resume: scan existing per-question files, parse them, skip corrupt ones
   const done = scanResultsDir(args.resultsDir);
-  const remaining = allQuestions.filter((q) => !done.has(q.id));
-  if (done.size > 0) {
+  const validDone = new Set<string>();
+  const completedFromDisk: PerQuestionResult[] = [];
+  for (const q of allQuestions) {
+    if (!done.has(q.id)) continue;
+    const path = join(args.resultsDir, 'per-question', `${q.task}-${q.id}.json`);
+    try {
+      const content = readFileSync(path, 'utf-8');
+      completedFromDisk.push(JSON.parse(content) as PerQuestionResult);
+      validDone.add(q.id);
+    } catch (err) {
+      console.warn(
+        `[runner] Skipping malformed per-question file ${path}: ${
+          err instanceof Error ? err.message : String(err)
+        }. Will re-run this question.`,
+      );
+    }
+  }
+
+  const remaining = allQuestions.filter((q) => !validDone.has(q.id));
+  if (validDone.size > 0) {
     console.log(
-      `[runner] Resuming: ${done.size}/${allQuestions.length} already complete; ${remaining.length} remaining.`,
+      `[runner] Resuming: ${validDone.size}/${allQuestions.length} already complete; ${remaining.length} remaining.`,
     );
   }
 
@@ -250,19 +292,13 @@ export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
     remaining.map((q) => sem.run(() => runOne(q, args.adapter, args.resultsDir))),
   );
 
-  // Reload completed-from-disk results and merge with fresh
-  const completedFromDisk: PerQuestionResult[] = allQuestions
-    .filter((q) => done.has(q.id))
-    .map((q) => {
-      const path = join(args.resultsDir, 'per-question', `${q.task}-${q.id}.json`);
-      return JSON.parse(readFileSync(path, 'utf-8')) as PerQuestionResult;
-    });
   const allResults: PerQuestionResult[] = [...completedFromDisk, ...fresh];
 
   // Group by task and compute per-task means via existing batch scorers
+  const questionById = new Map(allQuestions.map((q) => [q.id, q]));
   const perTaskGroups = new Map<string, { rankings: string[][]; questions: Question[] }>();
   for (const r of allResults) {
-    const q = allQuestions.find((qq) => qq.id === r.questionId)!;
+    const q = questionById.get(r.questionId)!;
     const bucket = perTaskGroups.get(r.taskType) ?? { rankings: [], questions: [] };
     bucket.rankings.push(r.ranking.map((rr) => rr.id));
     bucket.questions.push(q);
@@ -293,7 +329,9 @@ export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
     }
   }
 
-  // Latency from per-question results
+  // Latency from per-question results.
+  // NOTE: cold attribution is approximate after parallel dispatch — positions
+  // reflect completion order, not original question order.
   const latencySamples = allResults.map((r, i) => ({
     ms: r.latencyMs,
     cold: i < (args.coldQueriesCount ?? 0),
