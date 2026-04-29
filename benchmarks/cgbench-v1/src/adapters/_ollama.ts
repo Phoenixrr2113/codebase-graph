@@ -1,9 +1,11 @@
 /**
- * Ollama HTTP client for NL → Cypher generation.
+ * LLM HTTP client for NL → Cypher generation.
  *
- * Uses the OpenAI-compat endpoint at /v1/chat/completions. Default model is
- * gemma4:26b. Retries once on Cypher safety validation failure. Returns null
- * cypher if both attempts produce unsafe queries.
+ * Uses an OpenAI-compat endpoint at /v1/chat/completions. Defaults to local
+ * Ollama (gemma4:26b) but can be pointed at any OpenAI-compat provider
+ * (e.g. OpenRouter) via LLM_ENDPOINT, LLM_MODEL, and LLM_API_KEY env vars.
+ * Retries once on Cypher safety validation failure. Returns null cypher if
+ * both attempts produce unsafe queries.
  */
 
 import { isReadOnlyCypher } from './_cypher-safety';
@@ -13,6 +15,7 @@ export interface GenerateCypherOptions {
   taskHint: 'B' | 'C';
   model?: string;
   endpoint?: string;
+  apiKey?: string;
   timeoutMs?: number;
 }
 
@@ -21,8 +24,10 @@ export interface GenerateCypherResult {
   attempts: number;
 }
 
-const DEFAULT_MODEL = 'gemma4:26b';
-const DEFAULT_ENDPOINT = 'http://localhost:11434/v1/chat/completions';
+const DEFAULT_MODEL = process.env['LLM_MODEL'] ?? 'gemma4:26b';
+const DEFAULT_ENDPOINT_BASE = process.env['LLM_ENDPOINT'] ?? 'http://localhost:11434/v1';
+const DEFAULT_ENDPOINT = `${DEFAULT_ENDPOINT_BASE}/chat/completions`;
+const DEFAULT_API_KEY = process.env['LLM_API_KEY'] ?? '';
 
 const SYSTEM_PROMPT = `You are a Cypher query generator for the CodeGraph code knowledge graph.
 
@@ -67,15 +72,19 @@ function buildUserPrompt(question: string, taskHint: 'B' | 'C'): string {
   return `${hint}\n\nQuestion: ${question}`;
 }
 
-async function callOllama(
+async function callLLM(
   messages: Array<{ role: string; content: string }>,
   model: string,
   endpoint: string,
+  apiKey: string,
   timeoutMs: number = 90_000,
 ): Promise<string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     signal: AbortSignal.timeout(timeoutMs),
     body: JSON.stringify({
       model,
@@ -86,7 +95,7 @@ async function callOllama(
   if (!res.ok) {
     const body = await res.text().catch(() => '<unable to read body>');
     throw new Error(
-      `Ollama request failed: ${res.status} ${res.statusText} — ${body}`,
+      `LLM request failed: ${res.status} ${res.statusText} — ${body}`,
     );
   }
   const json = (await res.json()) as { choices: Array<{ message: { content: string } }> };
@@ -103,6 +112,7 @@ async function callOllama(
 export async function generateCypher(opts: GenerateCypherOptions): Promise<GenerateCypherResult> {
   const model = opts.model ?? DEFAULT_MODEL;
   const endpoint = opts.endpoint ?? DEFAULT_ENDPOINT;
+  const apiKey = opts.apiKey ?? DEFAULT_API_KEY;
   const timeoutMs = opts.timeoutMs ?? 90_000;
   const userPrompt = buildUserPrompt(opts.question, opts.taskHint);
 
@@ -111,7 +121,7 @@ export async function generateCypher(opts: GenerateCypherOptions): Promise<Gener
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: userPrompt },
   ];
-  const first = await callOllama(messages, model, endpoint, timeoutMs);
+  const first = await callLLM(messages, model, endpoint, apiKey, timeoutMs);
   const firstCypher = extractCypher(first);
   if (isReadOnlyCypher(firstCypher)) {
     return { cypher: firstCypher, attempts: 1 };
@@ -123,7 +133,7 @@ export async function generateCypher(opts: GenerateCypherOptions): Promise<Gener
     role: 'user',
     content: 'Your previous response contained a forbidden clause (CREATE, MERGE, DELETE, SET, REMOVE, DROP). Generate a read-only Cypher query (MATCH ... RETURN) only.',
   });
-  const second = await callOllama(messages, model, endpoint, timeoutMs);
+  const second = await callLLM(messages, model, endpoint, apiKey, timeoutMs);
   const secondCypher = extractCypher(second);
   if (isReadOnlyCypher(secondCypher)) {
     return { cypher: secondCypher, attempts: 2 };
