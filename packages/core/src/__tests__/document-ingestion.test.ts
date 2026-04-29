@@ -131,6 +131,42 @@ describe('add()', () => {
     expect(result.source).toBe('manual-test');
   });
 
+  it('propagates source to entity sampleIds via extractAndStore config', async () => {
+    const captured: unknown[] = [];
+    const mockExtractAndStore = vi.fn(async (_text: string, _ops: unknown, config?: unknown) => {
+      captured.push(config);
+      return { entities: 1, relationships: 0 };
+    });
+
+    await add('Some text content for chunking.', {
+      source: 'cgbench:knowledge-001',
+      _extractAndStore: mockExtractAndStore,
+    });
+
+    expect(mockExtractAndStore).toHaveBeenCalled();
+    // Every chunk should receive the caller-provided sampleId
+    for (const cfg of captured) {
+      expect(cfg).toMatchObject({ sampleId: 'cgbench:knowledge-001' });
+    }
+  });
+
+  it('does not set sampleId in config when source is omitted', async () => {
+    const captured: unknown[] = [];
+    const mockExtractAndStore = vi.fn(async (_text: string, _ops: unknown, config?: unknown) => {
+      captured.push(config);
+      return { entities: 1, relationships: 0 };
+    });
+
+    await add('Some text content for chunking.', {
+      _extractAndStore: mockExtractAndStore,
+    });
+
+    expect(mockExtractAndStore).toHaveBeenCalled();
+    for (const cfg of captured) {
+      expect((cfg as Record<string, unknown>).sampleId).toBeUndefined();
+    }
+  });
+
   it('handles empty text gracefully — returns zero chunks', async () => {
     const mockExtract = makeExtractAndStore();
 

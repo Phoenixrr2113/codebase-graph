@@ -38,6 +38,15 @@ export interface ExtractAndStoreConfig {
   /** Confidence threshold — skip entities below this (default: 0.5) */
   minConfidence?: number;
 
+  /**
+   * Override the auto-generated sampleId for provenance tracking.
+   * When provided, all entities and relationships from this call share
+   * this sampleId instead of the auto-generated `sample-{ts}-{rand}`.
+   * Propagated from `documentIngestion.add({ source })` so callers can
+   * filter or trace entities back to their input source.
+   */
+  sampleId?: string;
+
   /** Batch size for batch extraction (default: 10) */
   batchSize?: number;
 
@@ -98,8 +107,10 @@ export async function extractAndStore(
   const extractor = new EntityExtractor(config.extractor);
   const minConfidence = config.minConfidence ?? 0.5;
 
-  // Create a sample from the raw text
-  const sampleId = `sample-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // Create a sample from the raw text.
+  // Use caller-provided sampleId (e.g. from documentIngestion.add({ source })) when available;
+  // otherwise fall back to an auto-generated unique identifier.
+  const sampleId = config.sampleId ?? `sample-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const sample: Sample = {
     id: sampleId,
     text,

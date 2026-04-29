@@ -229,6 +229,12 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
   if (options?.model) {
     config.extractor = { model: options.model };
   }
+  // Propagate caller-provided source as sampleId so every entity created from
+  // this add() call has a traceable, user-meaningful sampleId instead of an
+  // opaque auto-generated one.
+  if (options?.source) {
+    config.sampleId = options.source;
+  }
 
   for (const chunk of chunks) {
     try {
