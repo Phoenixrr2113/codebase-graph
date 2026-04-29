@@ -1,15 +1,15 @@
+// NOTE: These integration tests target the v1 in-process adapter shape
+// (direct @codegraph/core imports, embeddingProvider/rerankerProvider options,
+// in-process FalkorDB lifecycle). The v2 adapter (commit 8d80676 onward)
+// spawns the MCP server as a subprocess — different lifecycle, different
+// observable behavior. These tests are skipped until they're rewritten for
+// the v2 MCP-client shape (see Task 12 smoke for the replacement coverage).
 import { describe, expect, it, afterAll } from 'vitest';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { CodeGraphAdapter } from '../../src/adapters/codegraph.js';
-
-// Detect whether the local HuggingFace transformer can load.
-// The 'local' provider requires @huggingface/transformers which downloads
-// ~140MB on first run. Skip the vector test suite in environments where this
-// is known to fail (e.g., CI without HF cache, memory-constrained runners).
-const skipVector = process.env['CGBENCH_SKIP_VECTOR'] === '1';
 
 // Detect whether an LLM is available for entity extraction.
 // documentIngestion.add() requires a configured LLM to produce Entity nodes.
@@ -33,7 +33,7 @@ const FIXTURE_CODE = join(__dirname, '../../fixtures/code/tiny-ts');
 const KNOWLEDGE_DIR = join(__dirname, '../../corpora/knowledge');
 const DOCUMENTS_DIR = join(__dirname, '../../documents/source');
 
-describe('CodeGraphAdapter — ingest', () => {
+describe.skip('CodeGraphAdapter — ingest', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'cgbench-cg-'));
   const adapter = new CodeGraphAdapter({ dataDir });
   afterAll(async () => {
@@ -69,7 +69,7 @@ describe('CodeGraphAdapter — ingest', () => {
   }, 60_000);
 });
 
-describe('CodeGraphAdapter — code + knowledge ingest', () => {
+describe.skip('CodeGraphAdapter — code + knowledge ingest', () => {
   const dataDir = mkdtempSync(join('/tmp', 'cgk-'));
   const adapter = new CodeGraphAdapter({ dataDir });
   afterAll(async () => {
@@ -94,7 +94,7 @@ describe('CodeGraphAdapter — code + knowledge ingest', () => {
   }, 90_000);
 });
 
-describe('CodeGraphAdapter — document corpus ingest', () => {
+describe.skip('CodeGraphAdapter — document corpus ingest', () => {
   const dataDir = mkdtempSync(join('/tmp', 'cgd-'));
   const adapter = new CodeGraphAdapter({ dataDir, documentFormat: 'md' });
   afterAll(async () => {
@@ -148,7 +148,7 @@ describe('CodeGraphAdapter — document corpus ingest', () => {
   }, 90_000);
 });
 
-describe.skipIf(skipVector)('CodeGraphAdapter — vector+reranker query path', () => {
+describe.skip('CodeGraphAdapter — vector+reranker query path', () => {
   // Uses the local HuggingFace transformer provider (nomic-ai/nomic-embed-text-v1.5).
   // No API key required. First run downloads ~140MB model to ~/.cache/huggingface.
   // Reranker is disabled (rerankerProvider: 'none') — vector similarity scores only.

@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { spawnMCPClient, callMCPTool, closeMCPClient } from './_mcp-base.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
@@ -54,14 +55,22 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     this.dataDir = opts.dataDir;
     mkdirSync(this.dataDir, { recursive: true });
 
-    // Default: spawn via tsx in dev mode (dist/index.js has a pre-existing
-    // ESM-resolution issue that blocks `node dist/index.js`).
-    // Relative to the workspace root — the cgbench CLI must be invoked from
-    // the workspace root, which is the convention for `pnpm tsx ...` commands.
-    this.mcpServerCommand = opts.mcpServerCommand ?? {
-      command: 'pnpm',
-      args: ['tsx', 'packages/mcp-server/src/index.ts'],
-    };
+    if (opts.mcpServerCommand) {
+      this.mcpServerCommand = opts.mcpServerCommand;
+    } else {
+      // Resolve MCP server path absolutely so it works regardless of CWD.
+      // This adapter file lives at:
+      //   <repo-root>/benchmarks/cgbench-v1/src/adapters/codegraph.ts
+      // Walking up four levels: adapters → src → cgbench-v1 → benchmarks → <repo-root>
+      const __filename = fileURLToPath(import.meta.url);
+      const __dir = dirname(__filename);
+      const workspaceRoot = resolve(__dir, '..', '..', '..', '..');
+      const mcpServerPath = resolve(workspaceRoot, 'packages/mcp-server/src/index.ts');
+      this.mcpServerCommand = {
+        command: 'pnpm',
+        args: ['tsx', mcpServerPath],
+      };
+    }
   }
 
   /**
