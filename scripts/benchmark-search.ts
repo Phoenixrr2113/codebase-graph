@@ -1022,44 +1022,55 @@ async function main() {
       ? (() => {
           try {
             const body = JSON.parse(readFileSync(compareAgainstPath, 'utf-8'));
-            return body.meta ? { path: compareAgainstPath, meta: body.meta, body } : null;
-          } catch { return null; }
+            if (!body.meta || typeof body.meta !== 'object' || Array.isArray(body.meta)) {
+              console.error(`\n  ⚠ Explicit baseline ${compareAgainstPath} has invalid or missing meta — skipping diff.`);
+              return null;
+            }
+            return { path: compareAgainstPath, meta: body.meta, body };
+          } catch (err) {
+            console.error(`\n  ⚠ Could not load explicit baseline ${compareAgainstPath}: ${err instanceof Error ? err.message : String(err)}`);
+            return null;
+          }
         })()
       : findComparisonBaseline(baselineDir, meta);
 
     if (baseline === null) {
       console.log('\n  No comparable baseline found — this run becomes the new reference.');
     } else {
-      const baselineBody = baseline.body as { label: string; timestamp: string; results: Array<{ query: string; category: string; mrr: number; ndcg5: number; ndcg10: number; success1: boolean; success5: boolean; recall10: number; latencyMs: number }> };
-      const threshold = Number(process.env['BENCHMARK_REGRESSION_THRESHOLD'] ?? '0.05');
-      const currentRows = allResults.map((r) => ({
-        query: r.testCase.query,
-        category: r.testCase.category,
-        mrr: r.mrr,
-        ndcg5: r.ndcg5,
-        ndcg10: r.ndcg10,
-        success1: r.success1,
-        success5: r.success5,
-        recall10: r.recall10,
-        latencyMs: r.latencyMs,
-      }));
-      const diff = computeDiff(
-        { results: baselineBody.results },
-        { results: currentRows },
-        { threshold },
-      );
-      console.log('');
-      const lines = printDiffTable({
-        baseline: { label: baselineBody.label, timestamp: baselineBody.timestamp, meta: baseline.meta, results: baselineBody.results },
-        current: { label, meta, results: currentRows },
-        diff,
-        threshold,
-      });
-      for (const line of lines) console.log(line);
+      const baselineBody = baseline.body as { label?: string; timestamp?: string; results?: Array<{ query: string; category: string; mrr: number; ndcg5: number; ndcg10: number; success1: boolean; success5: boolean; recall10: number; latencyMs: number }> };
+      if (!Array.isArray(baselineBody.results)) {
+        console.error(`\n  ⚠ Baseline ${baseline.path} has missing or invalid results array — skipping diff.`);
+      } else {
+        const threshold = Number(process.env['BENCHMARK_REGRESSION_THRESHOLD'] ?? '0.05');
+        const currentRows = allResults.map((r) => ({
+          query: r.testCase.query,
+          category: r.testCase.category,
+          mrr: r.mrr,
+          ndcg5: r.ndcg5,
+          ndcg10: r.ndcg10,
+          success1: r.success1,
+          success5: r.success5,
+          recall10: r.recall10,
+          latencyMs: r.latencyMs,
+        }));
+        const diff = computeDiff(
+          { results: baselineBody.results },
+          { results: currentRows },
+          { threshold },
+        );
+        console.log('');
+        const lines = printDiffTable({
+          baseline: { label: baselineBody.label ?? 'unknown', timestamp: baselineBody.timestamp ?? 'unknown', meta: baseline.meta, results: baselineBody.results },
+          current: { label, meta, results: currentRows },
+          diff,
+          threshold,
+        });
+        for (const line of lines) console.log(line);
 
-      if (diff.hasRegression && !process.env['BENCHMARK_NO_FAIL']) {
-        await closeGraphClient();
-        process.exit(1);
+        if (diff.hasRegression && !process.env['BENCHMARK_NO_FAIL']) {
+          await closeGraphClient();
+          process.exit(1);
+        }
       }
     }
   }
