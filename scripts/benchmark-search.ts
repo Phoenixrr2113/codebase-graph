@@ -884,12 +884,60 @@ async function main() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const filename = `${label}-${timestamp}.json`;
   const filepath = resolve(resultsDir, filename);
+  // Reproducibility metadata for regression detection — Task 11 of regression-detection spec
+  const { execSync } = await import('node:child_process');
+  let gitSha = '';
+  let gitDirty = false;
+  try {
+    gitSha = execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf-8' }).trim();
+    gitDirty = execSync('git status --porcelain', { cwd: ROOT, encoding: 'utf-8' }).trim().length > 0;
+  } catch {
+    // git not available or not a repo — leave blank
+  }
+
+  const rerankerProviderEnv = process.env['CODEGRAPH_RERANK_PROVIDER'];
+  const rerankerProvider: 'jina' | 'voyage' | 'none' =
+    rerankerProviderEnv === 'jina' || rerankerProviderEnv === 'voyage'
+      ? rerankerProviderEnv
+      : 'none';
+
+  const llmProviderEnv = process.env['LLM_PROVIDER']?.toLowerCase();
+  const llmProvider: 'cerebras' | 'openrouter' | 'glm' | 'ollama' =
+    llmProviderEnv === 'openrouter' || llmProviderEnv === 'glm' || llmProviderEnv === 'ollama'
+      ? llmProviderEnv
+      : 'cerebras';
+
+  // Embedding dim for known providers
+  const embeddingDimMap: Record<string, number> = { voyage: 1024, openrouter: 1536, local: 768, none: 0 };
+
+  const meta = {
+    embeddingProvider,
+    embeddingModel: process.env['CODEGRAPH_EMBEDDING_MODEL']
+      ?? (embeddingProvider === 'voyage' ? 'voyage-3-large'
+        : embeddingProvider === 'openrouter' ? 'text-embedding-3-small'
+        : embeddingProvider === 'local' ? 'nomic-ai/nomic-embed-text-v1.5'
+        : ''),
+    embeddingDim: embeddingDimMap[embeddingProvider] ?? 0,
+    rerankerProvider,
+    rerankerModel: process.env['CODEGRAPH_RERANK_MODEL'] ?? null,
+    llmProvider,
+    llmModel: process.env['LLM_MODEL']
+      ?? (llmProvider === 'openrouter' ? 'google/gemini-2.5-flash'
+        : llmProvider === 'cerebras' ? 'qwen-3-235b-a22b-instruct-2507'
+        : llmProvider === 'glm' ? 'GLM-4.7'
+        : 'llama3.2'),
+    gitSha,
+    gitDirty,
+    corpusNodeCount: nodeCount,
+  };
+
   writeFileSync(filepath, JSON.stringify({
     label,
     timestamp: new Date().toISOString(),
     nodeCount,
     embeddings: useEmbeddings,
     llm: !noLlm,
+    meta,
     results: allResults.map(r => ({
       query: r.testCase.query,
       strategy: r.strategy,
