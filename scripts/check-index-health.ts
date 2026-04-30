@@ -4,6 +4,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import type { GraphClient } from '../packages/graph/dist/index.js';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail';
 
@@ -91,4 +92,59 @@ export async function checkFalkorDBReachable(conn: FalkorConnInfo): Promise<Chec
       try { await client.close(); } catch { /* best-effort */ }
     }
   }
+}
+
+export type EmbeddingProvider = 'voyage' | 'openrouter' | 'local' | 'none';
+
+const PROVIDER_DIMS: Record<Exclude<EmbeddingProvider, 'none'>, number> = {
+  voyage: 1024,
+  openrouter: 1536,
+  local: 768,
+};
+
+export async function checkEmbeddingDim(
+  client: GraphClient,
+  provider: EmbeddingProvider,
+): Promise<CheckResult> {
+  const name = 'embedding-dim';
+  if (provider === 'none') {
+    return { name, status: 'pass', message: 'No embedding provider configured (skipped)' };
+  }
+  const expectedDim = PROVIDER_DIMS[provider];
+  // FalkorDB stores embeddings as Vectorf32 which cannot be passed to size() in Cypher.
+  // Returning the full node causes the driver to deserialize Vectorf32 into a plain JS array.
+  const result = await client.query<{ n: { properties: Record<string, unknown> } }>(
+    'MATCH (n) WHERE n.embedding IS NOT NULL RETURN n LIMIT 1',
+    { params: {} },
+  );
+  if (result.data.length === 0) {
+    return {
+      name,
+      status: 'fail',
+      message: 'Index has no embeddings — possibly empty or pre-embedding state',
+      fix: 'Run a fresh index: rm -rf .codegraph && npx tsx scripts/clear-and-reindex.mts',
+    };
+  }
+  const embedding = result.data[0]!.n?.properties?.embedding;
+  const actualDim = Array.isArray(embedding) ? embedding.length : undefined;
+  if (actualDim === undefined) {
+    return {
+      name,
+      status: 'fail',
+      message: 'Could not determine embedding dimension from index',
+      fix: 'Inspect the index with: pnpm tsx scripts/check-index-health.ts',
+    };
+  }
+  if (actualDim !== expectedDim) {
+    return {
+      name,
+      status: 'fail',
+      message: `Index has ${actualDim}-dim embeddings; configured provider ${provider} produces ${expectedDim}-dim`,
+      fix:
+        `Reindex from scratch:\n` +
+        `  rm -rf .codegraph\n` +
+        `  npx tsx scripts/clear-and-reindex.mts`,
+    };
+  }
+  return { name, status: 'pass', message: `Embedding dim ${actualDim} matches provider ${provider}` };
 }
