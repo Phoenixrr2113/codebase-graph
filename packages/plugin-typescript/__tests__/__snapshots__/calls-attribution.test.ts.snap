@@ -1,0 +1,126 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`extractCalls — attribution snapshots > class-arrow-property.ts 1`] = `
+[
+  {
+    "calleeFilePath": undefined,
+    "calleeName": "doWork",
+    "callerFilePath": "<fixture>",
+    "callerKind": "Variable",
+    "callerName": "handler",
+    "callerStartLine": 10,
+    "line": 11,
+    "via": "direct",
+  },
+  {
+    "calleeFilePath": undefined,
+    "calleeName": "otherWork",
+    "callerFilePath": "<fixture>",
+    "callerKind": "Function",
+    "callerName": "method",
+    "callerStartLine": 14,
+    "line": 15,
+    "via": "direct",
+  },
+]
+`;
+
+exports[`extractCalls — attribution snapshots > jsx-event-handler.tsx 1`] = `
+[
+  {
+    "calleeFilePath": undefined,
+    "calleeName": "track",
+    "callerFilePath": "<fixture>",
+    "callerKind": "Function",
+    "callerName": "MyButton",
+    "callerStartLine": 6,
+    "line": 7,
+    "via": "closure",
+  },
+]
+`;
+
+exports[`extractCalls — attribution snapshots > nested-callbacks.ts 1`] = `
+[
+  {
+    "calleeFilePath": undefined,
+    "calleeName": "makeRunner",
+    "callerFilePath": "<fixture>",
+    "callerKind": "Variable",
+    "callerName": "runner",
+    "callerStartLine": 7,
+    "line": 7,
+    "via": "direct",
+  },
+  {
+    "calleeFilePath": undefined,
+    "calleeName": "innermost",
+    "callerFilePath": "<fixture>",
+    "callerKind": "Variable",
+    "callerName": "runner",
+    "callerStartLine": 7,
+    "line": 7,
+    "via": "closure",
+  },
+]
+`;
+
+exports[`extractCalls — attribution snapshots > redux-reducer.ts 1`] = `
+[
+  {
+    "calleeFilePath": undefined,
+    "calleeName": "createSlice",
+    "callerFilePath": "<fixture>",
+    "callerKind": "Variable",
+    "callerName": "counterSlice",
+    "callerStartLine": 8,
+    "line": 8,
+    "via": "direct",
+  },
+  {
+    "calleeFilePath": undefined,
+    "calleeName": "bumpCounter",
+    "callerFilePath": "<fixture>",
+    "callerKind": "Variable",
+    "callerName": "counterSlice",
+    "callerStartLine": 8,
+    "line": 12,
+    "via": "closure",
+  },
+  {
+    "calleeFilePath": undefined,
+    "calleeName": "decrementCounter",
+    "callerFilePath": "<fixture>",
+    "callerKind": "Variable",
+    "callerName": "counterSlice",
+    "callerStartLine": 8,
+    "line": 15,
+    "via": "closure",
+  },
+]
+`;
+
+exports[`extractCalls — attribution snapshots > zod-style-factory.ts 1`] = `
+[
+  {
+    "calleeFilePath": undefined,
+    "calleeName": "$constructor",
+    "callerFilePath": "<fixture>",
+    "callerKind": "Variable",
+    "callerName": "$ZodCheckMultipleOf",
+    "callerStartLine": 11,
+    "line": 11,
+    "via": "direct",
+  },
+  {
+    "calleeFilePath": undefined,
+    "calleeName": "floatSafeRemainder",
+    "callerFilePath": "<fixture>",
+    "callerKind": "Variable",
+    "callerName": "$ZodCheckMultipleOf",
+    "callerStartLine": 11,
+    "line": 15,
+    "via": "closure",
+  },
+]
+`;
