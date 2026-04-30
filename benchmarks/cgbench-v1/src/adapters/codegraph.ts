@@ -20,13 +20,6 @@ type MCPCodeResult = {
   score?: number;
 };
 
-type MCPKnowledgeResult = {
-  source?: string;
-  slug?: string;
-  sampleIds?: string[];
-  text?: string;
-  score?: number;
-};
 
 export interface CodeGraphAdapterOptions {
   /** Where the adapter stores per-corpus state (FalkorDB data dir, etc.) */
@@ -95,33 +88,62 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       translatedEnv['FALKORDB_PORT'] = cgbenchPort;
     }
 
+    // Resolve the embedding provider once and derive its required vector dim.
+    // The user's .env may carry a stale CODEGRAPH_EMBEDDING_DIM (e.g. 1024 from
+    // a prior Voyage configuration). If we let that leak through to the MCP
+    // server while we're forcing CODEGRAPH_EMBEDDING_PROVIDER=local, the vector
+    // index gets created at the wrong dim and every search returns 0 results.
+    const embeddingProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'local';
+    const PROVIDER_DIM: Record<string, string> = {
+      voyage: '1024',
+      openrouter: '1536',
+      local: '768',
+    };
+    const embeddingDim = PROVIDER_DIM[embeddingProvider];
+
+    // LLM env: forward the user's setup if they have one (cerebras, openrouter,
+    // glm, etc.). Only fall back to local Ollama defaults when no provider is
+    // configured. Forcing LLM_MODEL=gemma4:26b on top of LLM_PROVIDER=cerebras
+    // produces 404 model_not_found from Cerebras because gemma4:26b is an
+    // Ollama model name, not a Cerebras one.
+    const userLlmProvider = process.env['LLM_PROVIDER'];
+    const llmEnv: Record<string, string> = userLlmProvider
+      ? {
+          LLM_PROVIDER: userLlmProvider,
+          ...(process.env['LLM_MODEL'] ? { LLM_MODEL: process.env['LLM_MODEL'] } : {}),
+          ...(process.env['LLM_ENDPOINT'] ? { LLM_ENDPOINT: process.env['LLM_ENDPOINT'] } : {}),
+          ...(process.env['LLM_API_KEY'] ? { LLM_API_KEY: process.env['LLM_API_KEY'] } : {}),
+        }
+      : {
+          LLM_PROVIDER: 'ollama',
+          OLLAMA_BASE_URL: process.env['OLLAMA_BASE_URL'] ?? 'http://localhost:11434/v1',
+          LLM_MODEL: process.env['OLLAMA_MODEL'] ?? 'gemma4:26b',
+        };
+
+    // Strip env vars that would conflict with what we're forcing — we don't
+    // want process.env entries leaking through ...spread to override our
+    // intentional settings below.
+    const { CODEGRAPH_EMBEDDING_DIM: _stale, ...sanitizedProcessEnv } =
+      process.env as Record<string, string | undefined>;
+    void _stale;
+
     this.client = await spawnMCPClient({
       command: this.mcpServerCommand.command,
       args: this.mcpServerCommand.args,
       env: {
-        ...process.env,
+        ...sanitizedProcessEnv,
         ...translatedEnv,
         CODEGRAPH_DATA_DIR: this.dataDir,
-        // Force local embeddings + no reranker for benchmark — no API spend.
-        // Caller can override via env.
-        CODEGRAPH_EMBEDDING_PROVIDER: process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'local',
+        CODEGRAPH_EMBEDDING_PROVIDER: embeddingProvider,
+        ...(embeddingDim ? { CODEGRAPH_EMBEDDING_DIM: embeddingDim } : {}),
         CODEGRAPH_RERANK_PROVIDER: process.env['CODEGRAPH_RERANK_PROVIDER'] ?? 'none',
         // Enable raw tools so the 'add' document ingestion tool is available
         // (the 'knowledge' persona only exposes store/recall).
         CODEGRAPH_RAW_TOOLS: 'true',
-        // Use Ollama for LLM-based entity extraction in knowledge.add.
-        // Caller can override via env; falls back to no LLM if OLLAMA is unavailable.
-        LLM_PROVIDER: process.env['LLM_PROVIDER'] ?? 'ollama',
-        OLLAMA_BASE_URL: process.env['OLLAMA_BASE_URL'] ?? 'http://localhost:11434/v1',
-        // LLM_MODEL is the generic model override used by plugin-nlp's llm.ts
-        LLM_MODEL: process.env['LLM_MODEL'] ?? process.env['OLLAMA_MODEL'] ?? 'gemma4:26b',
-        // Forward LLM provider config so entity extraction in the spawned MCP
-        // server uses the same model/endpoint/key as the adapter's NL→Cypher hop.
-        // The ...process.env spread above already covers these, but the explicit
-        // conditional spreads below document intent and ensure non-empty values
-        // propagate even if process.env has them as undefined at spread time.
-        ...(process.env['LLM_ENDPOINT'] ? { LLM_ENDPOINT: process.env['LLM_ENDPOINT'] } : {}),
-        ...(process.env['LLM_API_KEY'] ? { LLM_API_KEY: process.env['LLM_API_KEY'] } : {}),
+        ...llmEnv,
+        // Always forward provider keys regardless of which provider is active —
+        // the MCP server may need any of them at runtime (e.g. embedding +
+        // separate LLM extraction provider).
         ...(process.env['OPENROUTER_API_KEY'] ? { OPENROUTER_API_KEY: process.env['OPENROUTER_API_KEY'] } : {}),
         ...(process.env['CEREBRAS_API_KEY'] ? { CEREBRAS_API_KEY: process.env['CEREBRAS_API_KEY'] } : {}),
       } as Record<string, string>,
@@ -129,12 +151,15 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     return this.client;
   }
 
-  async ingest(corpus: BenchmarkCorpus): Promise<IngestStats> {
-    const start = Date.now();
+  /**
+   * Configure the active projects on the spawned MCP server. Idempotent.
+   * Always called from `ingest()`. Also called by `attach()` when running
+   * with --skip-ingest so the persisted ~/.codegraph config from a prior
+   * session doesn't auto-scope queries to a stale active project.
+   */
+  private async configureProjects(corpus: BenchmarkCorpus): Promise<string[]> {
     const client = await this.getClient();
-
-    // 1) Configure projects via codebase persona
-    const codeRootPaths = corpus.codeRoots.map((r) => r.path);
+    const codeRootPaths = corpus.codeRoots.map((r) => resolve(r.path));
     if (codeRootPaths.length > 0) {
       await callMCPTool(client, 'codebase', {
         action: 'configure',
@@ -142,44 +167,144 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         projects: codeRootPaths,
       });
     }
+    return codeRootPaths;
+  }
+
+  /**
+   * Configure projects without ingesting. Use when reusing a populated graph
+   * across iterations — saves the multi-minute reindex+embedding cycle but
+   * still updates the MCP server's active-project config so search.find
+   * auto-scopes correctly.
+   */
+  async attach(corpus: BenchmarkCorpus): Promise<void> {
+    const codeRootPaths = await this.configureProjects(corpus);
+    console.error(
+      `[codegraph adapter] attached (skip-ingest) — projects=${codeRootPaths.length}`,
+    );
+  }
+
+  async ingest(corpus: BenchmarkCorpus): Promise<IngestStats> {
+    const start = Date.now();
+    const client = await this.getClient();
+    const log = (msg: string) =>
+      console.error(`[codegraph adapter] [+${((Date.now() - start) / 1000).toFixed(1)}s] ${msg}`);
+
+    log(`ingest start — corpus codeRoots=${corpus.codeRoots.length} documentRoot=${corpus.documentRoot ?? 'none'}`);
+    const codeRootPaths = await this.configureProjects(corpus);
+    if (codeRootPaths.length > 0) {
+      log(`configure projects (absolute): ${codeRootPaths.join(', ')}`);
+    }
 
     // 2) Trigger full reindex — use extended timeout (5 min) because embedding
     //    1700+ entities exceeds the MCP SDK's default 60s request timeout.
-    await callMCPTool(
+    log(`reindex full — calling codebase.reindex (5min timeout)`);
+    const reindexResult = (await callMCPTool<{
+      filesProcessed?: number;
+      symbolsUpdated?: number;
+      embeddingsDeferred?: boolean;
+      embeddedCount?: number;
+      duration?: number;
+    }>(
       client,
       'codebase',
       { action: 'reindex', mode: 'full' },
       5 * 60 * 1000,
+    )) ?? {};
+    log(
+      `reindex returned — files=${reindexResult.filesProcessed ?? '?'} ` +
+      `symbols=${reindexResult.symbolsUpdated ?? '?'} ` +
+      `deferred=${reindexResult.embeddingsDeferred ?? '?'} ` +
+      `embeddedSoFar=${reindexResult.embeddedCount ?? '?'} ` +
+      `duration=${reindexResult.duration ?? '?'}ms`,
     );
 
-    // 3) Poll status until indexing complete (or timeout)
-    const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+    // 3) Wait for deferred embeddings to actually finish.
+    //    The reindex tool returns the moment structural indexing is done;
+    //    embedAllParsedEntities() runs as a fire-and-forget promise after that.
+    //    Querying the graph before embeddings exist returns empty results for
+    //    Function/Class/Interface/Type/Component nodes (the labels embed-pass.ts
+    //    populates).
+    //
+    //    embed-pass.ts deliberately skips trivial functions, type-aliases without
+    //    docstrings, etc. — those nodes keep n.embedding=NULL forever. So
+    //    polling for "pending = 0" hangs indefinitely. Use plateau detection:
+    //    when pending stops decreasing for PLATEAU_POLLS consecutive polls, the
+    //    embedder has stopped doing work — we're done.
+    const EMBED_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
     const POLL_INTERVAL_MS = 2000;
+    const PLATEAU_POLLS = 6; // 6 × 2s = 12s of no change
     const pollStart = Date.now();
-    let indexingComplete = false;
-    while (Date.now() - pollStart < POLL_TIMEOUT_MS) {
-      const status = (await callMCPTool<{ indexing?: boolean }>(client, 'codebase', {
-        action: 'status',
-      })) ?? {};
-      if (status.indexing !== true) {
-        indexingComplete = true;
+    let embeddingsComplete = false;
+    let lastPending = -1;
+    let initialPending = -1;
+    let stableCount = 0;
+    while (Date.now() - pollStart < EMBED_TIMEOUT_MS) {
+      const result = (await callMCPTool<{ data?: Array<{ pending: number }> }>(
+        client,
+        'query',
+        {
+          cypher:
+            'MATCH (n) WHERE n.embedding IS NULL ' +
+            'AND (n:Function OR n:Class OR n:Interface OR n:Type OR n:Component) ' +
+            'RETURN count(n) AS pending',
+        },
+      )) ?? {};
+      const pending = result.data?.[0]?.pending ?? -1;
+      if (initialPending === -1) initialPending = pending;
+      if (pending === 0) {
+        log(`embeddings complete — 0 unembedded after ${((Date.now() - pollStart) / 1000).toFixed(1)}s`);
+        embeddingsComplete = true;
         break;
+      }
+      if (pending === lastPending) {
+        stableCount++;
+        if (stableCount >= PLATEAU_POLLS) {
+          // Plateau reached — embedder has stopped writing. The remaining
+          // pending nodes are the deliberately-skipped trivial entities.
+          const elapsed = ((Date.now() - pollStart) / 1000).toFixed(1);
+          const decreased = initialPending - pending;
+          log(
+            `embeddings plateau — ${pending} unembedded (skipped trivial), ` +
+            `${decreased} processed in ${elapsed}s`,
+          );
+          embeddingsComplete = true;
+          break;
+        }
+      } else {
+        log(`waiting for embeddings: pending=${pending}`);
+        lastPending = pending;
+        stableCount = 0;
       }
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     }
-    if (!indexingComplete) {
-      throw new Error('CodeGraph reindex timed out after 5 minutes');
+    if (!embeddingsComplete) {
+      throw new Error(
+        `CodeGraph embeddings did not complete within 10 minutes (last pending=${lastPending})`,
+      );
     }
 
-    // 4) Knowledge corpus ingest via raw 'add' tool (requires CODEGRAPH_RAW_TOOLS=true).
-    //    The 'knowledge' persona only exposes store/recall — use the raw tool directly.
+    // 4) Knowledge & document corpus ingest via raw 'add' tool (requires
+    //    CODEGRAPH_RAW_TOOLS=true). The 'knowledge' persona only exposes
+    //    store/recall — use the raw tool directly. Both knowledgeRoot and
+    //    documentRoot funnel through the same MCP tool: knowledgeRoot is
+    //    used by Tasks D/E (temporal recall + linked code+knowledge) and
+    //    documentRoot is used by Task F (document retrieval). Same path-
+    //    resolution gotcha as code roots: resolve to absolute.
     let knowledgeFileCount = 0;
-    if (corpus.documentRoot) {
-      const entries = await readdir(corpus.documentRoot, { withFileTypes: true });
+    const docRoots: Array<{ root: string; label: string }> = [];
+    if (corpus.knowledgeRoot) docRoots.push({ root: corpus.knowledgeRoot, label: 'knowledge' });
+    if (corpus.documentRoot) docRoots.push({ root: corpus.documentRoot, label: 'document' });
+
+    for (const { root, label } of docRoots) {
+      const rootAbs = resolve(root);
+      const entries = await readdir(rootAbs, { withFileTypes: true });
+      log(`${label} ingest start — root=${rootAbs} files=${entries.length}`);
       for (const entry of entries) {
         if (!entry.isFile()) continue;
         if (entry.name.startsWith('.')) continue;
-        const filePath = join(corpus.documentRoot, entry.name);
+        // Skip README — it's metadata for the corpus, not benchmark content.
+        if (entry.name.toLowerCase() === 'readme.md') continue;
+        const filePath = join(rootAbs, entry.name);
         const slug = basename(entry.name, extname(entry.name));
         try {
           await callMCPTool(
@@ -197,12 +322,14 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
           );
         }
       }
+      log(`${label} ingest done — running total ${knowledgeFileCount} files added`);
     }
 
     const durationMs = Date.now() - start;
     const diskBytesAfter = await measureDiskBytes(this.dataDir);
     const totalTokens = Math.floor(diskBytesAfter / 4);
     const totalDocs = codeRootPaths.length + knowledgeFileCount;
+    log(`ingest complete — totalDocs=${totalDocs} durationMs=${durationMs} diskBytes=${diskBytesAfter}`);
     return { totalDocs, totalTokens, durationMs, diskBytesAfter };
   }
 
@@ -210,6 +337,11 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     const client = await this.getClient();
     const limit = opts.topK ?? 10;
     const task = opts.task;
+    const t0 = Date.now();
+    const qPreview = question.length > 60 ? question.slice(0, 57) + '...' : question;
+    const logQ = (msg: string) =>
+      console.error(`[codegraph adapter] [task=${task ?? '?'}] (${Date.now() - t0}ms) ${msg}`);
+    logQ(`query start — "${qPreview}"`);
 
     if (task === 'A') {
       const result = (await callMCPTool<{ results?: Array<MCPCodeResult> }>(
@@ -217,64 +349,111 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         'search',
         { action: 'find', query: question, limit },
       )) ?? {};
-      return (result.results ?? []).map((r, i) => ({
+      const out = (result.results ?? []).map((r, i) => ({
         id: this.codeId(r.filePath, r.name),
         score: r.score ?? 1 / (i + 1),
         kind: 'code' as const,
       }));
+      logQ(`A → search.find returned ${result.results?.length ?? 0} results, top=${out[0]?.id ?? '<none>'}`);
+      return out;
     }
 
     if (task === 'D') {
-      const args: Record<string, unknown> = { action: 'recall', text: question };
+      // Bitemporal recall — semantic question search through knowledge entities.
+      // The persona's `recall` action does an entity-text exact match (returns
+      // {entity, relationships}), which doesn't match natural-language queries.
+      // Use the raw `query_knowledge` tool with semanticQuery for vector search,
+      // which returns {entities: [{ id, text, sampleIds, ... }]}.
+      const args: Record<string, unknown> = { semanticQuery: question, limit };
       if (opts.validAt) args['at'] = opts.validAt;
-      const result = (await callMCPTool<{ results?: Array<MCPKnowledgeResult> }>(
+      const result = (await callMCPTool<{
+        entities?: Array<{ id: string; text: string; sampleIds?: string[]; relevance?: number }>;
+      }>(
         client,
-        'knowledge',
+        'query_knowledge',
         args,
       )) ?? {};
-      return (result.results ?? []).map((r, i) => ({
-        id: this.knowledgeId(r),
-        score: r.score ?? 1 / (i + 1),
+      const out = (result.entities ?? []).map((e, i) => ({
+        id: this.knowledgeId({
+          ...(e.sampleIds ? { sampleIds: e.sampleIds } : {}),
+          text: e.text,
+        }),
+        score: e.relevance ?? 1 / (i + 1),
         kind: 'knowledge' as const,
       }));
+      logQ(`D → query_knowledge(semantic) returned ${result.entities?.length ?? 0} results, top=${out[0]?.id ?? '<none>'} validAt=${opts.validAt ?? 'none'}`);
+      return out;
     }
 
     if (task === 'E') {
-      const result = (await callMCPTool<{ results?: Array<MCPCodeResult & MCPKnowledgeResult> }>(
+      // unifiedSearch result shape:
+      //   code:      { source: 'code', name, type, filePath, properties: {...} }
+      //   knowledge: { source: 'knowledge', name: <text>, type, properties: { sampleIds, ... } }
+      // Note: sampleIds for knowledge live under .properties, not top-level
+      // (unlike query_knowledge which surfaces them at top-level).
+      type UnifiedRow = {
+        source: 'code' | 'knowledge';
+        name?: string;
+        filePath?: string;
+        score?: number;
+        properties?: { sampleIds?: string[] };
+      };
+      const result = (await callMCPTool<{ results?: Array<UnifiedRow> }>(
         client,
         'search',
         { action: 'find', query: question, searchScope: 'all', limit },
       )) ?? {};
-      return (result.results ?? []).map((r, i) => ({
-        id: r.source === 'knowledge' ? this.knowledgeId(r) : this.codeId(r.filePath, r.name),
-        score: r.score ?? 1 / (i + 1),
-        kind: r.source === 'knowledge' ? ('knowledge' as const) : ('code' as const),
-      }));
+      const out = (result.results ?? []).map((r, i) => {
+        const isKnowledge = r.source === 'knowledge';
+        const id = isKnowledge
+          ? this.knowledgeId({
+              ...(r.properties?.sampleIds ? { sampleIds: r.properties.sampleIds } : {}),
+              ...(r.name ? { text: r.name } : {}),
+            })
+          : this.codeId(r.filePath, r.name);
+        return {
+          id,
+          score: r.score ?? 1 / (i + 1),
+          kind: isKnowledge ? ('knowledge' as const) : ('code' as const),
+        };
+      });
+      logQ(`E → search.find(all) returned ${result.results?.length ?? 0} results, top=${out[0]?.id ?? '<none>'}`);
+      return out;
     }
 
     if (task === 'F') {
-      // Task F is non-temporal document retrieval — validAt is deliberately omitted
-      // (vs Task D which honors validAt for point-in-time queries).
-      const result = (await callMCPTool<{ results?: Array<MCPKnowledgeResult> }>(
+      // Task F is non-temporal document retrieval. Same shape problem as D:
+      // the persona's `recall` does entity-text exact match, not NL search.
+      // Route through query_knowledge with semanticQuery.
+      const result = (await callMCPTool<{
+        entities?: Array<{ id: string; text: string; sampleIds?: string[]; relevance?: number }>;
+      }>(
         client,
-        'knowledge',
-        { action: 'recall', text: question },
+        'query_knowledge',
+        { semanticQuery: question, limit },
       )) ?? {};
-      return (result.results ?? []).map((r, i) => ({
-        id: this.knowledgeId(r),
-        score: r.score ?? 1 / (i + 1),
+      const out = (result.entities ?? []).map((e, i) => ({
+        id: this.knowledgeId({
+          ...(e.sampleIds ? { sampleIds: e.sampleIds } : {}),
+          text: e.text,
+        }),
+        score: e.relevance ?? 1 / (i + 1),
         kind: 'knowledge' as const,
       }));
+      logQ(`F → query_knowledge(semantic) returned ${result.entities?.length ?? 0} results, top=${out[0]?.id ?? '<none>'}`);
+      return out;
     }
 
     if (task === 'B' || task === 'C') {
+      logQ(`${task} → generating Cypher via LLM`);
       const gen = await generateCypher({ question, taskHint: task });
 
       if (gen.cypher === null) {
         // LLM failed twice; return empty ranking (will score as 0)
-        console.warn(`[codegraph adapter] Ollama failed to generate valid Cypher for ${task} question; scoring as 0`);
+        logQ(`${task} → LLM failed to generate valid Cypher; scoring as 0`);
         return [];
       }
+      logQ(`${task} → executing Cypher (len=${gen.cypher.length}, hasReturn=${/\bRETURN\b/i.test(gen.cypher)}): ${gen.cypher.replace(/\s+/g, ' ').slice(0, 200)}${gen.cypher.length > 200 ? '...' : ''}`);
 
       const result = (await callMCPTool<{ success?: boolean; data?: Array<Record<string, unknown>> }>(
         client,
@@ -282,23 +461,55 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         { cypher: gen.cypher },  // limit removed — query tool doesn't accept it; rely on .slice() below
       )) ?? {};
 
-      return (result.data ?? []).slice(0, limit).map((row, i) => {
-        // Find the first node-shaped value in the row (has filePath + name).
-        // NOTE: when Cypher returns multiple node columns (e.g. RETURN caller, callee),
-        // the winner depends on column order — Object.values is insertion-order stable.
-        let node: { filePath?: string; name?: string } | null = null;
+      const rowCount = result.data?.length ?? 0;
+      const out = (result.data ?? []).slice(0, limit).map((row, i) => {
+        // Cypher results come in three shapes depending on what the LLM generated:
+        //   1. FalkorDB native node: RETURN caller → row = { caller: { id, labels, properties: { name, filePath, ... } } }
+        //   2. Already-normalized node: row = { caller: { name, filePath, ... } } (some drivers flatten)
+        //   3. Scalar columns: RETURN c.name, c.filePath → row = { 'c.name': '...', 'c.filePath': '...' }
+        // Try node-shape first (insertion-order stable; first node column wins).
+        let filePath: string | undefined;
+        let name: string | undefined;
         for (const v of Object.values(row)) {
-          if (v && typeof v === 'object' && 'name' in v && 'filePath' in v) {
-            node = v as { filePath?: string; name?: string };
+          if (!v || typeof v !== 'object') continue;
+          // Shape 1: FalkorDB native — name/filePath under .properties
+          const props = (v as { properties?: { name?: string; filePath?: string } }).properties;
+          if (props && (typeof props.name === 'string' || typeof props.filePath === 'string')) {
+            name = typeof props.name === 'string' ? props.name : undefined;
+            filePath = typeof props.filePath === 'string' ? props.filePath : undefined;
+            break;
+          }
+          // Shape 2: flattened node
+          if ('name' in v && 'filePath' in v) {
+            const node = v as { filePath?: string; name?: string };
+            filePath = node.filePath;
+            name = node.name;
             break;
           }
         }
+        if (!name && !filePath) {
+          // Shape 3: scalar columns — pick keys ending in `.name` and `.filePath`/`.path`
+          for (const [k, v] of Object.entries(row)) {
+            if (typeof v !== 'string') continue;
+            if (!name && /(^|\.)name$/i.test(k)) name = v;
+            else if (!filePath && /(^|\.)(filePath|path)$/i.test(k)) filePath = v;
+          }
+          if (!name && typeof (row as Record<string, unknown>)['name'] === 'string') {
+            name = (row as Record<string, string>)['name'];
+          }
+          if (!filePath && typeof (row as Record<string, unknown>)['filePath'] === 'string') {
+            filePath = (row as Record<string, string>)['filePath'];
+          }
+        }
         return {
-          id: this.codeId(node?.filePath, node?.name),
+          id: this.codeId(filePath, name),
           score: 1 / (i + 1),
           kind: 'code' as const,
         };
       });
+      const unknownCount = out.filter((r) => r.id === 'unknown#unknown').length;
+      logQ(`${task} → query returned ${rowCount} rows, ${unknownCount}/${out.length} mapped to unknown#unknown, top=${out[0]?.id ?? '<none>'}`);
+      return out;
     }
 
     // Default fallback (no task metadata) — text retrieval semantics
@@ -307,11 +518,13 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       'search',
       { action: 'find', query: question, limit },
     )) ?? {};
-    return (result.results ?? []).map((r, i) => ({
+    const out = (result.results ?? []).map((r, i) => ({
       id: this.codeId(r.filePath, r.name),
       score: r.score ?? 1 / (i + 1),
       kind: 'code' as const,
     }));
+    logQ(`(default) → search.find returned ${result.results?.length ?? 0} results, top=${out[0]?.id ?? '<none>'}`);
+    return out;
   }
 
   private codeId(filePath: string | undefined, name: string | undefined): string {

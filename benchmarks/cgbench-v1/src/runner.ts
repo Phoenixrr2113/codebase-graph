@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import type { BenchmarkAdapter } from './adapter.js';
-import type { BenchmarkCorpus, PerQuestionResult, Question, QuestionScore, TaskLetter } from './types.js';
+import type { BenchmarkCorpus, Language, PerQuestionResult, Question, QuestionScore, TaskLetter } from './types.js';
 import { QuestionSchema } from './types.js';
 import { mrr, reciprocalRank } from './score/mrr.js';
 import { recallAtK, precisionAtK } from './score/recall.js';
@@ -21,6 +21,20 @@ export interface RunSystemArgs {
   /** Max concurrent queries. Default 3. */
   concurrency?: number;
   coldQueriesCount?: number;
+  /**
+   * Skip the adapter.ingest() phase. Use when iterating on query/scoring
+   * logic against an already-populated index — re-ingesting is wasteful and
+   * adds minutes to every iteration. Adapter must still be in a state that
+   * can answer queries (e.g. CodeGraph adapter still spawns the MCP server).
+   */
+  skipIngest?: boolean;
+  /**
+   * Restrict to questions whose `language` matches one of these. Questions
+   * without a `language` field (knowledge tasks D/E/F) are always kept.
+   * Without this filter, every Python/Go/Rust question burns an LLM call
+   * on a corpus that can't possibly match — wasteful and noisy.
+   */
+  languageFilter?: Language[];
 }
 
 export type TaskScore =
@@ -252,12 +266,56 @@ async function runOne(
  * the question is re-run. Results are dispatched in parallel (bounded by concurrency).
  */
 export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
-  const allQuestions: Question[] = readFileSync(args.questionsPath, 'utf-8')
+  const allQuestionsRaw: Question[] = readFileSync(args.questionsPath, 'utf-8')
     .split('\n')
     .filter((l) => l.trim().length > 0)
     .map((l) => QuestionSchema.parse(JSON.parse(l)));
 
-  const ingestStats = await args.adapter.ingest(args.corpus);
+  // Language filter: drop questions whose code targets a language not in the
+  // active corpus. For Tasks A/B/C the question carries a `language` field.
+  // For Task E the gold contains code IDs like "adapters.py#X" — infer language
+  // from the file extension. Tasks D/F reference only knowledge slugs (no
+  // code extension), so they pass through unfiltered.
+  function inferLanguageFromGold(gold: string[]): Language | undefined {
+    for (const id of gold) {
+      const filename = id.split('#')[0] ?? '';
+      const ext = filename.toLowerCase().match(/\.([a-z]+)$/)?.[1];
+      if (ext === 'py') return 'python';
+      if (ext === 'ts' || ext === 'tsx') return 'typescript';
+      if (ext === 'go') return 'go';
+      if (ext === 'rs') return 'rust';
+    }
+    return undefined;
+  }
+
+  const allQuestions = args.languageFilter && args.languageFilter.length > 0
+    ? allQuestionsRaw.filter((q) => {
+        const explicit = q.language;
+        const inferred = inferLanguageFromGold(q.gold);
+        const lang = explicit ?? inferred;
+        // Pass through if no detectable language (knowledge-only questions).
+        if (!lang) return true;
+        return args.languageFilter!.includes(lang);
+      })
+    : allQuestionsRaw;
+  if (allQuestions.length < allQuestionsRaw.length) {
+    console.log(
+      `[runner] filtered ${allQuestionsRaw.length - allQuestions.length} question(s) by language=[${args.languageFilter!.join(',')}], ${allQuestions.length} remain`,
+    );
+  }
+
+  let ingestStats;
+  if (args.skipIngest) {
+    // Reuse populated index. Still call attach() so the adapter can update
+    // any per-corpus state (e.g. CodeGraph configures active projects so
+    // search auto-scopes correctly even when we skip the reindex).
+    if (args.adapter.attach) {
+      await args.adapter.attach(args.corpus);
+    }
+    ingestStats = { totalDocs: 0, totalTokens: 0, durationMs: 0, diskBytesAfter: 0 };
+  } else {
+    ingestStats = await args.adapter.ingest(args.corpus);
+  }
 
   // Resume: scan existing per-question files, parse them, skip corrupt ones
   const done = scanResultsDir(args.resultsDir);

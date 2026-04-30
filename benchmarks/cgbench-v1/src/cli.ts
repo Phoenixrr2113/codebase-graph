@@ -29,6 +29,7 @@ interface ParsedRunArgs {
   questions: string;
   resultsDir: string;
   language: Language;
+  skipIngest: boolean;
 }
 
 interface ParsedRunAllArgs {
@@ -41,6 +42,7 @@ interface ParsedRunAllArgs {
   resultsDir: string;
   language: Language;
   documentFormat: DocumentFormat;
+  skipIngest: boolean;
 }
 
 type ParsedArgs = ParsedRunArgs | ParsedRunAllArgs;
@@ -92,6 +94,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       resultsDir: flags['results-dir'] ?? join(process.cwd(), 'results'),
       language,
       documentFormat: rawFormat,
+      skipIngest: flags['skip-ingest'] === 'true' || flags['skip-ingest'] === '',
     };
   }
 
@@ -126,6 +129,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     questions: flags['questions']!,
     resultsDir: flags['results-dir'] ?? join(process.cwd(), 'results'),
     language,
+    skipIngest: flags['skip-ingest'] === 'true' || flags['skip-ingest'] === '',
   };
 }
 
@@ -182,6 +186,8 @@ async function runSingle(args: ParsedRunArgs): Promise<void> {
       questionsPath: args.questions,
       resultsDir: runDir,
       coldQueriesCount: 5,
+      skipIngest: args.skipIngest,
+      languageFilter: [args.language],
     });
     writeFileSync(
       join(perSystemDir, `${args.system}.json`),
@@ -252,6 +258,8 @@ async function runAll(args: ParsedRunAllArgs): Promise<void> {
         questionsPath: tempQuestionsPath,
         resultsDir: runDir,
         coldQueriesCount: 5,
+        skipIngest: args.skipIngest,
+        languageFilter: [args.language],
       });
       const outPath = join(perSystemDir, `${system}.json`);
       writeFileSync(outPath, JSON.stringify(result, null, 2));
