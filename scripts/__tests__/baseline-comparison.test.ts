@@ -84,4 +84,18 @@ describe('findComparisonBaseline', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('skips files where meta is malformed (not an object)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'baseline-test-'));
+    try {
+      writeFileSync(join(dir, 'malformed.json'), JSON.stringify({ label: 'm', meta: 42, results: [] }));
+      writeFileSync(join(dir, 'array-meta.json'), JSON.stringify({ label: 'a', meta: [], results: [] }));
+      makeBaselineFile(dir, 'good.json', META_VOYAGE_JINA, Date.now());
+      const result = findComparisonBaseline(dir, META_VOYAGE_JINA);
+      expect(result).not.toBeNull();
+      expect(result!.path).toMatch(/good\.json$/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

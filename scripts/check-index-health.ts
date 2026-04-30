@@ -254,7 +254,13 @@ export function findComparisonBaseline(
 ): BaselineFile | null {
   const entries = readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
-    .map((f) => ({ name: f, mtime: statSync(join(dir, f)).mtimeMs }))
+    .map((f) => {
+      try {
+        return { name: f, mtime: statSync(join(dir, f)).mtimeMs };
+      } catch {
+        return { name: f, mtime: 0 };  // sort to back; will be skipped at read step
+      }
+    })
     .sort((a, b) => b.mtime - a.mtime);
 
   for (const e of entries) {
@@ -265,7 +271,9 @@ export function findComparisonBaseline(
     } catch {
       continue;  // corrupt JSON, skip
     }
-    if (!body.meta) continue;  // legacy file without metadata
+    if (!body.meta || typeof body.meta !== 'object' || Array.isArray(body.meta)) {
+      continue;  // missing or malformed meta — treat as not comparable
+    }
     if (metaMatches(body.meta, currentMeta)) {
       return { path, meta: body.meta, body };
     }
