@@ -226,4 +226,17 @@ describe('printDiffTable', () => {
     expect(text).not.toMatch(/REGRESSION/);
     expect(text).toMatch(/no regression detected/i);
   });
+
+  it('respects custom threshold for overall REGRESSION flag', () => {
+    const tinyDrop = RESULTS_BASELINE.map((r) => ({ ...r, mrr: r.mrr - 0.03 }));
+    const diff = computeDiff({ results: RESULTS_BASELINE }, { results: tinyDrop }, { threshold: 0.10 });
+    // 0.03 drop is below the strict 0.10 threshold; should NOT flag
+    const linesLoose = printDiffTable({
+      baseline: { label: 'b', timestamp: 't', meta: META_VOYAGE_JINA_FOR_DIFF, results: RESULTS_BASELINE },
+      current: { label: 'c', meta: META_VOYAGE_JINA_FOR_DIFF, results: tinyDrop },
+      diff,
+      threshold: 0.10,
+    });
+    expect(linesLoose.join('\n')).not.toMatch(/REGRESSION/);
+  });
 });

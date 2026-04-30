@@ -600,6 +600,8 @@ export interface PrintDiffOpts {
   baseline: { label: string; timestamp: string; meta: RunMeta; results: BenchmarkRow[] };
   current: { label: string; meta: RunMeta; results: BenchmarkRow[] };
   diff: DiffResult;
+  /** Regression threshold used in the diff. Defaults to 0.05 if not provided. */
+  threshold?: number;
 }
 
 export function printDiffTable(opts: PrintDiffOpts): string[] {
@@ -618,14 +620,18 @@ export function printDiffTable(opts: PrintDiffOpts): string[] {
   const curAvg = (pick: (r: BenchmarkRow) => number): number =>
     current.results.length > 0 ? current.results.reduce((s, r) => s + pick(r), 0) / current.results.length : 0;
 
-  const flagOverall = (delta: number): string => (delta < -0.05 ? '  ⚠ REGRESSION' : '');
+  const threshold = opts.threshold ?? 0.05;
+  const flagOverall = (delta: number): string => (delta < -threshold ? '  ⚠ REGRESSION' : '');
 
   lines.push(`                         baseline    current     Δ`);
   lines.push(`Overall MRR              ${fmt(baseAvg((r) => r.mrr))}       ${fmt(curAvg((r) => r.mrr))}      ${fmtDelta(diff.overallMrrDelta)}${flagOverall(diff.overallMrrDelta)}`);
   lines.push(`Overall NDCG@5           ${fmt(baseAvg((r) => r.ndcg5))}       ${fmt(curAvg((r) => r.ndcg5))}      ${fmtDelta(diff.overallNdcg5Delta)}${flagOverall(diff.overallNdcg5Delta)}`);
   lines.push(`Overall S@1              ${fmt(baseAvg((r) => (r.success1 ? 1 : 0)))}       ${fmt(curAvg((r) => (r.success1 ? 1 : 0)))}      ${fmtDelta(diff.overallS1Delta)}${flagOverall(diff.overallS1Delta)}`);
   lines.push(`Overall S@5              ${fmt(baseAvg((r) => (r.success5 ? 1 : 0)))}       ${fmt(curAvg((r) => (r.success5 ? 1 : 0)))}      ${fmtDelta(diff.overallS5Delta)}${flagOverall(diff.overallS5Delta)}`);
-  lines.push(`Latency p50              ${baseline.results.length > 0 ? Math.round(baseline.results.reduce((s, r) => s + r.latencyMs, 0) / baseline.results.length) : 0}ms       ${current.results.length > 0 ? Math.round(current.results.reduce((s, r) => s + r.latencyMs, 0) / current.results.length) : 0}ms      ${diff.latencyP50Delta >= 0 ? '+' : ''}${Math.round(diff.latencyP50Delta)}ms`);
+  const baseLatency = Math.round(median(baseline.results.map((r) => r.latencyMs)));
+  const curLatency = Math.round(median(current.results.map((r) => r.latencyMs)));
+  const latencyDelta = diff.latencyP50Delta >= 0 ? `+${Math.round(diff.latencyP50Delta)}` : `${Math.round(diff.latencyP50Delta)}`;
+  lines.push(`Latency p50              ${baseLatency}ms       ${curLatency}ms      ${latencyDelta}ms`);
 
   if (diff.perCategory.length > 0) {
     lines.push('');
