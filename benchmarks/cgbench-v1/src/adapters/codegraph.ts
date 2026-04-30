@@ -88,6 +88,14 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       translatedEnv['FALKORDB_PORT'] = cgbenchPort;
     }
 
+    // Unique graph name per run prevents cross-run pollution. Without this,
+    // every cgbench run writes to the default 'codegraph' graph in
+    // cgbench-falkordb, accumulating nodes from prior corpora that never get
+    // re-embedded. Result: vector search returns 0 because the labels it
+    // queries against have stale/missing embeddings. dataDir is mkdtempSync-
+    // generated and unique per run, so basename(dataDir) is collision-safe.
+    translatedEnv['FALKORDB_GRAPH'] = process.env['FALKORDB_GRAPH'] ?? basename(this.dataDir);
+
     // Resolve the embedding provider once and derive its required vector dim.
     // The user's .env may carry a stale CODEGRAPH_EMBEDDING_DIM (e.g. 1024 from
     // a prior Voyage configuration). If we let that leak through to the MCP
