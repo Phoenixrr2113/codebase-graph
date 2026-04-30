@@ -127,6 +127,8 @@ function makeEntities(): ParsedFileEntities {
   const classId = 'Class:/src/entity-id-test.ts:TestClass:15';
   const ifaceId = 'Interface:/src/entity-id-test.ts:TestInterface:30';
   const varId = 'Variable:/src/entity-id-test.ts:testVar:40';
+  const callerVarId = 'Variable:/src/entity-id-test.ts:zodChecker:50';
+  const calleeFnId = 'Function:/src/entity-id-test.ts:floatSafeRemainder:60';
   const typeRefId = 'TypeRef:string';
 
   return {
@@ -134,14 +136,26 @@ function makeEntities(): ParsedFileEntities {
     functions: [
       makeFunction(fnId, 'testFn', 1),
       makeFunction(methodId, 'myMethod', 20),
+      makeFunction(calleeFnId, 'floatSafeRemainder', 60),
     ],
     classes: [makeClass(classId, 'TestClass', 15)],
     interfaces: [makeInterface(ifaceId, 'TestInterface', 30)],
-    variables: [makeVariable(varId, 'testVar', 40)],
+    variables: [
+      makeVariable(varId, 'testVar', 40),
+      makeVariable(callerVarId, 'zodChecker', 50),
+    ],
     types: [],
     components: [],
     imports: [],
-    callEdges: [],
+    callEdges: [
+      {
+        callerId: callerVarId,
+        calleeId: calleeFnId,
+        line: 55,
+        callerKind: 'Variable',
+        via: 'closure',
+      },
+    ],
     importsEdges: [],
     extendsEdges: [],
     implementsEdges: [],
@@ -263,6 +277,15 @@ describeIfAvailable('Entity id persistence (FalkorDBLite)', () => {
         `MATCH ()-[r:USES_TYPE]->() RETURN count(r) AS count`
       );
       expect(result.data[0]?.count).toBeGreaterThan(0);
+    });
+
+    it('Variable-caller CALLS edge persists with via=closure', async () => {
+      const result = await client.roQuery<{ via: string; count: number }>(
+        `MATCH (v:Variable {name: 'zodChecker'})-[c:CALLS]->(f:Function {name: 'floatSafeRemainder'})
+         RETURN c.via AS via, c.count AS count`
+      );
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0]).toEqual({ via: 'closure', count: 1 });
     });
   });
 
