@@ -526,6 +526,33 @@ function main() { unknownLibFn(); }
     expect(ref).toBeDefined();
     expect(ref!.calleeFilePath).toBeUndefined();
   });
+
+  it('namespace-member call resolves through namespace import', () => {
+    // `import * as util from './util'` then `util.bar()` — bar is not an
+    // imported symbol, but util is a namespace alias whose source is './util'.
+    // The extractor should resolve the call through the namespace.
+    const code = `
+import * as util from './util';
+function f() { util.bar(); }
+`;
+    const rootNode = parseCode(code);
+    const functions = extractFunctions(rootNode, '/project/x.ts');
+    const namespaceImport = {
+      id: 'imp-ns',
+      source: './util',
+      filePath: '/project/x.ts',
+      isDefault: false,
+      isNamespace: true,
+      namespaceAlias: 'util',
+      specifiers: [],
+      resolvedPath: '/project/util.ts',
+    };
+    const calls = extractCalls(rootNode, '/project/x.ts', functions, [namespaceImport]);
+
+    const ref = calls.find(c => c.calleeName === 'bar');
+    expect(ref).toBeDefined();
+    expect(ref!.calleeFilePath).toBe('/project/util.ts');
+  });
 });
 
 // ==========================================================================

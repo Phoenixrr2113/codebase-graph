@@ -83,13 +83,13 @@ exports[`extractCalls — attribution snapshots > redux-reducer.ts 1`] = `
 exports[`extractCalls — attribution snapshots > zod-style-factory.ts 1`] = `
 [
   {
-    "calleeFilePath": undefined,
+    "calleeFilePath": "<fixture-dir>/util.ts",
     "calleeName": "floatSafeRemainder",
     "callerFilePath": "<fixture>",
     "callerKind": "Variable",
     "callerName": "$ZodCheckMultipleOf",
-    "callerStartLine": 11,
-    "line": 15,
+    "callerStartLine": 13,
+    "line": 17,
     "via": "closure",
   },
 ]

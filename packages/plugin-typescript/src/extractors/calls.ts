@@ -58,7 +58,7 @@ export function extractCalls(
 ): CallReference[] {
   const calls: CallReference[] = [];
   const localFunctions = new Map(functions.map((f) => [f.name, f]));
-  const importedSymbols = buildImportMap(imports);
+  const { symbols: importedSymbols, namespaces: importedNamespaces } = buildImportMaps(imports);
 
   // Iterate every call_expression in the tree (one walk).
   const callNodes = findNodesOfTypes(rootNode, ['call_expression']);
@@ -66,7 +66,7 @@ export function extractCalls(
   for (const callNode of callNodes) {
     const callInfo = parseCallExpression(callNode);
     if (!callInfo) continue;
-    const { calleeName, line } = callInfo;
+    const { calleeName, namespaceLhs, line } = callInfo;
 
     // Resolve callee file. Skip externals unless requested.
     let calleeFilePath: string | undefined;
@@ -74,6 +74,10 @@ export function extractCalls(
       calleeFilePath = filePath;
     } else if (importedSymbols.has(calleeName)) {
       calleeFilePath = importedSymbols.get(calleeName);
+    } else if (namespaceLhs && importedNamespaces.has(namespaceLhs)) {
+      // Member-access call through a namespace import: `util.floatSafeRemainder()`
+      // Resolve through the namespace's source file.
+      calleeFilePath = importedNamespaces.get(namespaceLhs);
     }
     if (!calleeFilePath && !includeExternals) continue;
 
@@ -97,38 +101,73 @@ export function extractCalls(
   return calls;
 }
 
-/** Build a map of imported symbol names to their resolved file paths. */
-function buildImportMap(imports: ImportEntity[]): Map<string, string | undefined> {
-  const map = new Map<string, string | undefined>();
+/**
+ * Build two import maps from a file's imports:
+ * - `symbols`: any locally-bound import name → its resolved source file path.
+ *   Includes default aliases, namespace aliases (so `util` itself resolves),
+ *   and all named specifiers.
+ * - `namespaces`: only namespace aliases → resolved file path. Used to resolve
+ *   member-access calls like `util.floatSafeRemainder()` whose property name
+ *   isn't a known imported symbol but whose LHS is a namespace import.
+ */
+function buildImportMaps(imports: ImportEntity[]): {
+  symbols: Map<string, string | undefined>;
+  namespaces: Map<string, string | undefined>;
+} {
+  const symbols = new Map<string, string | undefined>();
+  const namespaces = new Map<string, string | undefined>();
   for (const imp of imports) {
-    if (imp.isDefault && imp.defaultAlias) map.set(imp.defaultAlias, imp.resolvedPath);
-    if (imp.isNamespace && imp.namespaceAlias) map.set(imp.namespaceAlias, imp.resolvedPath);
+    if (imp.isDefault && imp.defaultAlias) symbols.set(imp.defaultAlias, imp.resolvedPath);
+    if (imp.isNamespace && imp.namespaceAlias) {
+      symbols.set(imp.namespaceAlias, imp.resolvedPath);
+      namespaces.set(imp.namespaceAlias, imp.resolvedPath);
+    }
     for (const spec of imp.specifiers) {
       const localName = spec.alias || spec.name;
-      map.set(localName, imp.resolvedPath);
+      symbols.set(localName, imp.resolvedPath);
     }
   }
-  return map;
+  return { symbols, namespaces };
 }
 
-/** Parse a call_expression node to extract callee info. */
-function parseCallExpression(node: Parser.SyntaxNode): { calleeName: string; line: number } | null {
+/**
+ * Parse a call_expression node to extract callee info.
+ *
+ * For member-expression callees like `util.foo()`, the LHS identifier is
+ * captured as `namespaceLhs` so the extractor can resolve the call through
+ * a namespace import (`import * as util from './util'`). The LHS is only
+ * surfaced when it's a plain identifier — chained property accesses
+ * (`a.b.foo()`) are out of scope for v1.
+ */
+function parseCallExpression(node: Parser.SyntaxNode): {
+  calleeName: string;
+  namespaceLhs?: string;
+  line: number;
+} | null {
   const funcNode = node.childForFieldName('function');
   if (!funcNode) return null;
 
   let calleeName: string | undefined;
+  let namespaceLhs: string | undefined;
   if (funcNode.type === 'identifier') {
     calleeName = funcNode.text;
   } else if (funcNode.type === 'member_expression') {
     const property = funcNode.childForFieldName('property');
     if (property?.type === 'property_identifier') calleeName = property.text;
+    const object = funcNode.childForFieldName('object');
+    if (object?.type === 'identifier') namespaceLhs = object.text;
   } else if (funcNode.type === 'call_expression') {
     return null; // chained call expressions — out of scope for v1
   }
 
   if (!calleeName || isBuiltinOrCommon(calleeName)) return null;
 
-  return { calleeName, line: node.startPosition.row + 1 };
+  const result: { calleeName: string; namespaceLhs?: string; line: number } = {
+    calleeName,
+    line: node.startPosition.row + 1,
+  };
+  if (namespaceLhs) result.namespaceLhs = namespaceLhs;
+  return result;
 }
 
 /** Pre-built set of builtin/common names to skip (allocated once, not per call). */

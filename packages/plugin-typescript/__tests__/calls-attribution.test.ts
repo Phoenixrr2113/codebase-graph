@@ -58,10 +58,19 @@ describe('extractCalls — attribution snapshots', () => {
       const calls = extractCalls(root, filePath, functions, imports, /* includeExternals */ true);
 
       // Strip absolute paths to make snapshots portable across machines.
+      // Replace the fixture file's own path with '<fixture>' and any other
+      // fixture-dir paths with '<fixture-dir>/<basename>' (e.g., calls that
+      // resolved through namespace imports to sibling fixture files).
+      const portablePath = (p: string | undefined): string | undefined => {
+        if (!p) return p;
+        if (p === filePath) return '<fixture>';
+        if (p.startsWith(FIXTURE_DIR + '/')) return '<fixture-dir>/' + p.slice(FIXTURE_DIR.length + 1);
+        return p;
+      };
       const portable = calls.map((c) => ({
         ...c,
-        callerFilePath: c.callerFilePath.replace(filePath, '<fixture>'),
-        calleeFilePath: c.calleeFilePath?.replace(filePath, '<fixture>'),
+        callerFilePath: portablePath(c.callerFilePath)!,
+        calleeFilePath: portablePath(c.calleeFilePath),
       }));
 
       expect(portable).toMatchSnapshot();

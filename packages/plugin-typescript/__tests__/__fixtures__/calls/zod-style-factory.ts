@@ -1,8 +1,10 @@
 // Models zod's $ZodCheckMultipleOf — the case that motivated this whole fix.
-// Expected attribution: Variable $ZodCheckMultipleOf calls floatSafeRemainder (closure).
+// Expected attribution: Variable $ZodCheckMultipleOf calls floatSafeRemainder (closure)
+// AND the call resolves through the `util` namespace import to './util.js'.
+
+import * as util from './util.js';
 
 declare function $constructor<T>(name: string, init: (inst: T, def: unknown) => void): T;
-declare const util: { floatSafeRemainder: (a: number, b: number) => number };
 
 interface ZodCheck {
   _zod: { check: (payload: { value: number }) => void };
