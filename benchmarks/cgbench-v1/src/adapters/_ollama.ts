@@ -54,7 +54,11 @@ question references a file by short name, match with CONTAINS instead:
   WHERE node.filePath CONTAINS '/util.ts'   (anchor with leading slash)
 
 LABEL DISCIPLINE — read the question carefully:
-- "functions that call X" → \`(caller:Function)-[:CALLS]->(...)\`
+- "functions that call X" → \`(caller)-[:CALLS]->(...)\`
+  (CodeGraph stores \`export const X = () => {...}\` as a :Variable node, not
+  :Function — these are still "functions" in the user's mental model. Drop
+  the source-label filter so the query catches both :Function and Variable-
+  with-function-value callers.)
 - "classes that call X" / "constructors that call X" → \`(caller)-[:CALLS]->(...)\`
   (omit the label so Class/Interface/Variable nodes are not filtered out)
 - "classes that extend X" → \`(c:Class)-[:EXTENDS]->(...)\`
@@ -72,7 +76,9 @@ LIMIT 50 unless the question implies otherwise.
 
 Examples:
   // "functions that call send in sessions.py"
-  MATCH (caller:Function)-[:CALLS]->(target:Function {name: 'send'})
+  // No source-label filter — catches both :Function declarations and
+  // :Variable nodes initialised with arrow functions.
+  MATCH (caller)-[:CALLS]->(target:Function {name: 'send'})
   WHERE target.filePath CONTAINS '/sessions.py'
   RETURN caller LIMIT 50
 
