@@ -151,6 +151,27 @@ export async function checkEmbeddingDim(
   return { name, status: 'pass', message: `Embedding dim ${actualDim} matches provider ${provider}` };
 }
 
+export async function checkScriptsExclusion(client: GraphClient): Promise<CheckResult> {
+  const name = 'scripts-excluded';
+  const result = await client.query<{ leaked: number }>(
+    `MATCH (n) WHERE n.filePath STARTS WITH 'scripts/' RETURN count(n) AS leaked`,
+    { params: {} },
+  );
+  const leaked = result.data[0]?.leaked ?? 0;
+  if (leaked === 0) {
+    return { name, status: 'pass', message: 'scripts/ correctly excluded from index' };
+  }
+  return {
+    name,
+    status: 'fail',
+    message: `scripts/ leaked into the index (${leaked} nodes). Pollutes benchmark MRR by ~0.05.`,
+    fix:
+      `Reindex with scripts/ excluded (see docs/regression-analysis-2026-03-19.md "Operational requirement"):\n` +
+      `  rm -rf .codegraph\n` +
+      `  npx tsx scripts/clear-and-reindex.mts`,
+  };
+}
+
 export async function checkEmbeddingCoverage(
   client: GraphClient,
   labels: string[],

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { checkIndexHealth, type HealthCheckResult } from '../check-index-health.js';
-import { checkFalkorDBReachable, checkEmbeddingDim } from '../check-index-health.js';
+import { checkFalkorDBReachable, checkEmbeddingDim, checkScriptsExclusion } from '../check-index-health.js';
 import { createClient } from '../../packages/graph/dist/index.js';
 import { randomBytes } from 'node:crypto';
 
@@ -128,5 +128,48 @@ describe('Check 3: Embedding coverage per label', () => {
     const result = await checkEmbeddingCoverage(client, ['Class']);
     expect(result.status).toBe('warn');
     expect(result.message).toMatch(/Class.*2\/3/);
+  });
+});
+
+describe('Check 4: scripts/ excluded', () => {
+  const tempGraph = `scripts-excl-test-${randomBytes(4).toString('hex')}`;
+  let client: Awaited<ReturnType<typeof createClient>>;
+
+  beforeAll(async () => {
+    client = await createClient({
+      driver: 'falkordb',
+      host: process.env['FALKORDB_HOST'] ?? 'localhost',
+      port: Number(process.env['FALKORDB_PORT'] ?? '6379'),
+      graphName: tempGraph,
+    });
+  });
+
+  afterAll(async () => {
+    await client.graph?.delete().catch(() => undefined);
+    await client.close();
+  });
+
+  afterEach(async () => {
+    await client.query('MATCH (n) DETACH DELETE n', { params: {} });
+  });
+
+  it('passes when no scripts/ nodes exist', async () => {
+    await client.query(
+      'CREATE (:Function {filePath: "packages/core/src/foo.ts", name: "foo"})',
+      { params: {} },
+    );
+    const result = await checkScriptsExclusion(client);
+    expect(result.status).toBe('pass');
+  });
+
+  it('fails with fix message when scripts/ nodes leak in', async () => {
+    await client.query(
+      'CREATE (:Function {filePath: "scripts/benchmark-search.ts", name: "calculateMRR"}), (:Function {filePath: "scripts/foo.ts", name: "bar"})',
+      { params: {} },
+    );
+    const result = await checkScriptsExclusion(client);
+    expect(result.status).toBe('fail');
+    expect(result.message).toMatch(/2 nodes/);
+    expect(result.fix).toMatch(/regression-analysis-2026-03-19/);
   });
 });
