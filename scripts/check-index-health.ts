@@ -3,6 +3,8 @@
  * See docs/superpowers/specs/2026-04-30-search-benchmark-regression-detection-design.md
  */
 
+import { randomBytes } from 'node:crypto';
+
 export type CheckStatus = 'pass' | 'warn' | 'fail';
 
 export interface CheckResult {
@@ -54,7 +56,7 @@ export async function checkFalkorDBReachable(conn: FalkorConnInfo): Promise<Chec
     };
   }
 
-  const tempGraph = `_healthcheck_${Math.random().toString(36).slice(2, 10)}`;
+  const tempGraph = `_healthcheck_${randomBytes(4).toString('hex')}`;
   let client: Awaited<ReturnType<typeof createClient>> | null = null;
   try {
     client = await createClient({
@@ -66,7 +68,7 @@ export async function checkFalkorDBReachable(conn: FalkorConnInfo): Promise<Chec
     // GRAPH.QUERY only succeeds if the FalkorDB module is loaded. Plain Redis
     // returns "ERR unknown command", which createClient may swallow into a
     // generic error — so we run a real query to verify.
-    await client.query('RETURN 1 AS ok');
+    await client.query('RETURN 1 AS ok', { params: {} });
     return {
       name,
       status: 'pass',
@@ -85,7 +87,7 @@ export async function checkFalkorDBReachable(conn: FalkorConnInfo): Promise<Chec
     };
   } finally {
     if (client) {
-      try { await client.query('MATCH (n) DETACH DELETE n'); } catch { /* graph may not exist */ }
+      try { await client.graph?.delete(); } catch { /* graph may not exist */ }
       try { await client.close(); } catch { /* best-effort */ }
     }
   }
