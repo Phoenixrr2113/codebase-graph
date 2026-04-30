@@ -473,6 +473,7 @@ export function checkBaselineConfigMatches(opts: BaselineConfigMatchOpts): Check
 export function findComparisonBaseline(
   dir: string,
   currentMeta: RunMeta,
+  excludePath?: string,
 ): BaselineFile | null {
   let rawEntries: string[];
   try {
@@ -493,6 +494,7 @@ export function findComparisonBaseline(
 
   for (const e of entries) {
     const path = join(dir, e.name);
+    if (excludePath !== undefined && path === excludePath) continue;  // caller's own run — not a comparable baseline
     let body: { meta?: RunMeta };
     try {
       body = JSON.parse(readFileSync(path, 'utf-8'));

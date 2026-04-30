@@ -98,6 +98,30 @@ describe('findComparisonBaseline', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('skips the excludePath even when it is the most recent match', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'baseline-test-'));
+    try {
+      makeBaselineFile(dir, 'older.json', META_VOYAGE_JINA, Date.now() - 60000);
+      makeBaselineFile(dir, 'newer.json', META_VOYAGE_JINA, Date.now() - 1000);
+      const result = findComparisonBaseline(dir, META_VOYAGE_JINA, join(dir, 'newer.json'));
+      expect(result).not.toBeNull();
+      expect(result!.path).toMatch(/older\.json$/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns null when excludePath is the only match', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'baseline-test-'));
+    try {
+      makeBaselineFile(dir, 'only.json', META_VOYAGE_JINA, Date.now());
+      const result = findComparisonBaseline(dir, META_VOYAGE_JINA, join(dir, 'only.json'));
+      expect(result).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 const RESULTS_BASELINE: BenchmarkRow[] = [

@@ -1030,7 +1030,7 @@ async function main() {
             return null;
           }
         })()
-      : findComparisonBaseline(baselineDir, meta);
+      : findComparisonBaseline(baselineDir, meta, filepath);
 
     if (baseline === null) {
       console.log('\n  No comparable baseline found — this run becomes the new reference.');
