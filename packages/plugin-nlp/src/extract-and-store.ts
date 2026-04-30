@@ -68,6 +68,21 @@ export interface ExtractAndStoreConfig {
    *  checks for existing relationships between the same entities and uses LLM to
    *  detect contradictions. Superseded edges get invalid_at set. Default: false. */
   conflictResolution?: boolean;
+
+  /**
+   * Document-authored timestamp (ms since epoch) to attach to every
+   * relationship extracted from this text. Use this to override the
+   * default of `Date.now()` when ingesting documents whose authoritative
+   * time is something other than ingest time — e.g. meeting notes dated
+   * 2025-12-10 but ingested today, retrospectives covering past periods.
+   * Without this, point-in-time queries (`recall { at }`) reject every
+   * relationship whose `valid_at` is in the future relative to the query
+   * timestamp, which silently breaks Task D and any other temporal
+   * benchmark on backfilled corpora.
+   * Propagated from `documentIngestion.add()` after parsing the source's
+   * frontmatter `valid_at` (or equivalent) field.
+   */
+  validAt?: number;
 }
 
 export interface ExtractAndStoreResult {
@@ -161,6 +176,7 @@ export async function extractAndStore(
       sampleId: string;
       forgetAfter?: string | null;
       forgetReason?: string | null;
+      validAt?: number;
     } = {
       headText: head?.text ?? '',
       headType: head?.type ?? 'Concept',
@@ -172,6 +188,9 @@ export async function extractAndStore(
     };
     if (r.forgetAfter != null) rel.forgetAfter = r.forgetAfter;
     if (r.forgetReason != null) rel.forgetReason = r.forgetReason;
+    // Caller-provided document-authored time; falls through to Date.now()
+    // inside importEntitiesAndRelationships when undefined.
+    if (config.validAt != null) rel.validAt = config.validAt;
     return rel;
   }).filter((r) => r.headText && r.tailText);
 

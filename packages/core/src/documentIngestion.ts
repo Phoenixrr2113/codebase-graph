@@ -120,6 +120,18 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
       const result = await loader.extract(input);
       text = result.text;
       metadata = result.metadata;
+    } else if (ext === 'md' || ext === 'markdown') {
+      // Markdown files: use the plugin-markdown parser so frontmatter
+      // (including bitemporal fields like valid_at) flows through to the
+      // extracted relationships. Without this, every relationship gets
+      // valid_at = ingest-time, breaking point-in-time queries that
+      // expect the document's authored date.
+      const { readFile } = await import('node:fs/promises');
+      const raw = await readFile(input, 'utf-8');
+      const md = await import('@codegraph/plugin-markdown');
+      const parsed = await md.parseMarkdown(raw);
+      text = parsed.content;
+      metadata = { ...parsed.frontmatter, format: 'md' };
     } else {
       // No specialized loader — read as plain text
       const { readFile } = await import('node:fs/promises');
@@ -236,6 +248,17 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
     config.sampleId = options.source;
   }
 
+  // Propagate document-level temporal metadata (`valid_at` from YAML
+  // frontmatter, or ISO date in raw text) to every relationship the
+  // extractor emits from this document. Without this, relationships
+  // get valid_at = Date.now() (ingest time), so point-in-time queries
+  // like "what was true on 2025-12-15?" reject documents authored at
+  // that time but ingested today.
+  const docValidAtMs = parseDocValidAt(metadata);
+  if (docValidAtMs != null) {
+    config.validAt = docValidAtMs;
+  }
+
   for (const chunk of chunks) {
     try {
       const result = extractor
@@ -259,4 +282,37 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
     metadata,
     source: options?.source ?? null,
   };
+}
+
+/**
+ * Pull the document's authoritative `valid_at` timestamp from parsed
+ * metadata, returning ms-since-epoch or null if no usable value is
+ * present. Looks for common frontmatter keys (`valid_at`, `validAt`,
+ * `validFrom`, `effective_date`, `date`) and accepts either a Date
+ * instance (gray-matter parses ISO 8601 dates as Date objects under
+ * the default schema) or a parseable string.
+ *
+ * Returns null on missing or malformed values — callers fall back to
+ * Date.now() for the relationship's valid_at, which is the prior
+ * behavior.
+ */
+function parseDocValidAt(metadata: Record<string, unknown>): number | null {
+  const candidates = ['valid_at', 'validAt', 'validFrom', 'effective_date', 'date'];
+  for (const key of candidates) {
+    const v = metadata[key];
+    if (v == null) continue;
+    if (v instanceof Date) {
+      const ms = v.getTime();
+      if (!isNaN(ms)) return ms;
+    }
+    if (typeof v === 'string') {
+      const ms = new Date(v).getTime();
+      if (!isNaN(ms)) return ms;
+    }
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      // Heuristic: 10-digit values are seconds, 13-digit are ms
+      return v < 1e12 ? v * 1000 : v;
+    }
+  }
+  return null;
 }

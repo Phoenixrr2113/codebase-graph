@@ -12,7 +12,7 @@
  * - get_knowledge_stats: Memory statistics (counts, relevance, age)
  */
 
-import { knowledgeService, getKnowledgeOps } from '@codegraph/core';
+import { knowledgeService, getKnowledgeOps, getGraphClient } from '@codegraph/core';
 import { generateEmbedding, isEmbeddingAvailable } from '@codegraph/plugin-nlp';
 import { createLogger, toErrorMessage } from '@codegraph/logger';
 import type { ToolDefinition } from './router';
@@ -138,6 +138,15 @@ export const queryKnowledgeToolDefinition: ToolDefinition = {
       searchFacts: {
         type: 'string',
         description: 'Semantic search on relationship facts/explanations (not entity names). Finds relationships by meaning, e.g. "who decided to use JWT?" searches the fact embeddings on RELATES_TO edges.',
+      },
+      at: {
+        type: 'string',
+        description:
+          'ISO timestamp for point-in-time filtering. When combined with `semanticQuery`, ' +
+          'restricts results to entities that have at least one RELATES_TO edge active at ' +
+          'this moment (valid_at <= at < invalid_at). Use for queries like "what was true ' +
+          'about X on 2025-12-15?". Without this, semantic search returns the closest match ' +
+          'across all time.',
       },
       limit: {
         type: 'number',
@@ -407,7 +416,11 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
       try {
         const { embedding } = await generateEmbedding(semanticQuery);
         const kgOps = await getKnowledgeOps();
-        const vectorResults = await kgOps.searchEntitiesByVector(embedding, limit);
+        // When `at` is set, fetch a wider candidate pool because the
+        // temporal filter will drop a portion of them. 4× is heuristic;
+        // gives recall headroom without blowing query time.
+        const fetchLimit = args.at != null ? limit * 4 : limit;
+        const vectorResults = await kgOps.searchEntitiesByVector(embedding, fetchLimit);
 
         // Also do text search if textContains was provided
         let textResults: typeof vectorResults = [];
@@ -418,12 +431,42 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
           textResults = await knowledgeService.queryKnowledge(textQuery);
         }
 
+        // Temporal filter (point-in-time): restrict to entities with at
+        // least one RELATES_TO edge active at the given moment. Implemented
+        // here rather than in searchEntitiesByVector because the vector
+        // index is global; layering the filter at the result level keeps
+        // the index hot and avoids per-query Cypher complexity.
+        let activeIdSet: Set<string> | null = null;
+        if (args.at != null) {
+          const at = new Date(args.at as string).getTime();
+          if (!Number.isNaN(at)) {
+            const candidateIds = [...new Set([
+              ...vectorResults.map(e => e.id),
+              ...textResults.map(e => e.id),
+            ])];
+            if (candidateIds.length > 0) {
+              const client = await getGraphClient();
+              const activeRows = await client.roQuery<{ id: string }>(
+                `UNWIND $ids AS entityId
+                 MATCH (e:Entity {id: entityId})-[r:RELATES_TO]-(:Entity)
+                 WHERE r.valid_at <= $at AND (r.invalid_at IS NULL OR r.invalid_at > $at)
+                 RETURN DISTINCT e.id AS id`,
+                { params: { ids: candidateIds, at } },
+              );
+              activeIdSet = new Set(activeRows.data.map(r => r.id));
+            } else {
+              activeIdSet = new Set<string>();
+            }
+          }
+        }
+
         // Merge results (dedup by id). sampleIds preserves provenance — which
         // document(s) each entity came from — so callers can map results back
         // to source identifiers.
         const seen = new Set<string>();
         const merged = [];
         for (const e of vectorResults) {
+          if (activeIdSet && !activeIdSet.has(e.id)) continue;
           seen.add(e.id);
           merged.push({
             id: e.id,
@@ -438,6 +481,7 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
           });
         }
         for (const e of textResults) {
+          if (activeIdSet && !activeIdSet.has(e.id)) continue;
           if (!seen.has(e.id)) {
             merged.push({
               id: e.id,
@@ -453,7 +497,12 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
           }
         }
 
-        return { count: merged.length, entities: merged.slice(0, limit), semantic: true };
+        return {
+          count: merged.length,
+          entities: merged.slice(0, limit),
+          semantic: true,
+          ...(args.at != null ? { at: args.at, temporalFiltered: true } : {}),
+        };
       } catch (err) {
         logger.warn(`Semantic search failed, falling back to text: ${err}`);
         // Fall through to text search below
