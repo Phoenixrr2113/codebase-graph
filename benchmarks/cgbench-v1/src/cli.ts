@@ -57,6 +57,22 @@ function parseFlags(argv: string[], startIdx: number): Record<string, string> {
   return flags;
 }
 
+/**
+ * Resolve --document-corpus: use the explicit flag if provided, otherwise
+ * auto-detect `<cwd>/documents/rendered/<format>/` (created by `pnpm bench:render-docs`).
+ * Without this fallback, Task F questions silently score 0 when an operator
+ * forgets the flag — the document entities never get ingested.
+ */
+function resolveDocumentCorpus(explicit: string | undefined, format: string): string | undefined {
+  if (explicit !== undefined) return explicit;
+  const autoPath = join(process.cwd(), 'documents', 'rendered', format);
+  if (existsSync(autoPath)) {
+    console.log(`[cli] auto-detected --document-corpus=${autoPath} (pass --document-corpus to override)`);
+    return autoPath;
+  }
+  return undefined;
+}
+
 function parseArgs(argv: string[]): ParsedArgs {
   const command = argv[2];
 
@@ -84,12 +100,13 @@ function parseArgs(argv: string[]): ParsedArgs {
     const systems = flags['systems']!.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
     if (systems.length === 0) throw new Error('--systems must list at least one system');
     const language = LanguageSchema.parse(flags['language'] ?? 'typescript');
+    const documentCorpus = resolveDocumentCorpus(flags['document-corpus'], rawFormat);
     return {
       command: 'run-all',
       systems,
       codeCorpus: flags['code-corpus']!,
       ...(flags['knowledge-corpus'] !== undefined ? { knowledgeCorpus: flags['knowledge-corpus'] } : {}),
-      ...(flags['document-corpus'] !== undefined ? { documentCorpus: flags['document-corpus'] } : {}),
+      ...(documentCorpus !== undefined ? { documentCorpus } : {}),
       questionsDir: flags['questions-dir']!,
       resultsDir: flags['results-dir'] ?? join(process.cwd(), 'results'),
       language,
@@ -120,11 +137,12 @@ function parseArgs(argv: string[]): ParsedArgs {
     throw new Error(`--format must be one of: ${DOCUMENT_FORMATS.join(', ')} (got: ${rawFormat})`);
   }
   const language = LanguageSchema.parse(flags['language'] ?? 'typescript');
+  const documentCorpus = resolveDocumentCorpus(flags['document-corpus'], rawFormat);
   return {
     command: 'run',
     system: flags['system']!,
     corpus: flags['corpus']!,
-    ...(flags['document-corpus'] !== undefined ? { documentCorpus: flags['document-corpus'] } : {}),
+    ...(documentCorpus !== undefined ? { documentCorpus } : {}),
     documentFormat: rawFormat,
     questions: flags['questions']!,
     resultsDir: flags['results-dir'] ?? join(process.cwd(), 'results'),
