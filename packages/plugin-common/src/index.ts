@@ -97,3 +97,13 @@ export function createGrammarHelpers(extensionToGrammar: Record<string, unknown>
   return { getGrammarForExtension, getSupportedExtensions, isSupported };
 }
 
+// ============================================================================
+// AST attribution (TypeScript-specific for now)
+// ============================================================================
+
+export {
+  findEnclosingNamedEntity,
+  type EnclosingEntity,
+  type EnclosingKind,
+} from './findEnclosingNamedEntity';
+
