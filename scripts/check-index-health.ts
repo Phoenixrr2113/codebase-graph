@@ -150,3 +150,33 @@ export async function checkEmbeddingDim(
   }
   return { name, status: 'pass', message: `Embedding dim ${actualDim} matches provider ${provider}` };
 }
+
+export async function checkEmbeddingCoverage(
+  client: GraphClient,
+  labels: string[],
+): Promise<CheckResult> {
+  const name = 'embedding-coverage';
+  const issues: string[] = [];
+  for (const label of labels) {
+    const result = await client.query<{ total: number; without: number }>(
+      `MATCH (n:${label})
+       WITH count(n) AS total, count(CASE WHEN n.embedding IS NULL THEN 1 END) AS without
+       RETURN total, without`,
+      { params: {} },
+    );
+    const row = result.data[0];
+    if (!row || row.total === 0) continue;
+    const missingPct = row.without / row.total;
+    if (missingPct > 0.1) {
+      issues.push(`${label}: ${row.without}/${row.total} nodes missing embeddings`);
+    }
+  }
+  if (issues.length === 0) {
+    return { name, status: 'pass', message: 'All checked labels have full embedding coverage' };
+  }
+  return {
+    name,
+    status: 'warn',
+    message: `Partial embedding coverage: ${issues.join('; ')}. Possible causes: partial reindex, plugin that didn't flush, or label intentionally not embedded.`,
+  };
+}

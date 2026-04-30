@@ -83,3 +83,50 @@ describe('Check 2: Embedding dim matches', () => {
     expect(result.message).toMatch(/no embeddings/i);
   });
 });
+
+import { checkEmbeddingCoverage } from '../check-index-health.js';
+
+describe('Check 3: Embedding coverage per label', () => {
+  const tempGraph = `cov-test-${randomBytes(4).toString('hex')}`;
+  let client: Awaited<ReturnType<typeof createClient>>;
+
+  beforeAll(async () => {
+    client = await createClient({
+      driver: 'falkordb',
+      host: process.env['FALKORDB_HOST'] ?? 'localhost',
+      port: Number(process.env['FALKORDB_PORT'] ?? '6379'),
+      graphName: tempGraph,
+    });
+  });
+
+  afterAll(async () => {
+    await client.graph?.delete().catch(() => undefined);
+    await client.close();
+  });
+
+  afterEach(async () => {
+    await client.query('MATCH (n) DETACH DELETE n', { params: {} });
+  });
+
+  it('passes when all nodes have embeddings', async () => {
+    const e = Array.from({ length: 1024 }, () => 0.1);
+    await client.query(
+      'CREATE (:Function {name: "a", embedding: vecf32($e)}), (:Function {name: "b", embedding: vecf32($e)})',
+      { params: { e } },
+    );
+    const result = await checkEmbeddingCoverage(client, ['Function']);
+    expect(result.status).toBe('pass');
+  });
+
+  it('warns when >10% of nodes for a label are missing embeddings', async () => {
+    const e = Array.from({ length: 1024 }, () => 0.1);
+    // 1 with, 2 without — 67% missing
+    await client.query(
+      'CREATE (:Class {name: "a", embedding: vecf32($e)}), (:Class {name: "b"}), (:Class {name: "c"})',
+      { params: { e } },
+    );
+    const result = await checkEmbeddingCoverage(client, ['Class']);
+    expect(result.status).toBe('warn');
+    expect(result.message).toMatch(/Class.*2\/3/);
+  });
+});
