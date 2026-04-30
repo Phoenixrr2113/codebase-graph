@@ -9,6 +9,7 @@ export interface CheckResult {
   name: string;
   status: CheckStatus;
   message: string;
+  /** Present when status is 'fail' — contains the concrete shell command to resolve the issue. */
   fix?: string;
 }
 

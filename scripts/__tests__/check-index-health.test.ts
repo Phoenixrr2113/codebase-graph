@@ -8,5 +8,7 @@ describe('checkIndexHealth', () => {
     expect(result).toHaveProperty('hasFailures');
     expect(result).toHaveProperty('hasWarnings');
     expect(Array.isArray(result.checks)).toBe(true);
+    expect(result.hasFailures).toBe(false);
+    expect(result.hasWarnings).toBe(false);
   });
 });
