@@ -38,6 +38,7 @@ const { getLLMModel, getLLMComplexModel, isLLMAvailable, warmupLLM, getLLMConfig
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { checkIndexHealth } from './check-index-health.js';
 // Types for reference (actual values come from dynamic imports)
 type SearchType = 'ENRICHED_V2';
 interface SearchContext { client: any; llm?: any; complexLlm?: any; embeddings?: any; }
@@ -114,6 +115,9 @@ const fastOnly = args.includes('--fast-only');
 const noEmbeddings = args.includes('--no-embeddings');
 const useEmbeddings = !noEmbeddings; // ON by default — embeddings are core functionality
 const runAnalysis = args.includes('--analysis');
+const noCompare = args.includes('--no-compare');
+const compareAgainstFlag = args.find((a) => a.startsWith('--compare-against='));
+const compareAgainstPath: string | undefined = compareAgainstFlag?.slice('--compare-against='.length);
 const label = args.filter(a => !a.startsWith('--'))[0] ?? 'unlabeled';
 
 // Embedding config for vector search — auto-detects from API keys
@@ -563,6 +567,27 @@ async function main() {
   console.log(`  Test cases: ${HARD_CASES.length} queries × up to ${strategyCount} strategies`);
   console.log(`  Reindex: ${reindex}\n`);
 
+  // Pre-reindex health checks (Stage 2-3): FalkorDB reachable + baseline config match
+  {
+    console.log('🩺 Running pre-reindex health checks...');
+    const result = await checkIndexHealth({
+      requireIndex: false,
+      compareAgainst: noCompare ? null : compareAgainstPath ?? undefined,
+    });
+    for (const c of result.checks) {
+      const sigil = c.status === 'pass' ? '✓' : c.status === 'warn' ? '⚠' : '✗';
+      console.log(`${sigil} ${c.name}: ${c.message}`);
+      if (c.fix) {
+        console.log('  Fix:');
+        for (const line of c.fix.split('\n')) console.log(`    ${line}`);
+      }
+    }
+    if (result.hasFailures) {
+      console.error('\n❌ Pre-reindex health check failed. Fix the above and re-run.');
+      process.exit(1);
+    }
+  }
+
   // Register plugins for analysis
   registerPlugins();
 
@@ -590,6 +615,28 @@ async function main() {
     process.exit(1);
   }
   console.log(`Graph: ${nodeCount} nodes\n`);
+
+  // Post-reindex health checks (Stage 5-6): index dim, coverage, scripts/, reranker
+  {
+    console.log('🩺 Running post-reindex health checks...');
+    const result = await checkIndexHealth({
+      requireIndex: true,
+      compareAgainst: null,  // Check 6 already ran pre-reindex; don't re-run.
+    });
+    for (const c of result.checks) {
+      if (c.name === 'falkordb-reachable') continue;  // already checked + printed pre-reindex
+      const sigil = c.status === 'pass' ? '✓' : c.status === 'warn' ? '⚠' : '✗';
+      console.log(`${sigil} ${c.name}: ${c.message}`);
+      if (c.fix) {
+        console.log('  Fix:');
+        for (const line of c.fix.split('\n')) console.log(`    ${line}`);
+      }
+    }
+    if (result.hasFailures) {
+      console.error('\n❌ Post-reindex health check failed. Fix the above and re-run.');
+      process.exit(1);
+    }
+  }
 
   // Step 2: Set up search context
   if (useEmbeddings) {
