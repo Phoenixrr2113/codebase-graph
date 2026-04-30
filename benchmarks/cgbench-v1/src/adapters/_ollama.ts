@@ -35,7 +35,11 @@ Schema:
 - Node labels: File, Function, Class, Interface, Variable, Type, Component, Entity
 - Edge types:
   - CONTAINS (File contains symbol)
-  - CALLS (Function calls Function)
+  - CALLS (Function-or-Class-or-Interface calls Function)
+    NOTE: a CALLS edge can originate from a Class constructor, an Interface
+    method, or a Variable initialiser — NOT just from a Function. If the
+    question asks about classes/interfaces/types/constructors that call X,
+    omit the caller label entirely (use \`(caller)\` not \`(caller:Function)\`).
   - IMPORTS (File imports File)
   - EXTENDS (Class extends Class)
   - IMPLEMENTS (Class implements Interface)
@@ -43,8 +47,40 @@ Schema:
   - RELATES_TO (Entity relates to Entity)
 - Required fields on every symbol: name (string), filePath (string)
 
+CRITICAL: filePath is stored as an ABSOLUTE path on disk
+(e.g. "/Users/x/repo/packages/zod/src/v4/core/util.ts"), NOT a bare filename.
+Never write \`{filePath: 'util.ts'}\` — that always returns 0 rows. When the
+question references a file by short name, match with CONTAINS instead:
+  WHERE node.filePath CONTAINS '/util.ts'   (anchor with leading slash)
+
+LABEL DISCIPLINE — read the question carefully:
+- "functions that call X" → \`(caller:Function)-[:CALLS]->(...)\`
+- "classes that call X" / "constructors that call X" → \`(caller)-[:CALLS]->(...)\`
+  (omit the label so Class/Interface/Variable nodes are not filtered out)
+- "classes that extend X" → \`(c:Class)-[:EXTENDS]->(...)\`
+- "classes that implement X" → \`(c:Class)-[:IMPLEMENTS]->(...)\`
+- "anything affected by X" / transitive impact → omit caller label, use
+  variable-length \`-[:CALLS*1..3]->\`
+
 Generate ONE read-only Cypher query that answers the user's question.
 Forbidden clauses: CREATE, MERGE, DELETE, SET, REMOVE, DROP.
+
+EVERY query MUST end with a RETURN clause. A bare MATCH without RETURN is not
+a valid query — it returns nothing. Prefer returning the matched node directly
+(e.g. RETURN caller) so callers can read both name and filePath. End with
+LIMIT 50 unless the question implies otherwise.
+
+Examples:
+  // "functions that call send in sessions.py"
+  MATCH (caller:Function)-[:CALLS]->(target:Function {name: 'send'})
+  WHERE target.filePath CONTAINS '/sessions.py'
+  RETURN caller LIMIT 50
+
+  // "constructors or types that call floatSafeRemainder from util.ts"
+  MATCH (caller)-[:CALLS]->(target:Function {name: 'floatSafeRemainder'})
+  WHERE target.filePath CONTAINS '/util.ts'
+  RETURN caller LIMIT 50
+
 Return ONLY the Cypher between \`\`\`cypher fences. No prose, no explanation.`;
 
 /**
@@ -123,7 +159,8 @@ export async function generateCypher(opts: GenerateCypherOptions): Promise<Gener
   ];
   const first = await callLLM(messages, model, endpoint, apiKey, timeoutMs);
   const firstCypher = extractCypher(first);
-  if (isReadOnlyCypher(firstCypher)) {
+  const firstCheck = checkCypher(firstCypher);
+  if (firstCheck.ok) {
     return { cypher: firstCypher, attempts: 1 };
   }
 
@@ -131,13 +168,36 @@ export async function generateCypher(opts: GenerateCypherOptions): Promise<Gener
   messages.push({ role: 'assistant', content: first });
   messages.push({
     role: 'user',
-    content: 'Your previous response contained a forbidden clause (CREATE, MERGE, DELETE, SET, REMOVE, DROP). Generate a read-only Cypher query (MATCH ... RETURN) only.',
+    content: `Your previous response was rejected: ${firstCheck.reason}. Generate a read-only Cypher query that ends with a RETURN clause. Use only MATCH, WHERE, WITH, RETURN, LIMIT, ORDER BY.`,
   });
   const second = await callLLM(messages, model, endpoint, apiKey, timeoutMs);
   const secondCypher = extractCypher(second);
-  if (isReadOnlyCypher(secondCypher)) {
+  const secondCheck = checkCypher(secondCypher);
+  if (secondCheck.ok) {
     return { cypher: secondCypher, attempts: 2 };
   }
 
   return { cypher: null, attempts: 2 };
+}
+
+/**
+ * Validate a Cypher query against the safety rules AND minimum-completeness
+ * rules (must contain a RETURN clause — Cypher without RETURN runs silently
+ * and returns nothing, which is one of the most common LLM failure modes).
+ */
+function checkCypher(cypher: string): { ok: boolean; reason?: string } {
+  if (!isReadOnlyCypher(cypher)) {
+    return { ok: false, reason: 'contains a forbidden clause (CREATE, MERGE, DELETE, SET, REMOVE, DROP)' };
+  }
+  // Strip strings & comments before token-checking so "RETURN" inside a literal
+  // doesn't satisfy the rule, and so a comment containing RETURN doesn't either.
+  const stripped = cypher
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/'(?:\\.|[^'\\])*'/g, "''")
+    .replace(/"(?:\\.|[^"\\])*"/g, '""');
+  if (!/\bRETURN\b/i.test(stripped)) {
+    return { ok: false, reason: 'missing RETURN clause' };
+  }
+  return { ok: true };
 }

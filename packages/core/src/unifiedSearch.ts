@@ -37,7 +37,16 @@ export interface UnifiedSearchOptions extends EnrichedV2Options {
   searchScope?: 'all' | 'code' | 'knowledge';
   /** Weight for code results in RRF (default: 1.0) */
   codeWeight?: number;
-  /** Weight for knowledge results in RRF (default: 0.8) */
+  /**
+   * Weight for knowledge results in RRF (default: 1.0).
+   *
+   * Equal to the code weight: when the caller asks for `searchScope='all'`,
+   * the intent is cross-modal retrieval, so neither modality should be
+   * pre-emptively favored. Earlier defaults of 0.8 caused knowledge entities
+   * to never surface in the top-K when both branches returned results
+   * (code-K's RRF score at rank K was always higher than knowledge-1's).
+   * That defeated the purpose of unified search on linked-corpus questions.
+   */
   knowledgeWeight?: number;
 }
 
@@ -76,7 +85,7 @@ export async function unifiedSearch(
   const limit = options.limit ?? 20;
   const searchScope = options.searchScope ?? 'all';
   const codeWeight = options.codeWeight ?? 1.0;
-  const knowledgeWeight = options.knowledgeWeight ?? 0.8;
+  const knowledgeWeight = options.knowledgeWeight ?? 1.0;
 
   // Run both searches in parallel
   const [codeResults, knowledgeResults] = await Promise.all([
