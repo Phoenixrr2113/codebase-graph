@@ -4,8 +4,8 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { GraphClient } from '../packages/graph/dist/index.js';
 
@@ -141,6 +141,21 @@ export async function checkIndexHealth(opts: HealthCheckOpts): Promise<HealthChe
 }
 
 async function main(): Promise<void> {
+  // Load .env first so env-driven checks see configured values
+  const envPath = resolve(__SCRIPT_DIR, '..', '.env');
+  if (existsSync(envPath)) {
+    for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq > 0) {
+        const key = trimmed.slice(0, eq).trim();
+        const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+        if (!process.env[key]) process.env[key] = val;
+      }
+    }
+  }
+
   const args = process.argv.slice(2);
   const compareAgainstFlag = args.find((a) => a.startsWith('--compare-against='));
   const noCompare = args.includes('--no-compare');
