@@ -411,6 +411,8 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
             callerId: `Function:${filePath}:batchFnA:1`,
             calleeId: `Function:${filePath}:batchFnB:10`,
             line: 3,
+            callerKind: 'Function' as const,
+            via: 'direct' as const,
           },
         ],
         importsEdges: [],
@@ -495,6 +497,8 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
             callerId: `Function:${filePath}:edgeFnA:1`,
             calleeId: `Function:${filePath}:edgeFnB:10`,
             line: 3,
+            callerKind: 'Function' as const,
+            via: 'direct' as const,
           },
         ],
         importsEdges: [

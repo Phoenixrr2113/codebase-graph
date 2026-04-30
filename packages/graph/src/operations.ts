@@ -206,11 +206,18 @@ const CYPHER = {
   `,
 
   // Edge operations
+  // CALLS source can be Function | Variable | Class | Interface — relaxed
+  // from the original Function-only constraint so calls inside arrow
+  // initialisers (e.g., zod's $ZodCheckMultipleOf) are reachable.
+  // labels(caller)[0] disambiguates same-name+filePath nodes across labels.
+  // ON MATCH deliberately leaves c.via untouched: existing pre-fix edges
+  // have c.via IS NULL — consumers read via as coalesce(c.via, 'direct').
   CREATE_CALLS_EDGE: `
-    MATCH (caller:Function {name: $callerName, filePath: $callerFile})
+    MATCH (caller {name: $callerName, filePath: $callerFile})
+    WHERE labels(caller)[0] = $callerKind
     MATCH (callee:Function {name: $calleeName, filePath: $calleeFile})
     MERGE (caller)-[c:CALLS]->(callee)
-    ON CREATE SET c.line = $line, c.count = 1
+    ON CREATE SET c.line = $line, c.count = 1, c.via = $via
     ON MATCH SET c.count = c.count + 1
     RETURN c
   `,
@@ -622,11 +629,12 @@ const CYPHER = {
   // NULL records (Record_GetType segfault when MATCH finds no node).
   BATCH_CREATE_CALL_EDGES: `
     UNWIND $items AS item
-    OPTIONAL MATCH (caller:Function {name: item.callerName, filePath: item.callerFile})
+    OPTIONAL MATCH (caller {name: item.callerName, filePath: item.callerFile})
+    WHERE labels(caller)[0] = item.callerKind
     OPTIONAL MATCH (callee:Function {name: item.calleeName, filePath: item.calleeFile})
     WITH caller, callee, item WHERE caller IS NOT NULL AND callee IS NOT NULL
     MERGE (caller)-[c:CALLS]->(callee)
-    ON CREATE SET c.line = item.line, c.count = 1
+    ON CREATE SET c.line = item.line, c.count = 1, c.via = item.via
     ON MATCH SET c.count = c.count + 1
   `,
 
@@ -861,10 +869,11 @@ const CYPHER = {
   // --- Combined edge creation (reduces 5 round-trips to 1) ---
   COMBINED_CREATE_EDGES: `
     UNWIND $callEdges AS item
-    MATCH (caller:Function {name: item.callerName, filePath: item.callerFile})
+    MATCH (caller {name: item.callerName, filePath: item.callerFile})
+    WHERE labels(caller)[0] = item.callerKind
     MATCH (callee:Function {name: item.calleeName, filePath: item.calleeFile})
     MERGE (caller)-[c:CALLS]->(callee)
-    ON CREATE SET c.line = item.line, c.count = 1
+    ON CREATE SET c.line = item.line, c.count = 1, c.via = item.via
     ON MATCH SET c.count = c.count + 1
     WITH count(*) AS _e1
     UNWIND $importEdges AS item
@@ -1006,7 +1015,9 @@ export interface GraphOperations {
     callerFile: string,
     calleeName: string,
     calleeFile: string,
-    line: number
+    line: number,
+    callerKind?: 'Function' | 'Variable' | 'Class' | 'Interface',
+    via?: 'direct' | 'closure'
   ): Promise<void>;
 
   createImportsEdge(
@@ -1228,10 +1239,12 @@ class GraphOperationsImpl implements GraphOperations {
     callerFile: string,
     calleeName: string,
     calleeFile: string,
-    line: number
+    line: number,
+    callerKind: 'Function' | 'Variable' | 'Class' | 'Interface' = 'Function',
+    via: 'direct' | 'closure' = 'direct'
   ): Promise<void> {
     await this.client.query(CYPHER.CREATE_CALLS_EDGE, {
-      params: { callerName, callerFile, calleeName, calleeFile, line },
+      params: { callerName, callerFile, calleeName, calleeFile, line, callerKind, via },
     });
   }
 
@@ -1397,7 +1410,7 @@ class GraphOperationsImpl implements GraphOperations {
       ...entities.callEdges.map((edge) => {
         const caller = parseEntityId(edge.callerId);
         const callee = parseEntityId(edge.calleeId);
-        return this.createCallEdge(caller.name, caller.filePath, callee.name, callee.filePath, edge.line);
+        return this.createCallEdge(caller.name, caller.filePath, callee.name, callee.filePath, edge.line, edge.callerKind, edge.via);
       }),
       // Import edges
       ...entities.importsEdges.map((edge) =>
@@ -1494,7 +1507,15 @@ class GraphOperationsImpl implements GraphOperations {
       e.callEdges.map(edge => {
         const caller = parseEntityId(edge.callerId);
         const callee = parseEntityId(edge.calleeId);
-        return { callerName: caller.name, callerFile: caller.filePath, calleeName: callee.name, calleeFile: callee.filePath, line: edge.line };
+        return {
+          callerName: caller.name,
+          callerFile: caller.filePath,
+          callerKind: edge.callerKind,
+          calleeName: callee.name,
+          calleeFile: callee.filePath,
+          line: edge.line,
+          via: edge.via,
+        };
       }),
     );
     const importEdges = entitiesList.flatMap(e =>
@@ -1532,9 +1553,10 @@ class GraphOperationsImpl implements GraphOperations {
     };
     for (const e of callEdges) {
       await safeEdge(
-        `MATCH (caller:Function {name: $callerName, filePath: $callerFile})
+        `MATCH (caller {name: $callerName, filePath: $callerFile})
+         WHERE labels(caller)[0] = $callerKind
          MATCH (callee:Function {name: $calleeName, filePath: $calleeFile})
-         MERGE (caller)-[c:CALLS]->(callee) ON CREATE SET c.line = $line, c.count = 1 ON MATCH SET c.count = c.count + 1`,
+         MERGE (caller)-[c:CALLS]->(callee) ON CREATE SET c.line = $line, c.count = 1, c.via = $via ON MATCH SET c.count = c.count + 1`,
         e,
       );
     }
@@ -1683,7 +1705,15 @@ class GraphOperationsImpl implements GraphOperations {
       e.callEdges.map(edge => {
         const caller = parseEntityId(edge.callerId);
         const callee = parseEntityId(edge.calleeId);
-        return { callerName: caller.name, callerFile: caller.filePath, calleeName: callee.name, calleeFile: callee.filePath, line: edge.line };
+        return {
+          callerName: caller.name,
+          callerFile: caller.filePath,
+          callerKind: edge.callerKind,
+          calleeName: callee.name,
+          calleeFile: callee.filePath,
+          line: edge.line,
+          via: edge.via,
+        };
       }),
     );
     const importEdges = entitiesList.flatMap(e =>
@@ -1722,9 +1752,10 @@ class GraphOperationsImpl implements GraphOperations {
     };
     for (const e of callEdges) {
       await safeEdge(
-        `MATCH (caller:Function {name: $callerName, filePath: $callerFile})
+        `MATCH (caller {name: $callerName, filePath: $callerFile})
+         WHERE labels(caller)[0] = $callerKind
          MATCH (callee:Function {name: $calleeName, filePath: $calleeFile})
-         MERGE (caller)-[c:CALLS]->(callee) ON CREATE SET c.line = $line, c.count = 1 ON MATCH SET c.count = c.count + 1`,
+         MERGE (caller)-[c:CALLS]->(callee) ON CREATE SET c.line = $line, c.count = 1, c.via = $via ON MATCH SET c.count = c.count + 1`,
         e,
       );
     }
