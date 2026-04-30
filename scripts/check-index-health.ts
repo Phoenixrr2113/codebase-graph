@@ -525,6 +525,15 @@ function avg(rows: BenchmarkRow[], pick: (r: BenchmarkRow) => number): number {
   return rows.reduce((s, r) => s + pick(r), 0) / rows.length;
 }
 
+function fmt(v: number, places = 3): string {
+  return v.toFixed(places);
+}
+
+function fmtDelta(v: number, places = 3): string {
+  const sign = v >= 0 ? '+' : '';
+  return `${sign}${v.toFixed(places)}`;
+}
+
 function median(values: number[]): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -585,4 +594,62 @@ export function computeDiff(
     perQueryRegressions,
     hasRegression,
   };
+}
+
+export interface PrintDiffOpts {
+  baseline: { label: string; timestamp: string; meta: RunMeta; results: BenchmarkRow[] };
+  current: { label: string; meta: RunMeta; results: BenchmarkRow[] };
+  diff: DiffResult;
+}
+
+export function printDiffTable(opts: PrintDiffOpts): string[] {
+  const { baseline, current, diff } = opts;
+  const lines: string[] = [];
+
+  lines.push(`═══ Regression diff vs ${baseline.label} (${baseline.timestamp}) ═══`);
+  lines.push(
+    `Config: ${current.meta.embeddingProvider}(${current.meta.embeddingDim}) + ${current.meta.rerankerProvider} + ${current.meta.llmProvider}/${current.meta.llmModel} — matched ✓`,
+  );
+  lines.push(`Git: ${baseline.meta.gitSha.slice(0, 8)} → ${current.meta.gitSha.slice(0, 8)}`);
+  lines.push('');
+
+  const baseAvg = (pick: (r: BenchmarkRow) => number): number =>
+    baseline.results.length > 0 ? baseline.results.reduce((s, r) => s + pick(r), 0) / baseline.results.length : 0;
+  const curAvg = (pick: (r: BenchmarkRow) => number): number =>
+    current.results.length > 0 ? current.results.reduce((s, r) => s + pick(r), 0) / current.results.length : 0;
+
+  const flagOverall = (delta: number): string => (delta < -0.05 ? '  ⚠ REGRESSION' : '');
+
+  lines.push(`                         baseline    current     Δ`);
+  lines.push(`Overall MRR              ${fmt(baseAvg((r) => r.mrr))}       ${fmt(curAvg((r) => r.mrr))}      ${fmtDelta(diff.overallMrrDelta)}${flagOverall(diff.overallMrrDelta)}`);
+  lines.push(`Overall NDCG@5           ${fmt(baseAvg((r) => r.ndcg5))}       ${fmt(curAvg((r) => r.ndcg5))}      ${fmtDelta(diff.overallNdcg5Delta)}${flagOverall(diff.overallNdcg5Delta)}`);
+  lines.push(`Overall S@1              ${fmt(baseAvg((r) => (r.success1 ? 1 : 0)))}       ${fmt(curAvg((r) => (r.success1 ? 1 : 0)))}      ${fmtDelta(diff.overallS1Delta)}${flagOverall(diff.overallS1Delta)}`);
+  lines.push(`Overall S@5              ${fmt(baseAvg((r) => (r.success5 ? 1 : 0)))}       ${fmt(curAvg((r) => (r.success5 ? 1 : 0)))}      ${fmtDelta(diff.overallS5Delta)}${flagOverall(diff.overallS5Delta)}`);
+  lines.push(`Latency p50              ${baseline.results.length > 0 ? Math.round(baseline.results.reduce((s, r) => s + r.latencyMs, 0) / baseline.results.length) : 0}ms       ${current.results.length > 0 ? Math.round(current.results.reduce((s, r) => s + r.latencyMs, 0) / current.results.length) : 0}ms      ${diff.latencyP50Delta >= 0 ? '+' : ''}${Math.round(diff.latencyP50Delta)}ms`);
+
+  if (diff.perCategory.length > 0) {
+    lines.push('');
+    lines.push('Per-category:');
+    for (const c of diff.perCategory) {
+      const flag = c.regressed ? '  ⚠ REGRESSION' : '';
+      lines.push(`  ${c.category.padEnd(22)} ${fmt(c.baselineMrr, 2)}→${fmt(c.currentMrr, 2)}   ${fmtDelta(c.delta)}${flag}`);
+    }
+  }
+
+  if (diff.perQueryRegressions.length > 0) {
+    lines.push('');
+    lines.push('Per-query regressions (>10% MRR drop):');
+    for (const q of diff.perQueryRegressions) {
+      lines.push(`  ${q.query.padEnd(40)} ${fmt(q.baselineMrr, 2)}→${fmt(q.currentMrr, 2)}   ⚠`);
+    }
+  }
+
+  lines.push('');
+  if (diff.hasRegression) {
+    lines.push(`Exit: 1 (per-category MRR drop > threshold)`);
+  } else {
+    lines.push(`Exit: 0 (no regression detected)`);
+  }
+
+  return lines;
 }

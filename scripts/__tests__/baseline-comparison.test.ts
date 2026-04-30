@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { findComparisonBaseline, computeDiff, type RunMeta, type BenchmarkRow } from '../check-index-health.js';
+import { findComparisonBaseline, computeDiff, printDiffTable, type RunMeta, type BenchmarkRow } from '../check-index-health.js';
 
 const META_VOYAGE_JINA: RunMeta = {
   embeddingProvider: 'voyage',
@@ -162,5 +162,68 @@ describe('computeDiff', () => {
     expect(diff.overallS5Delta).toBeCloseTo(-0.5, 5);
     // Latency p50: baseline median(400, 450) = 425; current median(400, 450) = 425; delta = 0
     expect(diff.latencyP50Delta).toBe(0);
+  });
+});
+
+const META_VOYAGE_JINA_FOR_DIFF: RunMeta = {
+  embeddingProvider: 'voyage',
+  embeddingModel: 'voyage-code-3',
+  embeddingDim: 1024,
+  rerankerProvider: 'jina',
+  rerankerModel: 'jina-reranker-v2-base-multilingual',
+  llmProvider: 'cerebras',
+  llmModel: 'qwen-3-235b-a22b-instruct-2507',
+  gitSha: 'abc12345abcdef',
+  gitDirty: false,
+  corpusNodeCount: 2310,
+};
+
+describe('printDiffTable', () => {
+  it('renders header with baseline label, config match, git delta', () => {
+    const diff = computeDiff({ results: RESULTS_BASELINE }, { results: RESULTS_CURRENT_REGRESSION }, { threshold: 0.05 });
+    const lines = printDiffTable({
+      baseline: { label: 'v6-chunk2-task4', timestamp: '2026-04-27T00:25:43Z', meta: META_VOYAGE_JINA_FOR_DIFF, results: RESULTS_BASELINE },
+      current: { label: 'clean-rebuild-2026-04-30', meta: { ...META_VOYAGE_JINA_FOR_DIFF, gitSha: 'def45678abcdef' }, results: RESULTS_CURRENT_REGRESSION },
+      diff,
+    });
+    const text = lines.join('\n');
+    expect(text).toMatch(/v6-chunk2-task4/);
+    expect(text).toMatch(/abc12345/);
+    expect(text).toMatch(/def45678/);
+    expect(text).toMatch(/voyage/);
+    expect(text).toMatch(/jina/);
+    expect(text).toMatch(/cerebras/);
+  });
+
+  it('flags REGRESSION on overall MRR drop beyond threshold', () => {
+    const diff = computeDiff({ results: RESULTS_BASELINE }, { results: RESULTS_CURRENT_REGRESSION }, { threshold: 0.05 });
+    const lines = printDiffTable({
+      baseline: { label: 'b', timestamp: 't', meta: META_VOYAGE_JINA_FOR_DIFF, results: RESULTS_BASELINE },
+      current: { label: 'c', meta: META_VOYAGE_JINA_FOR_DIFF, results: RESULTS_CURRENT_REGRESSION },
+      diff,
+    });
+    expect(lines.join('\n')).toMatch(/REGRESSION/);
+  });
+
+  it('lists per-query regressions when any exceed 10% drop', () => {
+    const diff = computeDiff({ results: RESULTS_BASELINE }, { results: RESULTS_CURRENT_REGRESSION }, { threshold: 0.05 });
+    const lines = printDiffTable({
+      baseline: { label: 'b', timestamp: 't', meta: META_VOYAGE_JINA_FOR_DIFF, results: RESULTS_BASELINE },
+      current: { label: 'c', meta: META_VOYAGE_JINA_FOR_DIFF, results: RESULTS_CURRENT_REGRESSION },
+      diff,
+    });
+    expect(lines.join('\n')).toMatch(/q2/);
+  });
+
+  it('shows "no regression detected" when there are none', () => {
+    const diff = computeDiff({ results: RESULTS_BASELINE }, { results: RESULTS_CURRENT_NO_REGRESSION }, { threshold: 0.05 });
+    const lines = printDiffTable({
+      baseline: { label: 'b', timestamp: 't', meta: META_VOYAGE_JINA_FOR_DIFF, results: RESULTS_BASELINE },
+      current: { label: 'c', meta: META_VOYAGE_JINA_FOR_DIFF, results: RESULTS_CURRENT_NO_REGRESSION },
+      diff,
+    });
+    const text = lines.join('\n');
+    expect(text).not.toMatch(/REGRESSION/);
+    expect(text).toMatch(/no regression detected/i);
   });
 });
