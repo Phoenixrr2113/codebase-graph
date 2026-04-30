@@ -227,7 +227,17 @@ export interface ParsedFileEntities {
   types: TypeEntity[];
   components: ComponentEntity[];
   imports: ImportEntity[];
-  callEdges: Array<{ callerId: string; calleeId: string; line: number }>;
+  callEdges: Array<{
+    callerId: string;
+    calleeId: string;
+    line: number;
+    /** Caller node label — needed because callerId alone doesn't disambiguate
+     *  (e.g., a Function and a Variable can share name+filePath). */
+    callerKind: 'Function' | 'Variable' | 'Class' | 'Interface';
+    /** 'direct' = call is in the lexical body of the named caller;
+     *  'closure' = call is inside an anonymous wrapper the caller initialises. */
+    via: 'direct' | 'closure';
+  }>;
   importsEdges: Array<{ fromFilePath: string; toFilePath: string; specifiers?: string[] }>;
   extendsEdges: Array<{ childId: string; parentId: string }>;
   implementsEdges: Array<{ classId: string; interfaceId: string }>;

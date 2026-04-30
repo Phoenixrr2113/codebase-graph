@@ -257,10 +257,16 @@ function buildInheritanceEdgesFromRefs(
  * Build call edges from CallReference[] (non-TS languages).
  */
 function buildCallEdgesFromRefs(refs: CallReference[]): ParsedFileEntities['callEdges'] {
+  // Non-TS plugins haven't been migrated to attribution-aware extraction yet.
+  // They produce CallReferences with `callerName` only (no kind). Default to
+  // Function caller and via='direct' — these are the same defaults the old
+  // TypeScript path used, so behavior is unchanged for those plugins.
   return refs.map((call) => ({
     callerId: `Function:${call.filePath}:${call.callerName}`,
     calleeId: `Function:${call.filePath}:${call.calleeName}`,
     line: call.line,
+    callerKind: 'Function' as const,
+    via: 'direct' as const,
   }));
 }
 
@@ -380,11 +386,15 @@ export function buildParsedFileEntities(
         includeExternals,
       );
       callEdges = calls.map((call) => ({
-        callerId: `Function:${call.callerFilePath}:${call.callerName}`,
+        // Caller id encodes its kind so cross-label disambiguation works
+        // downstream — see graph operations.ts CALLS upsert.
+        callerId: `${call.callerKind}:${call.callerFilePath}:${call.callerName}`,
         calleeId: call.calleeFilePath
           ? `Function:${call.calleeFilePath}:${call.calleeName}`
           : `Function:external:${call.calleeName}`,
         line: call.line,
+        callerKind: call.callerKind,
+        via: call.via,
       }));
     } else if (plugin?.extractors.extractCalls) {
       // All other languages: use registry-dispatched extractCalls
