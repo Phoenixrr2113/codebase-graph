@@ -36,7 +36,8 @@ import { embedParsedEntities, embedAllParsedEntities } from './embed-pass';
 import { syncGitHistory } from './gitSync';
 import { createLogger } from '@codegraph/logger';
 import { stat, readFile } from 'node:fs/promises';
-import { basename, extname, resolve } from 'node:path';
+import { basename, extname, relative, resolve } from 'node:path';
+import ignore from 'ignore';
 import { randomUUID, createHash } from 'node:crypto';
 import { cpus } from 'node:os';
 import { execFile } from 'node:child_process';
@@ -116,6 +117,30 @@ export interface IndexResult {
 // ============================================================================
 
 /**
+ * Apply gitignore-style patterns to a list of absolute file paths.
+ * Patterns are matched against paths relative to `rootPath`, so files outside
+ * `rootPath` are passed through unchanged.
+ *
+ * Uses the `ignore` package — full gitignore semantics including anchoring,
+ * negation, and trailing-slash directory rules. Replaces an earlier
+ * substring-based approximation that broke for worktrees living inside
+ * directories whose names matched ignore patterns.
+ */
+export function applyIgnoreFilter(
+  files: string[],
+  ignorePatterns: string[],
+  rootPath: string,
+): string[] {
+  if (ignorePatterns.length === 0) return files;
+  const ig = ignore().add(ignorePatterns);
+  return files.filter((f) => {
+    const rel = relative(rootPath, f);
+    if (rel.startsWith('..') || rel === '') return true;  // outside root — not our business to filter
+    return !ig.ignores(rel);
+  });
+}
+
+/**
  * Discover source files using git ls-files (faster than glob, respects .gitignore).
  * Returns null if not a git repo or git is unavailable — caller should fall back to glob.
  */
@@ -138,15 +163,7 @@ async function discoverFilesGit(
       .filter(f => extensionSet.has(extname(f).toLowerCase()))
       .map(f => resolve(rootPath, f));
 
-    // Apply ignore patterns as simple substring/glob checks
-    if (ignorePatterns.length > 0) {
-      const ignoreSegments = ignorePatterns
-        .map(p => p.replace(/\*\*/g, '').replace(/\*/g, '').replace(/\//g, ''))
-        .filter(s => s.length > 0);
-      return files.filter(f => !ignoreSegments.some(seg => f.includes(seg)));
-    }
-
-    return files;
+    return applyIgnoreFilter(files, ignorePatterns, rootPath);
   } catch {
     return null; // Not a git repo or git not available
   }

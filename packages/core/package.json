@@ -20,20 +20,21 @@
   "dependencies": {
     "@codegraph/graph": "workspace:*",
     "@codegraph/logger": "workspace:*",
-    "@codegraph/plugin-nlp": "workspace:*",
     "@codegraph/plugin-go": "workspace:*",
-    "@codegraph/plugin-rust": "workspace:*",
     "@codegraph/plugin-markdown": "workspace:*",
+    "@codegraph/plugin-nlp": "workspace:*",
     "@codegraph/plugin-python": "workspace:*",
+    "@codegraph/plugin-rust": "workspace:*",
     "@codegraph/plugin-typescript": "workspace:*",
     "@codegraph/types": "workspace:*",
     "ai": "^6.0.0",
     "chokidar": "5.0.0",
     "fast-glob": "^3.3.3",
     "glob": "^10.3.10",
-    "zod": "^3.23.8",
+    "ignore": "^7.0.5",
     "simple-git": "^3.30.0",
-    "tree-sitter": "^0.22.4"
+    "tree-sitter": "^0.22.4",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "typescript": "^5.7.3",
