@@ -38,7 +38,7 @@ const { getLLMModel, getLLMComplexModel, isLLMAvailable, warmupLLM, getLLMConfig
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { checkIndexHealth, findComparisonBaseline, computeDiff, printDiffTable } from './check-index-health.js';
+import { checkIndexHealth, findComparisonBaseline, computeDiff, printDiffTable, PROVIDER_DIMS } from './check-index-health.js';
 // Types for reference (actual values come from dynamic imports)
 type SearchType = 'ENRICHED_V2';
 interface SearchContext { client: any; llm?: any; complexLlm?: any; embeddings?: any; }
@@ -634,6 +634,7 @@ async function main() {
     }
     if (result.hasFailures) {
       console.error('\n❌ Post-reindex health check failed. Fix the above and re-run.');
+      await closeGraphClient();
       process.exit(1);
     }
   }
@@ -954,9 +955,6 @@ async function main() {
       ? llmProviderEnv
       : 'cerebras';
 
-  // Embedding dim for known providers
-  const embeddingDimMap: Record<string, number> = { voyage: 1024, openrouter: 1536, local: 768, none: 0 };
-
   const meta = {
     embeddingProvider,
     embeddingModel: process.env['CODEGRAPH_EMBEDDING_MODEL']
@@ -964,7 +962,7 @@ async function main() {
         : embeddingProvider === 'openrouter' ? 'text-embedding-3-small'
         : embeddingProvider === 'local' ? 'nomic-ai/nomic-embed-text-v1.5'
         : ''),
-    embeddingDim: embeddingDimMap[embeddingProvider] ?? 0,
+    embeddingDim: embeddingProvider === 'none' ? 0 : PROVIDER_DIMS[embeddingProvider],
     rerankerProvider,
     rerankerModel: process.env['CODEGRAPH_RERANK_MODEL'] ?? null,
     llmProvider,

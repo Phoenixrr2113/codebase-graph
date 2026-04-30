@@ -5,8 +5,8 @@
 
 import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { GraphClient } from '../packages/graph/dist/index.js';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail';
@@ -33,7 +33,8 @@ export interface HealthCheckResult {
 }
 
 const DEFAULT_LABELS = ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component'];
-const BASELINE_DIR_DEFAULT = 'scripts/benchmark-results';
+const __SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const BASELINE_DIR_DEFAULT = join(__SCRIPT_DIR, 'benchmark-results');
 
 /** Resolve embedding provider from env using a priority chain:
  *  1. CODEGRAPH_EMBEDDING_PROVIDER explicit setting
@@ -231,7 +232,7 @@ export async function checkFalkorDBReachable(conn: FalkorConnInfo): Promise<Chec
 
 export type EmbeddingProvider = 'voyage' | 'openrouter' | 'local' | 'none';
 
-const PROVIDER_DIMS: Record<Exclude<EmbeddingProvider, 'none'>, number> = {
+export const PROVIDER_DIMS: Record<Exclude<EmbeddingProvider, 'none'>, number> = {
   voyage: 1024,
   openrouter: 1536,
   local: 768,
@@ -330,6 +331,15 @@ export async function checkEmbeddingCoverage(
 ): Promise<CheckResult> {
   const name = 'embedding-coverage';
   const issues: string[] = [];
+  const VALID_LABEL = /^[A-Za-z][A-Za-z0-9_]*$/;
+  const invalid = labels.filter((l) => !VALID_LABEL.test(l));
+  if (invalid.length > 0) {
+    return {
+      name,
+      status: 'fail',
+      message: `Invalid label name(s): ${invalid.join(', ')}. Labels must be alphanumeric Cypher identifiers.`,
+    };
+  }
   for (const label of labels) {
     const result = await client.query<{ total: number; without: number }>(
       `MATCH (n:${label})
@@ -449,7 +459,13 @@ export function findComparisonBaseline(
   dir: string,
   currentMeta: RunMeta,
 ): BaselineFile | null {
-  const entries = readdirSync(dir)
+  let rawEntries: string[];
+  try {
+    rawEntries = readdirSync(dir);
+  } catch {
+    return null;  // directory doesn't exist yet — no baselines to compare against
+  }
+  const entries = rawEntries
     .filter((f) => f.endsWith('.json'))
     .map((f) => {
       try {
