@@ -33,3 +33,60 @@ export async function checkIndexHealth(_opts: HealthCheckOpts): Promise<HealthCh
     hasWarnings: false,
   };
 }
+
+export interface FalkorConnInfo {
+  host: string;
+  port: number;
+}
+
+export async function checkFalkorDBReachable(conn: FalkorConnInfo): Promise<CheckResult> {
+  const name = 'falkordb-reachable';
+  // Lazy-import the graph package (matches how scripts/benchmark-search.ts does it).
+  let createClient: typeof import('../packages/graph/dist/index.js').createClient;
+  try {
+    ({ createClient } = await import('../packages/graph/dist/index.js'));
+  } catch (err) {
+    return {
+      name,
+      status: 'fail',
+      message: `Could not load @codegraph/graph: ${err instanceof Error ? err.message : String(err)}`,
+      fix: 'Run `pnpm turbo build` first.',
+    };
+  }
+
+  const tempGraph = `_healthcheck_${Math.random().toString(36).slice(2, 10)}`;
+  let client: Awaited<ReturnType<typeof createClient>> | null = null;
+  try {
+    client = await createClient({
+      driver: 'falkordb',
+      host: conn.host,
+      port: conn.port,
+      graphName: tempGraph,
+    });
+    // GRAPH.QUERY only succeeds if the FalkorDB module is loaded. Plain Redis
+    // returns "ERR unknown command", which createClient may swallow into a
+    // generic error — so we run a real query to verify.
+    await client.query('RETURN 1 AS ok');
+    return {
+      name,
+      status: 'pass',
+      message: `FalkorDB reachable on ${conn.host}:${conn.port}, GRAPH module loaded`,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      name,
+      status: 'fail',
+      message: `FalkorDB not reachable on ${conn.host}:${conn.port}: ${msg}`,
+      fix:
+        `Either:\n` +
+        `  (a) Start one: docker run -d --name codegraph-falkordb --platform linux/arm64 -p ${conn.port}:6379 falkordb/falkordb:latest\n` +
+        `  (b) Update FALKORDB_PORT in .env to match an existing container.`,
+    };
+  } finally {
+    if (client) {
+      try { await client.query('MATCH (n) DETACH DELETE n'); } catch { /* graph may not exist */ }
+      try { await client.close(); } catch { /* best-effort */ }
+    }
+  }
+}
