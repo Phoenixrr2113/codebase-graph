@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { findComparisonBaseline, type RunMeta } from '../check-index-health.js';
+import { findComparisonBaseline, computeDiff, type RunMeta, type BenchmarkRow } from '../check-index-health.js';
 
 const META_VOYAGE_JINA: RunMeta = {
   embeddingProvider: 'voyage',
@@ -97,5 +97,70 @@ describe('findComparisonBaseline', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+const RESULTS_BASELINE: BenchmarkRow[] = [
+  { query: 'q1', category: 'disambiguation', mrr: 1.0, ndcg5: 1.0, ndcg10: 1.0, success1: true, success5: true, recall10: 1.0, latencyMs: 400 },
+  { query: 'q2', category: 'importance', mrr: 0.5, ndcg5: 0.6, ndcg10: 0.6, success1: false, success5: true, recall10: 0.8, latencyMs: 450 },
+];
+
+const RESULTS_CURRENT_NO_REGRESSION: BenchmarkRow[] = RESULTS_BASELINE.map((r) => ({ ...r }));
+
+const RESULTS_CURRENT_REGRESSION: BenchmarkRow[] = [
+  { query: 'q1', category: 'disambiguation', mrr: 1.0, ndcg5: 1.0, ndcg10: 1.0, success1: true, success5: true, recall10: 1.0, latencyMs: 400 },
+  { query: 'q2', category: 'importance', mrr: 0.0, ndcg5: 0.0, ndcg10: 0.0, success1: false, success5: false, recall10: 0.0, latencyMs: 450 },
+];
+
+describe('computeDiff', () => {
+  it('flags no regression when current matches baseline', () => {
+    const diff = computeDiff(
+      { results: RESULTS_BASELINE },
+      { results: RESULTS_CURRENT_NO_REGRESSION },
+      { threshold: 0.05 },
+    );
+    expect(diff.hasRegression).toBe(false);
+    expect(diff.overallMrrDelta).toBeCloseTo(0, 5);
+    expect(diff.perCategory.every((c) => !c.regressed)).toBe(true);
+    expect(diff.perQueryRegressions).toEqual([]);
+  });
+
+  it('flags regression when a category MRR drops more than threshold', () => {
+    const diff = computeDiff(
+      { results: RESULTS_BASELINE },
+      { results: RESULTS_CURRENT_REGRESSION },
+      { threshold: 0.05 },
+    );
+    expect(diff.hasRegression).toBe(true);
+    const importance = diff.perCategory.find((c) => c.category === 'importance');
+    expect(importance?.delta).toBeCloseTo(-0.5, 5);
+    expect(importance?.regressed).toBe(true);
+    // Per-query regression for q2: 0.5 → 0.0, delta -0.5 (well past 10% threshold)
+    expect(diff.perQueryRegressions).toHaveLength(1);
+    expect(diff.perQueryRegressions[0]!.query).toBe('q2');
+  });
+
+  it('respects custom threshold', () => {
+    const tinyDrop = RESULTS_BASELINE.map((r) => ({ ...r, mrr: r.mrr - 0.01 }));
+    const diffStrict = computeDiff({ results: RESULTS_BASELINE }, { results: tinyDrop }, { threshold: 0.005 });
+    const diffLoose = computeDiff({ results: RESULTS_BASELINE }, { results: tinyDrop }, { threshold: 0.05 });
+    expect(diffStrict.hasRegression).toBe(true);
+    expect(diffLoose.hasRegression).toBe(false);
+  });
+
+  it('computes overall NDCG@5, S@1, S@5, and latency p50 deltas', () => {
+    const diff = computeDiff(
+      { results: RESULTS_BASELINE },
+      { results: RESULTS_CURRENT_REGRESSION },
+      { threshold: 0.05 },
+    );
+    // Baseline avg ndcg5 = (1.0 + 0.6) / 2 = 0.8; current = (1.0 + 0.0) / 2 = 0.5; delta = -0.3
+    expect(diff.overallNdcg5Delta).toBeCloseTo(-0.3, 5);
+    // S@1: baseline (1+0)/2 = 0.5, current (1+0)/2 = 0.5, delta = 0
+    expect(diff.overallS1Delta).toBeCloseTo(0, 5);
+    // S@5: baseline (1+1)/2 = 1.0, current (1+0)/2 = 0.5, delta = -0.5
+    expect(diff.overallS5Delta).toBeCloseTo(-0.5, 5);
+    // Latency p50: baseline median(400, 450) = 425; current median(400, 450) = 425; delta = 0
+    expect(diff.latencyP50Delta).toBe(0);
   });
 });

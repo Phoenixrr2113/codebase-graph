@@ -475,3 +475,114 @@ export function findComparisonBaseline(
   }
   return null;
 }
+
+export interface BenchmarkRow {
+  query: string;
+  category: string;
+  mrr: number;
+  ndcg5: number;
+  ndcg10: number;
+  success1: boolean;
+  success5: boolean;
+  recall10: number;
+  latencyMs: number;
+}
+
+export interface DiffOptions {
+  /** Per-category MRR drop that triggers the regression flag. */
+  threshold: number;
+}
+
+export interface CategoryDiff {
+  category: string;
+  baselineMrr: number;
+  currentMrr: number;
+  delta: number;
+  regressed: boolean;
+}
+
+export interface PerQueryDiff {
+  query: string;
+  baselineMrr: number;
+  currentMrr: number;
+  delta: number;
+}
+
+export interface DiffResult {
+  overallMrrDelta: number;
+  overallNdcg5Delta: number;
+  overallS1Delta: number;
+  overallS5Delta: number;
+  latencyP50Delta: number;
+  perCategory: CategoryDiff[];
+  /** Queries that dropped >10% MRR relative to baseline. Sorted worst-first. */
+  perQueryRegressions: PerQueryDiff[];
+  hasRegression: boolean;
+}
+
+function avg(rows: BenchmarkRow[], pick: (r: BenchmarkRow) => number): number {
+  if (rows.length === 0) return 0;
+  return rows.reduce((s, r) => s + pick(r), 0) / rows.length;
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+}
+
+export function computeDiff(
+  baseline: { results: BenchmarkRow[] },
+  current: { results: BenchmarkRow[] },
+  opts: DiffOptions,
+): DiffResult {
+  const overallMrrDelta = avg(current.results, (r) => r.mrr) - avg(baseline.results, (r) => r.mrr);
+  const overallNdcg5Delta = avg(current.results, (r) => r.ndcg5) - avg(baseline.results, (r) => r.ndcg5);
+  const overallS1Delta = avg(current.results, (r) => (r.success1 ? 1 : 0)) - avg(baseline.results, (r) => (r.success1 ? 1 : 0));
+  const overallS5Delta = avg(current.results, (r) => (r.success5 ? 1 : 0)) - avg(baseline.results, (r) => (r.success5 ? 1 : 0));
+  const latencyP50Delta = median(current.results.map((r) => r.latencyMs)) - median(baseline.results.map((r) => r.latencyMs));
+
+  const categories = new Set([...baseline.results.map((r) => r.category), ...current.results.map((r) => r.category)]);
+  const perCategory: CategoryDiff[] = [];
+  for (const cat of categories) {
+    const b = baseline.results.filter((r) => r.category === cat);
+    const c = current.results.filter((r) => r.category === cat);
+    const bMrr = avg(b, (r) => r.mrr);
+    const cMrr = avg(c, (r) => r.mrr);
+    const delta = cMrr - bMrr;
+    perCategory.push({
+      category: cat,
+      baselineMrr: bMrr,
+      currentMrr: cMrr,
+      delta,
+      regressed: delta < -opts.threshold,
+    });
+  }
+  perCategory.sort((a, b) => a.category.localeCompare(b.category));
+
+  const baselineByQuery = new Map(baseline.results.map((r) => [r.query, r]));
+  const perQueryRegressions: PerQueryDiff[] = [];
+  for (const cur of current.results) {
+    const base = baselineByQuery.get(cur.query);
+    if (!base) continue;
+    const delta = cur.mrr - base.mrr;
+    if (delta < -0.1) {
+      perQueryRegressions.push({ query: cur.query, baselineMrr: base.mrr, currentMrr: cur.mrr, delta });
+    }
+  }
+  perQueryRegressions.sort((a, b) => a.delta - b.delta);  // worst first
+
+  const hasRegression = perCategory.some((c) => c.regressed);
+
+  return {
+    overallMrrDelta,
+    overallNdcg5Delta,
+    overallS1Delta,
+    overallS5Delta,
+    latencyP50Delta,
+    perCategory,
+    perQueryRegressions,
+    hasRegression,
+  };
+}
