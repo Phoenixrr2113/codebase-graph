@@ -20,7 +20,7 @@
  * via a future generalization.
  */
 
-import type Parser from 'tree-sitter';
+import type { SyntaxNode } from '@codegraph/types';
 
 export type EnclosingKind = 'Function' | 'Variable' | 'Class' | 'Interface';
 
@@ -36,6 +36,7 @@ export interface EnclosingEntity {
 const ANONYMOUS_WRAPPER_TYPES = new Set([
   'arrow_function',
   'function_expression',
+  'generator_function',
 ]);
 
 /**
@@ -55,10 +56,10 @@ const ANONYMOUS_WRAPPER_TYPES = new Set([
  *     `pair` (object-literal property), `jsx_attribute`, or another
  *     anonymous wrapper (nested closures).
  */
-export function findEnclosingNamedEntity(node: Parser.SyntaxNode): EnclosingEntity | null {
-  let current: Parser.SyntaxNode | null = node.parent;
+export function findEnclosingNamedEntity(node: SyntaxNode): EnclosingEntity | null {
+  let current: SyntaxNode | null = node.parent;
   let wrappersCount = 0;
-  let lastWrapper: Parser.SyntaxNode | null = null;
+  let lastWrapper: SyntaxNode | null = null;
 
   while (current) {
     const stop = matchStopNode(current);
@@ -90,9 +91,10 @@ export function findEnclosingNamedEntity(node: Parser.SyntaxNode): EnclosingEnti
  * If the node is a stop type (yields a name), return the entity descriptor
  * (without the `via` field — caller fills that in). Otherwise null.
  */
-function matchStopNode(node: Parser.SyntaxNode): Omit<EnclosingEntity, 'via'> | null {
+function matchStopNode(node: SyntaxNode): Omit<EnclosingEntity, 'via'> | null {
   switch (node.type) {
     case 'function_declaration':
+    case 'generator_function_declaration':
     case 'method_definition': {
       const name = node.childForFieldName('name')?.text;
       if (!name) return null;
@@ -133,11 +135,13 @@ function matchStopNode(node: Parser.SyntaxNode): Omit<EnclosingEntity, 'via'> | 
   }
 }
 
-function isAnonymousWrapper(node: Parser.SyntaxNode): boolean {
+function isAnonymousWrapper(node: SyntaxNode): boolean {
   if (!ANONYMOUS_WRAPPER_TYPES.has(node.type)) return false;
-  // If a function_expression has a name, it's NOT an anonymous wrapper —
-  // matchStopNode will catch it. arrow_function never has a name.
-  if (node.type === 'function_expression') {
+  // If a function_expression or generator_function has a name, it's NOT an
+  // anonymous wrapper — matchStopNode would catch it (named function_expression
+  // is already a stop; a hypothetical named generator_function would be too).
+  // arrow_function never has a name.
+  if (node.type === 'function_expression' || node.type === 'generator_function') {
     const nameField = node.childForFieldName('name');
     if (nameField) return false;
   }

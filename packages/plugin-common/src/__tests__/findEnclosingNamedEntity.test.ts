@@ -140,4 +140,29 @@ describe('findEnclosingNamedEntity', () => {
       via: 'direct',
     });
   });
+
+  it('generator function declaration → Function caller, direct', () => {
+    const root = parseTS(`function* gen() { foo(); }`);
+    const callNode = firstCallTo(root, 'foo');
+    expect(findEnclosingNamedEntity(callNode)).toEqual({
+      kind: 'Function',
+      name: 'gen',
+      startLine: 1,
+      via: 'direct',
+    });
+  });
+
+  it('anonymous generator assigned to const → Variable caller, direct', () => {
+    // generator_function (no _declaration) wrapped in variable_declarator.
+    // The wrapper IS X's value (no intermediate call_expression / pair),
+    // so via='direct' — consistent with the arrow-as-value rule.
+    const root = parseTS(`const X = function*() { foo(); };`);
+    const callNode = firstCallTo(root, 'foo');
+    expect(findEnclosingNamedEntity(callNode)).toEqual({
+      kind: 'Variable',
+      name: 'X',
+      startLine: 1,
+      via: 'direct',
+    });
+  });
 });
