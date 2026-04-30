@@ -4,7 +4,10 @@ import TypeScript from 'tree-sitter-typescript';
 import { findEnclosingNamedEntity } from '../findEnclosingNamedEntity';
 
 const parser = new Parser();
-parser.setLanguage(TypeScript.typescript);
+// Cast workaround mirrors complexity.test.ts:33 — tree-sitter-typescript's
+// language object isn't directly assignable to Parser.Language under the
+// installed @types/tree-sitter version.
+parser.setLanguage(TypeScript.typescript as Parser.Language);
 
 function parseTS(code: string): Parser.SyntaxNode {
   return parser.parse(code).rootNode;

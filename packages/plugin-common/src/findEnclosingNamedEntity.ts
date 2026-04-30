@@ -100,9 +100,12 @@ function matchStopNode(node: SyntaxNode): Omit<EnclosingEntity, 'via'> | null {
       if (!name) return null;
       return { kind: 'Function', name, startLine: node.startPosition.row + 1 };
     }
-    case 'function_expression': {
+    case 'function_expression':
+    case 'generator_function': {
+      // Named ones are Function stops (e.g. `const X = function foo() { ... }`
+      // or the rare `const X = function* foo() { ... }`). Anonymous ones fall
+      // through to null and are picked up by isAnonymousWrapper instead.
       const name = node.childForFieldName('name')?.text;
-      // Anonymous function_expression — keep walking. Don't return as a stop.
       if (!name) return null;
       return { kind: 'Function', name, startLine: node.startPosition.row + 1 };
     }
