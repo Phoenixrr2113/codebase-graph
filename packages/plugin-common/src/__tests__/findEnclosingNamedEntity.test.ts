@@ -168,4 +168,45 @@ describe('findEnclosingNamedEntity', () => {
       via: 'direct',
     });
   });
+
+  it('local const = call result inside named function → enclosing Function caller, direct', () => {
+    // Regression: `const ctx = call()` inside outer's body should attribute
+    // call() to outer, NOT to ctx. ctx is a local capture, not a closure-bound
+    // entity. (Caught by cgbench iter-9 — Task B regression.)
+    const root = parseTS(
+      `function outer() {\n  const ctx = initializeContext();\n}`,
+    );
+    const callNode = firstCallTo(root, 'initializeContext');
+    expect(findEnclosingNamedEntity(callNode)).toEqual({
+      kind: 'Function',
+      name: 'outer',
+      startLine: 1,
+      via: 'direct',
+    });
+  });
+
+  it('local const = call result at top level → null', () => {
+    // Sibling case to the above: `const ctx = call()` at top level has no
+    // useful enclosing entity. Should drop the call.
+    const root = parseTS(`const ctx = initializeContext();`);
+    const callNode = firstCallTo(root, 'initializeContext');
+    expect(findEnclosingNamedEntity(callNode)).toBeNull();
+  });
+
+  it('class field with non-function value inside method → enclosing Function caller, direct', () => {
+    // class field `count = compute()` is initialised by a call, not a closure.
+    // The call belongs to the enclosing method body if the field is read
+    // inside a method, but here we test reading the call from inside the
+    // field initialiser AT CLASS BODY LEVEL — should walk up to the class.
+    const root = parseTS(
+      `class Foo {\n  count = compute();\n}`,
+    );
+    const callNode = firstCallTo(root, 'compute');
+    expect(findEnclosingNamedEntity(callNode)).toEqual({
+      kind: 'Class',
+      name: 'Foo',
+      startLine: 1,
+      via: 'direct',
+    });
+  });
 });

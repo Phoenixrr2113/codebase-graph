@@ -62,7 +62,7 @@ export function findEnclosingNamedEntity(node: SyntaxNode): EnclosingEntity | nu
   let lastWrapper: SyntaxNode | null = null;
 
   while (current) {
-    const stop = matchStopNode(current);
+    const stop = matchStopNode(current, wrappersCount);
     if (stop) {
       let via: 'direct' | 'closure';
       if (wrappersCount === 0) {
@@ -90,8 +90,21 @@ export function findEnclosingNamedEntity(node: SyntaxNode): EnclosingEntity | nu
 /**
  * If the node is a stop type (yields a name), return the entity descriptor
  * (without the `via` field — caller fills that in). Otherwise null.
+ *
+ * `wrappersCount` is the number of anonymous closure wrappers the walker
+ * has crossed before reaching this node. It gates `variable_declarator`
+ * and class-field stops: those nodes only count as named owners of the
+ * call when either (a) the call lives inside a closure that is part of
+ * the construction expression bound to the variable (wrappersCount > 0),
+ * or (b) the variable's value is itself a function-shaped expression
+ * (`const X = () => foo()`). Otherwise the variable is a plain local
+ * capturing a call result (`const ctx = call()`) and the call attributes
+ * to the enclosing entity instead.
  */
-function matchStopNode(node: SyntaxNode): Omit<EnclosingEntity, 'via'> | null {
+function matchStopNode(
+  node: SyntaxNode,
+  wrappersCount: number,
+): Omit<EnclosingEntity, 'via'> | null {
   switch (node.type) {
     case 'function_declaration':
     case 'generator_function_declaration':
@@ -120,6 +133,15 @@ function matchStopNode(node: SyntaxNode): Omit<EnclosingEntity, 'via'> | null {
       return { kind: 'Interface', name, startLine: node.startPosition.row + 1 };
     }
     case 'variable_declarator': {
+      // `const X = () => foo()` — the arrow IS X's value, so X owns the
+      // closure's calls. Stop here.
+      // `const slice = createSlice({...arrow...})` — the call site is
+      // inside an arrow that's part of slice's construction. wrappersCount
+      // > 0 because we crossed the arrow on the way up. Stop here.
+      // `const ctx = initializeContext()` — no closure between the call
+      // and the declarator, value is not function-shaped. ctx is a local
+      // capturing a result, not a meaningful caller. Walk past.
+      if (!hasFunctionValue(node) && wrappersCount === 0) return null;
       const name = node.childForFieldName('name')?.text;
       if (!name) return null;
       return { kind: 'Variable', name, startLine: node.startPosition.row + 1 };
@@ -127,8 +149,12 @@ function matchStopNode(node: SyntaxNode): Omit<EnclosingEntity, 'via'> | null {
     case 'public_field_definition':
     case 'class_property':
     case 'property_definition': {
-      // Class field — `prop = () => …`. Treat the field as a Variable-shaped
-      // owner; CodeGraph models class fields as Variable entities.
+      // Same rule for class fields: stop when the field's value is a
+      // function-shaped expression (the field owns the closure), or when
+      // the call is inside a closure bound to the field's value
+      // (wrappersCount > 0). Otherwise — a plain `count = compute()`
+      // initialiser — walk past to the enclosing class.
+      if (!hasFunctionValue(node) && wrappersCount === 0) return null;
       const name = node.childForFieldName('name')?.text;
       if (!name) return null;
       return { kind: 'Variable', name, startLine: node.startPosition.row + 1 };
@@ -149,4 +175,21 @@ function isAnonymousWrapper(node: SyntaxNode): boolean {
     if (nameField) return false;
   }
   return true;
+}
+
+const FUNCTION_VALUE_TYPES = new Set([
+  'arrow_function',
+  'function_expression',
+  'generator_function',
+]);
+
+/**
+ * Returns true if the given node has a `value` field whose type is a
+ * function-shaped expression. Used to gate when variable_declarator and
+ * class field nodes count as named owners of a closure.
+ */
+function hasFunctionValue(node: SyntaxNode): boolean {
+  const value = node.childForFieldName('value');
+  if (!value) return false;
+  return FUNCTION_VALUE_TYPES.has(value.type);
 }
