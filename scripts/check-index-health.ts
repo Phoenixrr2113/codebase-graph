@@ -240,6 +240,10 @@ export interface BaselineFile {
   body: unknown;
 }
 
+function isValidMeta(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
 function metaMatches(a: RunMeta, b: RunMeta): boolean {
   return a.embeddingProvider === b.embeddingProvider
     && a.embeddingModel === b.embeddingModel
@@ -263,7 +267,7 @@ export function checkBaselineConfigMatches(opts: BaselineConfigMatchOpts): Check
     try {
       const raw = readFileSync(opts.explicitBaselinePath, 'utf-8');
       const body = JSON.parse(raw) as { meta?: unknown; label?: string };
-      if (!body.meta || typeof body.meta !== 'object' || Array.isArray(body.meta)) {
+      if (!isValidMeta(body.meta)) {
         return {
           name,
           status: 'fail',
@@ -277,6 +281,7 @@ export function checkBaselineConfigMatches(opts: BaselineConfigMatchOpts): Check
         name,
         status: 'fail',
         message: `Could not load explicit baseline ${opts.explicitBaselinePath}: ${err instanceof Error ? err.message : String(err)}`,
+        fix: 'Delete or regenerate the corrupt baseline file, then re-run the benchmark.',
       };
     }
   } else {
@@ -284,7 +289,7 @@ export function checkBaselineConfigMatches(opts: BaselineConfigMatchOpts): Check
   }
 
   if (baseline === null) {
-    return { name, status: 'pass', message: 'No comparable baseline found — this run becomes the new reference.' };
+    return { name, status: 'pass', message: 'No comparable baseline found — this run becomes the new reference' };
   }
 
   if (metaMatches(baseline.meta, opts.currentMeta)) {
@@ -330,9 +335,7 @@ export function findComparisonBaseline(
     } catch {
       continue;  // corrupt JSON, skip
     }
-    if (!body.meta || typeof body.meta !== 'object' || Array.isArray(body.meta)) {
-      continue;  // missing or malformed meta — treat as not comparable
-    }
+    if (!isValidMeta(body.meta)) continue;  // missing or malformed meta — treat as not comparable
     if (metaMatches(body.meta, currentMeta)) {
       return { path, meta: body.meta, body };
     }

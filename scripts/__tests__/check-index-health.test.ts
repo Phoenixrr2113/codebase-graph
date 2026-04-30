@@ -254,8 +254,8 @@ describe('Check 6: Provider config matches baseline', () => {
       });
       expect(result.status).toBe('fail');
       expect(result.message).toMatch(/Cannot compare apples-to-apples/);
-      expect(result.fix).toMatch(/--compare-against/);
-      expect(result.fix).toMatch(/--no-compare/);
+      expect(result.fix!).toMatch(/--compare-against/);
+      expect(result.fix!).toMatch(/--no-compare/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -273,7 +273,7 @@ describe('Check 6: Provider config matches baseline', () => {
       });
       expect(result.status).toBe('fail');
       expect(result.message).toMatch(/no meta field/i);
-      expect(result.fix).toMatch(/--no-compare/);
+      expect(result.fix!).toMatch(/--no-compare/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
