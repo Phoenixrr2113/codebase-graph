@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { checkIndexHealth, type HealthCheckResult } from '../check-index-health.js';
-import { checkFalkorDBReachable, checkEmbeddingDim, checkScriptsExclusion, checkRerankerExplicit } from '../check-index-health.js';
+import { checkFalkorDBReachable, checkEmbeddingDim, checkScriptsExclusion, checkRerankerExplicit, checkBaselineConfigMatches } from '../check-index-health.js';
+import type { RunMeta } from '../check-index-health.js';
 import { createClient } from '../../packages/graph/dist/index.js';
 import { randomBytes } from 'node:crypto';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('checkIndexHealth', () => {
   it('returns a HealthCheckResult shape', async () => {
@@ -189,5 +193,89 @@ describe('Check 4: scripts/ excluded', () => {
     expect(result.status).toBe('fail');
     expect(result.message).toMatch(/2 nodes/);
     expect(result.fix).toMatch(/regression-analysis-2026-03-19/);
+  });
+});
+
+describe('Check 6: Provider config matches baseline', () => {
+  const META_VOYAGE_JINA: RunMeta = {
+    embeddingProvider: 'voyage',
+    embeddingModel: 'voyage-3-large',
+    embeddingDim: 1024,
+    rerankerProvider: 'jina',
+    rerankerModel: 'jina-reranker-v2-base-multilingual',
+    llmProvider: 'cerebras',
+    llmModel: 'qwen-3-235b-a22b-instruct-2507',
+    gitSha: 'abc123',
+    gitDirty: false,
+    corpusNodeCount: 2310,
+  };
+  const META_OPENROUTER: RunMeta = { ...META_VOYAGE_JINA, embeddingProvider: 'openrouter', embeddingModel: 'text-embedding-3-small', embeddingDim: 1536 };
+
+  it('passes when no comparable baseline exists (this run becomes new reference)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'check6-'));
+    try {
+      const result = checkBaselineConfigMatches({
+        currentMeta: META_VOYAGE_JINA,
+        baselineDir: dir,
+        explicitBaselinePath: undefined,
+      });
+      expect(result.status).toBe('pass');
+      expect(result.message).toMatch(/no comparable baseline/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('passes when baseline metadata matches current run', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'check6-'));
+    try {
+      writeFileSync(join(dir, 'baseline.json'), JSON.stringify({ label: 'b', meta: META_VOYAGE_JINA, results: [] }));
+      const result = checkBaselineConfigMatches({
+        currentMeta: META_VOYAGE_JINA,
+        baselineDir: dir,
+        explicitBaselinePath: undefined,
+      });
+      expect(result.status).toBe('pass');
+      expect(result.message).toMatch(/Baseline config matches/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails with both options in fix message when configs disagree', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'check6-'));
+    try {
+      const baselinePath = join(dir, 'baseline.json');
+      writeFileSync(baselinePath, JSON.stringify({ label: 'b', meta: META_OPENROUTER, results: [] }));
+      const result = checkBaselineConfigMatches({
+        currentMeta: META_VOYAGE_JINA,
+        baselineDir: dir,
+        explicitBaselinePath: baselinePath,  // explicit forces match attempt
+      });
+      expect(result.status).toBe('fail');
+      expect(result.message).toMatch(/Cannot compare apples-to-apples/);
+      expect(result.fix).toMatch(/--compare-against/);
+      expect(result.fix).toMatch(/--no-compare/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails with helpful message when explicit baseline file lacks meta field', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'check6-'));
+    try {
+      const baselinePath = join(dir, 'legacy.json');
+      writeFileSync(baselinePath, JSON.stringify({ label: 'b', results: [] }));  // no meta
+      const result = checkBaselineConfigMatches({
+        currentMeta: META_VOYAGE_JINA,
+        baselineDir: dir,
+        explicitBaselinePath: baselinePath,
+      });
+      expect(result.status).toBe('fail');
+      expect(result.message).toMatch(/no meta field/i);
+      expect(result.fix).toMatch(/--no-compare/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

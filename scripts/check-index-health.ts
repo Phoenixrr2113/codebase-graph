@@ -248,6 +248,65 @@ function metaMatches(a: RunMeta, b: RunMeta): boolean {
     && a.llmModel === b.llmModel;
 }
 
+export interface BaselineConfigMatchOpts {
+  currentMeta: RunMeta;
+  baselineDir: string;
+  /** When provided, compare against THIS file specifically (ignore auto-find). */
+  explicitBaselinePath: string | undefined;
+}
+
+export function checkBaselineConfigMatches(opts: BaselineConfigMatchOpts): CheckResult {
+  const name = 'baseline-config-matches';
+
+  let baseline: BaselineFile | null;
+  if (opts.explicitBaselinePath !== undefined) {
+    try {
+      const raw = readFileSync(opts.explicitBaselinePath, 'utf-8');
+      const body = JSON.parse(raw) as { meta?: unknown; label?: string };
+      if (!body.meta || typeof body.meta !== 'object' || Array.isArray(body.meta)) {
+        return {
+          name,
+          status: 'fail',
+          message: `Explicit baseline ${opts.explicitBaselinePath} has no meta field — pre-spec file, not comparable.`,
+          fix: `Pass --no-compare to skip the diff, or pick a newer baseline.`,
+        };
+      }
+      baseline = { path: opts.explicitBaselinePath, meta: body.meta as RunMeta, body };
+    } catch (err) {
+      return {
+        name,
+        status: 'fail',
+        message: `Could not load explicit baseline ${opts.explicitBaselinePath}: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  } else {
+    baseline = findComparisonBaseline(opts.baselineDir, opts.currentMeta);
+  }
+
+  if (baseline === null) {
+    return { name, status: 'pass', message: 'No comparable baseline found — this run becomes the new reference.' };
+  }
+
+  if (metaMatches(baseline.meta, opts.currentMeta)) {
+    return { name, status: 'pass', message: `Baseline config matches current run (${baseline.path})` };
+  }
+
+  const b = baseline.meta;
+  const c = opts.currentMeta;
+  return {
+    name,
+    status: 'fail',
+    message:
+      `Cannot compare apples-to-apples:\n` +
+      `  baseline ${baseline.path}: ${b.embeddingProvider}/${b.embeddingModel} + ${b.rerankerProvider} + ${b.llmProvider}/${b.llmModel}\n` +
+      `  this run:                  ${c.embeddingProvider}/${c.embeddingModel} + ${c.rerankerProvider} + ${c.llmProvider}/${c.llmModel}`,
+    fix:
+      `Either:\n` +
+      `  (a) Pass --compare-against=<matching-baseline.json> to compare against a different file\n` +
+      `  (b) Pass --no-compare to skip the diff entirely; this run becomes the new reference for future comparisons.`,
+  };
+}
+
 export function findComparisonBaseline(
   dir: string,
   currentMeta: RunMeta,
