@@ -35,6 +35,11 @@ export interface HealthCheckResult {
 const DEFAULT_LABELS = ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component'];
 const BASELINE_DIR_DEFAULT = 'scripts/benchmark-results';
 
+/** Resolve embedding provider from env using a priority chain:
+ *  1. CODEGRAPH_EMBEDDING_PROVIDER explicit setting
+ *  2. Inferred from API key presence (Voyage > OpenRouter)
+ *  3. Fallback to 'local' (no API key needed). Returning 'none' would suppress the dim check entirely;
+ *     'local' surfaces a real signal if the index was built with a different provider. */
 function getEmbeddingProviderFromEnv(env: Record<string, string | undefined>): EmbeddingProvider {
   const explicit = env['CODEGRAPH_EMBEDDING_PROVIDER'];
   if (explicit === 'voyage' || explicit === 'openrouter' || explicit === 'local' || explicit === 'none') return explicit;
@@ -100,19 +105,29 @@ export async function checkIndexHealth(opts: HealthCheckOpts): Promise<HealthChe
 
   // Stage 5+ (post-reindex): index-state checks
   if (opts.requireIndex === true) {
-    const { createClient } = await import('../packages/graph/dist/index.js');
-    const client = await createClient({
-      driver: 'falkordb',
-      host: conn.host,
-      port: conn.port,
-    });
+    let client: Awaited<ReturnType<typeof import('../packages/graph/dist/index.js').createClient>> | null = null;
     try {
+      const { createClient } = await import('../packages/graph/dist/index.js');
+      client = await createClient({
+        driver: 'falkordb',
+        host: conn.host,
+        port: conn.port,
+      });
       const provider = getEmbeddingProviderFromEnv(env);
       checks.push(await checkEmbeddingDim(client, provider));
       checks.push(await checkEmbeddingCoverage(client, DEFAULT_LABELS));
       checks.push(await checkScriptsExclusion(client));
+    } catch (err) {
+      checks.push({
+        name: 'index-client',
+        status: 'fail',
+        message: `Could not open graph client for index checks: ${err instanceof Error ? err.message : String(err)}`,
+        fix: 'Verify FalkorDB is healthy and the graph package is built: pnpm turbo build',
+      });
     } finally {
-      await client.close();
+      if (client) {
+        try { await client.close(); } catch { /* best-effort */ }
+      }
     }
     checks.push(checkRerankerExplicit(env));
   }
