@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { checkIndexHealth, type HealthCheckResult } from '../check-index-health.js';
-import { checkFalkorDBReachable, checkEmbeddingDim, checkScriptsExclusion } from '../check-index-health.js';
+import { checkFalkorDBReachable, checkEmbeddingDim, checkScriptsExclusion, checkRerankerExplicit } from '../check-index-health.js';
 import { createClient } from '../../packages/graph/dist/index.js';
 import { randomBytes } from 'node:crypto';
 
@@ -128,6 +128,24 @@ describe('Check 3: Embedding coverage per label', () => {
     const result = await checkEmbeddingCoverage(client, ['Class']);
     expect(result.status).toBe('warn');
     expect(result.message).toMatch(/Class.*2\/3/);
+  });
+});
+
+describe('Check 5: Reranker explicitly set', () => {
+  it('warns when CODEGRAPH_RERANK_PROVIDER is unset', () => {
+    const result = checkRerankerExplicit({});
+    expect(result.status).toBe('warn');
+    expect(result.message).toMatch(/0\.969 baseline used Jina/);
+  });
+
+  it('warns when set to "none"', () => {
+    const result = checkRerankerExplicit({ CODEGRAPH_RERANK_PROVIDER: 'none' });
+    expect(result.status).toBe('warn');
+  });
+
+  it('passes when set to a real provider', () => {
+    const result = checkRerankerExplicit({ CODEGRAPH_RERANK_PROVIDER: 'jina' });
+    expect(result.status).toBe('pass');
   });
 });
 

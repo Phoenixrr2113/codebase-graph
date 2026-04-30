@@ -172,6 +172,23 @@ export async function checkScriptsExclusion(client: GraphClient): Promise<CheckR
   };
 }
 
+export function checkRerankerExplicit(env: Record<string, string | undefined>): CheckResult {
+  const name = 'reranker-explicit';
+  const provider = env['CODEGRAPH_RERANK_PROVIDER'];
+  if (!provider || provider === 'none') {
+    return {
+      name,
+      status: 'warn',
+      message: 'CODEGRAPH_RERANK_PROVIDER not set; reranker defaults to none. Headline 0.969 baseline used Jina. Numbers from this run will understate true production quality.',
+    };
+  }
+  return {
+    name,
+    status: 'pass',
+    message: `Reranker provider explicitly set to "${provider}"`,
+  };
+}
+
 export async function checkEmbeddingCoverage(
   client: GraphClient,
   labels: string[],
