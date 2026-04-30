@@ -44,16 +44,6 @@ exports[`extractCalls — attribution snapshots > nested-callbacks.ts 1`] = `
 [
   {
     "calleeFilePath": undefined,
-    "calleeName": "makeRunner",
-    "callerFilePath": "<fixture>",
-    "callerKind": "Variable",
-    "callerName": "runner",
-    "callerStartLine": 7,
-    "line": 7,
-    "via": "direct",
-  },
-  {
-    "calleeFilePath": undefined,
     "calleeName": "innermost",
     "callerFilePath": "<fixture>",
     "callerKind": "Variable",
@@ -67,16 +57,6 @@ exports[`extractCalls — attribution snapshots > nested-callbacks.ts 1`] = `
 
 exports[`extractCalls — attribution snapshots > redux-reducer.ts 1`] = `
 [
-  {
-    "calleeFilePath": undefined,
-    "calleeName": "createSlice",
-    "callerFilePath": "<fixture>",
-    "callerKind": "Variable",
-    "callerName": "counterSlice",
-    "callerStartLine": 8,
-    "line": 8,
-    "via": "direct",
-  },
   {
     "calleeFilePath": undefined,
     "calleeName": "bumpCounter",
@@ -102,16 +82,6 @@ exports[`extractCalls — attribution snapshots > redux-reducer.ts 1`] = `
 
 exports[`extractCalls — attribution snapshots > zod-style-factory.ts 1`] = `
 [
-  {
-    "calleeFilePath": undefined,
-    "calleeName": "$constructor",
-    "callerFilePath": "<fixture>",
-    "callerKind": "Variable",
-    "callerName": "$ZodCheckMultipleOf",
-    "callerStartLine": 11,
-    "line": 11,
-    "via": "direct",
-  },
   {
     "calleeFilePath": undefined,
     "calleeName": "floatSafeRemainder",
