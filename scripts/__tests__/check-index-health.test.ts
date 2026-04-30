@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { checkIndexHealth, type HealthCheckResult } from '../check-index-health.js';
 import { checkFalkorDBReachable, checkEmbeddingDim } from '../check-index-health.js';
 import { createClient } from '../../packages/graph/dist/index.js';
@@ -56,12 +56,15 @@ describe('Check 2: Embedding dim matches', () => {
     await client.close();
   });
 
+  afterEach(async () => {
+    await client.query('MATCH (n) DETACH DELETE n', { params: {} });
+  });
+
   it('passes when index dim matches voyage (1024)', async () => {
     const e = Array.from({ length: 1024 }, () => 0.1);
     await client.query('CREATE (:Function {name: $n, embedding: vecf32($e)})', { params: { n: 'foo', e } });
     const result = await checkEmbeddingDim(client, 'voyage');
     expect(result.status).toBe('pass');
-    await client.query('MATCH (n) DETACH DELETE n', { params: {} });
   });
 
   it('fails with fix message when index dim is wrong', async () => {
@@ -71,7 +74,6 @@ describe('Check 2: Embedding dim matches', () => {
     expect(result.status).toBe('fail');
     expect(result.message).toMatch(/768.*1024|1024.*768/);
     expect(result.fix).toMatch(/clear-and-reindex/);
-    await client.query('MATCH (n) DETACH DELETE n', { params: {} });
   });
 
   it('fails when no embeddings exist (requireIndex=true case)', async () => {

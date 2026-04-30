@@ -107,6 +107,8 @@ export async function checkEmbeddingDim(
   provider: EmbeddingProvider,
 ): Promise<CheckResult> {
   const name = 'embedding-dim';
+  // provider === 'none' means embeddings are intentionally disabled; no dim to check.
+  // Pass (not warn) avoids alerting on configurations that intentionally run without embeddings.
   if (provider === 'none') {
     return { name, status: 'pass', message: 'No embedding provider configured (skipped)' };
   }
@@ -125,7 +127,7 @@ export async function checkEmbeddingDim(
       fix: 'Run a fresh index: rm -rf .codegraph && npx tsx scripts/clear-and-reindex.mts',
     };
   }
-  const embedding = result.data[0]!.n?.properties?.embedding;
+  const embedding = result.data[0]!.n.properties?.embedding;
   const actualDim = Array.isArray(embedding) ? embedding.length : undefined;
   if (actualDim === undefined) {
     return {
