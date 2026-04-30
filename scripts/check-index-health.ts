@@ -6,6 +6,7 @@
 import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { GraphClient } from '../packages/graph/dist/index.js';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail';
@@ -31,12 +32,129 @@ export interface HealthCheckResult {
   hasWarnings: boolean;
 }
 
-export async function checkIndexHealth(_opts: HealthCheckOpts): Promise<HealthCheckResult> {
+const DEFAULT_LABELS = ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component'];
+const BASELINE_DIR_DEFAULT = 'scripts/benchmark-results';
+
+function getEmbeddingProviderFromEnv(env: Record<string, string | undefined>): EmbeddingProvider {
+  const explicit = env['CODEGRAPH_EMBEDDING_PROVIDER'];
+  if (explicit === 'voyage' || explicit === 'openrouter' || explicit === 'local' || explicit === 'none') return explicit;
+  if (env['VOYAGE_API_KEY']) return 'voyage';
+  if (env['OPENROUTER_API_KEY']) return 'openrouter';
+  return 'local';
+}
+
+/** Build a partial RunMeta from env vars only. Used by standalone CLI; benchmark passes a fully populated one.
+ *  Normalization mirrors `packages/plugin-nlp/src/llm.ts` so values match what the benchmark records. */
+function buildCurrentMetaFromEnv(env: Record<string, string | undefined>): RunMeta {
+  const embeddingProvider = getEmbeddingProviderFromEnv(env);
+
+  const rerankerEnv = env['CODEGRAPH_RERANK_PROVIDER']?.toLowerCase();
+  const rerankerProvider: 'jina' | 'voyage' | 'none' =
+    rerankerEnv === 'jina' || rerankerEnv === 'voyage' ? rerankerEnv : 'none';
+
+  const llmEnv = env['LLM_PROVIDER']?.toLowerCase();
+  const llmProvider: 'cerebras' | 'openrouter' | 'glm' | 'ollama' =
+    llmEnv === 'openrouter' || llmEnv === 'glm' || llmEnv === 'ollama' ? llmEnv : 'cerebras';
+
   return {
-    checks: [],
-    hasFailures: false,
-    hasWarnings: false,
+    embeddingProvider,
+    embeddingModel: env['CODEGRAPH_EMBEDDING_MODEL'] ?? '',
+    embeddingDim: 0,  // not known without probing the index
+    rerankerProvider,
+    rerankerModel: env['CODEGRAPH_RERANK_MODEL'] ?? null,
+    llmProvider,
+    llmModel: env['LLM_MODEL'] ?? '',
+    gitSha: '',
+    gitDirty: false,
+    corpusNodeCount: 0,
   };
+}
+
+export async function checkIndexHealth(opts: HealthCheckOpts): Promise<HealthCheckResult> {
+  const env = process.env as Record<string, string | undefined>;
+  const checks: CheckResult[] = [];
+
+  // Stage 2: FalkorDB reachable (always first)
+  const conn = {
+    host: env['FALKORDB_HOST'] ?? 'localhost',
+    port: Number(env['FALKORDB_PORT'] ?? '6379'),
+  };
+  const reach = await checkFalkorDBReachable(conn);
+  checks.push(reach);
+
+  // If FalkorDB is down, every other check would just produce noise. Bail.
+  if (reach.status === 'fail') {
+    return { checks, hasFailures: true, hasWarnings: false };
+  }
+
+  // Stage 3: Baseline config match (no DB required, but skipped if compareAgainst === null)
+  if (opts.compareAgainst !== null) {
+    const currentMeta = buildCurrentMetaFromEnv(env);
+    const check6 = checkBaselineConfigMatches({
+      currentMeta,
+      baselineDir: BASELINE_DIR_DEFAULT,
+      explicitBaselinePath: opts.compareAgainst ?? undefined,
+    });
+    checks.push(check6);
+  }
+
+  // Stage 5+ (post-reindex): index-state checks
+  if (opts.requireIndex === true) {
+    const { createClient } = await import('../packages/graph/dist/index.js');
+    const client = await createClient({
+      driver: 'falkordb',
+      host: conn.host,
+      port: conn.port,
+    });
+    try {
+      const provider = getEmbeddingProviderFromEnv(env);
+      checks.push(await checkEmbeddingDim(client, provider));
+      checks.push(await checkEmbeddingCoverage(client, DEFAULT_LABELS));
+      checks.push(await checkScriptsExclusion(client));
+    } finally {
+      await client.close();
+    }
+    checks.push(checkRerankerExplicit(env));
+  }
+
+  return {
+    checks,
+    hasFailures: checks.some((c) => c.status === 'fail'),
+    hasWarnings: checks.some((c) => c.status === 'warn'),
+  };
+}
+
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  const compareAgainstFlag = args.find((a) => a.startsWith('--compare-against='));
+  const noCompare = args.includes('--no-compare');
+  const compareAgainst: string | null | undefined = noCompare
+    ? null
+    : compareAgainstFlag?.slice('--compare-against='.length) ?? undefined;
+
+  const result = await checkIndexHealth({
+    requireIndex: !args.includes('--pre-reindex'),
+    compareAgainst,
+  });
+
+  for (const c of result.checks) {
+    const sigil = c.status === 'pass' ? '✓' : c.status === 'warn' ? '⚠' : '✗';
+    console.log(`${sigil} ${c.name}: ${c.message}`);
+    if (c.fix) {
+      console.log(`  Fix:`);
+      for (const line of c.fix.split('\n')) console.log(`    ${line}`);
+    }
+  }
+
+  process.exit(result.hasFailures ? 1 : 0);
+}
+
+// Run main() only when invoked as the entry script (matches the pattern in benchmarks/cgbench-v1/src/cli.ts).
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main().catch((err) => {
+    console.error('check-index-health crashed:', err);
+    process.exit(2);
+  });
 }
 
 export interface FalkorConnInfo {

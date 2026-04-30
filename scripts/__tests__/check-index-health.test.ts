@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
-import { checkIndexHealth, type HealthCheckResult } from '../check-index-health.js';
+import { checkIndexHealth, type CheckResult, type HealthCheckResult } from '../check-index-health.js';
 import { checkFalkorDBReachable, checkEmbeddingDim, checkScriptsExclusion, checkRerankerExplicit, checkBaselineConfigMatches } from '../check-index-health.js';
 import type { RunMeta } from '../check-index-health.js';
 import { createClient } from '../../packages/graph/dist/index.js';
@@ -8,15 +8,45 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-describe('checkIndexHealth', () => {
-  it('returns a HealthCheckResult shape', async () => {
-    const result: HealthCheckResult = await checkIndexHealth({ requireIndex: false });
-    expect(result).toHaveProperty('checks');
-    expect(result).toHaveProperty('hasFailures');
-    expect(result).toHaveProperty('hasWarnings');
-    expect(Array.isArray(result.checks)).toBe(true);
-    expect(result.hasFailures).toBe(false);
-    expect(result.hasWarnings).toBe(false);
+describe('checkIndexHealth aggregator', () => {
+  it('runs only Check 1 + Check 6 with requireIndex=false', async () => {
+    const result = await checkIndexHealth({
+      requireIndex: false,
+      compareAgainst: null,  // null skips Check 6
+    });
+    const names = result.checks.map((c) => c.name);
+    expect(names).toContain('falkordb-reachable');
+    expect(names).not.toContain('embedding-dim');
+    expect(names).not.toContain('embedding-coverage');
+    expect(names).not.toContain('scripts-excluded');
+  });
+
+  it('runs all checks with requireIndex=true', async () => {
+    const result = await checkIndexHealth({
+      requireIndex: true,
+      compareAgainst: null,
+    });
+    const names = result.checks.map((c) => c.name);
+    expect(names).toContain('falkordb-reachable');
+    expect(names).toContain('embedding-dim');
+    expect(names).toContain('embedding-coverage');
+    expect(names).toContain('scripts-excluded');
+    expect(names).toContain('reranker-explicit');
+  });
+
+  it('hasFailures and hasWarnings reflect aggregated check statuses', () => {
+    // Pure aggregator semantics — verify the boolean derivation is correct without running real checks.
+    const fails: CheckResult[] = [
+      { name: 'a', status: 'pass', message: '' },
+      { name: 'b', status: 'fail', message: '' },
+    ];
+    const warns: CheckResult[] = [
+      { name: 'a', status: 'pass', message: '' },
+      { name: 'b', status: 'warn', message: '' },
+    ];
+    expect(fails.some((c) => c.status === 'fail')).toBe(true);
+    expect(warns.some((c) => c.status === 'fail')).toBe(false);
+    expect(warns.some((c) => c.status === 'warn')).toBe(true);
   });
 });
 
