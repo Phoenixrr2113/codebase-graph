@@ -85,7 +85,7 @@ export async function ensureSchemaImpl(
   // labels exist before concurrent indexing starts. The dummy nodes are
   // immediately deleted.
   const allLabels = [
-    'File', 'Function', 'Class', 'Interface', 'Variable', 'Type',
+    'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'TypeRef',
     'Component', 'Entity', 'Project', 'Commit', 'Metadata',
     'MarkdownDocument', 'Section', 'CodeBlock', 'Link',
   ];

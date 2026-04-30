@@ -265,9 +265,16 @@ const CYPHER = {
         r.isReadonly = coalesce($isReadonly, false)
   `,
 
-  // Type reference node — MERGE by id so cross-file references share one node
+  // Type reference node — MERGE by id so cross-file references share one node.
+  // Uses :TypeRef (NOT :Type) — TypeRef represents inline type expressions,
+  // generic parameters, and primitives (e.g. "T", "any", "Promise<User>"); these
+  // have no source location of their own. :Type is reserved for source-level
+  // type alias / enum *declarations* (TypeEntity), which do have filePath +
+  // startLine and which are embedded for vector search. Conflating the two
+  // labels means embed-pass crashes on null filePath and search returns
+  // unknown#unknown rows for half the result set.
   MERGE_TYPE_REF: `
-    MERGE (t:Type {id: $id})
+    MERGE (t:TypeRef {id: $id})
     SET t.name = $name,
         t.language = $language,
         t.isPrimitive = $isPrimitive,
@@ -275,7 +282,7 @@ const CYPHER = {
   `,
 
   CREATE_HAS_PARAM_EDGE: `
-    MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+    MATCH (from:Function {id: $fromId}), (to:TypeRef {id: $toId})
     MERGE (from)-[r:HAS_PARAM]->(to)
     SET r.position = $position,
         r.name = $name,
@@ -283,13 +290,13 @@ const CYPHER = {
   `,
 
   CREATE_RETURNS_EDGE: `
-    MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+    MATCH (from:Function {id: $fromId}), (to:TypeRef {id: $toId})
     MERGE (from)-[r:RETURNS]->(to)
     SET r.isAsync = $isAsync
   `,
 
   CREATE_USES_TYPE_EDGE: `
-    MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+    MATCH (from:Function {id: $fromId}), (to:TypeRef {id: $toId})
     MERGE (from)-[r:USES_TYPE]->(to)
     SET r.kind = $kind
   `,
@@ -1588,11 +1595,12 @@ class GraphOperationsImpl implements GraphOperations {
       );
     }
 
-    // Type ref nodes must exist before type-relationship edges are MERGE'd.
+    // TypeRef nodes must exist before type-relationship edges are MERGE'd.
+    // Uses :TypeRef (NOT :Type) — see CYPHER.MERGE_TYPE_REF for rationale.
     const typeRefs = entitiesList.flatMap(e => e.typeRefs);
     for (const t of typeRefs) {
       await safeEdge(
-        `MERGE (t:Type {id: $id})
+        `MERGE (t:TypeRef {id: $id})
          SET t.name = $name, t.language = $language, t.isPrimitive = $isPrimitive,
              t.definingFile = coalesce($definingFile, t.definingFile)`,
         { id: t.id, name: t.name, language: t.language, isPrimitive: t.isPrimitive, definingFile: t.definingFile ?? null },
@@ -1603,7 +1611,7 @@ class GraphOperationsImpl implements GraphOperations {
     const hasParamEdges: HasParamEdgeDescriptor[] = entitiesList.flatMap(e => e.hasParamEdges);
     for (const e of hasParamEdges) {
       await safeEdge(
-        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+        `MATCH (from:Function {id: $fromId}), (to:TypeRef {id: $toId})
          MERGE (from)-[r:HAS_PARAM]->(to)
          SET r.position = $position, r.name = $name, r.isOptional = $isOptional`,
         { fromId: e.fromId, toId: e.toId, position: e.position, name: e.name, isOptional: e.isOptional },
@@ -1614,7 +1622,7 @@ class GraphOperationsImpl implements GraphOperations {
     const returnsEdges: ReturnsEdgeDescriptor[] = entitiesList.flatMap(e => e.returnsEdges);
     for (const e of returnsEdges) {
       await safeEdge(
-        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+        `MATCH (from:Function {id: $fromId}), (to:TypeRef {id: $toId})
          MERGE (from)-[r:RETURNS]->(to)
          SET r.isAsync = $isAsync`,
         { fromId: e.fromId, toId: e.toId, isAsync: e.isAsync },
@@ -1625,7 +1633,7 @@ class GraphOperationsImpl implements GraphOperations {
     const usesTypeEdges: UsesTypeEdgeDescriptor[] = entitiesList.flatMap(e => e.usesTypeEdges);
     for (const e of usesTypeEdges) {
       await safeEdge(
-        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+        `MATCH (from:Function {id: $fromId}), (to:TypeRef {id: $toId})
          MERGE (from)-[r:USES_TYPE]->(to)
          SET r.kind = $kind`,
         { fromId: e.fromId, toId: e.toId, kind: e.kind },
@@ -1777,11 +1785,12 @@ class GraphOperationsImpl implements GraphOperations {
       );
     }
 
-    // Type ref nodes must exist before type-relationship edges are MERGE'd.
+    // TypeRef nodes must exist before type-relationship edges are MERGE'd.
+    // Uses :TypeRef (NOT :Type) — see CYPHER.MERGE_TYPE_REF for rationale.
     const typeRefs = entitiesList.flatMap(e => e.typeRefs);
     for (const t of typeRefs) {
       await safeEdge(
-        `MERGE (t:Type {id: $id})
+        `MERGE (t:TypeRef {id: $id})
          SET t.name = $name, t.language = $language, t.isPrimitive = $isPrimitive,
              t.definingFile = coalesce($definingFile, t.definingFile)`,
         { id: t.id, name: t.name, language: t.language, isPrimitive: t.isPrimitive, definingFile: t.definingFile ?? null },
@@ -1792,7 +1801,7 @@ class GraphOperationsImpl implements GraphOperations {
     const hasParamEdges: HasParamEdgeDescriptor[] = entitiesList.flatMap(e => e.hasParamEdges);
     for (const e of hasParamEdges) {
       await safeEdge(
-        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+        `MATCH (from:Function {id: $fromId}), (to:TypeRef {id: $toId})
          MERGE (from)-[r:HAS_PARAM]->(to)
          SET r.position = $position, r.name = $name, r.isOptional = $isOptional`,
         { fromId: e.fromId, toId: e.toId, position: e.position, name: e.name, isOptional: e.isOptional },
@@ -1803,7 +1812,7 @@ class GraphOperationsImpl implements GraphOperations {
     const returnsEdges: ReturnsEdgeDescriptor[] = entitiesList.flatMap(e => e.returnsEdges);
     for (const e of returnsEdges) {
       await safeEdge(
-        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+        `MATCH (from:Function {id: $fromId}), (to:TypeRef {id: $toId})
          MERGE (from)-[r:RETURNS]->(to)
          SET r.isAsync = $isAsync`,
         { fromId: e.fromId, toId: e.toId, isAsync: e.isAsync },
@@ -1814,7 +1823,7 @@ class GraphOperationsImpl implements GraphOperations {
     const usesTypeEdges: UsesTypeEdgeDescriptor[] = entitiesList.flatMap(e => e.usesTypeEdges);
     for (const e of usesTypeEdges) {
       await safeEdge(
-        `MATCH (from:Function {id: $fromId}), (to:Type {id: $toId})
+        `MATCH (from:Function {id: $fromId}), (to:TypeRef {id: $toId})
          MERGE (from)-[r:USES_TYPE]->(to)
          SET r.kind = $kind`,
         { fromId: e.fromId, toId: e.toId, kind: e.kind },
