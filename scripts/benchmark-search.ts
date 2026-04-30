@@ -22,7 +22,7 @@
  *   - Recall@10: what fraction of expected results in top 10?
  *
  * Usage:
- *   pnpm build && npx tsx scripts/benchmark-search.ts [label] [--reindex] [--no-llm] [--fast-only] [--no-embeddings] [--analysis]
+ *   pnpm build && npx tsx scripts/benchmark-search.ts [label] [--reindex] [--no-llm] [--fast-only] [--no-embeddings] [--analysis] [--no-compare] [--compare-against=<path>]
  *
  * NOTE: The index must exclude scripts/ when running this benchmark.
  * Benchmark internal symbols (calculateMRR, HardTestCase, generateKnowledgeEmbeddings)
@@ -38,7 +38,7 @@ const { getLLMModel, getLLMComplexModel, isLLMAvailable, warmupLLM, getLLMConfig
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { checkIndexHealth } from './check-index-health.js';
+import { checkIndexHealth, findComparisonBaseline, computeDiff, printDiffTable } from './check-index-health.js';
 // Types for reference (actual values come from dynamic imports)
 type SearchType = 'ENRICHED_V2';
 interface SearchContext { client: any; llm?: any; complexLlm?: any; embeddings?: any; }
@@ -1014,6 +1014,55 @@ async function main() {
     }])),
   }, null, 2));
   console.log(`\n  Results saved: ${filepath}`);
+
+  // Regression diff vs most recent matching baseline
+  if (!noCompare) {
+    const baselineDir = resolve(ROOT, 'scripts/benchmark-results');
+    const baseline = compareAgainstPath
+      ? (() => {
+          try {
+            const body = JSON.parse(readFileSync(compareAgainstPath, 'utf-8'));
+            return body.meta ? { path: compareAgainstPath, meta: body.meta, body } : null;
+          } catch { return null; }
+        })()
+      : findComparisonBaseline(baselineDir, meta);
+
+    if (baseline === null) {
+      console.log('\n  No comparable baseline found — this run becomes the new reference.');
+    } else {
+      const baselineBody = baseline.body as { label: string; timestamp: string; results: Array<{ query: string; category: string; mrr: number; ndcg5: number; ndcg10: number; success1: boolean; success5: boolean; recall10: number; latencyMs: number }> };
+      const threshold = Number(process.env['BENCHMARK_REGRESSION_THRESHOLD'] ?? '0.05');
+      const currentRows = allResults.map((r) => ({
+        query: r.testCase.query,
+        category: r.testCase.category,
+        mrr: r.mrr,
+        ndcg5: r.ndcg5,
+        ndcg10: r.ndcg10,
+        success1: r.success1,
+        success5: r.success5,
+        recall10: r.recall10,
+        latencyMs: r.latencyMs,
+      }));
+      const diff = computeDiff(
+        { results: baselineBody.results },
+        { results: currentRows },
+        { threshold },
+      );
+      console.log('');
+      const lines = printDiffTable({
+        baseline: { label: baselineBody.label, timestamp: baselineBody.timestamp, meta: baseline.meta, results: baselineBody.results },
+        current: { label, meta, results: currentRows },
+        diff,
+        threshold,
+      });
+      for (const line of lines) console.log(line);
+
+      if (diff.hasRegression && !process.env['BENCHMARK_NO_FAIL']) {
+        await closeGraphClient();
+        process.exit(1);
+      }
+    }
+  }
 
   // Machine-readable summary line
   const summaryParts: string[] = [`[STRESS] ${label}`];
