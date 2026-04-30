@@ -191,17 +191,44 @@ export async function ensureSchemaImpl(
 function resolveEmbeddingDimension(override?: number): number {
   // Caller-provided override always wins (highest priority)
   if (override !== undefined) return override;
-  // Env var CODEGRAPH_EMBEDDING_DIM — explicit second priority
+
+  // Map known providers to their fixed embedding dimensions.
+  const PROVIDER_DIM: Record<string, number> = {
+    voyage: 1024,
+    openrouter: 1536,
+    local: 768,
+    none: 0,
+  };
+
   const explicit = process.env['CODEGRAPH_EMBEDDING_DIM'];
+  const provider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
+
+  // If both are set, they must agree. Silently honoring CODEGRAPH_EMBEDDING_DIM
+  // when it conflicts with the provider's actual output dimension is a
+  // foot-gun: vector index gets created at the wrong dim, every embedding
+  // write succeeds (FalkorDB doesn't dim-check property writes), but every
+  // vector search fails silently with "dimension mismatch" buried inside a
+  // catch — the user sees only "0 results."
+  if (explicit && provider && PROVIDER_DIM[provider] !== undefined) {
+    const explicitDim = parseInt(explicit, 10);
+    const providerDim = PROVIDER_DIM[provider]!;
+    if (explicitDim !== providerDim) {
+      throw new Error(
+        `Embedding dimension conflict: CODEGRAPH_EMBEDDING_DIM=${explicitDim} ` +
+        `but CODEGRAPH_EMBEDDING_PROVIDER=${provider} produces ${providerDim}-dim ` +
+        `vectors. Either remove CODEGRAPH_EMBEDDING_DIM (let it derive from the ` +
+        `provider) or change the provider to match the dim.`
+      );
+    }
+    return explicitDim;
+  }
+
+  // Env var CODEGRAPH_EMBEDDING_DIM — explicit second priority (no provider set)
   if (explicit) return parseInt(explicit, 10);
 
   // Explicit provider env
-  const provider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
-  switch (provider) {
-    case 'voyage': return 1024;
-    case 'openrouter': return 1536;
-    case 'local': return 768;
-    case 'none': return 0;
+  if (provider && PROVIDER_DIM[provider] !== undefined) {
+    return PROVIDER_DIM[provider]!;
   }
 
   // Auto-detect from API keys

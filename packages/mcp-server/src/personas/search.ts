@@ -20,6 +20,11 @@ export interface SearchPersonaInput {
   file?: string;
   symbol?: string;
   scope?: string;
+  /**
+   * Search across code only (default), knowledge entities only, or both
+   * (RRF fusion). Forwarded to the underlying searchCode tool.
+   */
+  searchScope?: 'code' | 'knowledge' | 'all';
   limit?: number;
   maxDepth?: number;
   includeRelationships?: boolean;
@@ -65,6 +70,11 @@ export const searchPersonaDefinition: ToolDefinition = {
         type: 'string',
         description: 'Path prefix to scope search',
       },
+      searchScope: {
+        type: 'string',
+        enum: ['code', 'knowledge', 'all'],
+        description: 'What to search: code (default), knowledge entities, or both (RRF fusion)',
+      },
       limit: {
         type: 'number',
         description: 'Max results (default: 20)',
@@ -99,8 +109,14 @@ export async function handleSearch(args: Record<string, unknown>): Promise<unkno
       const queryCheck = validateQueryLength(input.query);
       if (!queryCheck.valid) return { error: queryCheck.error };
 
-      const searchInput: { query: string; scope?: string; limit?: number } = { query: input.query };
+      const searchInput: {
+        query: string;
+        scope?: string;
+        searchScope?: 'code' | 'knowledge' | 'all';
+        limit?: number;
+      } = { query: input.query };
       if (input.scope) searchInput.scope = input.scope;
+      if (input.searchScope) searchInput.searchScope = input.searchScope;
       if (input.limit) searchInput.limit = input.limit;
       result = await searchCode(searchInput);
       toolUsed = 'search_code';

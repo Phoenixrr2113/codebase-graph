@@ -41,7 +41,13 @@ export interface ProjectInfo {
 // Config Path
 // ============================================================================
 
-const CONFIG_DIR = join(homedir(), '.codegraph');
+// CODEGRAPH_DATA_DIR lets a host process (benchmark, test harness, third-party
+// integration) isolate its config from other CodeGraph instances. Without
+// this hook, two concurrent MCP servers race on a single ~/.codegraph file
+// and trample each other's active-project state.
+const CONFIG_DIR = process.env['CODEGRAPH_DATA_DIR']
+  ? process.env['CODEGRAPH_DATA_DIR']
+  : join(homedir(), '.codegraph');
 const CONFIG_FILE = join(CONFIG_DIR, 'mcp-context.json');
 
 // ============================================================================

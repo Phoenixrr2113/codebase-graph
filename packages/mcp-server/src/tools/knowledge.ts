@@ -418,7 +418,9 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
           textResults = await knowledgeService.queryKnowledge(textQuery);
         }
 
-        // Merge results (dedup by id)
+        // Merge results (dedup by id). sampleIds preserves provenance — which
+        // document(s) each entity came from — so callers can map results back
+        // to source identifiers.
         const seen = new Set<string>();
         const merged = [];
         for (const e of vectorResults) {
@@ -429,6 +431,7 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
             type: e.type,
             confidence: e.confidence,
             relevance: e.relevanceScore,
+            sampleIds: e.sampleIds,
             createdAt: new Date(e.createdAt).toISOString(),
             lastAccessed: new Date(e.lastAccessedAt).toISOString(),
             source: 'semantic' as const,
@@ -442,6 +445,7 @@ export async function handleQueryKnowledge(args: Record<string, unknown>) {
               type: e.type,
               confidence: e.confidence,
               relevance: e.relevanceScore,
+              sampleIds: e.sampleIds,
               createdAt: new Date(e.createdAt).toISOString(),
               lastAccessed: new Date(e.lastAccessedAt).toISOString(),
               source: 'text' as const,
