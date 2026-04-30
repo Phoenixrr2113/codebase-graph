@@ -884,7 +884,7 @@ async function main() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const filename = `${label}-${timestamp}.json`;
   const filepath = resolve(resultsDir, filename);
-  // Reproducibility metadata for regression detection — Task 11 of regression-detection spec
+  // Reproducibility metadata for regression detection
   const { execSync } = await import('node:child_process');
   let gitSha = '';
   let gitDirty = false;
@@ -913,7 +913,7 @@ async function main() {
   const meta = {
     embeddingProvider,
     embeddingModel: process.env['CODEGRAPH_EMBEDDING_MODEL']
-      ?? (embeddingProvider === 'voyage' ? 'voyage-3-large'
+      ?? (embeddingProvider === 'voyage' ? 'voyage-code-3'
         : embeddingProvider === 'openrouter' ? 'text-embedding-3-small'
         : embeddingProvider === 'local' ? 'nomic-ai/nomic-embed-text-v1.5'
         : ''),
@@ -921,11 +921,16 @@ async function main() {
     rerankerProvider,
     rerankerModel: process.env['CODEGRAPH_RERANK_MODEL'] ?? null,
     llmProvider,
-    llmModel: process.env['LLM_MODEL']
-      ?? (llmProvider === 'openrouter' ? 'google/gemini-2.5-flash'
-        : llmProvider === 'cerebras' ? 'qwen-3-235b-a22b-instruct-2507'
-        : llmProvider === 'glm' ? 'GLM-4.7'
-        : 'llama3.2'),
+    llmModel:
+      (llmProvider === 'cerebras' && process.env['CEREBRAS_MODEL'])
+        ? process.env['CEREBRAS_MODEL']
+      : (llmProvider === 'glm' && process.env['GLM_MODEL'])
+        ? process.env['GLM_MODEL']
+      : process.env['LLM_MODEL']
+        ?? (llmProvider === 'openrouter' ? 'google/gemini-2.5-flash'
+          : llmProvider === 'cerebras' ? 'qwen-3-235b-a22b-instruct-2507'
+          : llmProvider === 'glm' ? 'GLM-4.7'
+          : 'llama3.2'),
     gitSha,
     gitDirty,
     corpusNodeCount: nodeCount,
