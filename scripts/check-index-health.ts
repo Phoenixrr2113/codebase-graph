@@ -4,6 +4,8 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import type { GraphClient } from '../packages/graph/dist/index.js';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail';
@@ -217,4 +219,56 @@ export async function checkEmbeddingCoverage(
     status: 'warn',
     message: `Partial embedding coverage: ${issues.join('; ')}. Possible causes: partial reindex, plugin that didn't flush, or label intentionally not embedded.`,
   };
+}
+
+export interface RunMeta {
+  embeddingProvider: 'voyage' | 'openrouter' | 'local' | 'none';
+  embeddingModel: string;
+  embeddingDim: number;
+  rerankerProvider: 'jina' | 'voyage' | 'none';
+  rerankerModel: string | null;
+  llmProvider: 'cerebras' | 'openrouter' | 'glm' | 'ollama';
+  llmModel: string;
+  gitSha: string;
+  gitDirty: boolean;
+  corpusNodeCount: number;
+}
+
+export interface BaselineFile {
+  path: string;
+  meta: RunMeta;
+  body: unknown;
+}
+
+function metaMatches(a: RunMeta, b: RunMeta): boolean {
+  return a.embeddingProvider === b.embeddingProvider
+    && a.embeddingModel === b.embeddingModel
+    && a.rerankerProvider === b.rerankerProvider
+    && a.llmProvider === b.llmProvider
+    && a.llmModel === b.llmModel;
+}
+
+export function findComparisonBaseline(
+  dir: string,
+  currentMeta: RunMeta,
+): BaselineFile | null {
+  const entries = readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => ({ name: f, mtime: statSync(join(dir, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime);
+
+  for (const e of entries) {
+    const path = join(dir, e.name);
+    let body: { meta?: RunMeta };
+    try {
+      body = JSON.parse(readFileSync(path, 'utf-8'));
+    } catch {
+      continue;  // corrupt JSON, skip
+    }
+    if (!body.meta) continue;  // legacy file without metadata
+    if (metaMatches(body.meta, currentMeta)) {
+      return { path, meta: body.meta, body };
+    }
+  }
+  return null;
 }
