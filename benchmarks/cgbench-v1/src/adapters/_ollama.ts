@@ -64,15 +64,22 @@ LABEL DISCIPLINE — read the question carefully:
 - "classes that extend X" → \`(c:Class)-[:EXTENDS]->(...)\`
 - "classes that implement X" → \`(c:Class)-[:IMPLEMENTS]->(...)\`
 - "anything affected by X" / transitive impact → omit caller label, use
-  variable-length \`-[:CALLS*1..3]->\`
+  variable-length \`-[:CALLS*1..3]->\`. CRITICAL: bind the path and order by
+  its length so 1-hop (direct) callers rank before 2-hop and 3-hop callers.
+  Without ORDER BY, a deeply-connected target produces 50+ rows where the
+  truly-affected nearby callers get drowned in distant ones.
 
 Generate ONE read-only Cypher query that answers the user's question.
 Forbidden clauses: CREATE, MERGE, DELETE, SET, REMOVE, DROP.
 
 EVERY query MUST end with a RETURN clause. A bare MATCH without RETURN is not
 a valid query — it returns nothing. Prefer returning the matched node directly
-(e.g. RETURN caller) so callers can read both name and filePath. End with
-LIMIT 50 unless the question implies otherwise.
+(e.g. RETURN caller) so callers can read both name and filePath.
+
+LIMIT defaults:
+- Direct queries (no variable-length): LIMIT 50
+- Transitive queries (\`*1..N\`): LIMIT 10 with ORDER BY path length ASC, since
+  most useful answers are 1-2 hops away and longer paths dilute precision.
 
 Examples:
   // "functions that call send in sessions.py"
@@ -86,6 +93,13 @@ Examples:
   MATCH (caller)-[:CALLS]->(target:Function {name: 'floatSafeRemainder'})
   WHERE target.filePath CONTAINS '/util.ts'
   RETURN caller LIMIT 50
+
+  // "code transitively affected if floatSafeRemainder changes"
+  // Transitive: bind path, order by hop count ascending, smaller LIMIT.
+  MATCH path = (caller)-[:CALLS*1..3]->(target {name: 'floatSafeRemainder'})
+  RETURN caller, length(path) AS hops
+  ORDER BY hops ASC
+  LIMIT 10
 
 Return ONLY the Cypher between \`\`\`cypher fences. No prose, no explanation.`;
 
