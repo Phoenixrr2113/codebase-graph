@@ -108,24 +108,10 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     // generated and unique per run, so basename(dataDir) is collision-safe.
     translatedEnv['FALKORDB_GRAPH'] = process.env['FALKORDB_GRAPH'] ?? basename(this.dataDir);
 
-    // Resolve the embedding provider once and derive its required vector dim.
-    // The user's .env may carry a stale CODEGRAPH_EMBEDDING_DIM (e.g. 1024 from
-    // a prior Voyage configuration). If we let that leak through to the MCP
-    // server while we're forcing CODEGRAPH_EMBEDDING_PROVIDER=local, the vector
-    // index gets created at the wrong dim and every search returns 0 results.
-    const embeddingProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'local';
-    const PROVIDER_DIM: Record<string, string> = {
-      voyage: '1024',
-      openrouter: '1536',
-      local: '768',
-    };
-    const embeddingDim = PROVIDER_DIM[embeddingProvider];
-
-    // LLM env: forward the user's setup if they have one (cerebras, openrouter,
-    // glm, etc.). Only fall back to local Ollama defaults when no provider is
-    // configured. Forcing LLM_MODEL=gemma4:26b on top of LLM_PROVIDER=cerebras
-    // produces 404 model_not_found from Cerebras because gemma4:26b is an
-    // Ollama model name, not a Cerebras one.
+    // Forward LLM provider from user env. Local Ollama default only when no
+    // provider is configured. Forcing LLM_MODEL on top of LLM_PROVIDER=cerebras
+    // would produce 404 model_not_found because gemma4:26b is an Ollama model
+    // name, not a Cerebras one.
     const userLlmProvider = process.env['LLM_PROVIDER'];
     const llmEnv: Record<string, string> = userLlmProvider
       ? {
@@ -140,30 +126,19 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
           LLM_MODEL: process.env['OLLAMA_MODEL'] ?? 'gemma4:26b',
         };
 
-    // Strip env vars that would conflict with what we're forcing — we don't
-    // want process.env entries leaking through ...spread to override our
-    // intentional settings below.
-    const { CODEGRAPH_EMBEDDING_DIM: _stale, ...sanitizedProcessEnv } =
-      process.env as Record<string, string | undefined>;
-    void _stale;
-
     this.client = await spawnMCPClient({
       command: this.mcpServerCommand.command,
       args: this.mcpServerCommand.args,
       env: {
-        ...sanitizedProcessEnv,
+        ...(process.env as Record<string, string>),
         ...translatedEnv,
         CODEGRAPH_DATA_DIR: this.dataDir,
-        CODEGRAPH_EMBEDDING_PROVIDER: embeddingProvider,
-        ...(embeddingDim ? { CODEGRAPH_EMBEDDING_DIM: embeddingDim } : {}),
+        ...(process.env['CODEGRAPH_EMBEDDING_PROVIDER']
+          ? { CODEGRAPH_EMBEDDING_PROVIDER: process.env['CODEGRAPH_EMBEDDING_PROVIDER'] }
+          : {}),
         CODEGRAPH_RERANK_PROVIDER: process.env['CODEGRAPH_RERANK_PROVIDER'] ?? 'none',
-        // Enable raw tools so the 'add' document ingestion tool is available
-        // (the 'knowledge' persona only exposes store/recall).
         CODEGRAPH_RAW_TOOLS: 'true',
         ...llmEnv,
-        // Always forward provider keys regardless of which provider is active —
-        // the MCP server may need any of them at runtime (e.g. embedding +
-        // separate LLM extraction provider).
         ...(process.env['OPENROUTER_API_KEY'] ? { OPENROUTER_API_KEY: process.env['OPENROUTER_API_KEY'] } : {}),
         ...(process.env['CEREBRAS_API_KEY'] ? { CEREBRAS_API_KEY: process.env['CEREBRAS_API_KEY'] } : {}),
       } as Record<string, string>,

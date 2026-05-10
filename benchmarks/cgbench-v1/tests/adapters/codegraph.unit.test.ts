@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,5 +27,73 @@ describe('CodeGraphAdapter — FalkorDB-Docker-only constraint', () => {
     await expect(
       adapter.attach({ codeRoots: [{ language: 'typescript', path: dataDir, commitSha: 'test' }] }),
     ).rejects.toThrow(/falkordblite is not supported/i);
+  });
+});
+
+describe('CodeGraphAdapter — env purity', () => {
+  let dataDir: string;
+  const savedDim = process.env['CODEGRAPH_EMBEDDING_DIM'];
+  const savedProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'cg-env-'));
+  });
+
+  afterEach(() => {
+    rmSync(dataDir, { recursive: true, force: true });
+    if (savedDim === undefined) delete process.env['CODEGRAPH_EMBEDDING_DIM'];
+    else process.env['CODEGRAPH_EMBEDDING_DIM'] = savedDim;
+    if (savedProvider === undefined) delete process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
+    else process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = savedProvider;
+    vi.restoreAllMocks();
+  });
+
+  it('does not synthesize CODEGRAPH_EMBEDDING_DIM when only PROVIDER is set', async () => {
+    process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = 'voyage';
+    delete process.env['CODEGRAPH_EMBEDDING_DIM'];
+
+    // Spy on spawnMCPClient to capture the env that would be passed
+    const mcpBase = await import('../../src/adapters/_mcp-base.js');
+    const spy = vi.spyOn(mcpBase, 'spawnMCPClient').mockImplementation(
+      async (_cfg) => ({ close: async () => {}, callTool: async () => ({}) } as never),
+    );
+
+    const adapter = new CodeGraphAdapter({ dataDir });
+    // Trigger getClient() via attach() with an empty corpus shape
+    try {
+      await adapter.attach({
+        codeRoots: [{ language: 'typescript', path: dataDir, commitSha: 'test' }],
+      });
+    } catch {
+      // attach() may throw because the mocked client doesn't return real data,
+      // but spawnMCPClient gets called first. That's all this test cares about.
+    }
+
+    expect(spy).toHaveBeenCalled();
+    const passedEnv = spy.mock.calls[0]![0].env as Record<string, string>;
+    // The adapter must not synthesize a DIM value out of provider lookup.
+    expect(passedEnv['CODEGRAPH_EMBEDDING_DIM']).toBeUndefined();
+    // PROVIDER must still be forwarded.
+    expect(passedEnv['CODEGRAPH_EMBEDDING_PROVIDER']).toBe('voyage');
+  });
+
+  it('forwards user-set CODEGRAPH_EMBEDDING_DIM unchanged', async () => {
+    process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = 'voyage';
+    process.env['CODEGRAPH_EMBEDDING_DIM'] = '1024';
+
+    const mcpBase = await import('../../src/adapters/_mcp-base.js');
+    const spy = vi.spyOn(mcpBase, 'spawnMCPClient').mockImplementation(
+      async (_cfg) => ({ close: async () => {}, callTool: async () => ({}) } as never),
+    );
+
+    const adapter = new CodeGraphAdapter({ dataDir });
+    try {
+      await adapter.attach({
+        codeRoots: [{ language: 'typescript', path: dataDir, commitSha: 'test' }],
+      });
+    } catch { /* see above */ }
+
+    const passedEnv = spy.mock.calls[0]![0].env as Record<string, string>;
+    expect(passedEnv['CODEGRAPH_EMBEDDING_DIM']).toBe('1024');
   });
 });
