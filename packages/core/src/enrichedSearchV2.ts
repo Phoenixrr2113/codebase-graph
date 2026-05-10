@@ -707,6 +707,21 @@ async function enrichedSearchV2Impl(
     return { hits: [], meta: { query, vectorHits: 0, durationMs: Date.now() - start } };
   }
 
+  // Test-file demotion (1st pass): apply BEFORE pool selection so non-test
+  // candidates have a fairer shot at making it into the rerank pool. Without
+  // this, the top-30 by raw vector score on a corpus with extensive tests can
+  // be all test functions, and the reranker never sees the implementation.
+  // Applied multiplicatively so relative ordering within tests/non-tests holds.
+  const testPenalty = parseFloat(process.env['CODEGRAPH_TEST_PENALTY'] ?? '0.7');
+  if (testPenalty < 1.0) {
+    for (const c of candidates) {
+      if (c.filePath && isTestPath(c.filePath)) {
+        c.vectorScore *= testPenalty;
+        c.score = c.vectorScore;
+      }
+    }
+  }
+
   // Sort by vector score for reranker pool selection
   candidates.sort((a, b) => b.score - a.score);
 
@@ -755,15 +770,9 @@ async function enrichedSearchV2Impl(
         rerankPool[rr.index]!.score = rr.relevanceScore;
       }
 
-      // Test-file demotion: when the user asks "function that does X", they
-      // almost always want the implementation, not test functions whose names
-      // semantically match X. Without this, cross-encoders frequently rank
-      // tests above implementations on ambiguous queries (e.g. requests's
-      // test_lowlevel.py#test_digestauth_401_count_reset_on_redirect ranking
-      // above sessions.py#resolve_redirects on "function that follows redirects").
-      // Multiplicative penalty preserves relative ordering within tests and
-      // within non-tests. Configurable via env (set to 1.0 to disable).
-      const testPenalty = parseFloat(process.env['CODEGRAPH_TEST_PENALTY'] ?? '0.7');
+      // Test-file demotion (2nd pass): the cross-encoder reassigns scores
+      // ignoring filePath, so re-apply the demotion after rerank. testPenalty
+      // is read once at the top of this function.
       if (testPenalty < 1.0) {
         for (const c of rerankPool) {
           if (c.filePath && isTestPath(c.filePath)) {
