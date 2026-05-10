@@ -1,7 +1,11 @@
 dist/
-results/
+# Ignore everything under results/ except specific committed result sets.
+# The pattern uses /* (single level) instead of /, otherwise child negations
+# can't override the parent directory exclusion.
+results/*
 !results/v0.1.0-smoke/
 !results/post-purity-2026-05-10/
+!results/v0.1.2-real/
 corpora/code/*/
 !corpora/code/manifest.json
 documents/rendered/

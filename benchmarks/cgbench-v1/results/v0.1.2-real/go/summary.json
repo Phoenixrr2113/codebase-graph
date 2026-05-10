@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-05-10T15:03:59.011Z",
+  "systems": [
+    "codegraph"
+  ],
+  "perTask": {
+    "A": {
+      "codegraph": {
+        "mrr": 1,
+        "recallAt10": 1
+      }
+    },
+    "B": {
+      "codegraph": {
+        "recallAt10": 0.3333333333333333,
+        "precisionAt5": 0.13333333333333333
+      }
+    },
+    "C": {
+      "codegraph": {
+        "f1": 0
+      }
+    },
+    "D": {
+      "codegraph": {
+        "emPointInTime": 0.8,
+        "recallAt10Range": 0.3333333333333333,
+        "pointInTimeCount": 5,
+        "rangeCount": 3
+      }
+    },
+    "E": {
+      "codegraph": {
+        "recallAt10": 0.45
+      }
+    },
+    "F": {
+      "codegraph": {
+        "recallAt10": 0.9
+      }
+    }
+  },
+  "perSystemLatency": {
+    "codegraph": {
+      "p50": 191.40395800000988,
+      "p95": 507.4157079999568,
+      "p99": 522.7710419999203,
+      "mean": 284.498563964265
+    }
+  },
+  "perSystemIngestion": {
+    "codegraph": {
+      "durationMs": 629825,
+      "tokensPerSecond": 1.6258484499662604,
+      "totalDocs": 21
+    }
+  },
+  "caveats": [
+    "CodeGraph: embedding=voyage, reranker=voyage (run-specific config; see meta in per-system file)",
+    "Cognee, Mastra, Augment ship as DEFERRED stubs in Plan 4 — see COMPETITORS.md"
+  ]
+}
