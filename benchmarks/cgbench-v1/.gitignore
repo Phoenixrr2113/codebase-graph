@@ -8,6 +8,7 @@ results/*
 !results/v0.1.2-real/
 !results/v0.1.3-fixed/
 !results/v0.1.4-final/
+!results/v0.1.5-glm51/
 corpora/code/*/
 !corpora/code/manifest.json
 documents/rendered/
