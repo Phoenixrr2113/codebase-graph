@@ -339,6 +339,132 @@ describe('unifiedSearch', () => {
   });
 
   // =========================================================================
+  // Knowledge deduplication by sampleIds[0]
+  // =========================================================================
+
+  describe('knowledge dedup by sampleIds[0]', () => {
+    it('deduplicates knowledge entities by sampleIds[0] before RRF fusion', async () => {
+      // Setup: 5 knowledge entities with 2 distinct document sources
+      const allFromTwoSources = [
+        {
+          text: 'Entity 1 from doc-001',
+          type: 'Decision',
+          confidence: 0.95,
+          relevanceScore: 0.95,
+          createdAt: Date.now(),
+          sampleIds: ['knowledge-001'],
+        },
+        {
+          text: 'Entity 2 from doc-001',
+          type: 'Policy',
+          confidence: 0.90,
+          relevanceScore: 0.90,
+          createdAt: Date.now(),
+          sampleIds: ['knowledge-001'],
+        },
+        {
+          text: 'Entity 3 from doc-001',
+          type: 'Insight',
+          confidence: 0.85,
+          relevanceScore: 0.85,
+          createdAt: Date.now(),
+          sampleIds: ['knowledge-001'],
+        },
+        {
+          text: 'Entity 4 from doc-002',
+          type: 'Decision',
+          confidence: 0.92,
+          relevanceScore: 0.92,
+          createdAt: Date.now(),
+          sampleIds: ['knowledge-002'],
+        },
+        {
+          text: 'Entity 5 from doc-002',
+          type: 'Policy',
+          confidence: 0.80,
+          relevanceScore: 0.80,
+          createdAt: Date.now(),
+          sampleIds: ['knowledge-002'],
+        },
+      ];
+
+      mockSearchEntitiesByVector.mockResolvedValue(allFromTwoSources);
+      (getKnowledgeOps as ReturnType<typeof vi.fn>).mockResolvedValue({
+        searchEntitiesByVector: mockSearchEntitiesByVector,
+      });
+
+      const response = await unifiedSearch('test query', mockClient as never, { searchScope: 'all' });
+
+      const knowledgeInResults = response.results.filter(r => r.source === 'knowledge');
+
+      // At most 2 distinct doc sources (knowledge-001, knowledge-002)
+      expect(knowledgeInResults.length).toBeLessThanOrEqual(2);
+
+      // Each unique sampleIds[0] appears at most once
+      const docSources = knowledgeInResults
+        .map(r => (r.properties as { sampleIds?: string[] }).sampleIds?.[0])
+        .filter(Boolean);
+      const uniqueDocSources = new Set(docSources);
+      expect(uniqueDocSources.size).toBe(docSources.length);
+
+      // The HIGHEST-ranked entity per source should be the one kept
+      // (searchEntitiesByVector is pre-sorted by relevanceScore desc)
+      // For knowledge-001, that's "Entity 1 from doc-001" (score 0.95)
+      const doc001Result = knowledgeInResults.find(
+        r => (r.properties as { sampleIds?: string[] }).sampleIds?.[0] === 'knowledge-001'
+      );
+      if (doc001Result) {
+        expect(doc001Result.name).toBe('Entity 1 from doc-001');
+      }
+    });
+
+    it('dedup only applies in RRF (code+knowledge) — knowledge-only scope returns all entities', async () => {
+      // When scope is 'knowledge' only, there's no RRF fusion, so no dedup.
+      // The dedup is specifically part of the RRF pool preparation to prevent
+      // a single document from flooding the fusion rankings.
+      const allFromSameDoc = [
+        {
+          text: 'Entity A from doc-X',
+          type: 'Decision',
+          confidence: 0.95,
+          relevanceScore: 0.95,
+          createdAt: Date.now(),
+          sampleIds: ['knowledge-X'],
+        },
+        {
+          text: 'Entity B from doc-X',
+          type: 'Policy',
+          confidence: 0.88,
+          relevanceScore: 0.88,
+          createdAt: Date.now(),
+          sampleIds: ['knowledge-X'],
+        },
+        {
+          text: 'Entity C from doc-Y',
+          type: 'Decision',
+          confidence: 0.92,
+          relevanceScore: 0.92,
+          createdAt: Date.now(),
+          sampleIds: ['knowledge-Y'],
+        },
+      ];
+
+      mockSearchEntitiesByVector.mockResolvedValue(allFromSameDoc);
+      (getKnowledgeOps as ReturnType<typeof vi.fn>).mockResolvedValue({
+        searchEntitiesByVector: mockSearchEntitiesByVector,
+      });
+
+      const response = await unifiedSearch('test query', mockClient as never, { searchScope: 'knowledge' });
+
+      const results = response.results;
+
+      // Knowledge-only scope returns all entities (limit=20 by default, so all 3)
+      expect(results.length).toBe(3);
+      expect(results.map(r => r.name)).toEqual(['Entity A from doc-X', 'Entity B from doc-X', 'Entity C from doc-Y']);
+    });
+  });
+
+  // =========================================================================
   // Client DI — knowledge branch honors the passed client
   // =========================================================================
 
