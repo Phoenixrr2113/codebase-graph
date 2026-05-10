@@ -1,4 +1,4 @@
-import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, tool, type LanguageModel } from 'ai';
+import { generateText, NoObjectGeneratedError, NoOutputGeneratedError, tool, type LanguageModel } from 'ai';
 import { createLogger } from '@codegraph/logger';
 import type {
   Sample,
@@ -258,26 +258,34 @@ export class EntityExtractor {
 
     const prompt = this.buildBatchPrompt(samples);
     const model = await this.getModel();
+    const batchTool = tool({
+      description: 'Emit batch-extraction results — one annotated entry per input sample',
+      inputSchema: BatchExtractionResponseSchema,
+    });
 
     try {
-      const { output } = await generateText({
+      const { toolCalls, finishReason } = await generateText({
         model,
-        output: Output.object({ schema: BatchExtractionResponseSchema }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        tools: { emit_batch: batchTool } as any,
+        toolChoice: { type: 'tool', toolName: 'emit_batch' },
         prompt,
         temperature: this.config.temperature,
       });
 
-      if (!output) {
-        logger.warn('LLM returned no structured batch output — returning empty results');
+      const call = toolCalls?.[0];
+      if (!call || !call.input) {
+        logger.warn(`LLM did not call emit_batch tool (finishReason=${finishReason})`);
         return [];
       }
 
+      const output = call.input as BatchExtractionResponse;
       logger.debug(`LLM batch response: ${output.results.length} results`);
 
       return this.processBatchResponse(output, samples);
     } catch (error) {
       if (isNoOutputError(error)) {
-        logger.warn('LLM returned unparseable batch response — returning empty results');
+        logger.warn('LLM returned unparseable batch tool call — returning empty results');
         return [];
       }
       logger.error('extractBatch failed', error);
