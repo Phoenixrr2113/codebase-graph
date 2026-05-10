@@ -84,6 +84,35 @@ const NON_CODE_ENTITY_TYPES = new Set([
   'Resource',
 ]);
 
+/**
+ * Common short / generic symbol names that match too many natural-language
+ * sentences. The contained-match tier ignores symbols whose lowercased name
+ * appears here. Curated for the Top-of-mind "every codebase has functions
+ * called these" set across the languages we index.
+ *
+ * Add a name here when it's both (a) a frequent English word, and (b) a
+ * commonly-used symbol name in production code. Don't add domain-specific
+ * names like `ZodObject` or `resolve_redirects` — those are exactly the
+ * names cross-modal retrieval should still match.
+ */
+const STOPWORD_SYMBOL_NAMES = new Set<string>([
+  // Constructors / factories
+  'new', 'create', 'build', 'make', 'init', 'default',
+  // Accessors
+  'get', 'set', 'has', 'fetch', 'find', 'load', 'read', 'value', 'name',
+  // Mutators / lifecycle
+  'add', 'remove', 'update', 'reset', 'close', 'open', 'start', 'stop',
+  // Common verbs
+  'send', 'recv', 'parse', 'format', 'render', 'apply', 'call', 'invoke',
+  // Common control
+  'run', 'main', 'index', 'self', 'this', 'that', 'item', 'list',
+  // Logging / errors
+  'log', 'warn', 'error', 'debug', 'info', 'trace', 'panic', 'check',
+  // Generic
+  'data', 'state', 'props', 'args', 'opts', 'config', 'options', 'result',
+  'response', 'request',
+]);
+
 /** Code node labels we can link to, mapped to their identifying property */
 const CODE_NODE_LABELS: Record<string, string> = {
   Function: 'name',
@@ -163,7 +192,7 @@ interface Match {
  * Returns the highest-confidence match, or null if none found.
  * Priority: exact > case-insensitive > contained.
  */
-function findBestMatch(
+export function findBestMatch(
   entityText: string,
   symbols: CodeSymbol[],
   minConfidence: number,
@@ -183,8 +212,14 @@ function findBestMatch(
       confidence = 0.95;
     }
     // Tier 3: Contained match (entity text contains symbol name, or vice versa)
-    // Only match if the symbol name is at least 3 chars (avoid matching 'a', 'b', etc.)
-    else if (sym.name.length >= 3) {
+    //
+    // Conservative: only match when the symbol name is "distinctive" — at least
+    // 5 chars long AND not a common English/coding word. Without this gate,
+    // entities like "update runbook with new retry defaults" match every
+    // function named `new`/`get`/`set` in the corpus (Rust ::new constructors,
+    // Go getters, etc.), creating thousands of spurious ABOUT edges that
+    // poison cross-modal retrieval.
+    else if (sym.name.length >= 5 && !STOPWORD_SYMBOL_NAMES.has(sym.nameLower)) {
       if (textLower.includes(sym.nameLower) || sym.nameLower.includes(textLower)) {
         confidence = 0.9;
       }
