@@ -2,13 +2,14 @@
  * Reranker — cross-encoder reranking for search results.
  *
  * Configurable via environment variables:
- *   CODEGRAPH_RERANK_PROVIDER: 'voyage' | 'jina' (default: auto-detect from available API keys)
- *   CODEGRAPH_RERANK_MODEL: model name override (default: provider-specific)
+ *   CODEGRAPH_RERANK_PROVIDER: 'voyage' (default; auto-detected from VOYAGE_API_KEY)
+ *   CODEGRAPH_RERANK_MODEL: model name override (default: 'rerank-2')
  *   CODEGRAPH_RERANK: 'false' to disable reranking entirely
  *   VOYAGE_API_KEY: API key for Voyage
- *   JINA_API_KEY: API key for Jina
  *
- * Graceful degradation: if no API key is available, returns original order.
+ * On failure (4xx/5xx, network error, missing key) the reranker logs loudly
+ * and falls back to vector-search-only ordering. Callers can detect the
+ * fallback via `getLastRerankWarning()` and surface it to end users.
  */
 
 import { createLogger, traced } from '@codegraph/logger';
@@ -16,10 +17,42 @@ import { createLogger, traced } from '@codegraph/logger';
 const logger = createLogger({ namespace: 'nlp:reranker' });
 
 // ---------------------------------------------------------------------------
+// Warning state — module-level, survives across calls
+// ---------------------------------------------------------------------------
+
+let lastRerankWarning: string | null = null;
+
+/**
+ * Returns the most recent reranker warning, or null if the last call succeeded.
+ * Set whenever the reranker falls back to vector-only order (API error,
+ * missing key, deprecated provider, etc).
+ */
+export function getLastRerankWarning(): string | null {
+  return lastRerankWarning;
+}
+
+/** Clears the last reranker warning. Caller should clear before each rerank
+ *  call when they care about per-call status. */
+export function clearLastRerankWarning(): void {
+  lastRerankWarning = null;
+}
+
+function recordRerankWarning(reason: string): void {
+  lastRerankWarning = reason;
+  // process.stderr.write is more visible than logger.warn — survives pino transport
+  // misconfiguration and shows up in plain `node` invocations.
+  process.stderr.write(`[reranker] WARNING: ${reason}\n`);
+}
+
+function clearRerankWarning(): void {
+  lastRerankWarning = null;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type RerankProvider = 'voyage' | 'jina';
+export type RerankProvider = 'voyage';
 
 export interface RerankResult {
   /** Original index in the input documents array */
@@ -67,21 +100,6 @@ const PROVIDERS: Record<RerankProvider, ProviderConfig> = {
       }));
     },
   },
-  jina: {
-    apiUrl: 'https://api.jina.ai/v1/rerank',
-    apiKeyEnv: 'JINA_API_KEY',
-    defaultModel: 'jina-reranker-v2-base-multilingual',
-    buildBody: (query, documents, model, topK) => ({
-      query, documents, model, top_n: topK,
-    }),
-    parseResponse: (json) => {
-      const res = json as { results: Array<{ index: number; relevance_score: number }> };
-      return res.results.map(d => ({
-        index: d.index,
-        relevanceScore: d.relevance_score,
-      }));
-    },
-  },
 };
 
 // ---------------------------------------------------------------------------
@@ -92,8 +110,18 @@ function resolveProvider(override?: RerankProvider): RerankProvider | null {
   // Explicit override
   if (override) return override;
 
-  // Environment variable
   const envProvider = process.env['CODEGRAPH_RERANK_PROVIDER'];
+
+  // Jina was removed — reject clearly so users know to switch
+  if (envProvider === 'jina') {
+    recordRerankWarning(
+      'CODEGRAPH_RERANK_PROVIDER=jina is not supported. ' +
+      'Use voyage instead: set CODEGRAPH_RERANK_PROVIDER=voyage and VOYAGE_API_KEY.',
+    );
+    return null;
+  }
+
+  // Environment variable
   if (envProvider && envProvider in PROVIDERS) return envProvider as RerankProvider;
 
   // Auto-detect from available API keys
@@ -132,16 +160,23 @@ async function rerankImpl(
 ): Promise<RerankResult[]> {
   if (documents.length === 0) return [];
 
+  // Reset warning at the start of each attempt so callers get per-call status
+  clearRerankWarning();
+
   const providerName = resolveProvider(options?.provider);
   if (!providerName) {
-    logger.debug('Reranker unavailable (no API key), returning original order');
+    // resolveProvider may have already recorded a warning (e.g. jina rejection).
+    // If not (truly no provider configured), record a generic one now.
+    if (!lastRerankWarning) {
+      recordRerankWarning('Reranker unavailable: no API key configured (set VOYAGE_API_KEY)');
+    }
     return fallbackScores(documents.length, options?.topK);
   }
 
   const provider = PROVIDERS[providerName]!;
   const apiKey = process.env[provider.apiKeyEnv];
   if (!apiKey) {
-    logger.debug(`Reranker ${providerName} unavailable (no ${provider.apiKeyEnv})`);
+    recordRerankWarning(`Reranker unavailable: provider ${providerName} has no ${provider.apiKeyEnv} configured`);
     return fallbackScores(documents.length, options?.topK);
   }
 
@@ -162,7 +197,7 @@ async function rerankImpl(
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
-      logger.warn(`Reranker API error ${response.status}: ${errText}`);
+      recordRerankWarning(`Reranker API error ${response.status}: ${errText.slice(0, 200)}`);
       return fallbackScores(documents.length, topK);
     }
 
@@ -170,10 +205,11 @@ async function rerankImpl(
     const ms = (performance.now() - start).toFixed(0);
     logger.debug(`Reranked ${documents.length} docs in ${ms}ms (${providerName}/${model})`);
 
+    // Success — warning already cleared at top of function
     return provider.parseResponse(json)
       .sort((a, b) => b.relevanceScore - a.relevanceScore);
   } catch (err) {
-    logger.warn(`Reranker failed: ${err instanceof Error ? err.message : err}`);
+    recordRerankWarning(`Reranker request failed: ${err instanceof Error ? err.message : err}`);
     return fallbackScores(documents.length, topK);
   }
 }

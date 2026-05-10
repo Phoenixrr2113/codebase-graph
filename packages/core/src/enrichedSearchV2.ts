@@ -15,6 +15,8 @@ import {
   generateEmbedding,
   isEmbeddingAvailable,
   rerank,
+  getLastRerankWarning,
+  clearLastRerankWarning,
   type EmbeddingConfig,
 } from '@codegraph/plugin-nlp';
 import { searchCache, searchCacheKey } from './searchCache';
@@ -719,6 +721,7 @@ async function enrichedSearchV2Impl(
     });
 
     try {
+      clearLastRerankWarning();
       const rerankResults = await rerank(query, docs, { topK: rerankPool.length });
 
       // Reranker score is the final score — it's a cross-encoder that sees
@@ -756,6 +759,9 @@ async function enrichedSearchV2Impl(
     `Enriched V2 search "${query.slice(0, 60)}": ${topHits.length} hits ` +
     `(${candidates.length} vector) in ${durationMs}ms`,
   );
+
+  // Capture any reranker warning before building the result
+  const rerankWarning = getLastRerankWarning();
 
   const result: EnrichedV2Result = {
     hits: topHits.map(c => {
@@ -801,6 +807,7 @@ async function enrichedSearchV2Impl(
       query,
       vectorHits: candidates.length,
       durationMs,
+      ...(rerankWarning ? { notice: rerankWarning } : {}),
     },
   };
 

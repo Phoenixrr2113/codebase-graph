@@ -104,8 +104,8 @@ export type {
   ConflictCandidate, ConflictResult,
 } from './conflict-resolution';
 
-// Reranker (configurable cross-encoder: voyage, jina)
-export { rerank, isRerankAvailable } from './reranker';
+// Reranker (configurable cross-encoder: voyage)
+export { rerank, isRerankAvailable, getLastRerankWarning, clearLastRerankWarning } from './reranker';
 export type { RerankResult, RerankOptions, RerankProvider } from './reranker';
 
 // Embedding text construction (node → searchable natural language)
