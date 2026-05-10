@@ -213,70 +213,10 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
       `duration=${reindexResult.duration ?? '?'}ms`,
     );
 
-    // 3) Wait for deferred embeddings to actually finish.
-    //    The reindex tool returns the moment structural indexing is done;
-    //    embedAllParsedEntities() runs as a fire-and-forget promise after that.
-    //    Querying the graph before embeddings exist returns empty results for
-    //    Function/Class/Interface/Type/Component nodes (the labels embed-pass.ts
-    //    populates).
-    //
-    //    embed-pass.ts deliberately skips trivial functions, type-aliases without
-    //    docstrings, etc. — those nodes keep n.embedding=NULL forever. So
-    //    polling for "pending = 0" hangs indefinitely. Use plateau detection:
-    //    when pending stops decreasing for PLATEAU_POLLS consecutive polls, the
-    //    embedder has stopped doing work — we're done.
-    const EMBED_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-    const POLL_INTERVAL_MS = 2000;
-    const PLATEAU_POLLS = 6; // 6 × 2s = 12s of no change
-    const pollStart = Date.now();
-    let embeddingsComplete = false;
-    let lastPending = -1;
-    let initialPending = -1;
-    let stableCount = 0;
-    while (Date.now() - pollStart < EMBED_TIMEOUT_MS) {
-      const result = (await callMCPTool<{ data?: Array<{ pending: number }> }>(
-        client,
-        'query',
-        {
-          cypher:
-            'MATCH (n) WHERE n.embedding IS NULL ' +
-            'AND (n:Function OR n:Class OR n:Interface OR n:Type OR n:Component) ' +
-            'RETURN count(n) AS pending',
-        },
-      )) ?? {};
-      const pending = result.data?.[0]?.pending ?? -1;
-      if (initialPending === -1) initialPending = pending;
-      if (pending === 0) {
-        log(`embeddings complete — 0 unembedded after ${((Date.now() - pollStart) / 1000).toFixed(1)}s`);
-        embeddingsComplete = true;
-        break;
-      }
-      if (pending === lastPending) {
-        stableCount++;
-        if (stableCount >= PLATEAU_POLLS) {
-          // Plateau reached — embedder has stopped writing. The remaining
-          // pending nodes are the deliberately-skipped trivial entities.
-          const elapsed = ((Date.now() - pollStart) / 1000).toFixed(1);
-          const decreased = initialPending - pending;
-          log(
-            `embeddings plateau — ${pending} unembedded (skipped trivial), ` +
-            `${decreased} processed in ${elapsed}s`,
-          );
-          embeddingsComplete = true;
-          break;
-        }
-      } else {
-        log(`waiting for embeddings: pending=${pending}`);
-        lastPending = pending;
-        stableCount = 0;
-      }
-      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    }
-    if (!embeddingsComplete) {
-      throw new Error(
-        `CodeGraph embeddings did not complete within 10 minutes (last pending=${lastPending})`,
-      );
-    }
+    // 3) No polling needed — codebase.reindex now blocks on embeddings by default
+    //    (see Change 2 in 2026-05-10 spec). reindexResult.embeddedCount reflects
+    //    the final count post-embedding.
+    log(`embeddings done — embeddedCount=${reindexResult.embeddedCount ?? '?'}`);
 
     // 4) Knowledge & document corpus ingest via raw 'add' tool (requires
     //    CODEGRAPH_RAW_TOOLS=true). The 'knowledge' persona only exposes

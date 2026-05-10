@@ -31,6 +31,12 @@ export interface ReindexInput {
   mode?: 'incremental' | 'full';
   scope?: string;
   concurrency?: number;
+  /**
+   * When true, return immediately after structural indexing and run embeddings
+   * in the background. Default false: block until embeddings complete so
+   * search.find returns non-empty results immediately after this call.
+   */
+  deferEmbeddings?: boolean;
 }
 
 // Output type
@@ -69,6 +75,11 @@ export const reindexToolDefinition: ToolDefinition = {
         type: 'number',
         description: 'Number of files to process in parallel. Defaults to CPU count.',
       },
+      deferEmbeddings: {
+        type: 'boolean',
+        default: false,
+        description: 'When true, return immediately and run embeddings in background. Default false: block until embeddings complete.',
+      },
     },
     required: [],
   },
@@ -101,6 +112,10 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           gitEdgesCreated: 0,
           duration: Date.now() - startTime,
           errors: result.error ? [result.error] : [],
+          // indexSingleFile does not accept a deferEmbeddings option and always
+          // embeds synchronously via its own internal pipeline. Callers should
+          // not rely on embeddingsDeferred=false here as a signal that they can
+          // pass deferEmbeddings=true to defer; this code path does not support it.
           embeddingsDeferred: true,
           embeddedCount: await getEmbeddedCount(),
         };
@@ -111,7 +126,7 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
         const result = await indexProject(input.scope, {
           force: input.mode === 'full',
           deepAnalysis: true,
-          deferEmbeddings: true,
+          deferEmbeddings: input.deferEmbeddings ?? false,
           ...(input.concurrency != null && { concurrency: input.concurrency }),
         });
 
@@ -128,8 +143,8 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           gitEdgesCreated: totalGitEdges,
           duration: Date.now() - startTime,
           errors: [...result.errorMessages, ...errors],
-          embeddingsDeferred: true,
-          embeddedCount: await getEmbeddedCount(),
+          embeddingsDeferred: input.deferEmbeddings ?? false,
+          embeddedCount: result.stats.embedded ?? await getEmbeddedCount(),
         };
 
       } else {
@@ -170,7 +185,7 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
         const result = await indexProject(rootPath, {
           force: input.mode === 'full',
           deepAnalysis: true,
-          deferEmbeddings: true,
+          deferEmbeddings: input.deferEmbeddings ?? false,
           ...(input.concurrency != null && { concurrency: input.concurrency }),
         });
         totalFiles += result.stats.files;
@@ -196,7 +211,7 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
       gitEdgesCreated: totalGitEdges,
       duration: Date.now() - startTime,
       errors,
-      embeddingsDeferred: true,
+      embeddingsDeferred: input.deferEmbeddings ?? false,
       embeddedCount: await getEmbeddedCount(),
     };
   } catch (error) {
