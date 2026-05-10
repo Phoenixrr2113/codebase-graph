@@ -241,11 +241,15 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
         const filePath = join(rootAbs, entry.name);
         const slug = basename(entry.name, extname(entry.name));
         try {
+          // 180s budget: entity extraction can hit Cerebras 429 rate limits
+          // and the retry chain in @codegraph/plugin-nlp can take >60s before
+          // succeeding. Earlier 60s timeout caused knowledge-008 to never
+          // ingest during cgbench Task E runs.
           await callMCPTool(
             client,
             'add',
             { input: filePath, source: `cgbench:${slug}` },
-            60_000,
+            180_000,
           );
           knowledgeFileCount++;
         } catch (err) {

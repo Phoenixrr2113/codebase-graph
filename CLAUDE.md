@@ -139,8 +139,8 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 
 ## Environment
 
-- **Graph DB**: FalkorDB (Docker) or FalkorDBLite (embedded)
-- **Search**: Vector embeddings (local/Voyage/OpenRouter) + cross-encoder reranking (Jina/Voyage) — MRR 0.969, S@1 94%, S@5 100%, ~450ms latency (v6 Chunk 1 baseline, 2026-04-26)
+- **Graph DB**: FalkorDB (Docker)
+- **Search**: Vector embeddings (local/Voyage/OpenRouter) + cross-encoder reranking (Voyage rerank-2) — MRR 0.938, S@1 88%, S@5 100%, ~440ms latency (post-purity baseline, 2026-05-10)
 - **Dashboard**: `http://localhost:3000/dashboard` (Graph Explorer + Operations tabs)
 - **API**: `http://localhost:3001` (REST endpoints for dashboard)
 - **Build**: `pnpm turbo build` (monorepo with Turbo)
