@@ -111,6 +111,19 @@ export async function unifiedSearch(
   const codeHits = codeResults?.hits.length ?? 0;
   const knowledgeHits = knowledgeResults?.length ?? 0;
 
+  // Debug logging — gated on CODEGRAPH_DEBUG_RRF=1, no-op in production
+  if (process.env['CODEGRAPH_DEBUG_RRF'] === '1') {
+    process.stderr.write(`[rrf-debug] query="${query.slice(0, 80)}" scope=${searchScope} codeHits=${codeHits} knowledgeHits=${knowledgeHits}\n`);
+    process.stderr.write(`[rrf-debug] code pool top 20:\n`);
+    (codeResults?.hits ?? []).slice(0, 20).forEach((h, i) => {
+      process.stderr.write(`  [${i + 1}] ${h.name} (${h.nodeType}) score=${(h as { score?: number }).score?.toFixed(3) ?? '-'} ${h.filePath ?? ''}\n`);
+    });
+    process.stderr.write(`[rrf-debug] knowledge pool top 20 (raw=${(knowledgeResults ?? []).length}):\n`);
+    (knowledgeResults ?? []).slice(0, 20).forEach((e, i) => {
+      process.stderr.write(`  [${i + 1}] "${e.text.slice(0, 80)}" (${e.type}) relevance=${e.relevanceScore?.toFixed(3) ?? '-'} sampleIds=${JSON.stringify(e.sampleIds ?? [])}\n`);
+    });
+  }
+
   // If only one source, return directly without RRF
   if (searchScope === 'code' || knowledgeHits === 0) {
     const results: UnifiedSearchResult[] = (codeResults?.hits ?? []).slice(0, limit).map((h, i) => ({
@@ -162,7 +175,24 @@ export async function unifiedSearch(
     },
   }));
 
-  const knowledgeList: FusionItem[] = (knowledgeResults ?? []).map(e => ({
+  // Deduplicate knowledge entities by source document (sampleId prefix).
+  // Multiple entities from the same knowledge document all map to the same
+  // knowledge gold ID in scoring — keeping only the top-ranked entity per
+  // source prevents a single document from flooding the fusion pool and
+  // crowding out code golds.
+  const seenKnowledgeSources = new Set<string>();
+  const deduplicatedKnowledge = (knowledgeResults ?? []).filter(e => {
+    const primarySource = e.sampleIds?.[0] ?? `entity:${e.text}`;
+    if (seenKnowledgeSources.has(primarySource)) return false;
+    seenKnowledgeSources.add(primarySource);
+    return true;
+  });
+
+  if (process.env['CODEGRAPH_DEBUG_RRF'] === '1') {
+    process.stderr.write(`[rrf-debug] knowledge pool after dedup: ${deduplicatedKnowledge.length} unique-source entries\n`);
+  }
+
+  const knowledgeList: FusionItem[] = deduplicatedKnowledge.map(e => ({
     source: 'knowledge' as const,
     id: `knowledge:${e.text}:${e.type}`,
     item: {
@@ -186,6 +216,14 @@ export async function unifiedSearch(
     ],
     (item) => item.id,
   );
+
+  // Post-fusion debug logging
+  if (process.env['CODEGRAPH_DEBUG_RRF'] === '1') {
+    process.stderr.write(`[rrf-debug] post-fusion top 10:\n`);
+    fused.slice(0, 10).forEach((f, i) => {
+      process.stderr.write(`  [${i + 1}] ${f.item.item.name} (${f.item.source}/${f.item.item.type}) score=${f.score.toFixed(4)} id=${f.item.id}\n`);
+    });
+  }
 
   const results = fused.slice(0, limit).map(f => ({
     ...f.item.item,
