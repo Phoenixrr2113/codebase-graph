@@ -44,9 +44,7 @@ function recordRerankWarning(reason: string): void {
   process.stderr.write(`[reranker] WARNING: ${reason}\n`);
 }
 
-function clearRerankWarning(): void {
-  lastRerankWarning = null;
-}
+
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,7 +159,7 @@ async function rerankImpl(
   if (documents.length === 0) return [];
 
   // Reset warning at the start of each attempt so callers get per-call status
-  clearRerankWarning();
+  lastRerankWarning = null;
 
   const providerName = resolveProvider(options?.provider);
   if (!providerName) {

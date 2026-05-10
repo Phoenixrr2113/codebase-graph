@@ -21,6 +21,8 @@ vi.mock('@codegraph/plugin-nlp', () => ({
   generateEmbedding: vi.fn().mockResolvedValue({ embedding: [0.1, 0.2], dimensions: 2, provider: 'voyage' }),
   rerank: vi.fn().mockResolvedValue([]),
   generateEmbeddings: vi.fn().mockResolvedValue({ embeddings: [], dimensions: 2, provider: 'voyage' }),
+  getLastRerankWarning: vi.fn().mockReturnValue(null),
+  clearLastRerankWarning: vi.fn(),
 }));
 
 vi.mock('@codegraph/graph', () => ({

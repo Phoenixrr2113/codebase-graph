@@ -76,6 +76,8 @@ vi.mock('@codegraph/plugin-nlp', () => ({
     candidates.map((c, i) => ({ ...c, score: 1 - i * 0.1 })),
   ),
   generateEmbeddings: vi.fn().mockResolvedValue({ embeddings: [], dimensions: 2, provider: 'mock' }),
+  getLastRerankWarning: vi.fn().mockReturnValue(null),
+  clearLastRerankWarning: vi.fn(),
 }));
 
 const mockEnrichedSearchV2 = vi.fn().mockResolvedValue({

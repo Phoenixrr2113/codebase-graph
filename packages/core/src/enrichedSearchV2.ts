@@ -721,6 +721,11 @@ async function enrichedSearchV2Impl(
     });
 
     try {
+      // Reranker warning state is module-level (packages/plugin-nlp/src/reranker.ts).
+      // Safe for sequential search calls — one search at a time per process. If
+      // searches ever become concurrent at the service layer (Promise.all over
+      // multiple search() invocations), this pattern leaks warnings between them
+      // and must be replaced with a per-call status returned from rerank().
       clearLastRerankWarning();
       const rerankResults = await rerank(query, docs, { topK: rerankPool.length });
 
