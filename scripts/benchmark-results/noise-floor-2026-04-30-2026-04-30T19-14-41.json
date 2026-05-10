@@ -1,0 +1,656 @@
+{
+  "label": "noise-floor-2026-04-30",
+  "timestamp": "2026-04-30T19:14:41.489Z",
+  "nodeCount": 5041,
+  "embeddings": true,
+  "llm": true,
+  "meta": {
+    "embeddingProvider": "voyage",
+    "embeddingModel": "voyage-code-3",
+    "embeddingDim": 1024,
+    "rerankerProvider": "jina",
+    "rerankerModel": null,
+    "llmProvider": "cerebras",
+    "llmModel": "qwen-3-235b-a22b-instruct-2507",
+    "gitSha": "0f14c548613c2e27e87f87f8efadfb6c943741ff",
+    "gitDirty": true,
+    "corpusNodeCount": 5041
+  },
+  "results": [
+    {
+      "query": "parseCode",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 614,
+      "mrr": 1,
+      "ndcg5": 1,
+      "ndcg10": 1,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "parseCode",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "parseMarkdownContent",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "ParseResult",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "ParseProjectDialogProps",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "ParseStats",
+          "score": 0,
+          "nodeType": "Interface"
+        }
+      ]
+    },
+    {
+      "query": "getGraphClient",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 525,
+      "mrr": 1,
+      "ndcg5": 1,
+      "ndcg10": 1.6164948724497101,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "getGraphClient",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "getGraphStatsImpl",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "getFullGraphImpl",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "getProjectsImpl",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "buildFileTreeImpl",
+          "score": 0,
+          "nodeType": "Function"
+        }
+      ]
+    },
+    {
+      "query": "createOperations",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 2928,
+      "mrr": 1,
+      "ndcg5": 1,
+      "ndcg10": 1,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "createOperations",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "createKnowledgeOperations",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "createModifiedInEdge",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "createReturnsEdge",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "createImplementsEdge",
+          "score": 0,
+          "nodeType": "Function"
+        }
+      ]
+    },
+    {
+      "query": "generateEmbedding",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 434,
+      "mrr": 1,
+      "ndcg5": 1.6309297535714575,
+      "ndcg10": 1.6309297535714575,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "generateEmbeddingImpl",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "generateEmbeddings",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "generateKnowledgeEmbeddings",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "EmbeddingResult",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "EmbeddingBatchResult",
+          "score": 0,
+          "nodeType": "Interface"
+        }
+      ]
+    },
+    {
+      "query": "rrfFuse",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 458,
+      "mrr": 1,
+      "ndcg5": 1,
+      "ndcg10": 1,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "rrfFuse",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "RustTypeRefsForFunction",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "RustClassExtractionResult",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "ComplexityHotspot",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "Semaphore",
+          "score": 0,
+          "nodeType": "Class"
+        }
+      ]
+    },
+    {
+      "query": "indexProject",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 445,
+      "mrr": 1,
+      "ndcg5": 1,
+      "ndcg10": 1,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "indexProject",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "isProjectIndexed",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "IndexResult",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "IndexStats",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "ProjectSummary",
+          "score": 0,
+          "nodeType": "Interface"
+        }
+      ]
+    },
+    {
+      "query": "complexity calculation",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 552,
+      "mrr": 1,
+      "ndcg5": 1,
+      "ndcg10": 1,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "calculateComplexity",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "calculateCyclomatic",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "calculateCognitive",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "calculateNestingDepth",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "ComplexityMetrics",
+          "score": 0,
+          "nodeType": "Interface"
+        }
+      ]
+    },
+    {
+      "query": "search reranking",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 441,
+      "mrr": 1,
+      "ndcg5": 2.01638019926197,
+      "ndcg10": 2.278765066925627,
+      "success1": true,
+      "success5": true,
+      "recall10": 0.5,
+      "top5": [
+        {
+          "name": "rerankImpl",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "RerankOptions",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "RerankResult",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "isRerankAvailable",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "RankedList",
+          "score": 0,
+          "nodeType": "Interface"
+        }
+      ]
+    },
+    {
+      "query": "graph operations",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 604,
+      "mrr": 0.3333333333333333,
+      "ndcg5": 0.4806228988880274,
+      "ndcg10": 0.4806228988880274,
+      "success1": false,
+      "success5": true,
+      "recall10": 0.3333333333333333,
+      "top5": [
+        {
+          "name": "createImportsEdge",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "upsertClass",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "GraphOperationsImpl",
+          "score": 0,
+          "nodeType": "Class"
+        },
+        {
+          "name": "createExtendsEdge",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "GraphOperations",
+          "score": 0,
+          "nodeType": "Interface"
+        }
+      ]
+    },
+    {
+      "query": "knowledge operations",
+      "strategy": "ENRICHED_V2",
+      "category": "disambiguation",
+      "latencyMs": 473,
+      "mrr": 1,
+      "ndcg5": 1.3065735963827292,
+      "ndcg10": 1.3065735963827292,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "KnowledgeOperationsImpl",
+          "score": 0,
+          "nodeType": "Class"
+        },
+        {
+          "name": "KnowledgeOperations",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "createKnowledgeOperations",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "createEntity",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "createRelationship",
+          "score": 0,
+          "nodeType": "Function"
+        }
+      ]
+    },
+    {
+      "query": "how does indexProject work",
+      "strategy": "ENRICHED_V2",
+      "category": "quality",
+      "latencyMs": 550,
+      "mrr": 1,
+      "ndcg5": 0.8124242481930318,
+      "ndcg10": 0.8124242481930318,
+      "success1": true,
+      "success5": true,
+      "recall10": 0.6666666666666666,
+      "top5": [
+        {
+          "name": "indexProject",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "isProjectIndexed",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "ProjectSummary",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "IndexResult",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "IndexStats",
+          "score": 0,
+          "nodeType": "Interface"
+        }
+      ]
+    },
+    {
+      "query": "graph database connection",
+      "strategy": "ENRICHED_V2",
+      "category": "semantic-gap",
+      "latencyMs": 602,
+      "mrr": 1,
+      "ndcg5": 0.20554434273527256,
+      "ndcg10": 0.6663170855621282,
+      "success1": true,
+      "success5": true,
+      "recall10": 0.8,
+      "top5": [
+        {
+          "name": "DatabaseDriver",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "GraphQueries",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "query",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "GraphQueriesImpl",
+          "score": 0,
+          "nodeType": "Class"
+        },
+        {
+          "name": "GraphConfig",
+          "score": 0,
+          "nodeType": "Interface"
+        }
+      ]
+    },
+    {
+      "query": "embedding generation",
+      "strategy": "ENRICHED_V2",
+      "category": "quality",
+      "latencyMs": 475,
+      "mrr": 1,
+      "ndcg5": 0.881130592761647,
+      "ndcg10": 0.881130592761647,
+      "success1": true,
+      "success5": true,
+      "recall10": 0.6666666666666666,
+      "top5": [
+        {
+          "name": "generateEmbeddingImpl",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "generateKnowledgeEmbeddings",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "generateEmbeddings",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "EmbeddingBatchResult",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "EmbeddingResult",
+          "score": 0,
+          "nodeType": "Interface"
+        }
+      ]
+    },
+    {
+      "query": "git history sync",
+      "strategy": "ENRICHED_V2",
+      "category": "semantic-gap",
+      "latencyMs": 464,
+      "mrr": 1,
+      "ndcg5": 0.7871546029909718,
+      "ndcg10": 0.8996052605611106,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "syncGitHistory",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "syncGitAfterIndex",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "GitSyncOptions",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "GitSyncResult",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "getMetadata",
+          "score": 0,
+          "nodeType": "Function"
+        }
+      ]
+    },
+    {
+      "query": "logging setup",
+      "strategy": "ENRICHED_V2",
+      "category": "quality",
+      "latencyMs": 451,
+      "mrr": 1,
+      "ndcg5": 1.0699383092936823,
+      "ndcg10": 1.3323231769573396,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "LoggerConfig",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "getDefaultConfig",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "Logger",
+          "score": 0,
+          "nodeType": "Interface"
+        },
+        {
+          "name": "log",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "formatPrefix",
+          "score": 0,
+          "nodeType": "Function"
+        }
+      ]
+    },
+    {
+      "query": "code parsing pipeline",
+      "strategy": "ENRICHED_V2",
+      "category": "quality",
+      "latencyMs": 922,
+      "mrr": 1,
+      "ndcg5": 0.8156665951203068,
+      "ndcg10": 0.8156665951203068,
+      "success1": true,
+      "success5": true,
+      "recall10": 1,
+      "top5": [
+        {
+          "name": "parseCode",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "LanguageRegistryImpl",
+          "score": 0,
+          "nodeType": "Class"
+        },
+        {
+          "name": "parseFile",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "getLanguageForExtension",
+          "score": 0,
+          "nodeType": "Function"
+        },
+        {
+          "name": "initParser",
+          "score": 0,
+          "nodeType": "Function"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "ENRICHED_V2": {
+      "avgMRR": 0.9583333333333334,
+      "avgNDCG5": 1.0003978211999436,
+      "avgNDCG10": 1.1075533217108195,
+      "successAt1": 0.9375,
+      "successAt5": 1,
+      "avgRecall10": 0.8729166666666666,
+      "avgLatencyMs": 683.625
+    }
+  }
+}

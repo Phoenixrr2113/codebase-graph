@@ -56,7 +56,7 @@
     }
   },
   "caveats": [
-    "CodeGraph runs with local Hugging Face embeddings (no API keys required)",
+    "CodeGraph: embedding=voyage, reranker=voyage (run-specific config; see meta in per-system file)",
     "Cognee, Mastra, Augment ship as DEFERRED stubs in Plan 4 — see COMPETITORS.md"
   ]
 }

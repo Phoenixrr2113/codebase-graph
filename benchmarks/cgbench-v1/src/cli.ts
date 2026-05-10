@@ -294,10 +294,12 @@ async function runAll(args: ParsedRunAllArgs): Promise<void> {
   // Clean up the temp questions file.
   rmSync(tempQuestionsPath, { force: true });
 
+  const codegraphProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'] ?? 'local';
+  const codegraphReranker = process.env['CODEGRAPH_RERANK_PROVIDER'] ?? 'none';
   const summary = aggregate({
     perSystemFiles: perSystemPaths,
     caveats: [
-      'CodeGraph runs with local Hugging Face embeddings (no API keys required)',
+      `CodeGraph: embedding=${codegraphProvider}, reranker=${codegraphReranker} (run-specific config; see meta in per-system file)`,
       'Cognee, Mastra, Augment ship as DEFERRED stubs in Plan 4 — see COMPETITORS.md',
     ],
     timestamp: new Date().toISOString(),

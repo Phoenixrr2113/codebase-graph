@@ -90,8 +90,8 @@ if (existsSync(envPath)) {
 
   // Reranker
   const rerankProvider = process.env['CODEGRAPH_RERANK_PROVIDER'];
-  if (rerankProvider === 'jina' && !process.env['JINA_API_KEY']) {
-    errors.push('JINA_API_KEY not set — Jina reranker will fail');
+  if (rerankProvider === 'jina') {
+    errors.push('CODEGRAPH_RERANK_PROVIDER=jina is no longer supported (Jina removed 2026-05-10) — set CODEGRAPH_RERANK_PROVIDER=voyage');
   }
   if (rerankProvider === 'voyage' && !process.env['VOYAGE_API_KEY']) {
     errors.push('VOYAGE_API_KEY not set — Voyage reranker will fail');
@@ -944,8 +944,8 @@ async function main() {
   }
 
   const rerankerProviderEnv = process.env['CODEGRAPH_RERANK_PROVIDER'];
-  const rerankerProvider: 'jina' | 'voyage' | 'none' =
-    rerankerProviderEnv === 'jina' || rerankerProviderEnv === 'voyage'
+  const rerankerProvider: 'voyage' | 'none' =
+    rerankerProviderEnv === 'voyage'
       ? rerankerProviderEnv
       : 'none';
 
