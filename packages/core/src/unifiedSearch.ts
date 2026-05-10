@@ -159,9 +159,7 @@ export async function unifiedSearch(
     };
   }
 
-  // RRF fusion of both sources
-  type FusionItem = { source: 'code' | 'knowledge'; id: string; item: UnifiedSearchResult };
-
+  // RRF fusion of both sources (FusionItem hoisted to module scope below)
   const codeList: FusionItem[] = (codeResults?.hits ?? []).map(h => ({
     source: 'code' as const,
     id: `code:${h.name}:${h.filePath ?? ''}`,
@@ -209,10 +207,34 @@ export async function unifiedSearch(
     },
   }));
 
+  // Cross-modal expansion: when a knowledge document ranks highly (via any of
+  // its extracted entities), every code symbol that ANY of that document's
+  // entities ABOUT-link to becomes a candidate. Example: knowledge-002 is the
+  // "validation layer spec" document. It contains entities ZodObject, ZodString,
+  // ZodError, plus non-code entities like ValidationLayer. Bridge linker created
+  // ABOUT edges from all the code-typed entities to their corresponding code
+  // nodes. So when knowledge-002 surfaces (via any of its entities), all those
+  // code nodes get a cross-modal RRF contribution. Code nodes that ALSO appear
+  // in the vector code pool get summed contributions and rise; code nodes only
+  // reachable via knowledge surface from a query-text mismatch.
+  const topSampleIds = collectTopSampleIds(knowledgeResults ?? [], 10);
+  const crossModalCodeList: FusionItem[] = await expandKnowledgeToCode(
+    client,
+    topSampleIds,
+  );
+
+  if (process.env['CODEGRAPH_DEBUG_RRF'] === '1') {
+    process.stderr.write(`[rrf-debug] cross-modal expansion: ${crossModalCodeList.length} code nodes from ABOUT edges\n`);
+    crossModalCodeList.slice(0, 10).forEach((f, i) => {
+      process.stderr.write(`  [${i + 1}] ${f.item.name} (${f.item.type}) ${f.item.filePath ?? ''}\n`);
+    });
+  }
+
   const fused = rrfFuse<FusionItem>(
     [
       { items: codeList, weight: codeWeight },
       { items: knowledgeList, weight: knowledgeWeight },
+      { items: crossModalCodeList, weight: codeWeight },
     ],
     (item) => item.id,
   );
@@ -237,4 +259,101 @@ export async function unifiedSearch(
     results,
     meta: { query, codeHits, knowledgeHits, durationMs },
   };
+}
+
+// ============================================================================
+// Cross-modal expansion via ABOUT edges
+// ============================================================================
+
+type FusionItem = { source: 'code' | 'knowledge'; id: string; item: UnifiedSearchResult };
+
+interface SampleIdRanked {
+  sampleId: string;
+  /** Best (lowest, 0-indexed) position this sampleId held in the knowledge result list */
+  bestRank: number;
+}
+
+/**
+ * Walk the ranked knowledge results and collect distinct source documents
+ * (`sampleIds[0]`), preserving the best rank each one achieved. Limit to topN
+ * unique sources to bound the expansion query cost.
+ */
+function collectTopSampleIds(
+  knowledgeResults: ReadonlyArray<{ sampleIds?: string[] | undefined }>,
+  topN: number,
+): SampleIdRanked[] {
+  const seen = new Map<string, number>();
+  for (let i = 0; i < knowledgeResults.length; i++) {
+    const sid = knowledgeResults[i]?.sampleIds?.[0];
+    if (!sid) continue;
+    if (!seen.has(sid)) {
+      seen.set(sid, i);
+      if (seen.size >= topN) break;
+    }
+  }
+  return Array.from(seen.entries()).map(([sampleId, bestRank]) => ({ sampleId, bestRank }));
+}
+
+/**
+ * For each top-ranked knowledge source document, find all code nodes that any
+ * of that document's extracted entities ABOUT-link to. Returns FusionItems
+ * sorted by the source document's rank in the knowledge pool — best-ranked
+ * sources contribute their code nodes earliest (which translates to higher
+ * RRF position weight). De-duplicates code nodes across sources.
+ */
+async function expandKnowledgeToCode(
+  client: GraphClient,
+  rankedSources: SampleIdRanked[],
+): Promise<FusionItem[]> {
+  if (rankedSources.length === 0) return [];
+
+  const cypher = `
+    UNWIND $sources AS src
+    MATCH (e:Entity)-[r:ABOUT]->(t)
+    WHERE src.sampleId IN coalesce(e.sampleIds, [])
+    RETURN src.bestRank AS srcRank,
+           t.name AS name,
+           labels(t)[0] AS nodeType,
+           t.filePath AS filePath,
+           r.confidence AS confidence
+    ORDER BY srcRank, r.confidence DESC
+    LIMIT 100
+  `;
+
+  try {
+    const result = await client.roQuery<{
+      srcRank: number;
+      name: string;
+      nodeType: string;
+      filePath: string | null;
+      confidence: number | null;
+    }>(cypher, { params: { sources: rankedSources } });
+
+    const seen = new Set<string>();
+    const items: FusionItem[] = [];
+    for (const row of result.data) {
+      const id = `code:${row.name}:${row.filePath ?? ''}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      items.push({
+        source: 'code',
+        id,
+        item: {
+          source: 'code',
+          name: row.name,
+          type: row.nodeType,
+          score: 0,
+          ...(row.filePath ? { filePath: row.filePath } : {}),
+          properties: {
+            crossModalSource: 'ABOUT-edge',
+            crossModalConfidence: row.confidence ?? null,
+          },
+        },
+      });
+    }
+    return items;
+  } catch (err) {
+    logger.debug(`Cross-modal expansion failed (non-fatal): ${err}`);
+    return [];
+  }
 }
