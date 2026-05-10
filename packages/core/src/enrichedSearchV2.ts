@@ -407,7 +407,11 @@ async function retrieveCandidates(
   const ops = createOperations(client);
   const labels = await getEmbeddedLabels(client);
   // Wider pool = more candidates for the reranker to choose from.
-  const perTypeLimit = Math.max(20, Math.ceil(limit * 5 / labels.length));
+  // Per-type vector pool size. Floor of 40 (was 20) accommodates limit=10
+  // queries on real OSS corpora where the gold function may rank deeper than
+  // 20 by raw vector similarity but be readily recognizable to the
+  // cross-encoder once it sees the candidate.
+  const perTypeLimit = Math.max(40, Math.ceil(limit * 10 / labels.length));
 
   const allResults = await Promise.all(
     labels.map(nt => ops.searchByVector(nt as any, queryEmbedding, perTypeLimit)),
@@ -728,12 +732,20 @@ async function enrichedSearchV2Impl(
   // Enrich reranker pool with graph data BEFORE reranking
   // so the cross-encoder can see importance signals (callers, importers, exports)
   const prerankEnrichments = candidates.length >= 3
-    ? await enrichFromGraph(client, candidates.slice(0, Math.max(limit * 2, 30)))
+    ? await enrichFromGraph(client, candidates.slice(0, Math.max(limit * 4, 60)))
     : new Map<string, GraphEnrichment>();
 
-  // Reranker: cross-encoder re-scores top candidates
+  // Reranker: cross-encoder re-scores top candidates.
+  //
+  // Pool size: max(limit * 4, 60). Wider pool gives the cross-encoder more
+  // candidates to choose from, which matters when vector retrieval ranks the
+  // gold answer outside the top 30 (real psf-requests case: NL→code query
+  // for "function that follows HTTP redirects" — gold sessions.py#resolve_redirects
+  // ranked outside the previous 30-candidate pool because its embedding
+  // didn't lexically match the natural-language query, even though the
+  // cross-encoder would readily recognize it as the intended answer).
   if (!options.skipReranker && candidates.length >= 3) {
-    const rerankPool = candidates.slice(0, Math.max(limit * 2, 30));
+    const rerankPool = candidates.slice(0, Math.max(limit * 4, 60));
     const docs = rerankPool.map(c => {
       const parts: string[] = [`${c.nodeType}: ${c.name}`];
       if (c.filePath) {
