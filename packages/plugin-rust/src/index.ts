@@ -789,30 +789,38 @@ export function resolveRustImport(
 // Plugin Export (via generic factory)
 // ============================================================================
 
-export const rustPlugin = createLanguagePlugin({
-  id: 'rust',
-  displayName: 'Rust',
-  extensions: ['.rs'],
-  grammar: Rust,
-  nodeTypes: {
-    functions: ['function_item'],
-    classes: ['struct_item'],
-    interfaces: ['trait_item'],
-    variables: ['const_item', 'static_item'],
-    imports: ['use_declaration'],
-    calls: ['call_expression'],
-  },
-  overrides: {
-    extractFunctions,
-    extractClasses,
-    extractInterfaces,
-    extractVariables,
-    extractImports,
-    extractTypes,
-    extractInheritance,
-    extractCalls,
-  },
-});
+// Spread createLanguagePlugin's output and override `extractAllEntities`
+// with the standalone version below — the generic factory's composed
+// extractAllEntities skips impl block methods (extractFunctions returns
+// only free functions per its contract). The standalone version merges
+// methods back via extractStructsWithEdges.methodEntities.
+export const rustPlugin = {
+  ...createLanguagePlugin({
+    id: 'rust',
+    displayName: 'Rust',
+    extensions: ['.rs'],
+    grammar: Rust,
+    nodeTypes: {
+      functions: ['function_item'],
+      classes: ['struct_item'],
+      interfaces: ['trait_item'],
+      variables: ['const_item', 'static_item'],
+      imports: ['use_declaration'],
+      calls: ['call_expression'],
+    },
+    overrides: {
+      extractFunctions,
+      extractClasses,
+      extractInterfaces,
+      extractVariables,
+      extractImports,
+      extractTypes,
+      extractInheritance,
+      extractCalls,
+    },
+  }),
+  extractAllEntities,
+};
 
 // ============================================================================
 // Struct Extraction with HAS_METHOD / HAS_PROPERTY edges

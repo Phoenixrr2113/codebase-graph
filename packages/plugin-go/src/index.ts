@@ -1348,30 +1348,37 @@ export function extractTypeRefsForGoFunction(
 // Plugin Export (via generic factory)
 // ============================================================================
 
-export const goPlugin = createLanguagePlugin({
-  id: 'go',
-  displayName: 'Go',
-  extensions: ['.go'],
-  grammar: Go,
-  nodeTypes: {
-    functions: ['function_declaration', 'method_declaration'],
-    classes: ['type_declaration'],
-    interfaces: ['type_declaration'],
-    variables: ['var_declaration', 'const_declaration'],
-    imports: ['import_declaration'],
-    calls: ['call_expression'],
-  },
-  overrides: {
-    extractFunctions,
-    extractClasses,
-    extractInterfaces,
-    extractVariables,
-    extractImports,
-    extractTypes,
-    // extractInheritance — uses generic (derives from ClassEntity.implements + InterfaceEntity.extends)
-    extractCalls,
-  },
-});
+// Spread createLanguagePlugin's output and override `extractAllEntities`
+// with the standalone version below — the generic factory's composed
+// extractAllEntities skips struct methods (extractFunctions only returns
+// top-level funcs per its contract). The standalone version merges the
+// methods back via extractClassesWithEdges.methodEntities.
+export const goPlugin = {
+  ...createLanguagePlugin({
+    id: 'go',
+    displayName: 'Go',
+    extensions: ['.go'],
+    grammar: Go,
+    nodeTypes: {
+      functions: ['function_declaration', 'method_declaration'],
+      classes: ['type_declaration'],
+      interfaces: ['type_declaration'],
+      variables: ['var_declaration', 'const_declaration'],
+      imports: ['import_declaration'],
+      calls: ['call_expression'],
+    },
+    overrides: {
+      extractFunctions,
+      extractClasses,
+      extractInterfaces,
+      extractVariables,
+      extractImports,
+      extractTypes,
+      extractCalls,
+    },
+  }),
+  extractAllEntities,
+};
 
 // Re-export all extractors for backward compatibility
 export const extractInheritance = goPlugin.extractors.extractInheritance;

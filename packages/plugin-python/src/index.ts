@@ -883,27 +883,35 @@ const PYTHON_BUILTINS = new Set([
 // Plugin Export (via generic factory)
 // ============================================================================
 
-export const pythonPlugin = createLanguagePlugin({
-  id: 'python',
-  displayName: 'Python',
-  extensions: ['.py', '.pyw', '.pyi'],
-  grammar: Python,
-  nodeTypes: {
-    functions: ['function_definition'],
-    classes: ['class_definition'],
-    imports: ['import_statement', 'import_from_statement'],
-    calls: ['call'],
-  },
-  overrides: {
-    extractFunctions,
-    extractClasses,
-    extractVariables,
-    extractImports,
-    builtinFunctions: PYTHON_BUILTINS,
-    // extractCalls — uses generic (call → function field, identifier + attribute types)
-    // extractInheritance — uses generic (derives from ClassEntity.extends)
-  },
-});
+// Spread createLanguagePlugin's output and override `extractAllEntities`
+// with the standalone version below — the generic factory's composed
+// extractAllEntities calls extractFunctions, which (per the contract) skips
+// class methods. The standalone version merges the methods back in via
+// extractClassesWithEdges.methodEntities. Without this override, every
+// Python class method (resolve_redirects, prepare_request, …) is missing
+// from the indexed graph.
+export const pythonPlugin = {
+  ...createLanguagePlugin({
+    id: 'python',
+    displayName: 'Python',
+    extensions: ['.py', '.pyw', '.pyi'],
+    grammar: Python,
+    nodeTypes: {
+      functions: ['function_definition'],
+      classes: ['class_definition'],
+      imports: ['import_statement', 'import_from_statement'],
+      calls: ['call'],
+    },
+    overrides: {
+      extractFunctions,
+      extractClasses,
+      extractVariables,
+      extractImports,
+      builtinFunctions: PYTHON_BUILTINS,
+    },
+  }),
+  extractAllEntities,
+};
 
 // Re-export all extractors for backward compatibility
 export const extractInheritance = pythonPlugin.extractors.extractInheritance;
