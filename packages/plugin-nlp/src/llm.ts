@@ -406,6 +406,10 @@ async function getOllamaModel(
     name: 'ollama',
     baseURL: url,
     ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+    // We deliberately don't set supportsStructuredOutputs:true here.
+    // Ollama Cloud doesn't honor OpenAI's strict json_schema response_format —
+    // it just returns prose. The extractor uses tool-call-based structured
+    // output instead, which all OpenAI-compat backends support reliably.
   });
 
   logger.debug(`Ollama model: ${modelName} at ${url}${apiKey ? ' (auth)' : ''}`);

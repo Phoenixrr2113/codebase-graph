@@ -1,4 +1,4 @@
-import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, type LanguageModel } from 'ai';
+import { generateText, Output, NoObjectGeneratedError, NoOutputGeneratedError, tool, type LanguageModel } from 'ai';
 import { createLogger } from '@codegraph/logger';
 import type {
   Sample,
@@ -142,28 +142,42 @@ export class EntityExtractor {
   }
 
   /**
-   * Safely generate structured extraction, returning empty results on parse failures.
-   * This handles cases where the LLM returns non-JSON or malformed output.
+   * Safely generate structured extraction via tool calls. Returns empty results
+   * if the model declines to call the tool or its output is malformed.
+   *
+   * We use tool calls (not Output.object's response_format path) because not
+   * every OpenAI-compatible upstream honors the strict json_schema response
+   * format — Ollama Cloud, for example, ignores it and returns prose. Tool
+   * calling is universally supported by tools-capable models.
    */
   private async safeGenerateExtraction(
     prompt: string,
   ): Promise<ExtractionResponse> {
     const model = await this.getModel();
+    const extractionTool = tool({
+      description: 'Emit the extracted entities and relationships',
+      inputSchema: ExtractionResponseSchema,
+    });
     try {
-      const { output } = await generateText({
+      const { toolCalls, finishReason } = await generateText({
         model,
-        output: Output.object({ schema: ExtractionResponseSchema }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        tools: { emit_extraction: extractionTool } as any,
+        toolChoice: { type: 'tool', toolName: 'emit_extraction' },
         prompt,
         temperature: this.config.temperature,
       });
-      if (!output) {
-        logger.warn(`LLM returned no structured output — returning empty result`);
+      const call = toolCalls?.[0];
+      if (!call || !call.input) {
+        logger.warn(`LLM did not call emit_extraction tool (finishReason=${finishReason})`);
         return { entities: [], relationships: [] };
       }
-      return output;
+      return call.input as ExtractionResponse;
     } catch (error) {
       if (isNoOutputError(error)) {
-        logger.warn(`LLM returned unparseable response — returning empty result`);
+        const errAny = error as unknown as { text?: string; cause?: { message?: string } };
+        const preview = errAny.text?.slice(0, 300) ?? errAny.cause?.message?.slice(0, 300) ?? '<no text>';
+        logger.warn(`LLM returned unparseable tool call — preview: ${preview}`);
         return { entities: [], relationships: [] };
       }
       throw error;
