@@ -395,15 +395,20 @@ async function getOllamaModel(
   baseURL?: string,
 ): Promise<LanguageModel> {
   const url = baseURL ?? process.env['OLLAMA_BASE_URL'] ?? DEFAULT_OLLAMA_URL;
+  // Local Ollama doesn't need auth, but the same provider also fronts
+  // OpenAI-compat gateways like CLIProxyAPI (which routes Ollama Cloud and
+  // others) — those require Bearer tokens. OLLAMA_API_KEY adds the header
+  // when set; absent, requests go unauthenticated as before.
+  const apiKey = process.env['OLLAMA_API_KEY'];
 
-  // Use @ai-sdk/openai-compatible for Ollama (OpenAI-compatible API)
   const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
   const ollama = createOpenAICompatible({
     name: 'ollama',
     baseURL: url,
+    ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
   });
 
-  logger.debug(`Ollama model: ${modelName} at ${url}`);
+  logger.debug(`Ollama model: ${modelName} at ${url}${apiKey ? ' (auth)' : ''}`);
   return ollama.chatModel(modelName);
 }
 
