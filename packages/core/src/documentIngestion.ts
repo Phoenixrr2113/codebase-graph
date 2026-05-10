@@ -8,6 +8,7 @@
  */
 
 import { getKnowledgeOps } from './knowledgeClient';
+import { getGraphClient } from './graphClient';
 import { createLogger, toErrorMessage } from '@codegraph/logger';
 import type { TextLoader } from '@codegraph/plugin-nlp';
 import type { GraphClient } from '@codegraph/graph';
@@ -234,12 +235,23 @@ export async function add(input: string, options?: AddOptions): Promise<AddResul
   // (even if _extractAndStore is also set) so the client binding is verifiable
   // via DI in tests. When no client and no extractor, use the global singleton.
   const ops = extractor && !options?.client ? null : await getKnowledgeOps(options?.client);
+  // Resolve a GraphClient for bridge linking. If options.client is provided,
+  // reuse it; otherwise fall back to the singleton. Skip when running through
+  // a test extractor with no client (DI mode).
+  const graphClient = extractor && !options?.client ? null : (options?.client ?? await getGraphClient());
   let totalEntities = 0;
   let totalRelationships = 0;
 
   const config: Record<string, unknown> = {};
   if (options?.model) {
     config.extractor = { model: options.model };
+  }
+  // Bridge linking creates ABOUT edges from extracted entities to code nodes
+  // (Function/Class/Type/Interface) when entity text matches a symbol name.
+  // Without this, knowledge entities like "ZodObject" stay floating and don't
+  // boost the corresponding code node in cross-modal RRF fusion.
+  if (graphClient) {
+    config.graphClient = graphClient;
   }
   // Propagate caller-provided source as sampleId so every entity created from
   // this add() call has a traceable, user-meaningful sampleId instead of an

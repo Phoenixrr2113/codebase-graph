@@ -17,6 +17,7 @@ import type {
   TimelineEntry,
 } from '@codegraph/graph';
 import { getKnowledgeOps } from './knowledgeClient';
+import { getGraphClient } from './graphClient';
 
 // ============================================================================
 // Types
@@ -204,7 +205,8 @@ class KnowledgeServiceImpl {
     }
 
     const ops = await getKnowledgeOps();
-    const config: Record<string, unknown> = {};
+    const graphClient = await getGraphClient();
+    const config: Record<string, unknown> = { graphClient };
     if (options?.model) {
       config.extractor = { model: options.model };
     }
