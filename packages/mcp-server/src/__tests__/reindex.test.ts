@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,6 +29,9 @@ describe('triggerReindex — blocks on embeddings by default', () => {
     process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = 'local';
     fixture = makeFixture();
   });
+  beforeEach(async () => {
+    await closeGraphClient();
+  });
   afterAll(async () => {
     await closeGraphClient();
     rmSync(fixture, { recursive: true, force: true });
@@ -49,6 +52,8 @@ describe('triggerReindex — blocks on embeddings by default', () => {
       const result = await triggerReindex({ scope: fixture2, mode: 'full', deferEmbeddings: true });
       expect(result.success).toBe(true);
       expect(result.embeddingsDeferred).toBe(true);
+      expect(result.symbolsUpdated).toBeGreaterThan(0);
+      expect(result.embeddedCount).toBeDefined();
     } finally {
       rmSync(fixture2, { recursive: true, force: true });
     }

@@ -112,11 +112,10 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           gitEdgesCreated: 0,
           duration: Date.now() - startTime,
           errors: result.error ? [result.error] : [],
-          // indexSingleFile does not accept a deferEmbeddings option and always
-          // embeds synchronously via its own internal pipeline. Callers should
-          // not rely on embeddingsDeferred=false here as a signal that they can
-          // pass deferEmbeddings=true to defer; this code path does not support it.
-          embeddingsDeferred: true,
+          // indexSingleFile accepts deferEmbeddings, but we don't pass it through
+          // here — single-file reindex always blocks on embeddings to keep the code
+          // path simple. Per-file reindex is rare and the cost difference is tiny.
+          embeddingsDeferred: false,
           embeddedCount: await getEmbeddedCount(),
         };
 
