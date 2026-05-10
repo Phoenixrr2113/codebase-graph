@@ -97,3 +97,63 @@ describe('CodeGraphAdapter — env purity', () => {
     expect(passedEnv['CODEGRAPH_EMBEDDING_DIM']).toBe('1024');
   });
 });
+
+describe('CodeGraphAdapter — B/C dispatch is pure search.find', () => {
+  let dataDir: string;
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'cg-bc-'));
+  });
+
+  afterEach(() => {
+    rmSync(dataDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('Task B query routes to search.find with action=find, not query+Cypher', async () => {
+    const mcpBase = await import('../../src/adapters/_mcp-base.js');
+    const calls: Array<{ tool: string; args: Record<string, unknown> }> = [];
+    vi.spyOn(mcpBase, 'spawnMCPClient').mockImplementation(
+      async () => ({ close: async () => {}, callTool: async () => ({}) } as never),
+    );
+    vi.spyOn(mcpBase, 'callMCPTool').mockImplementation(
+      async (_client, name, args, _timeoutMs) => {
+        calls.push({ tool: name, args: args as Record<string, unknown> });
+        if (name === 'search') return { results: [] };
+        return {};
+      },
+    );
+
+    const adapter = new CodeGraphAdapter({ dataDir });
+    await adapter.query('classes that extend AuthBase', { task: 'B', topK: 10 });
+
+    const toolNames = calls.map((c) => c.tool);
+    expect(toolNames).toContain('search');
+    expect(toolNames).not.toContain('query'); // no raw Cypher
+    const searchCall = calls.find((c) => c.tool === 'search')!;
+    expect(searchCall.args['action']).toBe('find');
+    expect(searchCall.args['query']).toBe('classes that extend AuthBase');
+  });
+
+  it('Task C query routes to search.find with action=find, not query+Cypher', async () => {
+    const mcpBase = await import('../../src/adapters/_mcp-base.js');
+    const calls: Array<{ tool: string; args: Record<string, unknown> }> = [];
+    vi.spyOn(mcpBase, 'spawnMCPClient').mockImplementation(
+      async () => ({ close: async () => {}, callTool: async () => ({}) } as never),
+    );
+    vi.spyOn(mcpBase, 'callMCPTool').mockImplementation(
+      async (_client, name, args) => {
+        calls.push({ tool: name, args: args as Record<string, unknown> });
+        if (name === 'search') return { results: [] };
+        return {};
+      },
+    );
+
+    const adapter = new CodeGraphAdapter({ dataDir });
+    await adapter.query('functions transitively affected if X changes', { task: 'C', topK: 10 });
+
+    const toolNames = calls.map((c) => c.tool);
+    expect(toolNames).toContain('search');
+    expect(toolNames).not.toContain('query');
+  });
+});

@@ -7,7 +7,6 @@ import { spawnMCPClient, callMCPTool, closeMCPClient } from './_mcp-base.js';
 import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
 import { measureDiskBytes } from '../metrics/resources.js';
-import { generateCypher } from './_ollama.js';
 
 // Re-exported so cli.ts `import { CodeGraphAdapter, type DocumentFormat }` continues to compile.
 export type DocumentFormat = 'md' | 'pdf' | 'docx' | 'html' | 'csv';
@@ -380,70 +379,20 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
     }
 
     if (task === 'B' || task === 'C') {
-      logQ(`${task} → generating Cypher via LLM`);
-      const gen = await generateCypher({ question, taskHint: task });
-
-      if (gen.cypher === null) {
-        // LLM failed twice; return empty ranking (will score as 0)
-        logQ(`${task} → LLM failed to generate valid Cypher; scoring as 0`);
-        return [];
-      }
-      logQ(`${task} → executing Cypher (len=${gen.cypher.length}, hasReturn=${/\bRETURN\b/i.test(gen.cypher)}): ${gen.cypher.replace(/\s+/g, ' ').slice(0, 200)}${gen.cypher.length > 200 ? '...' : ''}`);
-
-      const result = (await callMCPTool<{ success?: boolean; data?: Array<Record<string, unknown>> }>(
+      // Vector retrieval only. CodeGraph does not claim NL→Cypher capability;
+      // structural traversal questions get partial recall via vector similarity
+      // and may score honestly low. See spec 2026-05-10-cgbench-adapter-purity.
+      const result = (await callMCPTool<{ results?: Array<MCPCodeResult> }>(
         client,
-        'query',
-        { cypher: gen.cypher },  // limit removed — query tool doesn't accept it; rely on .slice() below
+        'search',
+        { action: 'find', query: question, limit },
       )) ?? {};
-
-      const rowCount = result.data?.length ?? 0;
-      const out = (result.data ?? []).slice(0, limit).map((row, i) => {
-        // Cypher results come in three shapes depending on what the LLM generated:
-        //   1. FalkorDB native node: RETURN caller → row = { caller: { id, labels, properties: { name, filePath, ... } } }
-        //   2. Already-normalized node: row = { caller: { name, filePath, ... } } (some drivers flatten)
-        //   3. Scalar columns: RETURN c.name, c.filePath → row = { 'c.name': '...', 'c.filePath': '...' }
-        // Try node-shape first (insertion-order stable; first node column wins).
-        let filePath: string | undefined;
-        let name: string | undefined;
-        for (const v of Object.values(row)) {
-          if (!v || typeof v !== 'object') continue;
-          // Shape 1: FalkorDB native — name/filePath under .properties
-          const props = (v as { properties?: { name?: string; filePath?: string } }).properties;
-          if (props && (typeof props.name === 'string' || typeof props.filePath === 'string')) {
-            name = typeof props.name === 'string' ? props.name : undefined;
-            filePath = typeof props.filePath === 'string' ? props.filePath : undefined;
-            break;
-          }
-          // Shape 2: flattened node
-          if ('name' in v && 'filePath' in v) {
-            const node = v as { filePath?: string; name?: string };
-            filePath = node.filePath;
-            name = node.name;
-            break;
-          }
-        }
-        if (!name && !filePath) {
-          // Shape 3: scalar columns — pick keys ending in `.name` and `.filePath`/`.path`
-          for (const [k, v] of Object.entries(row)) {
-            if (typeof v !== 'string') continue;
-            if (!name && /(^|\.)name$/i.test(k)) name = v;
-            else if (!filePath && /(^|\.)(filePath|path)$/i.test(k)) filePath = v;
-          }
-          if (!name && typeof (row as Record<string, unknown>)['name'] === 'string') {
-            name = (row as Record<string, string>)['name'];
-          }
-          if (!filePath && typeof (row as Record<string, unknown>)['filePath'] === 'string') {
-            filePath = (row as Record<string, string>)['filePath'];
-          }
-        }
-        return {
-          id: this.codeId(filePath, name),
-          score: 1 / (i + 1),
-          kind: 'code' as const,
-        };
-      });
-      const unknownCount = out.filter((r) => r.id === 'unknown#unknown').length;
-      logQ(`${task} → query returned ${rowCount} rows, ${unknownCount}/${out.length} mapped to unknown#unknown, top=${out[0]?.id ?? '<none>'}`);
+      const out = (result.results ?? []).map((r, i) => ({
+        id: this.codeId(r.filePath, r.name),
+        score: r.score ?? 1 / (i + 1),
+        kind: 'code' as const,
+      }));
+      logQ(`${task} → search.find returned ${result.results?.length ?? 0} results, top=${out[0]?.id ?? '<none>'}`);
       return out;
     }
 

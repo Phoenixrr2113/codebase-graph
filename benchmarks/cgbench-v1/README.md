@@ -4,6 +4,26 @@ CodeGraph public benchmark — measures retrieval quality, latency, ingestion sp
 
 **Status:** Plan 1 of 4 (foundations + CodeGraph adapter). Plans 2-4 add questions, competitor adapters, and the public publish workflow.
 
+## Capabilities measured per task
+
+CodeGraph is a vector-search-with-graph-enrichment system. The adapter routes
+each task to the production MCP path that exists for that capability:
+
+| Task | Adapter path | What it tests |
+|------|--------------|---------------|
+| A — NL→code | `search.find` | semantic code retrieval |
+| B — multi-hop | `search.find` | partial recall via vector similarity (see note) |
+| C — dependency Cypher | `search.find` | partial recall via vector similarity (see note) |
+| D — temporal | `query_knowledge` (semanticQuery + at) | bitemporal recall |
+| E — cross-modal | `search.find` (searchScope='all') | RRF fusion of code + knowledge |
+| F — document | `query_knowledge` (semanticQuery) | document retrieval |
+
+**Note on B and C:** These are inherently graph-traversal questions. CodeGraph
+does not claim NL→Cypher capability — structural traversal is exposed via the
+`query` MCP tool with hand-written Cypher. CGBench does not invoke that path;
+B and C measure the partial recall that vector similarity gives. Lower scores
+on B and C are expected and honest.
+
 ## Prereqs
 
 - Node 20 or later
