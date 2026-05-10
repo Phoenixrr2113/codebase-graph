@@ -334,6 +334,26 @@ export function candidateKey(c: Candidate): string {
 }
 
 /**
+ * Heuristic detection of test files across language conventions.
+ * Patterns covered:
+ *   - /tests/ or /test/ directory anywhere in the path (Python, Java, Rust, ...)
+ *   - /__tests__/ (Jest convention)
+ *   - foo_test.<ext> (Go, Python pytest, Ruby)
+ *   - foo.test.<ext> (TypeScript/JavaScript)
+ *   - foo.spec.<ext> (TypeScript/JavaScript Jasmine/Mocha)
+ *   - foo.test_<ext> / foo_spec.<ext> (Ruby, Python edge cases)
+ */
+export function isTestPath(filePath: string): boolean {
+  return (
+    /\/tests?\//i.test(filePath) ||
+    /\/__tests__\//i.test(filePath) ||
+    /[._]test\.[a-z]+$/i.test(filePath) ||
+    /\.spec\.[a-z]+$/i.test(filePath) ||
+    /[._]spec\.[a-z]+$/i.test(filePath)
+  );
+}
+
+/**
  * Check if a file path matches a single scope prefix.
  * Handles both absolute paths (/Users/.../apps/web) and
  * relative paths (apps/web) by using suffix matching with
@@ -733,6 +753,23 @@ async function enrichedSearchV2Impl(
       // both query and document, strictly more informed than our retrieval scores.
       for (const rr of rerankResults) {
         rerankPool[rr.index]!.score = rr.relevanceScore;
+      }
+
+      // Test-file demotion: when the user asks "function that does X", they
+      // almost always want the implementation, not test functions whose names
+      // semantically match X. Without this, cross-encoders frequently rank
+      // tests above implementations on ambiguous queries (e.g. requests's
+      // test_lowlevel.py#test_digestauth_401_count_reset_on_redirect ranking
+      // above sessions.py#resolve_redirects on "function that follows redirects").
+      // Multiplicative penalty preserves relative ordering within tests and
+      // within non-tests. Configurable via env (set to 1.0 to disable).
+      const testPenalty = parseFloat(process.env['CODEGRAPH_TEST_PENALTY'] ?? '0.7');
+      if (testPenalty < 1.0) {
+        for (const c of rerankPool) {
+          if (c.filePath && isTestPath(c.filePath)) {
+            c.score *= testPenalty;
+          }
+        }
       }
 
       rerankPool.sort((a, b) => b.score - a.score);
