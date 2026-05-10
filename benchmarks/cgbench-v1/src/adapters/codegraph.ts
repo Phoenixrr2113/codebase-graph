@@ -259,6 +259,11 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
             }. Skipping.`,
           );
         }
+        // Backpressure between LLM-heavy ingests. Without this, Cerebras
+        // (and likely other providers) hit rate limits when 20+ ingests
+        // fire back-to-back; ~6/21 files would 429-fail in a full battery.
+        // 2s spacing keeps tokens-per-minute under typical free-tier caps.
+        await new Promise((r) => setTimeout(r, 2000));
       }
       log(`${label} ingest done — running total ${knowledgeFileCount} files added`);
     }
