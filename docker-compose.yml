@@ -4,12 +4,29 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - falkordb_data:/data
+      # FalkorDB writes RDB snapshots to FALKORDB_DATA_PATH (/var/lib/falkordb/data),
+      # not /data. Mounting at /data leaves the writable layer to handle persistence,
+      # which is lost on container exit. See packages/falkordb/run.sh in the image.
+      - falkordb_data:/var/lib/falkordb/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  cgbench-falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - "6380:6379"
+    volumes:
+      - cgbench_falkordb_data:/var/lib/falkordb/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - bench
 
   api:
     build:
@@ -45,3 +62,4 @@ services:
 
 volumes:
   falkordb_data:
+  cgbench_falkordb_data:
