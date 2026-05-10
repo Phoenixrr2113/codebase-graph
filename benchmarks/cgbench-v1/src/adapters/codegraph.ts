@@ -75,6 +75,18 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
   private async getClient(): Promise<Client> {
     if (this.client) return this.client;
 
+    // FalkorDB-Docker-only constraint: refuse falkordblite.
+    // Silent fallback to FalkorDBLite masks misconfiguration and produces
+    // benchmark numbers that don't represent how the system is actually used.
+    const driver = process.env['CODEGRAPH_DRIVER'];
+    if (driver === 'falkordblite') {
+      throw new Error(
+        'CODEGRAPH_DRIVER=falkordblite is not supported for cgbench. ' +
+        'Start FalkorDB Docker (docker compose --profile bench up -d cgbench-falkordb) ' +
+        'and unset CODEGRAPH_DRIVER or set it to "falkordb".',
+      );
+    }
+
     // Translate cgbench env vars to the names the codegraph MCP server expects
     const cgbenchHost = process.env['CGBENCH_FALKORDB_HOST'];
     const cgbenchPort = process.env['CGBENCH_FALKORDB_PORT'];

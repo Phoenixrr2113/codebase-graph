@@ -72,7 +72,7 @@ if (existsSync(envPath)) {
   const driver = process.env['CODEGRAPH_DRIVER'];
   const host = process.env['FALKORDB_HOST'];
   if (driver === 'falkordblite') {
-    errors.push('CODEGRAPH_DRIVER=falkordblite — benchmark must run against FalkorDB Docker');
+    errors.push('CODEGRAPH_DRIVER=falkordblite — start FalkorDB Docker (docker compose --profile bench up -d cgbench-falkordb) and unset or set to "falkordb"');
   }
   if (!host && !process.env['FALKORDB_URL']) {
     errors.push('FALKORDB_HOST not set — benchmark may connect to wrong database');
