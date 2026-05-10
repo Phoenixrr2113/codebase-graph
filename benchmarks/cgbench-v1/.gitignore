@@ -7,6 +7,7 @@ results/*
 !results/post-purity-2026-05-10/
 !results/v0.1.2-real/
 !results/v0.1.3-fixed/
+!results/v0.1.4-final/
 corpora/code/*/
 !corpora/code/manifest.json
 documents/rendered/
