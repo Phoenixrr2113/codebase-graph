@@ -266,6 +266,7 @@ export async function extractAndStore(
         kgEntities.map((e) => ({ text: e.text, type: e.type })),
         config.graphClient,
         ops,
+        { documentContext: text },
       );
     } catch (err) {
       // Bridge linking is non-fatal — entities are still stored
