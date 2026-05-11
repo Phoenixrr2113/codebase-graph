@@ -26,7 +26,10 @@ describe('AboutEdgeInput.crossEncoderScore', () => {
   });
 
   afterAll(async () => {
-    await client.close();
+    if (client) {
+      try { await client.query('MATCH (n) DETACH DELETE n', { params: {} }); } catch { /* ok */ }
+      await client.close();
+    }
   });
 
   it('persists crossEncoderScore on ABOUT edge', async () => {
@@ -51,6 +54,7 @@ describe('AboutEdgeInput.crossEncoderScore', () => {
   });
 
   it('defaults to null when crossEncoderScore is omitted (legacy compat)', async () => {
+    // Same edge as test 1 — MERGE + ON MATCH SET overwrites crossEncoderScore back to null.
     await kgOps.createAboutEdge({
       entityText: 'redirect logic',
       entityType: 'Concept',
