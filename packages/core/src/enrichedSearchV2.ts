@@ -152,6 +152,12 @@ export interface RankedList<T> {
   items: T[];
   /** Weight for this source (default: 1) */
   weight?: number;
+  /**
+   * Optional per-item weight (0.0–1.0+). Multiplied into the RRF contribution
+   * before the rank-position discount. Use to apply a confidence/relevance
+   * boost or penalty to individual items. Defaults to 1.0 when omitted.
+   */
+  scoreOf?: (item: T) => number;
 }
 
 /**
@@ -167,10 +173,12 @@ export function rrfFuse<T>(
 
   for (const list of lists) {
     const weight = list.weight ?? 1;
+    const scoreOf = list.scoreOf;
     for (let i = 0; i < list.items.length; i++) {
       const item = list.items[i]!;
       const id = key(item);
-      const contribution = weight / (k + i + 1); // 1-based rank
+      const itemScore = scoreOf ? scoreOf(item) : 1;
+      const contribution = (weight * itemScore) / (k + i + 1); // 1-based rank
       const existing = scores.get(id);
       if (existing) {
         existing.score += contribution;
