@@ -27,6 +27,7 @@ import { createOperations } from '@codegraph/graph';
 import { createLogger } from '@codegraph/logger';
 import { generateEmbedding, isEmbeddingAvailable } from './embeddings';
 import { buildEntityEmbeddingText } from './embedding-text';
+import { rerank } from './reranker';
 
 const logger = createLogger({ namespace: 'nlp:bridge-linker' });
 
@@ -65,6 +66,15 @@ export interface BridgeLinkerConfig {
   skipNonCodeTypes?: boolean;
   /** Maximum number of code nodes to query per batch (default: 500) */
   batchLimit?: number;
+  /**
+   * Document context for cross-encoder verification. When provided, the bridge
+   * linker calls Voyage rerank-2 with (documentContext, [symbolDescriptions])
+   * and persists each per-symbol relevance score as `crossEncoderScore` on
+   * the ABOUT edge. When omitted (legacy callers), no rerank pass runs.
+   *
+   * Typical value: the chunk text the entities were extracted from.
+   */
+  documentContext?: string;
 }
 
 /**
@@ -134,47 +144,54 @@ interface CodeSymbol {
   nameLower: string;   // lowercase for case-insensitive matching
 }
 
+interface CodeSymbolWithPath extends CodeSymbol {
+  filePath: string | null;
+}
+
 /**
- * Load all code symbol names from the graph in a single batch query.
- * Returns a flat array of { label, name, nameLower }.
+ * Load all code symbol names (with filePath) from the graph in a batch query.
+ * Used by the cross-encoder verification pass to build informative rerank
+ * documents like "Function resolve_redirects in sessions.py".
  */
-async function loadCodeSymbols(
+async function loadCodeSymbolsWithPath(
   client: GraphClient,
   limit: number,
-): Promise<CodeSymbol[]> {
-  const symbols: CodeSymbol[] = [];
-
-  // Query each node label — FalkorDB requires explicit label in MATCH
+): Promise<CodeSymbolWithPath[]> {
+  const symbols: CodeSymbolWithPath[] = [];
   const labelQueries: Array<{ label: string; cypher: string }> = [
-    { label: 'Function', cypher: `MATCH (n:Function) RETURN n.name AS name LIMIT ${limit}` },
-    { label: 'Class', cypher: `MATCH (n:Class) RETURN n.name AS name LIMIT ${limit}` },
-    { label: 'Interface', cypher: `MATCH (n:Interface) RETURN n.name AS name LIMIT ${limit}` },
-    { label: 'Component', cypher: `MATCH (n:Component) RETURN n.name AS name LIMIT ${limit}` },
-    { label: 'Type', cypher: `MATCH (n:Type) RETURN n.name AS name LIMIT ${limit}` },
-    { label: 'Variable', cypher: `MATCH (n:Variable) RETURN n.name AS name LIMIT ${limit}` },
-    { label: 'File', cypher: `MATCH (n:File) RETURN n.filePath AS name LIMIT ${limit}` },
+    { label: 'Function',  cypher: `MATCH (n:Function)  RETURN n.name AS name, n.filePath AS filePath LIMIT ${limit}` },
+    { label: 'Class',     cypher: `MATCH (n:Class)     RETURN n.name AS name, n.filePath AS filePath LIMIT ${limit}` },
+    { label: 'Interface', cypher: `MATCH (n:Interface) RETURN n.name AS name, n.filePath AS filePath LIMIT ${limit}` },
+    { label: 'Component', cypher: `MATCH (n:Component) RETURN n.name AS name, n.filePath AS filePath LIMIT ${limit}` },
+    { label: 'Type',      cypher: `MATCH (n:Type)      RETURN n.name AS name, n.filePath AS filePath LIMIT ${limit}` },
+    { label: 'Variable',  cypher: `MATCH (n:Variable)  RETURN n.name AS name, n.filePath AS filePath LIMIT ${limit}` },
+    { label: 'File',      cypher: `MATCH (n:File)      RETURN n.filePath AS name, n.filePath AS filePath LIMIT ${limit}` },
   ];
 
   for (const { label, cypher } of labelQueries) {
     try {
-      const result = await client.roQuery<{ name: string }>(cypher, { params: {} });
+      const result = await client.roQuery<{ name: string; filePath: string | null }>(cypher, { params: {} });
       for (const row of result.data) {
         if (row.name) {
           symbols.push({
             label,
             name: row.name,
             nameLower: row.name.toLowerCase(),
+            filePath: row.filePath ?? null,
           });
         }
       }
     } catch {
-      // Label might not have any nodes yet — that's fine
-      logger.debug(`No ${label} nodes found in graph (or label not created)`);
+      logger.debug(`No ${label} nodes found in graph`);
     }
   }
-
-  logger.debug(`Loaded ${symbols.length} code symbols from graph`);
   return symbols;
+}
+
+/** Build a one-line rerank document for a code symbol. */
+function symbolDescription(sym: CodeSymbolWithPath): string {
+  const where = sym.filePath ? ` in ${sym.filePath}` : '';
+  return `${sym.label} ${sym.name}${where}`;
 }
 
 // ============================================================================
@@ -258,6 +275,7 @@ export async function linkEntitiesToCode(
   const minConfidence = config.minConfidence ?? 0.85;
   const skipNonCode = config.skipNonCodeTypes ?? true;
   const batchLimit = config.batchLimit ?? 500;
+  const documentContext = config.documentContext;
 
   const result: BridgeLinkResult = {
     total: entities.length,
@@ -280,8 +298,8 @@ export async function linkEntitiesToCode(
     return result;
   }
 
-  // Batch-load all code symbol names from the graph
-  const symbols = await loadCodeSymbols(client, batchLimit);
+  // Batch-load all code symbol names (with filePath) from the graph
+  const symbols = await loadCodeSymbolsWithPath(client, batchLimit);
 
   if (symbols.length === 0) {
     logger.debug('No code symbols in graph — skipping bridge linking');
@@ -289,17 +307,61 @@ export async function linkEntitiesToCode(
     return result;
   }
 
-  // For each candidate entity, find the best matching code symbol
+  // Pass 1: collect all (entity, match) pairs — no edges yet.
+  type PendingLink = {
+    entity: BridgeLinkerInput;
+    match: { symbol: CodeSymbolWithPath; confidence: number };
+  };
+  const pending: PendingLink[] = [];
   for (const entity of candidates) {
-    const match = findBestMatch(entity.text, symbols, minConfidence);
-
-    if (!match) {
+    const m = findBestMatch(entity.text, symbols, minConfidence);
+    if (!m) {
       result.skipped++;
       continue;
     }
+    // findBestMatch returns the bare CodeSymbol; recover the CodeSymbolWithPath
+    // variant for filePath. The loader returned both, so look up by reference.
+    const withPath = symbols.find(
+      (s) => s.label === m.symbol.label && s.name === m.symbol.name,
+    );
+    if (!withPath) {
+      result.skipped++;
+      continue;
+    }
+    pending.push({ entity, match: { symbol: withPath, confidence: m.confidence } });
+  }
 
-    // Determine the target key (name for most labels, path for File)
+  // Pass 2: batch rerank (one call per document, only if documentContext given).
+  let scores: number[] | null = null;
+  if (documentContext && pending.length > 0) {
+    const documents = pending.map((p) => symbolDescription(p.match.symbol));
+    try {
+      const ranked = await rerank(documentContext, documents);
+      // rerank returns sorted-by-score; map back to per-index score.
+      const indexed = new Array(documents.length).fill(0);
+      let allMissing = true;
+      for (const r of ranked) {
+        if (r.index < indexed.length) {
+          indexed[r.index] = r.relevanceScore;
+          allMissing = false;
+        }
+      }
+      scores = allMissing ? null : indexed;
+    } catch (err) {
+      logger.warn(`Cross-encoder rerank failed: ${err}`);
+      scores = null;
+    }
+  }
+
+  // Pass 3: persist edges. crossEncoderScore comes from batch result (or 1.0
+  // default on rerank fallback). When documentContext was not provided, the
+  // field is omitted entirely (legacy callers — query-time defaults to 1.0).
+  for (let i = 0; i < pending.length; i++) {
+    const { entity, match } = pending[i]!;
     const targetKey = CODE_NODE_LABELS[match.symbol.label] ?? 'name';
+    const crossEncoderScore = documentContext
+      ? scores?.[i] ?? 1.0
+      : undefined;
 
     const input: AboutEdgeInput = {
       entityText: entity.text,
@@ -309,6 +371,7 @@ export async function linkEntitiesToCode(
       targetValue: match.symbol.name,
       confidence: match.confidence,
       method: 'exact_match',
+      ...(crossEncoderScore !== undefined ? { crossEncoderScore } : {}),
     };
 
     try {
@@ -323,7 +386,8 @@ export async function linkEntitiesToCode(
           confidence: match.confidence,
         });
         logger.debug(
-          `Linked: "${entity.text}" (${entity.type}) → ${match.symbol.label}:${match.symbol.name} [${match.confidence}]`,
+          `Linked: "${entity.text}" (${entity.type}) → ${match.symbol.label}:${match.symbol.name} ` +
+          `[name=${match.confidence}${crossEncoderScore !== undefined ? `, ce=${crossEncoderScore.toFixed(2)}` : ''}]`,
         );
       }
     } catch (err) {
@@ -332,7 +396,8 @@ export async function linkEntitiesToCode(
   }
 
   logger.info(
-    `Bridge linker: ${result.linked} linked, ${result.skipped} skipped, ${result.total} total`,
+    `Bridge linker: ${result.linked} linked, ${result.skipped} skipped, ${result.total} total` +
+    (documentContext ? ` (cross-encoder verified)` : ''),
   );
 
   return result;
