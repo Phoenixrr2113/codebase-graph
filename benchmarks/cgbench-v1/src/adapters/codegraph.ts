@@ -8,6 +8,35 @@ import type { BenchmarkAdapter, IngestStats, QueryOpts } from '../adapter.js';
 import type { BenchmarkCorpus, RankedResult } from '../types.js';
 import { measureDiskBytes } from '../metrics/resources.js';
 
+/**
+ * Bounded-concurrency map. Runs `task` for each item with at most `limit`
+ * tasks in flight. Returns results in input order. Failures are caught and
+ * surfaced as { status: 'rejected', reason } per item — the helper never
+ * throws so a single bad file doesn't abort the whole batch.
+ */
+async function pMapLimit<T, R>(
+  items: T[],
+  limit: number,
+  task: (item: T, index: number) => Promise<R>,
+): Promise<Array<{ status: 'fulfilled'; value: R } | { status: 'rejected'; reason: unknown }>> {
+  const results: Array<{ status: 'fulfilled'; value: R } | { status: 'rejected'; reason: unknown }> = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= items.length) return;
+      try {
+        const value = await task(items[i]!, i);
+        results[i] = { status: 'fulfilled', value };
+      } catch (reason) {
+        results[i] = { status: 'rejected', reason };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
+}
+
 // Re-exported so cli.ts `import { CodeGraphAdapter, type DocumentFormat }` continues to compile.
 export type DocumentFormat = 'md' | 'pdf' | 'docx' | 'html' | 'csv';
 
@@ -231,40 +260,34 @@ export class CodeGraphAdapter implements BenchmarkAdapter {
 
     for (const { root, label } of docRoots) {
       const rootAbs = resolve(root);
-      const entries = await readdir(rootAbs, { withFileTypes: true });
-      log(`${label} ingest start — root=${rootAbs} files=${entries.length}`);
-      for (const entry of entries) {
-        if (!entry.isFile()) continue;
-        if (entry.name.startsWith('.')) continue;
-        // Skip README — it's metadata for the corpus, not benchmark content.
-        if (entry.name.toLowerCase() === 'readme.md') continue;
+      const entries = (await readdir(rootAbs, { withFileTypes: true }))
+        .filter((e) => e.isFile() && !e.name.startsWith('.') && e.name.toLowerCase() !== 'readme.md');
+      log(`${label} ingest start — root=${rootAbs} files=${entries.length} (concurrency=4)`);
+
+      const outcomes = await pMapLimit(entries, 4, async (entry) => {
         const filePath = join(rootAbs, entry.name);
         const slug = basename(entry.name, extname(entry.name));
-        try {
-          // 180s budget: entity extraction can hit Cerebras 429 rate limits
-          // and the retry chain in @codegraph/plugin-nlp can take >60s before
-          // succeeding. Earlier 60s timeout caused knowledge-008 to never
-          // ingest during cgbench Task E runs.
-          await callMCPTool(
-            client,
-            'add',
-            { input: filePath, source: `cgbench:${slug}` },
-            180_000,
-          );
+        // 180s budget: glm-5.1 entity extraction can take >60s per document.
+        return callMCPTool(
+          client,
+          'add',
+          { input: filePath, source: `cgbench:${slug}` },
+          180_000,
+        );
+      });
+
+      for (let i = 0; i < outcomes.length; i++) {
+        const o = outcomes[i]!;
+        if (o.status === 'fulfilled') {
           knowledgeFileCount++;
-        } catch (err) {
+        } else {
+          const filePath = join(rootAbs, entries[i]!.name);
           console.warn(
             `[codegraph adapter] add failed for ${filePath}: ${
-              err instanceof Error ? err.message : String(err)
+              o.reason instanceof Error ? o.reason.message : String(o.reason)
             }. Skipping.`,
           );
         }
-        // Backpressure between LLM-heavy ingests. Cerebras free-tier
-        // rate limiting is non-deterministic and 2s spacing was insufficient
-        // (5/21 files still 429-failed in a full-battery run). 5s spacing
-        // adds ~100s to a full battery (negligible vs ~10min total) and
-        // brings 429 rate close to zero in our observed runs.
-        await new Promise((r) => setTimeout(r, 5000));
       }
       log(`${label} ingest done — running total ${knowledgeFileCount} files added`);
     }
