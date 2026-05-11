@@ -167,8 +167,15 @@ export interface AboutEdgeInput {
   targetKey: string;
   /** Value of the identifying property */
   targetValue: string;
-  /** Match confidence (0.0–1.0) */
+  /** Match confidence (0.0–1.0) — name-match tier confidence */
   confidence: number;
+  /**
+   * Cross-encoder relevance score (0.0–1.0) from rerank verification, where the
+   * pair is (document_context, "${label} ${name} in ${filePath}").
+   * Optional: when missing, query-time code treats this edge as fully confident
+   * (effective weight 1.0). Set by bridge-linker after rerank.
+   */
+  crossEncoderScore?: number;
   /** How the link was created */
   method: AboutLinkMethod;
 }
@@ -1216,8 +1223,8 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
       MATCH (e:Entity), (t:${label})
       WHERE e.text = $entityText AND e.type = $entityType AND ${matchProp} = $targetValue
       MERGE (e)-[r:ABOUT]->(t)
-      ON CREATE SET r.confidence = $confidence, r.method = $method, r.created_at = $createdAt
-      ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END
+      ON CREATE SET r.confidence = $confidence, r.crossEncoderScore = $crossEncoderScore, r.method = $method, r.created_at = $createdAt
+      ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END, r.crossEncoderScore = $crossEncoderScore
       RETURN type(r) AS relType
     `;
   }
@@ -1236,6 +1243,7 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
         entityType: input.entityType,
         targetValue: input.targetValue,
         confidence: input.confidence,
+        crossEncoderScore: input.crossEncoderScore ?? null,
         method: input.method,
         createdAt: new Date().toISOString(),
       },
