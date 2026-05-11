@@ -226,7 +226,8 @@ export async function unifiedSearch(
   if (process.env['CODEGRAPH_DEBUG_RRF'] === '1') {
     process.stderr.write(`[rrf-debug] cross-modal expansion: ${crossModalCodeList.length} code nodes from ABOUT edges\n`);
     crossModalCodeList.slice(0, 10).forEach((f, i) => {
-      process.stderr.write(`  [${i + 1}] ${f.item.name} (${f.item.type}) ${f.item.filePath ?? ''}\n`);
+      const ces = f.crossEncoderScore !== undefined ? ` ce=${f.crossEncoderScore.toFixed(2)}` : '';
+      process.stderr.write(`  [${i + 1}] ${f.item.name} (${f.item.type}) ${f.item.filePath ?? ''}${ces}\n`);
     });
   }
 
@@ -234,7 +235,11 @@ export async function unifiedSearch(
     [
       { items: codeList, weight: codeWeight },
       { items: knowledgeList, weight: knowledgeWeight },
-      { items: crossModalCodeList, weight: codeWeight },
+      {
+        items: crossModalCodeList,
+        weight: codeWeight,
+        scoreOf: (f) => f.crossEncoderScore ?? 1.0,
+      },
     ],
     (item) => item.id,
   );
@@ -265,7 +270,13 @@ export async function unifiedSearch(
 // Cross-modal expansion via ABOUT edges
 // ============================================================================
 
-type FusionItem = { source: 'code' | 'knowledge'; id: string; item: UnifiedSearchResult };
+type FusionItem = {
+  source: 'code' | 'knowledge';
+  id: string;
+  item: UnifiedSearchResult;
+  /** Cross-encoder boost (cross-modal expansion items only). Default 1.0. */
+  crossEncoderScore?: number;
+};
 
 interface SampleIdRanked {
   sampleId: string;
@@ -315,8 +326,9 @@ async function expandKnowledgeToCode(
            t.name AS name,
            labels(t)[0] AS nodeType,
            t.filePath AS filePath,
-           r.confidence AS confidence
-    ORDER BY srcRank, r.confidence DESC
+           r.confidence AS confidence,
+           r.crossEncoderScore AS crossEncoderScore
+    ORDER BY srcRank, coalesce(r.crossEncoderScore, r.confidence) DESC
     LIMIT 100
   `;
 
@@ -327,6 +339,7 @@ async function expandKnowledgeToCode(
       nodeType: string;
       filePath: string | null;
       confidence: number | null;
+      crossEncoderScore: number | null;
     }>(cypher, { params: { sources: rankedSources } });
 
     const seen = new Set<string>();
@@ -338,6 +351,7 @@ async function expandKnowledgeToCode(
       items.push({
         source: 'code',
         id,
+        crossEncoderScore: row.crossEncoderScore ?? 1.0,
         item: {
           source: 'code',
           name: row.name,
@@ -347,6 +361,7 @@ async function expandKnowledgeToCode(
           properties: {
             crossModalSource: 'ABOUT-edge',
             crossModalConfidence: row.confidence ?? null,
+            crossEncoderScore: row.crossEncoderScore ?? null,
           },
         },
       });
