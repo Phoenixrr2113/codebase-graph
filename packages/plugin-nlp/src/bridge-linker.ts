@@ -198,8 +198,8 @@ function symbolDescription(sym: CodeSymbolWithPath): string {
 // Matching Logic
 // ============================================================================
 
-interface Match {
-  symbol: CodeSymbol;
+interface Match<S extends CodeSymbol = CodeSymbol> {
+  symbol: S;
   confidence: number;
 }
 
@@ -209,13 +209,13 @@ interface Match {
  * Returns the highest-confidence match, or null if none found.
  * Priority: exact > case-insensitive > contained.
  */
-export function findBestMatch(
+export function findBestMatch<S extends CodeSymbol>(
   entityText: string,
-  symbols: CodeSymbol[],
+  symbols: S[],
   minConfidence: number,
-): Match | null {
+): Match<S> | null {
   const textLower = entityText.toLowerCase();
-  let bestMatch: Match | null = null;
+  let bestMatch: Match<S> | null = null;
 
   for (const sym of symbols) {
     let confidence = 0;
@@ -243,7 +243,7 @@ export function findBestMatch(
     }
 
     if (confidence >= minConfidence && (!bestMatch || confidence > bestMatch.confidence)) {
-      bestMatch = { symbol: sym, confidence };
+      bestMatch = { symbol: sym, confidence } as Match<S>;
     }
   }
 
@@ -310,7 +310,7 @@ export async function linkEntitiesToCode(
   // Pass 1: collect all (entity, match) pairs — no edges yet.
   type PendingLink = {
     entity: BridgeLinkerInput;
-    match: { symbol: CodeSymbolWithPath; confidence: number };
+    match: Match<CodeSymbolWithPath>;
   };
   const pending: PendingLink[] = [];
   for (const entity of candidates) {
@@ -319,16 +319,7 @@ export async function linkEntitiesToCode(
       result.skipped++;
       continue;
     }
-    // findBestMatch returns the bare CodeSymbol; recover the CodeSymbolWithPath
-    // variant for filePath. The loader returned both, so look up by reference.
-    const withPath = symbols.find(
-      (s) => s.label === m.symbol.label && s.name === m.symbol.name,
-    );
-    if (!withPath) {
-      result.skipped++;
-      continue;
-    }
-    pending.push({ entity, match: { symbol: withPath, confidence: m.confidence } });
+    pending.push({ entity, match: m });
   }
 
   // Pass 2: batch rerank (one call per document, only if documentContext given).
@@ -339,14 +330,14 @@ export async function linkEntitiesToCode(
       const ranked = await rerank(documentContext, documents);
       // rerank returns sorted-by-score; map back to per-index score.
       const indexed = new Array(documents.length).fill(0);
-      let allMissing = true;
       for (const r of ranked) {
         if (r.index < indexed.length) {
           indexed[r.index] = r.relevanceScore;
-          allMissing = false;
         }
       }
-      scores = allMissing ? null : indexed;
+      // rerank returns [] on fallback (provider unavailable, API error). When that
+      // happens we treat the whole batch as unverified (score 1.0 per edge).
+      scores = ranked.length === 0 ? null : indexed;
     } catch (err) {
       logger.warn(`Cross-encoder rerank failed: ${err}`);
       scores = null;
