@@ -28,13 +28,13 @@
     "@codegraph/plugin-nlp": "workspace:*",
     "@codegraph/types": "workspace:*",
     "commander": "^12.1.0",
-    "glob": "^10.3.10"
+    "glob": "^10.5.0"
   },
   "devDependencies": {
-    "@types/node": "^22.12.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.3",
-    "vitest": "^3.0.4"
+    "@types/node": "^22.19.19",
+    "tsx": "^4.22.3",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
   },
   "files": [
     "dist"

@@ -20,11 +20,11 @@
   "dependencies": {
     "@codegraph/logger": "workspace:*",
     "@codegraph/types": "workspace:*",
-    "falkordb": "^6.4.1"
+    "falkordb": "^6.6.2"
   },
   "devDependencies": {
     "falkordblite": "^0.2.0",
-    "typescript": "^5.7.3",
-    "vitest": "^3.0.0"
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
   }
 }
