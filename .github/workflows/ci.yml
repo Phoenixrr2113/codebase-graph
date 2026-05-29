@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Hard gate: must be green for a PR to merge.
+  # Builds every package (tsc, so this also typechecks the whole monorepo)
+  # and runs @codegraph/core's suite, which is green without any API keys
+  # or services.
+  build-and-test:
+    name: Build & unit tests
+    runs-on: ubuntu-latest
+    env:
+      # Documented offline/CI mode (see README): skip vector indexes so no
+      # embedding API key is required.
+      CODEGRAPH_EMBEDDING_PROVIDER: none
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build & typecheck library packages
+        # Excludes @codegraph/mcp (release-only esbuild + native-module
+        # packaging via packages/npm-package/build.mjs — not a correctness
+        # check, and needs a populated tree) and codegraph-landing (the
+        # marketing app, already gated by Vercel). Everything else is tsc.
+        run: pnpm turbo build --filter='!@codegraph/mcp' --filter='!codegraph-landing'
+
+      - name: Unit tests (core)
+        run: pnpm turbo test --filter=@codegraph/core
+
+  # Non-blocking smoke run against a live FalkorDB. Surfaces graph/plugin-nlp
+  # status without gating merges, because the suite still has pre-existing
+  # failures that need triage (integration tests that require an embedding
+  # provider + LLM/Voyage credentials, a few legacy tests referencing removed
+  # APIs, and packages lacking --passWithNoTests). Once those are resolved,
+  # drop `continue-on-error` and fold these filters into build-and-test.
+  integration-smoke:
+    name: Integration smoke (FalkorDB, non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      CODEGRAPH_EMBEDDING_PROVIDER: none
+      FALKORDB_HOST: localhost
+    services:
+      falkordb:
+        image: falkordb/falkordb:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      cgbench-falkordb:
+        image: falkordb/falkordb:latest
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Graph + NLP tests (informational)
+        # turbo builds the needed deps automatically (test depends on build);
+        # this never triggers the @codegraph/mcp packaging build.
+        run: pnpm turbo test --filter=@codegraph/graph --filter=@codegraph/plugin-nlp
