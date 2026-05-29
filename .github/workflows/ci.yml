@@ -41,8 +41,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build all packages (also typechecks)
-        run: pnpm turbo build
+      - name: Build & typecheck library packages
+        # Excludes @codegraph/mcp (release-only esbuild + native-module
+        # packaging via packages/npm-package/build.mjs — not a correctness
+        # check, and needs a populated tree) and codegraph-landing (the
+        # marketing app, already gated by Vercel). Everything else is tsc.
+        run: pnpm turbo build --filter='!@codegraph/mcp' --filter='!codegraph-landing'
 
       - name: Unit tests (core)
         run: pnpm turbo test --filter=@codegraph/core
@@ -94,8 +98,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build all packages
-        run: pnpm turbo build
-
       - name: Graph + NLP tests (informational)
+        # turbo builds the needed deps automatically (test depends on build);
+        # this never triggers the @codegraph/mcp packaging build.
         run: pnpm turbo test --filter=@codegraph/graph --filter=@codegraph/plugin-nlp
