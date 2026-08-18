@@ -6,7 +6,7 @@ const packageManifest = {
   version: '0.1.0',
   description: 'CodeGraph MCP Server',
   type: 'module',
-  bin: { 'codegraph-mcp': './bin/codegraph-mcp.mjs' },
+  bin: { 'codegraph-mcp': 'bin/codegraph-mcp.mjs' },
   keywords: ['mcp', 'code-search'],
   author: { name: 'Randy Wilson' },
   license: 'MIT',
@@ -78,7 +78,7 @@ describe('createPublishedManifest', () => {
       repository: packageManifest.repository,
       bugs: packageManifest.bugs,
       publishConfig: { access: 'public' },
-      bin: packageManifest.bin,
+      bin: { 'codegraph-mcp': 'bin/codegraph-mcp.mjs' },
       engines: packageManifest.engines,
       keywords: packageManifest.keywords,
     });
