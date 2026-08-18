@@ -28,5 +28,9 @@
     "falkordblite": "^0.2.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
+  },
+  "optionalDependencies": {
+    "@falkordblite/darwin-arm64": "8.2.3-falkordb.4.16.3",
+    "@falkordblite/linux-x64": "8.2.3-falkordb.4.16.3"
   }
 }

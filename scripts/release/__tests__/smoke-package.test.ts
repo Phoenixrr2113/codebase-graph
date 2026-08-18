@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SpawnSyncReturns } from 'node:child_process';
 import {
-  resolveNpmCommand,
+  resolveNpmInvocation,
   resolveSmokeInput,
   resolveValidatedPackageInput,
   smokePackage,
@@ -49,15 +49,19 @@ function successfulRunner() {
       .mockReturnValueOnce(processResult(0, '0.1.0\n'))
       .mockReturnValueOnce(processResult(0, JSON.stringify({
         tools: ['search', 'knowledge', 'codebase', 'query'],
+        databaseVerified: true,
       }))),
   };
 }
 
 describe('smokePackage', () => {
-  it('uses the Windows npm command shim on win32', () => {
-    expect(resolveNpmCommand('win32')).toBe('npm.cmd');
-    expect(resolveNpmCommand('linux')).toBe('npm');
-    expect(resolveNpmCommand('darwin')).toBe('npm');
+  it('launches npm through cmd.exe on Windows', () => {
+    expect(resolveNpmInvocation('win32', 'C:\\Windows\\System32\\cmd.exe')).toEqual({
+      command: 'C:\\Windows\\System32\\cmd.exe',
+      args: ['/d', '/s', '/c', 'npm.cmd'],
+    });
+    expect(resolveNpmInvocation('linux')).toEqual({ command: 'npm', args: [] });
+    expect(resolveNpmInvocation('darwin')).toEqual({ command: 'npm', args: [] });
   });
 
   it('rejects a missing tarball before running commands', async () => {
@@ -134,7 +138,10 @@ describe('smokePackage', () => {
     runner.run.mockReset()
       .mockReturnValueOnce(processResult(0))
       .mockReturnValueOnce(processResult(0, '0.1.0\n'))
-      .mockReturnValueOnce(processResult(0, JSON.stringify({ tools: ['search'] })));
+      .mockReturnValueOnce(processResult(0, JSON.stringify({
+        tools: ['search'],
+        databaseVerified: true,
+      })));
 
     await expect(smokePackage({
       tarballPath: createTarball(),
@@ -151,7 +158,41 @@ describe('smokePackage', () => {
     })).resolves.toEqual({
       version: '0.1.0',
       tools: ['search', 'knowledge', 'codebase', 'query'],
+      databaseVerified: true,
     });
+  });
+
+  it('bounds every external command', async () => {
+    const runner = successfulRunner();
+
+    await smokePackage({
+      tarballPath: createTarball(),
+      expectedVersion: '0.1.0',
+      runner,
+    });
+
+    expect(runner.run.mock.calls.map((call) => call[2].timeout)).toEqual([
+      300_000,
+      30_000,
+      60_000,
+    ]);
+  });
+
+  it('isolates package state and uses a short embedded database path', async () => {
+    const runner = successfulRunner();
+
+    await smokePackage({
+      tarballPath: createTarball(),
+      expectedVersion: '0.1.0',
+      runner,
+    });
+
+    const handshakeOptions = runner.run.mock.calls[2][2];
+    expect(handshakeOptions.env).toEqual(expect.objectContaining({
+      CODEGRAPH_DATA_DIR: expect.stringMatching(/\/data$/),
+      CODEGRAPH_DB_PATH: expect.stringMatching(/\/db$/),
+    }));
+    expect(String(handshakeOptions.env?.CODEGRAPH_DB_PATH).length).toBeLessThan(90);
   });
 });
 

@@ -142,6 +142,10 @@ mitigation are documented in the design's implementation record. Dependabot
 will check pnpm and GitHub Actions weekly, with safe patch and minor updates
 grouped separately from majors.
 
+### Dependency override record
+
+The publication baseline applies compatible transitive security floors for `@hono/node-server` 1.19.15, Hono 4.12.34, PostCSS 8.5.23, protobufjs 7.6.5, and node-tar 7.5.21. Their direct parents allow these patch versions but had not yet updated every resolved path. `pnpm install --frozen-lockfile`, `pnpm audit:prod`, the full unit and integration suites, and the npm consumer smoke verify the overrides. The overrides should be removed when direct dependency updates resolve the same versions without them.
+
 ### GitHub hardening
 
 After the new CI jobs pass on the branch, protect `main` with strict required

@@ -58,6 +58,10 @@ const dependencyManifests = {
   '@codegraph/graph': {
     name: '@codegraph/graph',
     devDependencies: { falkordblite: '^0.2.0' },
+    optionalDependencies: {
+      '@falkordblite/darwin-arm64': '8.2.3-falkordb.4.16.3',
+      '@falkordblite/linux-x64': '8.2.3-falkordb.4.16.3',
+    },
   },
 };
 
@@ -98,6 +102,8 @@ describe('createPublishedManifest', () => {
       'tree-sitter-php': '^0.23.12',
     });
     expect(manifest.optionalDependencies).toMatchObject({
+      '@falkordblite/darwin-arm64': '8.2.3-falkordb.4.16.3',
+      '@falkordblite/linux-x64': '8.2.3-falkordb.4.16.3',
       falkordblite: '^0.2.0',
       'tree-sitter-bash': '^0.23.3',
     });

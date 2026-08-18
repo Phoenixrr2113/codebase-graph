@@ -11,6 +11,11 @@ const dependencySources = [
   ['tree-sitter-php', '@codegraph/plugin-languages', 'dependencies'],
 ];
 
+const embeddedPlatformPackages = [
+  '@falkordblite/darwin-arm64',
+  '@falkordblite/linux-x64',
+];
+
 function requireRecord(value, label) {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError(`${label} must be an object`);
@@ -80,6 +85,12 @@ export function createPublishedManifest({ packageManifest, dependencyManifests }
     'falkordblite',
     requireDependencyRange(manifests, 'falkordblite', '@codegraph/graph', 'devDependencies'),
   );
+  for (const packageName of embeddedPlatformPackages) {
+    optionalDependencies.set(
+      packageName,
+      requireDependencyRange(manifests, packageName, '@codegraph/graph', 'optionalDependencies'),
+    );
+  }
 
   const name = requireString(source, 'name', 'packageManifest');
   if (name !== 'codegraph-mcp') {

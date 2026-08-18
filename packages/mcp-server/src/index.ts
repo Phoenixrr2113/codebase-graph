@@ -104,18 +104,23 @@ async function startAutoReindex(): Promise<void> {
 
 async function main(): Promise<void> {
   const server = createMCPServer();
+  let shutdownPromise: Promise<void> | null = null;
 
   // Handle graceful shutdown
-  const shutdown = async () => {
-    logger.info('Shutting down...');
-    await stopWatching();
-    await closeGraphClient();
-    await server.stop();
-    process.exit(0);
+  const shutdown = (): Promise<void> => {
+    shutdownPromise ??= (async () => {
+      logger.info('Shutting down...');
+      await stopWatching();
+      await closeGraphClient();
+      await server.stop();
+      process.exit(0);
+    })();
+    return shutdownPromise;
   };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.once('SIGINT', () => void shutdown());
+  process.once('SIGTERM', () => void shutdown());
+  process.stdin.once('end', () => void shutdown());
 
   try {
     await server.start();

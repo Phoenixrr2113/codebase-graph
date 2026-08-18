@@ -12,15 +12,12 @@ describe('verifyReleaseTag', () => {
     });
   });
 
-  it('accepts the exact prerelease package tag', () => {
-    expect(verifyReleaseTag(
+  it('rejects prerelease versions until a non-latest dist-tag policy exists', () => {
+    expect(() => verifyReleaseTag(
       'refs/tags/v1.2.3-rc.1',
       'codegraph-mcp',
       '1.2.3-rc.1',
-    )).toEqual({
-      packageName: 'codegraph-mcp',
-      version: '1.2.3-rc.1',
-    });
+    )).toThrow('stable');
   });
 
   it('rejects a tag without the v prefix', () => {

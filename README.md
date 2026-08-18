@@ -25,7 +25,7 @@ The public npm package is named `codegraph-mcp`. Its npm link, version badge, an
 - Extracts functions, classes, interfaces, variables, types, imports, calls, and other relationships.
 - Stores project facts with `valid_at` and `invalid_at` timestamps for point-in-time queries.
 - Supports first-class TypeScript, JavaScript, Python, Go, Rust, and Markdown parsing, with generic tree-sitter support for additional languages.
-- Runs with embedded FalkorDBLite or an external FalkorDB service.
+- Runs with embedded FalkorDBLite on Linux x64 and Apple silicon macOS, or an external FalkorDB service on any supported Node.js platform.
 - Exposes `search`, `knowledge`, `codebase`, and `query` MCP tools.
 
 ## Install from source
@@ -107,6 +107,8 @@ The first conversation can configure and index a project through the `codebase` 
 { "action": "reindex", "mode": "full" }
 ```
 
+Embedded storage is selected automatically on Linux x64 and Apple silicon macOS. Windows, Intel macOS, and Linux arm64 require an external FalkorDB service. Set `CODEGRAPH_DRIVER=falkordb`, `FALKORDB_HOST`, and `FALKORDB_PORT` in the MCP client environment on those platforms.
+
 ## MCP tools
 
 | Tool | Purpose |
@@ -151,7 +153,7 @@ pnpm release:check
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the pull request workflow and required evidence.
-The integration suite also requires a `redis-server` executable on `PATH` for FalkorDBLite coverage.
+FalkorDBLite's Linux x64 and Apple silicon macOS binaries are installed with the workspace dependencies.
 
 ## Packages
 

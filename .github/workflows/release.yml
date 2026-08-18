@@ -51,19 +51,21 @@ jobs:
       - name: Install trusted-publishing npm version
         run: npm install --global npm@11.5.1
 
-      - name: Install FalkorDBLite runtime
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes redis-server
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Verify annotated release tag
         shell: bash
         run: |
+          set -euo pipefail
           if [[ "$(git cat-file -t "$GITHUB_REF")" != "tag" ]]; then
             echo "Release tag must be annotated: $GITHUB_REF" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          release_commit="$(git rev-list -n 1 "$GITHUB_REF")"
+          if ! git merge-base --is-ancestor "$release_commit" origin/main; then
+            echo "Release tag commit must be reachable from origin/main" >&2
             exit 1
           fi
 
@@ -85,11 +87,11 @@ jobs:
       - name: Integration test
         run: pnpm test:integration
 
-      - name: Test repository scripts
-        run: pnpm test:scripts
-
       - name: Build
         run: pnpm build
+
+      - name: Test repository scripts
+        run: pnpm test:scripts
 
       - name: Build desktop extension
         run: pnpm build:mcpb

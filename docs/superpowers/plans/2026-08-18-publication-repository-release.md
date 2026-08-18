@@ -301,8 +301,9 @@ Enable Discussions, automatic head-branch deletion, vulnerability alerts,
 automated security fixes, private vulnerability reporting, and secret push
 protection where the account supports them.
 
-Protect `main` with strict required checks for the exact CI repository, three
-package matrix, and CodeQL job names. Require pull requests and conversation
+Protect `main` with strict required checks for the exact Repository,
+Integration (FalkorDB), Build package artifact, three package matrix, and
+Analyze job names. Require pull requests and conversation
 resolution with zero required approving reviews. Block force pushes and branch
 deletion. Apply the rule to administrators only after confirming the solo
 maintainer can merge a green pull request without self-approval.

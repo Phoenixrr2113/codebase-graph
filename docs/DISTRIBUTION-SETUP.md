@@ -5,7 +5,7 @@ This is the operator guide for the public `codegraph-mcp` npm package and the pl
 ## Release model
 
 - `main` is the source of truth.
-- CI validates the repository and tests one exact npm tarball on Linux, macOS, and Windows.
+- CI validates the repository and tests one exact npm tarball on Linux, macOS, and Windows. Linux x64 and Apple silicon macOS also exercise a database-backed MCP call through embedded FalkorDBLite.
 - The first `0.1.0` npm publication is a manual authenticated bootstrap.
 - Later annotated `vX.Y.Z` tags publish through npm trusted publishing with GitHub Actions OIDC.
 - The release workflow creates a GitHub release only after the registry package passes the CLI and MCP handshake smoke tests.
@@ -69,7 +69,7 @@ node scripts/release/smoke-package.mjs \
   --version 0.1.0
 ```
 
-The smoke test creates a temporary consumer, installs the registry tarball without lifecycle scripts, checks `codegraph-mcp --version`, opens an MCP stdio connection, and verifies the `search`, `knowledge`, `codebase`, and `query` tools.
+The smoke test creates a temporary consumer, installs the registry tarball without lifecycle scripts, checks `codegraph-mcp --version`, opens an MCP stdio connection, and verifies the `search`, `knowledge`, `codebase`, and `query` tools. On Linux x64 and Apple silicon macOS it also stores and reads an isolated verification entity through embedded FalkorDBLite. Other platforms require an external FalkorDB service for database operations.
 
 ## Configure trusted publishing
 
@@ -100,7 +100,7 @@ git push origin HEAD
 git push origin vX.Y.Z
 ```
 
-Replace `X.Y.Z` with the version printed by `npm version`. Do not hand-edit the tag. The release preflight rejects a tag that does not exactly match the source package version, a lightweight tag, or a version that already exists on npm.
+Replace `X.Y.Z` with the version printed by `npm version`. Do not hand-edit the tag. The release preflight rejects a tag that does not exactly match the source package version, a lightweight tag, a prerelease version, a commit outside `main`, or a version that already exists on npm.
 
 The workflow runs the repository gate, package gate, publication, bounded registry polling, registry smoke test, checksum generation, and GitHub release creation in that order.
 
@@ -119,4 +119,4 @@ Build and validate the desktop extension on the platform where it will be instal
 pnpm build:mcpb
 ```
 
-The packed artifact is written to `packages/mcpb/dist.mcpb`. It includes native dependencies for the build platform, so publish separate assets only after testing them on their matching platform.
+The packed artifact is written to `packages/mcpb/dist.mcpb`. It includes locked native parser dependencies for the build platform and expects an external FalkorDB service, so publish separate assets only after testing them on their matching platform.

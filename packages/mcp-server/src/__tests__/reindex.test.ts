@@ -3,27 +3,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { triggerReindex } from '../tools/reindex';
-import { closeGraphClient, createClient } from '@codegraph/core';
+import { closeGraphClient } from '@codegraph/core';
 
 const FALKORDB_HOST = process.env['FALKORDB_HOST'] ?? 'localhost';
 const FALKORDB_PORT = process.env['FALKORDB_PORT'] ?? '6379';
-
-// Check if FalkorDB is reachable before running tests
-let isAvailable = false;
-beforeAll(async () => {
-  try {
-    const client = await createClient({
-      driver: 'falkordb',
-      host: FALKORDB_HOST,
-      port: Number(FALKORDB_PORT),
-      graphName: `skip-check-${Date.now()}`,
-    });
-    isAvailable = true;
-    await client.close();
-  } catch {
-    isAvailable = false;
-  }
-});
 
 // Tiny in-memory corpus so reindex completes in seconds.
 function makeFixture(): string {
@@ -36,7 +19,7 @@ function makeFixture(): string {
   return dir;
 }
 
-describe.skipIf(!isAvailable)('triggerReindex — blocks on embeddings by default', () => {
+describe('triggerReindex blocks on embeddings by default', () => {
   let fixture: string;
   beforeAll(() => {
     process.env['FALKORDB_HOST'] = FALKORDB_HOST;

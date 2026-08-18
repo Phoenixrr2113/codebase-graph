@@ -14,6 +14,8 @@ import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const canonicalRepository = 'git+https://github.com/Phoenixrr2113/codebase-graph.git';
+const canonicalHomepage = 'https://v0-landing-page-build-kappa-virid.vercel.app';
+const canonicalIssues = 'https://github.com/Phoenixrr2113/codebase-graph/issues';
 const maximumPackedBytes = 15 * 1024 * 1024;
 const releaseDirectory = dirname(fileURLToPath(import.meta.url));
 const rootDirectory = resolve(releaseDirectory, '../..');
@@ -126,6 +128,25 @@ export async function validatePackageDirectory(directoryUrl) {
   }
   if (readRepositoryUrl(manifest, violations) !== canonicalRepository) {
     violations.push(`package.json repository must be ${canonicalRepository}`);
+  }
+  if (manifest.homepage !== canonicalHomepage) {
+    violations.push(`package.json homepage must be ${canonicalHomepage}`);
+  }
+  const bugs = requireRecord(manifest.bugs, 'package.json bugs', violations);
+  if (bugs.url !== canonicalIssues) {
+    violations.push(`package.json bugs.url must be ${canonicalIssues}`);
+  }
+  const engines = requireRecord(manifest.engines, 'package.json engines', violations);
+  if (engines.node !== '>=20.0.0') {
+    violations.push('package.json engines.node must be >=20.0.0');
+  }
+  const publishConfig = requireRecord(
+    manifest.publishConfig,
+    'package.json publishConfig',
+    violations,
+  );
+  if (publishConfig.access !== 'public') {
+    violations.push('package.json publishConfig.access must be public');
   }
   if (manifest.scripts !== undefined) {
     violations.push('published package must not contain lifecycle scripts');

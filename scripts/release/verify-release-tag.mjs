@@ -14,8 +14,12 @@ export function verifyReleaseTag(tag, manifestPackageName, packageVersion) {
   if (manifestPackageName !== packageName) {
     throw new Error(`Release manifest name must be ${packageName}, received ${manifestPackageName}`);
   }
-  if (!semanticVersionPattern.test(packageVersion)) {
+  const semanticVersion = packageVersion.match(semanticVersionPattern);
+  if (!semanticVersion) {
     throw new Error(`Package version must be a valid semantic version, received ${packageVersion}`);
+  }
+  if (semanticVersion[4]) {
+    throw new Error('Release package version must be stable until prerelease dist-tags are supported');
   }
   const expectedTag = `refs/tags/v${packageVersion}`;
   if (tag !== expectedTag) {

@@ -37,6 +37,9 @@
     "tree-sitter": "^0.22.4",
     "zod": "^3.25.76"
   },
+  "optionalDependencies": {
+    "@codegraph/plugin-languages": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"

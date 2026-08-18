@@ -15,20 +15,17 @@ dist/
   icon.png               # Extension icon
   server/
     index.mjs            # esbuild-bundled MCP server (single file)
-    node_modules/        # Native modules (tree-sitter grammars, MCP SDK)
+    node_modules/        # Locked tree-sitter and MCP SDK runtime packages
 ```
 
 ## Build Process
 
 1. **esbuild** bundles `packages/mcp-server/dist/index.js` into a single ESM file targeting Node 20
-2. Native modules that cannot be bundled are kept external and copied separately:
-   - `tree-sitter` + all grammar packages (native `.node` bindings)
-   - `@huggingface/transformers` + `onnxruntime-node` (optional local embeddings)
-   - `@modelcontextprotocol/sdk` (wildcard exports incompatible with bundling)
-   - `falkordblite` (optional native dependency)
-3. MCP SDK runtime dependencies are installed via `npm install --production` into the bundle
-4. MCP SDK imports in the bundle are patched to add `.js` extensions for Node ESM resolution
-5. `manifest.json` and `icon.png` are copied into the output
+2. `tree-sitter`, grammar packages, the MCP SDK, and their runtime dependency closures are copied from the frozen pnpm workspace install.
+3. MCP SDK imports in the bundle are patched to add `.js` extensions for Node ESM resolution.
+4. `manifest.json` and `icon.png` are copied into the output.
+
+The desktop bundle defaults to structural search with an external FalkorDB service. It does not package optional local Transformer models or embedded FalkorDBLite. Configure the FalkorDB host and port when installing the extension.
 
 ## manifest.json
 
@@ -39,7 +36,7 @@ Defines the extension metadata, tools, user configuration, and server entry poin
 - **server.mcp_config**: The `node` command and environment variables used to launch the server
 - **compatibility**: Node >= 20 and the platform where the bundle was built
 
-The generated bundle defaults to `CODEGRAPH_EMBEDDING_PROVIDER=none`, so API keys are not required for structural search.
+The generated bundle defaults to `CODEGRAPH_EMBEDDING_PROVIDER=none`, so API keys are not required for structural search. Its FalkorDB host and port settings point the bundle at an external service.
 
 ## How to Build
 

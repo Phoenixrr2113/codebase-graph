@@ -28,8 +28,17 @@ function commandFailure(label, result) {
   return new Error(`${label} failed: ${detail}`);
 }
 
-export function resolveNpmCommand(platform = process.platform) {
-  return platform === 'win32' ? 'npm.cmd' : 'npm';
+export function resolveNpmInvocation(
+  platform = process.platform,
+  windowsCommand = process.env.ComSpec || 'cmd.exe',
+) {
+  if (platform === 'win32') {
+    return {
+      command: windowsCommand,
+      args: ['/d', '/s', '/c', 'npm.cmd'],
+    };
+  }
+  return { command: 'npm', args: [] };
 }
 
 function parseHandshake(stdout) {
@@ -45,12 +54,18 @@ function parseHandshake(stdout) {
   if (!parsed.tools.every((toolName) => typeof toolName === 'string')) {
     throw new Error('MCP handshake returned an invalid tool name');
   }
+  if (typeof parsed.databaseVerified !== 'boolean') {
+    throw new Error('MCP handshake result must report database verification');
+  }
   for (const toolName of requiredTools) {
     if (!parsed.tools.includes(toolName)) {
       throw new Error(`MCP handshake did not expose required tool: ${toolName}`);
     }
   }
-  return parsed.tools;
+  return {
+    tools: parsed.tools,
+    databaseVerified: parsed.databaseVerified,
+  };
 }
 
 const handshakeSource = `
@@ -82,8 +97,57 @@ transport.stderr?.on('data', (chunk) => {
 try {
   await client.connect(transport);
   const result = await client.listTools();
+  const supportsEmbeddedDatabase =
+    (process.platform === 'darwin' && process.arch === 'arm64') ||
+    (process.platform === 'linux' && process.arch === 'x64');
+  let databaseVerified = false;
+  if (supportsEmbeddedDatabase) {
+    const storeResult = await client.callTool({
+      name: 'knowledge',
+      arguments: {
+        action: 'store',
+        text: 'codegraph package smoke',
+        type: 'Verification',
+      },
+    });
+    const storeText = storeResult.content.find((item) => item.type === 'text')?.text;
+    if (storeResult.isError || typeof storeText !== 'string') {
+      throw new Error('Database-backed knowledge store call failed');
+    }
+    const stored = JSON.parse(storeText);
+    if (typeof stored !== 'object' || stored === null || stored.stored !== true) {
+      throw new Error('Database-backed knowledge store returned an error');
+    }
+    const queryResult = await client.callTool({
+      name: 'query',
+      arguments: {
+        cypher: 'MATCH (n:Entity {text: $text}) RETURN count(n) AS count',
+        params: { text: 'codegraph package smoke' },
+      },
+    });
+    const queryText = queryResult.content.find((item) => item.type === 'text')?.text;
+    if (queryResult.isError || typeof queryText !== 'string') {
+      throw new Error('Database-backed verification query failed');
+    }
+    const verification = JSON.parse(queryText);
+    if (
+      typeof verification !== 'object'
+      || verification === null
+      || verification.success !== true
+      || !Array.isArray(verification.data)
+      || verification.data[0]?.count !== 1
+    ) {
+      throw new Error(
+        'Database-backed verification query returned an error: ' + JSON.stringify(verification),
+      );
+    }
+    databaseVerified = true;
+  }
   await client.close();
-  process.stdout.write(JSON.stringify({ tools: result.tools.map((tool) => tool.name) }) + '\\n');
+  process.stdout.write(JSON.stringify({
+    tools: result.tools.map((tool) => tool.name),
+    databaseVerified,
+  }) + '\\n');
 } catch (error) {
   await client.close().catch(() => {});
   const message = error instanceof Error ? error.message : String(error);
@@ -103,16 +167,17 @@ export async function smokePackage({ tarballPath, expectedVersion, runner = defa
     throw new TypeError('expectedVersion must be a non-empty string');
   }
 
-  const consumerDirectory = await mkdtemp(join(tmpdir(), 'codegraph-consumer-'));
+  const consumerDirectory = await mkdtemp(join(tmpdir(), 'cg-'));
   try {
     await writeFile(
       join(consumerDirectory, 'package.json'),
       '{"name":"codegraph-package-smoke","version":"1.0.0","private":true,"type":"module"}\n',
     );
+    const npmInvocation = resolveNpmInvocation();
     const installResult = runner.run(
-      resolveNpmCommand(),
-      ['install', absoluteTarball, '--ignore-scripts', '--no-audit', '--no-fund'],
-      { cwd: consumerDirectory, encoding: 'utf8' },
+      npmInvocation.command,
+      [...npmInvocation.args, 'install', absoluteTarball, '--ignore-scripts', '--no-audit', '--no-fund'],
+      { cwd: consumerDirectory, encoding: 'utf8', timeout: 300_000 },
     );
     if (installResult.status !== 0) {
       throw commandFailure('npm install', installResult);
@@ -128,7 +193,7 @@ export async function smokePackage({ tarballPath, expectedVersion, runner = defa
     const versionResult = runner.run(
       process.execPath,
       [binPath, '--version'],
-      { cwd: consumerDirectory, encoding: 'utf8' },
+      { cwd: consumerDirectory, encoding: 'utf8', timeout: 30_000 },
     );
     if (versionResult.status !== 0) {
       throw commandFailure('codegraph-mcp --version', versionResult);
@@ -142,16 +207,26 @@ export async function smokePackage({ tarballPath, expectedVersion, runner = defa
 
     const handshakePath = join(consumerDirectory, 'mcp-handshake.mjs');
     await writeFile(handshakePath, handshakeSource);
+    const smokeEnvironment = {
+      ...process.env,
+      CODEGRAPH_DATA_DIR: join(consumerDirectory, 'data'),
+      CODEGRAPH_DB_PATH: join(consumerDirectory, 'db'),
+    };
     const handshakeResult = runner.run(
       process.execPath,
       [handshakePath, binPath],
-      { cwd: consumerDirectory, encoding: 'utf8' },
+      {
+        cwd: consumerDirectory,
+        encoding: 'utf8',
+        env: smokeEnvironment,
+        timeout: 60_000,
+      },
     );
     if (handshakeResult.status !== 0) {
       throw commandFailure('MCP handshake', handshakeResult);
     }
-    const tools = parseHandshake(handshakeResult.stdout);
-    return { version: installedVersion, tools };
+    const handshake = parseHandshake(handshakeResult.stdout);
+    return { version: installedVersion, ...handshake };
   } finally {
     await rm(consumerDirectory, { recursive: true, force: true });
   }

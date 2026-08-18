@@ -34,6 +34,10 @@ function createValidFixture(): string {
       type: 'git',
       url: 'git+https://github.com/Phoenixrr2113/codebase-graph.git',
     },
+    homepage: 'https://v0-landing-page-build-kappa-virid.vercel.app',
+    bugs: { url: 'https://github.com/Phoenixrr2113/codebase-graph/issues' },
+    engines: { node: '>=20.0.0' },
+    publishConfig: { access: 'public' },
     bin: { 'codegraph-mcp': './bin/codegraph-mcp.mjs' },
     dependencies: { 'tree-sitter': '^0.22.4' },
   }));
@@ -95,6 +99,21 @@ describe('validatePackageDirectory', () => {
     writeFileSync(manifestPath, JSON.stringify(manifest));
 
     await expect(validatePackageDirectory(pathToFileURL(directory))).rejects.toThrow(/MIT[\s\S]*repository/);
+  });
+
+  it('reports incorrect public package endpoints and constraints', async () => {
+    const directory = createValidFixture();
+    const manifestPath = join(directory, 'package.json');
+    const manifest = JSON.parse(await import('node:fs/promises').then((fs) => fs.readFile(manifestPath, 'utf8')));
+    manifest.homepage = 'https://example.com';
+    manifest.bugs.url = 'https://example.com/issues';
+    manifest.engines.node = '>=18';
+    manifest.publishConfig.access = 'restricted';
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+
+    await expect(validatePackageDirectory(pathToFileURL(directory))).rejects.toThrow(
+      /homepage[\s\S]*bugs[\s\S]*engines[\s\S]*publishConfig/,
+    );
   });
 });
 

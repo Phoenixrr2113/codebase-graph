@@ -84,11 +84,6 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Install FalkorDBLite runtime
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes redis-server
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

@@ -17,6 +17,28 @@ import type { QueryParams } from '../client';
 import { falkorDialect } from './falkordb';
 import { executeQuery, executeRoQuery, ensureSchemaImpl } from './falkordb-shared';
 
+type FalkorDBLiteModule = typeof import('falkordblite');
+type FalkorDBLiteInstance = Awaited<ReturnType<FalkorDBLiteModule['FalkorDB']['open']>>;
+
+const shutdownSignals = ['SIGINT', 'SIGTERM'] as const;
+
+function captureSignalListeners(): Map<NodeJS.Signals, Set<NodeJS.SignalsListener>> {
+  return new Map(shutdownSignals.map((signal) => [signal, new Set(process.listeners(signal))]));
+}
+
+function removeAddedSignalListeners(
+  listenersBeforeOpen: Map<NodeJS.Signals, Set<NodeJS.SignalsListener>>,
+): void {
+  for (const signal of shutdownSignals) {
+    const previousListeners = listenersBeforeOpen.get(signal) ?? new Set();
+    for (const listener of process.listeners(signal)) {
+      if (!previousListeners.has(listener)) {
+        process.removeListener(signal, listener);
+      }
+    }
+  }
+}
+
 // ============================================================================
 // FalkorDBLite Driver
 // ============================================================================
@@ -34,10 +56,7 @@ export interface FalkorDBLiteConfig {
 }
 
 export class FalkorDBLiteDriver implements DatabaseDriver {
-  // Use `any` for the FalkorDBLite db instance to avoid requiring the
-  // falkordblite types at compile time (it's a lazy/optional dependency)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private db: any = null;
+  private db: FalkorDBLiteInstance | null = null;
   private graph: Graph | null = null;
   readonly dialect: CypherDialect = falkorDialect;
 
@@ -51,8 +70,15 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
       ?? '.codegraph/falkordb';
     const dataPath = resolve(rawPath);
 
-    // Open embedded FalkorDB instance
-    this.db = await FalkorDBLite.open({ path: dataPath });
+    // The driver owns shutdown through close(). Keep the embedded wrapper from
+    // installing competing signal handlers that can stop Redis before its
+    // client disconnects.
+    const signalListenersBeforeOpen = captureSignalListeners();
+    try {
+      this.db = await FalkorDBLite.open({ path: dataPath });
+    } finally {
+      removeAddedSignalListeners(signalListenersBeforeOpen);
+    }
 
     // Select the graph (same API as remote FalkorDB)
     const graphName = config.graphName ?? process.env['FALKORDB_GRAPH'] ?? 'codegraph';
