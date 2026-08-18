@@ -24,7 +24,7 @@
     "@codegraph/plugin-generic": "workspace:*",
     "@codegraph/types": "workspace:*",
     "tree-sitter": "^0.22.4",
-    "tree-sitter-python": "^0.21.0"
+    "tree-sitter-python": "^0.25.0"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
