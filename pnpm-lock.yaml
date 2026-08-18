@@ -406,8 +406,8 @@ importers:
         specifier: ^3.36.0
         version: 3.36.0
       tree-sitter:
-        specifier: ^0.22.4
-        version: 0.22.4
+        specifier: ^0.25.1
+        version: 0.25.1
       zod:
         specifier: ^3.25.76
         version: 3.25.76
@@ -532,29 +532,29 @@ importers:
         version: link:../types
     devDependencies:
       tree-sitter:
-        specifier: ^0.22.4
-        version: 0.22.4
+        specifier: ^0.25.1
+        version: 0.25.1
       tree-sitter-c-sharp:
         specifier: ^0.21.3
-        version: 0.21.3(tree-sitter@0.22.4)
+        version: 0.21.3(tree-sitter@0.25.1)
       tree-sitter-go:
         specifier: ^0.23.4
-        version: 0.23.4(tree-sitter@0.22.4)
+        version: 0.23.4(tree-sitter@0.25.1)
       tree-sitter-java:
         specifier: ^0.23.5
-        version: 0.23.5(tree-sitter@0.22.4)
+        version: 0.23.5(tree-sitter@0.25.1)
       tree-sitter-php:
         specifier: ^0.23.12
-        version: 0.23.12(tree-sitter@0.22.4)
+        version: 0.23.12(tree-sitter@0.25.1)
       tree-sitter-python:
         specifier: ^0.23.6
-        version: 0.23.6(tree-sitter@0.22.4)
+        version: 0.23.6(tree-sitter@0.25.1)
       tree-sitter-rust:
         specifier: ^0.23.3
-        version: 0.23.3(tree-sitter@0.22.4)
+        version: 0.23.3(tree-sitter@0.25.1)
       tree-sitter-typescript:
         specifier: ^0.23.2
-        version: 0.23.2(tree-sitter@0.22.4)
+        version: 0.23.2(tree-sitter@0.25.1)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -590,11 +590,11 @@ importers:
         specifier: workspace:*
         version: link:../types
       tree-sitter:
-        specifier: ^0.22.4
-        version: 0.22.4
+        specifier: ^0.25.1
+        version: 0.25.1
       tree-sitter-go:
         specifier: ^0.23.4
-        version: 0.23.4(tree-sitter@0.22.4)
+        version: 0.23.4(tree-sitter@0.25.1)
     devDependencies:
       typescript:
         specifier: ^5.9.3
@@ -616,13 +616,13 @@ importers:
         version: link:../types
       tree-sitter-c-sharp:
         specifier: ^0.21.3
-        version: 0.21.3(tree-sitter@0.22.4)
+        version: 0.21.3(tree-sitter@0.25.1)
       tree-sitter-java:
         specifier: ^0.23.5
-        version: 0.23.5(tree-sitter@0.22.4)
+        version: 0.23.5(tree-sitter@0.25.1)
       tree-sitter-php:
         specifier: ^0.23.12
-        version: 0.23.12(tree-sitter@0.22.4)
+        version: 0.23.12(tree-sitter@0.25.1)
     optionalDependencies:
       tree-sitter-bash:
         specifier: ^0.23.3
@@ -799,11 +799,11 @@ importers:
         specifier: workspace:*
         version: link:../types
       tree-sitter:
-        specifier: ^0.22.4
-        version: 0.22.4
+        specifier: ^0.25.1
+        version: 0.25.1
       tree-sitter-python:
         specifier: ^0.21.0
-        version: 0.21.0(tree-sitter@0.22.4)
+        version: 0.21.0(tree-sitter@0.25.1)
     devDependencies:
       typescript:
         specifier: ^5.9.3
@@ -827,11 +827,11 @@ importers:
         specifier: workspace:*
         version: link:../types
       tree-sitter:
-        specifier: ^0.22.4
-        version: 0.22.4
+        specifier: ^0.25.1
+        version: 0.25.1
       tree-sitter-rust:
         specifier: 0.23.1
-        version: 0.23.1(tree-sitter@0.22.4)
+        version: 0.23.1(tree-sitter@0.25.1)
     devDependencies:
       typescript:
         specifier: ^5.9.3
@@ -852,11 +852,11 @@ importers:
         specifier: workspace:*
         version: link:../types
       tree-sitter:
-        specifier: ^0.22.4
-        version: 0.22.4
+        specifier: ^0.25.1
+        version: 0.25.1
       tree-sitter-typescript:
         specifier: ^0.23.2
-        version: 0.23.2(tree-sitter@0.22.4)
+        version: 0.23.2(tree-sitter@0.25.1)
     devDependencies:
       typescript:
         specifier: ^5.9.3
@@ -5121,6 +5121,10 @@ packages:
     resolution: {integrity: sha512-c5Ko1fZJIJmzhFIkhRN76WTq+fC6tWnGy9CXA0fA+XygsWZmEwG8vmbkNqxMyoaa0Tin4djul49NzdVcJJcjeA==}
     engines: {node: ^18 || ^20 || >= 21}
 
+  node-addon-api@8.9.2:
+    resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
+    engines: {node: ^18 || ^20 || >= 21}
+
   node-api-headers@1.9.0:
     resolution: {integrity: sha512-2oNILP4jXwRB4ywnYKjVk1YyJ96n2D4EOVJO6S3oYZ5PtbJrw3Yt9TpAuX3nBLMuzn74rnfGQrv13pS9vC+YiA==}
 
@@ -6116,8 +6120,8 @@ packages:
   tree-sitter-zig@0.1.0:
     resolution: {integrity: sha512-Ky5+72K6sYCqCIkYixqCkoRQX/RGk6L/MpQvdDyau9BeB8Cd16SoEDW6nmef4LGVhs0xIhhN2MkZ/62/tPF/tA==}
 
-  tree-sitter@0.22.4:
-    resolution: {integrity: sha512-usbHZP9/oxNsUY65MQUsduGRqDHQOou1cagUSwjhoSYAmSahjQDAVsh9s+SlZkn8X8+O1FULRGwHu7AFP3kjzg==}
+  tree-sitter@0.25.1:
+    resolution: {integrity: sha512-mrcEdkYtHfrK1A6fs3O6FxkBo0Qig5XUXqHhxUOQu0bmPo00QF4XaSx4edpazdHwxnSCjlGKGgIqWdaN4dvTLA==}
 
   trim-lines@3.0.1:
     resolution: {integrity: sha512-kRj8B+YHZCc9kQYdWfJB2/oUl9rA99qbowYYBtr4ui4mZyAQ2JpvVBd/6U2YloATfqBhBTSMhTpgBHtU0Mf3Rg==}
@@ -9504,7 +9508,7 @@ snapshots:
       '@next/eslint-plugin-next': 16.3.1(eslint@9.39.5(jiti@2.7.0))
       eslint: 9.39.5(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.7.3))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0))
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@9.39.5(jiti@2.7.0))
       eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.7.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.5(jiti@2.7.0))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@9.39.5(jiti@2.7.0))
       eslint-plugin-react: 7.37.5(eslint@9.39.5(jiti@2.7.0))
@@ -9527,7 +9531,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.7.3))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)):
+  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0)(eslint@9.39.5(jiti@2.7.0)):
     dependencies:
       '@nolyfill/is-core-module': 1.0.39
       debug: 4.4.3
@@ -9542,14 +9546,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-module-utils@2.14.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.7.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.7.3))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)):
+  eslint-module-utils@2.14.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.7.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.5(jiti@2.7.0)):
     dependencies:
       debug: 3.2.7
     optionalDependencies:
       '@typescript-eslint/parser': 8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.7.3)
       eslint: 9.39.5(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.7.3))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0))
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@9.39.5(jiti@2.7.0))
     transitivePeerDependencies:
       - supports-color
 
@@ -9564,7 +9568,7 @@ snapshots:
       doctrine: 2.1.0
       eslint: 9.39.5(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.7.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.7.3))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0))
+      eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.7.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.5(jiti@2.7.0))
       hasown: 2.0.4
       is-core-module: 2.16.2
       is-glob: 4.0.3
@@ -10942,6 +10946,8 @@ snapshots:
 
   node-addon-api@8.8.0: {}
 
+  node-addon-api@8.9.2: {}
+
   node-api-headers@1.9.0: {}
 
   node-exports-info@1.6.2:
@@ -11875,11 +11881,11 @@ snapshots:
       node-gyp-build: 4.8.4
     optional: true
 
-  tree-sitter-c-sharp@0.21.3(tree-sitter@0.22.4):
+  tree-sitter-c-sharp@0.21.3(tree-sitter@0.25.1):
     dependencies:
       node-addon-api: 8.8.0
       node-gyp-build: 4.8.4
-      tree-sitter: 0.22.4
+      tree-sitter: 0.25.1
 
   tree-sitter-c@0.23.6:
     dependencies:
@@ -11920,12 +11926,12 @@ snapshots:
       node-gyp-build: 4.8.4
     optional: true
 
-  tree-sitter-go@0.23.4(tree-sitter@0.22.4):
+  tree-sitter-go@0.23.4(tree-sitter@0.25.1):
     dependencies:
       node-addon-api: 8.8.0
       node-gyp-build: 4.8.4
     optionalDependencies:
-      tree-sitter: 0.22.4
+      tree-sitter: 0.25.1
 
   tree-sitter-groovy@0.1.2:
     dependencies:
@@ -11948,23 +11954,23 @@ snapshots:
 
   tree-sitter-java@0.23.4:
     dependencies:
-      node-addon-api: 8.8.0
+      node-addon-api: 8.9.2
       node-gyp-build: 4.8.4
     optional: true
 
-  tree-sitter-java@0.23.5(tree-sitter@0.22.4):
+  tree-sitter-java@0.23.5(tree-sitter@0.25.1):
     dependencies:
       node-addon-api: 8.8.0
       node-gyp-build: 4.8.4
     optionalDependencies:
-      tree-sitter: 0.22.4
+      tree-sitter: 0.25.1
 
-  tree-sitter-javascript@0.23.1(tree-sitter@0.22.4):
+  tree-sitter-javascript@0.23.1(tree-sitter@0.25.1):
     dependencies:
-      node-addon-api: 8.8.0
+      node-addon-api: 8.9.2
       node-gyp-build: 4.8.4
     optionalDependencies:
-      tree-sitter: 0.22.4
+      tree-sitter: 0.25.1
 
   tree-sitter-json@0.24.8:
     dependencies:
@@ -11997,12 +12003,12 @@ snapshots:
       node-gyp-build: 4.8.4
     optional: true
 
-  tree-sitter-php@0.23.12(tree-sitter@0.22.4):
+  tree-sitter-php@0.23.12(tree-sitter@0.25.1):
     dependencies:
       node-addon-api: 8.8.0
       node-gyp-build: 4.8.4
     optionalDependencies:
-      tree-sitter: 0.22.4
+      tree-sitter: 0.25.1
 
   tree-sitter-powershell@0.25.10:
     dependencies:
@@ -12010,18 +12016,18 @@ snapshots:
       node-gyp-build: 4.8.4
     optional: true
 
-  tree-sitter-python@0.21.0(tree-sitter@0.22.4):
+  tree-sitter-python@0.21.0(tree-sitter@0.25.1):
     dependencies:
       node-addon-api: 7.1.1
       node-gyp-build: 4.8.4
-      tree-sitter: 0.22.4
+      tree-sitter: 0.25.1
 
-  tree-sitter-python@0.23.6(tree-sitter@0.22.4):
+  tree-sitter-python@0.23.6(tree-sitter@0.25.1):
     dependencies:
       node-addon-api: 8.8.0
       node-gyp-build: 4.8.4
     optionalDependencies:
-      tree-sitter: 0.22.4
+      tree-sitter: 0.25.1
 
   tree-sitter-ruby@0.23.1:
     dependencies:
@@ -12029,19 +12035,19 @@ snapshots:
       node-gyp-build: 4.8.4
     optional: true
 
-  tree-sitter-rust@0.23.1(tree-sitter@0.22.4):
+  tree-sitter-rust@0.23.1(tree-sitter@0.25.1):
     dependencies:
       node-addon-api: 8.8.0
       node-gyp-build: 4.8.4
     optionalDependencies:
-      tree-sitter: 0.22.4
+      tree-sitter: 0.25.1
 
-  tree-sitter-rust@0.23.3(tree-sitter@0.22.4):
+  tree-sitter-rust@0.23.3(tree-sitter@0.25.1):
     dependencies:
       node-addon-api: 8.8.0
       node-gyp-build: 4.8.4
     optionalDependencies:
-      tree-sitter: 0.22.4
+      tree-sitter: 0.25.1
 
   tree-sitter-scala@0.22.1:
     dependencies:
@@ -12057,13 +12063,13 @@ snapshots:
       which: 2.0.2
     optional: true
 
-  tree-sitter-typescript@0.23.2(tree-sitter@0.22.4):
+  tree-sitter-typescript@0.23.2(tree-sitter@0.25.1):
     dependencies:
       node-addon-api: 8.8.0
       node-gyp-build: 4.8.4
-      tree-sitter-javascript: 0.23.1(tree-sitter@0.22.4)
+      tree-sitter-javascript: 0.23.1(tree-sitter@0.25.1)
     optionalDependencies:
-      tree-sitter: 0.22.4
+      tree-sitter: 0.25.1
 
   tree-sitter-verilog@0.2.0:
     dependencies:
@@ -12080,9 +12086,9 @@ snapshots:
       nan: 2.27.0
     optional: true
 
-  tree-sitter@0.22.4:
+  tree-sitter@0.25.1:
     dependencies:
-      node-addon-api: 8.8.0
+      node-addon-api: 8.9.2
       node-gyp-build: 4.8.4
 
   trim-lines@3.0.1: {}
