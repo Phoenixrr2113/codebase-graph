@@ -8,14 +8,6 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
-    groups:
-      minor-and-patch:
-        update-types:
-          - minor
-          - patch
-      major:
-        update-types:
-          - major
 
   - package-ecosystem: github-actions
     directory: /
