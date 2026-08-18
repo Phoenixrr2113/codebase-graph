@@ -23,8 +23,8 @@
     "@codegraph/plugin-common": "workspace:*",
     "@codegraph/plugin-generic": "workspace:*",
     "@codegraph/types": "workspace:*",
-    "tree-sitter": "^0.22.4",
-    "tree-sitter-rust": "0.23.1"
+    "tree-sitter": "^0.25.1",
+    "tree-sitter-rust": "0.24.0"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

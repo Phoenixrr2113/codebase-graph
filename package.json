@@ -35,12 +35,12 @@
   },
   "devDependencies": {
     "@huggingface/transformers": "^3.8.1",
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.19.19",
     "kuzu": "0.11.3",
-    "prettier": "^3.8.3",
-    "tsx": "^4.22.3",
-    "turbo": "^2.9.16",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.12",
+    "turbo": "^2.10.10",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },

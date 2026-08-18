@@ -22,7 +22,7 @@
     "@codegraph/logger": "workspace:*",
     "@codegraph/plugin-common": "workspace:*",
     "@codegraph/types": "workspace:*",
-    "tree-sitter": "^0.22.4",
+    "tree-sitter": "^0.25.1",
     "tree-sitter-typescript": "^0.23.2"
   },
   "devDependencies": {
@@ -30,6 +30,6 @@
     "vitest": "^3.2.4"
   },
   "peerDependencies": {
-    "tree-sitter": "^0.22.4"
+    "tree-sitter": "^0.25.1"
   }
 }

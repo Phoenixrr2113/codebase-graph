@@ -22,13 +22,13 @@
     "@codegraph/types": "workspace:*"
   },
   "devDependencies": {
-    "tree-sitter": "^0.22.4",
-    "tree-sitter-c-sharp": "^0.21.3",
-    "tree-sitter-go": "^0.23.4",
+    "tree-sitter": "^0.25.1",
+    "tree-sitter-c-sharp": "^0.23.5",
+    "tree-sitter-go": "^0.25.0",
     "tree-sitter-java": "^0.23.5",
-    "tree-sitter-php": "^0.23.12",
-    "tree-sitter-python": "^0.23.6",
-    "tree-sitter-rust": "^0.23.3",
+    "tree-sitter-php": "^0.24.2",
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-rust": "^0.24.0",
     "tree-sitter-typescript": "^0.23.2",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
