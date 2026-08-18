@@ -198,6 +198,17 @@ describe('Auto-detection', () => {
 // ============================================================================
 
 describe('Edge cases', () => {
+  it('rejects an adversarial timestamp-shaped line within a bounded time', () => {
+    const text = '[\\] ' + '  '.repeat(40_000) + 'x';
+    const startedAt = performance.now();
+
+    const result = chunkConversation(text);
+
+    expect(performance.now() - startedAt).toBeLessThan(250);
+    expect(result.format).toBe('paragraphs');
+    expect(result.episodes).toHaveLength(1);
+  });
+
   it('handles empty input', () => {
     const result = chunkConversation('');
     expect(result.episodes.length).toBe(0);

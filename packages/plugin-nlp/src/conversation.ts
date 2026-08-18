@@ -61,14 +61,48 @@ export interface ChunkResult {
 // Format Detection
 // ============================================================================
 
+interface TimestampedLine {
+  timestamp: string;
+  speaker: string;
+  message: string;
+}
+
 /**
- * Regex patterns for each format.
+ * Parse a timestamped line without a backtracking regular expression.
  *
  * Timestamped: [2024-01-15 10:30] Speaker: message
  *              [2024-01-15T10:30:00Z] Speaker: message
  *              [10:30 AM] Speaker: message
  */
-const TIMESTAMPED_LINE = /^\[([^\]]+)\]\s+([^:]+):\s*(.*)/;
+function parseTimestampedLine(line: string): TimestampedLine | null {
+  if (line[0] !== '[') return null;
+
+  const closingBracket = line.indexOf(']', 1);
+  if (closingBracket <= 1) return null;
+
+  let speakerStart = closingBracket + 1;
+  if (speakerStart >= line.length || line[speakerStart]!.trim().length !== 0) {
+    return null;
+  }
+
+  while (speakerStart < line.length && line[speakerStart]!.trim().length === 0) {
+    speakerStart++;
+  }
+
+  const colon = line.indexOf(':', speakerStart);
+  if (colon <= speakerStart) return null;
+
+  let messageStart = colon + 1;
+  while (messageStart < line.length && line[messageStart]!.trim().length === 0) {
+    messageStart++;
+  }
+
+  return {
+    timestamp: line.slice(1, closingBracket).trim(),
+    speaker: line.slice(speakerStart, colon).trim(),
+    message: line.slice(messageStart),
+  };
+}
 
 /**
  * Chat-style: Speaker: message
@@ -89,7 +123,7 @@ function detectFormat(text: string): ConversationFormat {
   let chatCount = 0;
 
   for (const line of lines) {
-    if (TIMESTAMPED_LINE.test(line)) timestampedCount++;
+    if (parseTimestampedLine(line)) timestampedCount++;
     else if (CHAT_LINE.test(line)) chatCount++;
   }
 
@@ -119,7 +153,7 @@ function parseTimestamped(text: string, options: Required<ChunkOptions>): Episod
   let current: { speaker?: string; timestamp?: string; lines: string[] } | null = null;
 
   for (const line of lines) {
-    const match = TIMESTAMPED_LINE.exec(line.trim());
+    const match = parseTimestampedLine(line.trim());
 
     if (match) {
       // Flush previous episode
@@ -136,9 +170,9 @@ function parseTimestamped(text: string, options: Required<ChunkOptions>): Episod
       }
 
       current = {
-        speaker: match[2]!.trim(),
-        timestamp: match[1]!.trim(),
-        lines: match[3] ? [match[3]] : [],
+        speaker: match.speaker,
+        timestamp: match.timestamp,
+        lines: match.message ? [match.message] : [],
       };
     } else if (current && line.trim().length > 0) {
       // Continuation line for current message
