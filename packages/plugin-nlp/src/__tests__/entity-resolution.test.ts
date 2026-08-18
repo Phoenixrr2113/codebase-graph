@@ -1,5 +1,5 @@
 /**
- * Entity Resolution — Tests
+ * Entity Resolution: Tests
  *
  * Tests the three-tier entity resolution strategy:
  *   Tier 1: Exact text match (case-insensitive)
@@ -11,8 +11,20 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 
-// These tests use local embeddings
-vi.stubEnv('CODEGRAPH_EMBEDDING_PROVIDER', 'local');
+vi.mock('../embeddings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../embeddings')>();
+  return {
+    ...actual,
+    isEmbeddingAvailable: vi.fn(() => true),
+    generateEmbedding: vi.fn(async (text: string) => {
+      const embedding = new Array<number>(768).fill(0);
+      const dimension = [...text].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 768;
+      embedding[dimension] = 1;
+      return { embedding, dimensions: 768, provider: 'test' };
+    }),
+  };
+});
+
 import { MockLanguageModelV3 } from 'ai/test';
 import {
   createClient,
@@ -33,11 +45,22 @@ const GRAPH_NAME = `test_entity_res_${Date.now()}`;
  * By default answers YES (entities are the same).
  */
 function makeLlmMock(answer: 'YES' | 'NO' = 'YES') {
+  const response = answer === 'YES'
+    ? {
+        op: 'merge',
+        canonical: 'Sarah Chen',
+        duplicate: 'Sarah',
+        reason: 'Both names refer to the same person.',
+      }
+    : {
+        op: 'keep',
+        reason: 'The concepts describe different components.',
+      };
   return new MockLanguageModelV3({
     provider: 'test',
     modelId: 'test-entity-res',
     doGenerate: {
-      content: [{ type: 'text' as const, text: answer }],
+      content: [{ type: 'text' as const, text: JSON.stringify(response) }],
       finishReason: { unified: 'stop' as const, raw: 'stop' },
       usage: {
         inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
@@ -62,12 +85,12 @@ describe('Entity Resolution (FalkorDB)', () => {
     try {
       client = await createClient({
         driver: 'falkordb',
-        host: 'localhost',
-        port: 6379,
+        host: process.env['FALKORDB_HOST'] ?? 'localhost',
+        port: Number(process.env['FALKORDB_PORT'] ?? '6379'),
         graphName: GRAPH_NAME,
       });
     } catch {
-      console.warn('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      console.warn('FalkorDB not available: skipping tests. Run: docker compose up -d falkordb');
       falkordbAvailable = false;
       return;
     }
@@ -78,7 +101,7 @@ describe('Entity Resolution (FalkorDB)', () => {
 
   beforeEach(async (ctx) => {
     if (!falkordbAvailable) {
-      ctx.skip('FalkorDB not available — run: docker compose up -d falkordb');
+      ctx.skip('FalkorDB not available: run: docker compose up -d falkordb');
       return;
     }
     // Clean state before each test
@@ -144,8 +167,11 @@ describe('Entity Resolution (FalkorDB)', () => {
     expect(rels.some((r) => r.relationType === 'CREATED')).toBe(true);
 
     // Verify duplicate 'alice' no longer exists
-    const duplicate = await ops.getEntityByText('alice', 'Person');
-    expect(duplicate).toBeNull();
+    const duplicate = await client.roQuery<{ count: number }>(
+      'MATCH (e:Entity {text: $text, type: $type}) RETURN count(e) AS count',
+      { params: { text: 'alice', type: 'Person' } },
+    );
+    expect(duplicate.data[0]?.count).toBe(0);
   });
 
   it('Tier 1: does not merge entities of different types', async () => {

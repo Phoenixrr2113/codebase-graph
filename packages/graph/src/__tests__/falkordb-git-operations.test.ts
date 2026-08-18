@@ -1,5 +1,5 @@
 /**
- * Git History Operations — FalkorDB Integration Tests
+ * Git History Operations: FalkorDB Integration Tests
  *
  * Tests commit upserts, temporal edge creation (MODIFIED_IN, INTRODUCED_IN,
  * DELETED_IN), Metadata node operations, and index creation against a real
@@ -23,6 +23,8 @@ import type {
 } from '@codegraph/types';
 
 const GRAPH_NAME = `test_git_${Date.now()}`;
+const TEST_HOST = process.env['FALKORDB_HOST'] ?? 'localhost';
+const TEST_PORT = Number(process.env['FALKORDB_PORT'] ?? '6379');
 
 // ============================================================================
 // Test Fixtures
@@ -89,12 +91,12 @@ describe('Git History Operations (FalkorDB)', () => {
     try {
       client = await createClient({
         driver: 'falkordb',
-        host: 'localhost',
-        port: 6379,
+        host: TEST_HOST,
+        port: TEST_PORT,
         graphName: GRAPH_NAME,
       });
     } catch (error) {
-      console.error('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      console.error('FalkorDB not available: skipping tests. Run: docker compose up -d falkordb');
       throw error;
     }
 
@@ -368,7 +370,7 @@ describe('Git History Operations (FalkorDB)', () => {
     });
 
     it('should handle MODIFIED_IN for non-existent file gracefully', async () => {
-      // Should not throw — the MATCH just won't find anything
+      // Should not throw: the MATCH just won't find anything
       await ops.createModifiedInEdge('/nonexistent/file.ts', commitHash, 1, 0);
 
       const result = await client.roQuery<{ count: number }>(
@@ -436,7 +438,7 @@ describe('Git History Operations (FalkorDB)', () => {
     it('should support check-then-insert pattern', async () => {
       const key = 'newMeta:test1';
 
-      // Check — should not exist
+      // Check: should not exist
       const check = await client.roQuery<{ value: string }>(
         `MATCH (m:Metadata {key: $key}) RETURN m.value as value`,
         { params: { key } },

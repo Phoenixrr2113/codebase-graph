@@ -6,10 +6,11 @@
  * with tree-sitter native modules kept external and copied separately.
  */
 
-import { cpSync, mkdirSync, rmSync, existsSync, readdirSync, readFileSync, writeFileSync, statSync, symlinkSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { cpSync, mkdirSync, rmSync, existsSync, readdirSync, readFileSync, realpathSync, writeFileSync, statSync } from 'node:fs';
+import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { build } from 'esbuild';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '../..');
@@ -63,7 +64,7 @@ const externalPackages = [
   '@huggingface/transformers',
   'onnxruntime-node',
   'falkordblite',
-  // MCP SDK has wildcard exports that esbuild can't resolve — we externalize
+  // MCP SDK has wildcard exports that esbuild can't resolve: we externalize
   // and copy it, then patch the imports to add .js extensions post-build
   '@modelcontextprotocol/sdk',
   '@modelcontextprotocol/sdk/*',
@@ -72,49 +73,30 @@ const externalPackages = [
 console.log(`Found ${treeSitterGrammars.length} tree-sitter grammars`);
 console.log(`Bundling with ${externalPackages.length} external packages...`);
 
-// Build external args for esbuild CLI
-const externalArgs = externalPackages.map(p => `--external:${p}`).join(' ');
-
-// Run esbuild via CLI — use the native binary from pnpm's store
-const esbuildBin = resolve(ROOT, 'node_modules/.pnpm/@esbuild+darwin-arm64@0.27.4/node_modules/@esbuild/darwin-arm64/bin/esbuild');
-const esbuildCmd = [
-  esbuildBin,
-  resolve(ROOT, 'packages/mcp-server/dist/index.js'),
-  '--bundle',
-  '--platform=node',
-  '--target=node20',
-  '--format=esm',
-  `--outfile=${resolve(SERVER_DIR, 'index.mjs')}`,
-  '--log-level=info',
-  '--conditions=import,node',
-  '--resolve-extensions=.js,.mjs,.ts,.tsx,.json',
-  '--banner:js=\'import { createRequire as __bundleRequire } from "module"; const require = __bundleRequire(import.meta.url);\'',
-  externalArgs,
-].join(' ');
-
 console.log('Running esbuild...');
-execSync(esbuildCmd, { stdio: 'inherit', cwd: ROOT });
-
-console.log('Bundle created. Installing MCP SDK dependencies...');
-
-// Install MCP SDK + all transitive deps FIRST (before copying native modules)
-const sdkPkg = { dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' } };
-writeFileSync(resolve(SERVER_DIR, 'package.json'), JSON.stringify(sdkPkg));
-execSync('npm install --production --no-optional --no-audit --no-fund 2>&1', {
-  cwd: SERVER_DIR,
-  stdio: 'pipe',
+await build({
+  entryPoints: [resolve(ROOT, 'packages/mcp-server/dist/index.js')],
+  outfile: resolve(SERVER_DIR, 'index.mjs'),
+  bundle: true,
+  platform: 'node',
+  target: 'node20',
+  format: 'esm',
+  logLevel: 'info',
+  conditions: ['import', 'node'],
+  resolveExtensions: ['.js', '.mjs', '.ts', '.tsx', '.json'],
+  banner: {
+    js: 'import { createRequire as __bundleRequire } from "node:module"; const require = __bundleRequire(import.meta.url);',
+  },
+  external: externalPackages,
 });
-rmSync(resolve(SERVER_DIR, 'package.json'), { force: true });
-rmSync(resolve(SERVER_DIR, 'package-lock.json'), { force: true });
 
-console.log('Copying native modules...');
+console.log('Copying locked runtime dependencies...');
 
-// Copy tree-sitter and grammar native modules ON TOP of the installed deps
 const nmDest = resolve(SERVER_DIR, 'node_modules');
 mkdirSync(nmDest, { recursive: true });
 
 function resolveRealPath(pkgName) {
-  // pnpm uses symlinks — resolve through them
+  // pnpm uses symlinks: resolve through them
   const candidates = [
     resolve(ROOT, 'node_modules', pkgName),
     resolve(ROOT, 'packages/core/node_modules', pkgName),
@@ -144,39 +126,120 @@ function resolveRealPath(pkgName) {
   return null;
 }
 
-// tree-sitter-cli is a CLI tool, not a grammar — don't bundle it
-const skipPackages = new Set(['tree-sitter-cli']);
-
-let copiedCount = 0;
-for (const pkg of ['tree-sitter', ...treeSitterGrammars.filter(g => !skipPackages.has(g))]) {
-  const src = resolveRealPath(pkg);
-  if (src) {
-    const dest = resolve(nmDest, pkg);
-    cpSync(src, dest, { recursive: true, dereference: true });
-    // Remove unnecessary files to reduce size
-    for (const unnecessary of ['src', 'test', 'tests', '.github', 'binding.gyp', 'Cargo.toml', 'Cargo.lock', 'grammar.js']) {
-      const p = resolve(dest, unnecessary);
-      if (existsSync(p)) rmSync(p, { recursive: true, force: true });
+function packageRootFromEntry(entryPath, packageName) {
+  let current = dirname(entryPath);
+  while (current !== dirname(current)) {
+    const manifestPath = resolve(current, 'package.json');
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      if (manifest.name === packageName) return current;
     }
-    copiedCount++;
-  } else {
-    console.warn(`⚠ ${pkg} not found, skipping`);
+    current = dirname(current);
+  }
+  return null;
+}
+
+function resolveDependencyFrom(packageRoot, dependencyName) {
+  const dependencyRequire = createRequire(resolve(packageRoot, 'package.json'));
+  try {
+    return dirname(dependencyRequire.resolve(`${dependencyName}/package.json`));
+  } catch {
+    try {
+      const entryPath = dependencyRequire.resolve(dependencyName);
+      return packageRootFromEntry(entryPath, dependencyName);
+    } catch {
+      return null;
+    }
   }
 }
 
-// Copy MCP SDK and patch wildcard exports
-const mcpSdkSrc = resolveRealPath('@modelcontextprotocol/sdk');
-if (mcpSdkSrc) {
-  mkdirSync(resolve(nmDest, '@modelcontextprotocol'), { recursive: true });
-  cpSync(mcpSdkSrc, resolve(nmDest, '@modelcontextprotocol/sdk'), { recursive: true, dereference: true });
-  copiedCount++;
+const rootPackageSources = new Map();
+const copiedDestinations = new Map();
+
+function copyPackageClosure(packageName, sourceOverride, destinationRoot = nmDest) {
+  const source = sourceOverride ?? resolveRealPath(packageName);
+  if (!source) {
+    throw new Error(`Required MCPB runtime package is unavailable: ${packageName}`);
+  }
+  const sourceDirectory = statSync(source).isDirectory() ? source : dirname(source);
+  const realSource = realpathSync(sourceDirectory);
+  const manifest = JSON.parse(readFileSync(resolve(realSource, 'package.json'), 'utf8'));
+  const destination = resolve(destinationRoot, packageName);
+  const priorSource = copiedDestinations.get(destination);
+  if (priorSource && priorSource !== realSource) {
+    throw new Error(`MCPB runtime destination collision for ${packageName}`);
+  }
+  if (priorSource) return;
+
+  copiedDestinations.set(destination, realSource);
+  if (destinationRoot === nmDest) rootPackageSources.set(packageName, realSource);
+  mkdirSync(dirname(destination), { recursive: true });
+  cpSync(realSource, destination, {
+    recursive: true,
+    dereference: true,
+    filter: (sourcePath) => !relative(realSource, sourcePath)
+      .split(/[/\\]/)
+      .includes('node_modules'),
+  });
+
+  const dependencyNames = new Set([
+    ...Object.keys(manifest.dependencies ?? {}),
+    ...Object.keys(manifest.optionalDependencies ?? {}),
+  ]);
+  for (const dependencyName of dependencyNames) {
+    const dependencySource = resolveDependencyFrom(realSource, dependencyName);
+    if (!dependencySource) continue;
+    const realDependencySource = realpathSync(dependencySource);
+    const rootSource = rootPackageSources.get(dependencyName);
+    if (!rootSource) {
+      copyPackageClosure(dependencyName, realDependencySource);
+    } else if (rootSource !== realDependencySource) {
+      copyPackageClosure(
+        dependencyName,
+        realDependencySource,
+        resolve(destination, 'node_modules'),
+      );
+    }
+  }
+}
+
+const skipPackages = new Set(['tree-sitter-cli']);
+const runtimeRootPackages = [
+  'tree-sitter',
+  ...treeSitterGrammars.filter(g => !skipPackages.has(g)),
+  '@modelcontextprotocol/sdk',
+];
+for (const packageName of runtimeRootPackages) {
+  const source = resolveRealPath(packageName);
+  if (!source) throw new Error(`Required MCPB runtime package is unavailable: ${packageName}`);
+  rootPackageSources.set(packageName, realpathSync(source));
+}
+for (const packageName of runtimeRootPackages) {
+  copyPackageClosure(packageName, rootPackageSources.get(packageName));
+}
+
+for (const pkg of runtimeRootPackages.filter((name) => name.startsWith('tree-sitter'))) {
+  const destination = resolve(nmDest, pkg);
+  for (const unnecessary of [
+    'src',
+    'test',
+    'tests',
+    '.github',
+    'binding.gyp',
+    'Cargo.toml',
+    'Cargo.lock',
+    'grammar.js',
+  ]) {
+    const path = resolve(destination, unnecessary);
+    if (existsSync(path)) rmSync(path, { recursive: true, force: true });
+  }
 }
 
 // Patch MCP SDK imports in the bundle to add .js extensions for wildcard exports.
 // The SDK has explicit exports (./server, ./client, ./types, etc.) that Node resolves
 // correctly, but wildcard "./*" exports need .js suffix for Node ESM resolution.
 // Explicit export entries: client, server, validation, validation/ajv, validation/cfworker,
-// experimental, experimental/tasks — these DON'T need patching.
+// experimental, experimental/tasks: these DON'T need patching.
 const bundlePath = resolve(SERVER_DIR, 'index.mjs');
 let bundleContent = readFileSync(bundlePath, 'utf-8');
 const explicitExports = new Set([
@@ -193,48 +256,56 @@ bundleContent = bundleContent.replace(
 );
 writeFileSync(bundlePath, bundleContent);
 
-// MCP SDK already installed above — just copy if not present
-const mcpSdkDest = resolve(nmDest, '@modelcontextprotocol/sdk');
-if (!existsSync(mcpSdkDest)) {
-  const mcpSdkSrc = resolveRealPath('@modelcontextprotocol/sdk');
-  if (mcpSdkSrc) {
-    mkdirSync(resolve(nmDest, '@modelcontextprotocol'), { recursive: true });
-    cpSync(mcpSdkSrc, mcpSdkDest, { recursive: true, dereference: true });
-  }
-}
-
-// Copy runtime deps needed by tree-sitter
-for (const dep of ['node-addon-api', 'prebuild-install', 'node-gyp-build']) {
-  const src = resolveRealPath(dep);
-  if (src) {
-    cpSync(src, resolve(nmDest, dep), { recursive: true, dereference: true });
-  }
-}
-
-// Copy manifest.json and create package.json for the bundle
-cpSync(resolve(__dirname, 'manifest.json'), resolve(OUT, 'manifest.json'));
+// Generate platform-local metadata from the canonical npm package version.
+const npmPackage = JSON.parse(
+  readFileSync(resolve(ROOT, 'packages/npm-package/package.json'), 'utf8'),
+);
+const manifest = JSON.parse(readFileSync(resolve(__dirname, 'manifest.json'), 'utf8'));
+manifest.version = npmPackage.version;
+manifest.author.url = 'https://github.com/Phoenixrr2113';
+manifest.repository = {
+  type: 'git',
+  url: 'https://github.com/Phoenixrr2113/codebase-graph',
+};
+manifest.homepage = 'https://v0-landing-page-build-kappa-virid.vercel.app';
+manifest.long_description = 'CodeGraph indexes source code into a graph and exposes search, codebase, knowledge, and Cypher tools through MCP. Offline structural search works without API keys by setting the embedding provider to none.';
+delete manifest.user_config.voyage_api_key;
+delete manifest.user_config.jina_api_key;
+delete manifest.server.mcp_config.env.VOYAGE_API_KEY;
+delete manifest.server.mcp_config.env.JINA_API_KEY;
+manifest.server.mcp_config.env.CODEGRAPH_EMBEDDING_PROVIDER = 'none';
+manifest.compatibility.platforms = [process.platform];
+writeFileSync(resolve(OUT, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 writeFileSync(resolve(OUT, 'package.json'), JSON.stringify({
   name: 'codegraph-mcpb',
-  version: '0.1.0',
+  version: npmPackage.version,
   type: 'module',
   private: true,
-}));
+}, null, 2));
+cpSync(resolve(__dirname, 'README.md'), resolve(OUT, 'README.md'));
 
 // Copy icon if it exists
 const iconSrc = resolve(__dirname, 'icon.png');
 if (existsSync(iconSrc)) {
   cpSync(iconSrc, resolve(OUT, 'icon.png'));
 } else {
-  console.warn('⚠ No icon.png found — add one for the extension listing');
+  console.warn('⚠ No icon.png found: add one for the extension listing');
 }
 
-// Calculate sizes
+function directorySize(directory) {
+  let total = 0;
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = resolve(directory, entry.name);
+    total += entry.isDirectory() ? directorySize(path) : statSync(path).size;
+  }
+  return total;
+}
+
 const bundleSize = readFileSync(resolve(SERVER_DIR, 'index.mjs')).length;
-const totalNativeSize = execSync(`du -sh ${nmDest} 2>/dev/null || echo "unknown"`)
-  .toString().trim().split('\t')[0];
+const runtimeSize = directorySize(nmDest);
 
 console.log(`\n✅ MCPB build complete!`);
 console.log(`   Bundle: ${(bundleSize / 1024 / 1024).toFixed(1)} MB`);
-console.log(`   Native modules: ${copiedCount} packages (${totalNativeSize})`);
+console.log(`   Runtime: ${copiedDestinations.size} locked packages (${(runtimeSize / 1024 / 1024).toFixed(1)} MB)`);
 console.log(`   Output: ${OUT}`);
 console.log(`\nTo pack: cd ${OUT} && mcpb pack`);

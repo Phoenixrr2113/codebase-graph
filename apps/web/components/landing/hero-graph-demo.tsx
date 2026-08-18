@@ -82,8 +82,8 @@ export function HeroGraphDemo() {
       const instance = cy({
         container: containerRef.current,
         elements,
-        style: cytoscapeStylesheet as cytoscape.Stylesheet[],
-        layout: { name: "preset" } as cytoscape.LayoutOptions,
+        style: cytoscapeStylesheet,
+        layout: { name: "preset" } satisfies cytoscape.PresetLayoutOptions,
         userZoomingEnabled: false,
         userPanningEnabled: false,
         boxSelectionEnabled: false,

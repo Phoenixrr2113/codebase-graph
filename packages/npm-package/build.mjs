@@ -1,127 +1,129 @@
 #!/usr/bin/env node
-/**
- * Build script for CodeGraph npm distribution package.
- *
- * Reuses the MCPB esbuild pipeline (packages/mcpb/build.mjs) to produce
- * a bundled server, then packages it for npm publishing.
- *
- * Run from repo root: node packages/npm-package/build.mjs
- * Or: pnpm build:npm
- */
 
-import { cpSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
+import { build } from 'esbuild';
+import { createPublishedManifest } from './lib/package-metadata.mjs';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(__dirname, '../..');
-const MCPB_DIST = resolve(ROOT, 'packages/mcpb/dist');
-const NPM_DIST = resolve(__dirname, 'dist');
+const packageDirectory = dirname(fileURLToPath(import.meta.url));
+const rootDirectory = resolve(packageDirectory, '../..');
+const outputDirectory = resolve(packageDirectory, 'dist');
+const serverEntry = resolve(rootDirectory, 'packages/mcp-server/dist/index.js');
 
-// Step 1: Ensure MCPB is built (reuse its bundling)
-const mcpbBundle = resolve(MCPB_DIST, 'server/index.mjs');
-if (!existsSync(mcpbBundle)) {
-  console.log('MCPB bundle not found — building first...');
-  execSync('node packages/mcpb/build.mjs', { cwd: ROOT, stdio: 'inherit' });
+function readManifest(relativePath) {
+  const path = resolve(rootDirectory, relativePath);
+  const parsed = JSON.parse(readFileSync(path, 'utf8'));
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new TypeError(`${relativePath} must contain a JSON object`);
+  }
+  return parsed;
 }
 
-// Step 2: Clean and create npm dist
-if (existsSync(NPM_DIST)) rmSync(NPM_DIST, { recursive: true });
-mkdirSync(resolve(NPM_DIST, 'server'), { recursive: true });
-mkdirSync(resolve(NPM_DIST, 'bin'), { recursive: true });
+if (!existsSync(serverEntry)) {
+  throw new Error(
+    'Missing packages/mcp-server/dist/index.js. Build workspace packages before creating the npm distribution.',
+  );
+}
 
-// Step 3: Copy bundled server + native modules from MCPB
-cpSync(resolve(MCPB_DIST, 'server'), resolve(NPM_DIST, 'server'), { recursive: true });
-console.log('Copied bundled server from MCPB build');
+const packageManifest = readManifest('packages/npm-package/package.json');
+const dependencyManifests = Object.fromEntries(
+  [
+    'packages/mcp-server/package.json',
+    'packages/plugin-nlp/package.json',
+    'packages/plugin-go/package.json',
+    'packages/plugin-python/package.json',
+    'packages/plugin-rust/package.json',
+    'packages/plugin-typescript/package.json',
+    'packages/plugin-languages/package.json',
+    'packages/graph/package.json',
+  ].map((path) => {
+    const manifest = readManifest(path);
+    if (typeof manifest.name !== 'string') {
+      throw new TypeError(`${path} must define a package name`);
+    }
+    return [manifest.name, manifest];
+  }),
+);
+const publishedManifest = createPublishedManifest({ packageManifest, dependencyManifests });
+const externalPackages = [
+  ...Object.keys(publishedManifest.dependencies),
+  ...Object.keys(publishedManifest.optionalDependencies),
+];
 
-// Step 4: Copy bin entry point
-cpSync(resolve(__dirname, 'bin/codegraph-mcp.mjs'), resolve(NPM_DIST, 'bin/codegraph-mcp.mjs'));
-chmodSync(resolve(NPM_DIST, 'bin/codegraph-mcp.mjs'), 0o755);
+rmSync(outputDirectory, { recursive: true, force: true });
+mkdirSync(resolve(outputDirectory, 'server'), { recursive: true });
+mkdirSync(resolve(outputDirectory, 'bin'), { recursive: true });
 
-// Step 5: Copy package files
-cpSync(resolve(__dirname, 'postinstall.mjs'), resolve(NPM_DIST, 'postinstall.mjs'));
+await build({
+  entryPoints: [serverEntry],
+  outfile: resolve(outputDirectory, 'server/index.mjs'),
+  bundle: true,
+  platform: 'node',
+  target: 'node20',
+  format: 'esm',
+  sourcemap: false,
+  conditions: ['import', 'node'],
+  banner: {
+    js: 'import { createRequire as __bundleRequire } from "node:module"; const require = __bundleRequire(import.meta.url);',
+  },
+  external: externalPackages,
+  logLevel: 'info',
+});
 
-// Step 6: Create package.json for publishing (read from source, adjust paths)
-const pkgSource = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'));
-// Remove build script from published package
-delete pkgSource.scripts.build;
-writeFileSync(resolve(NPM_DIST, 'package.json'), JSON.stringify(pkgSource, null, 2));
+const binSource = resolve(packageDirectory, 'bin/codegraph-mcp.mjs');
+const binDestination = resolve(outputDirectory, 'bin/codegraph-mcp.mjs');
+cpSync(binSource, binDestination);
+chmodSync(binDestination, 0o755);
+cpSync(resolve(rootDirectory, 'LICENSE'), resolve(outputDirectory, 'LICENSE'));
 
-// Step 7: Create LICENSE
-writeFileSync(resolve(NPM_DIST, 'LICENSE'), `CodeGraph Commercial License
+writeFileSync(
+  resolve(outputDirectory, 'package.json'),
+  `${JSON.stringify(publishedManifest, null, 2)}\n`,
+);
+writeFileSync(
+  resolve(outputDirectory, 'README.md'),
+  `# CodeGraph MCP Server
 
-Copyright (c) ${new Date().getFullYear()} Randy Wilson. All rights reserved.
+Index code into a graph and expose search, knowledge, codebase, and Cypher tools through the Model Context Protocol.
 
-This software is licensed, not sold. You must purchase a valid license key
-from https://polar.sh/codegraph to use this software.
-
-Unauthorized copying, redistribution, or reverse engineering of this
-software is prohibited.
-
-For licensing inquiries, contact: support@codegraph.dev
-`);
-
-// Step 8: Create README
-writeFileSync(resolve(NPM_DIST, 'README.md'), `# CodeGraph MCP Server
-
-Index any codebase into a graph database. Search by meaning, trace relationships, and manage project knowledge.
-
-## Installation
+## Install
 
 \`\`\`bash
-npm install -g @codegraph/mcp
+npm install --global codegraph-mcp
 \`\`\`
 
-## Quick Start
+Then configure an MCP client to run \`codegraph-mcp\`. The server uses stdio and keeps logs on stderr.
 
-1. Get a license key at [polar.sh/codegraph](https://polar.sh/codegraph)
-2. Get API keys from [Voyage AI](https://dash.voyageai.com) and [Jina AI](https://jina.ai)
-3. Add to your \`.mcp.json\`:
+## Offline start
 
-\`\`\`json
-{
-  "mcpServers": {
-    "codegraph": {
-      "command": "codegraph-mcp",
-      "env": {
-        "CODEGRAPH_LICENSE": "your-license-key",
-        "VOYAGE_API_KEY": "your-voyage-key",
-        "JINA_API_KEY": "your-jina-key"
-      }
-    }
-  }
-}
+\`\`\`bash
+CODEGRAPH_EMBEDDING_PROVIDER=none codegraph-mcp
 \`\`\`
 
-## Tools
+This structural-search mode requires no API keys. Embedded FalkorDBLite is available on Linux x64. Apple silicon macOS also requires Homebrew \`libomp\` and \`openssl@3\`; CodeGraph falls back to external FalkorDB when they are absent. Other platforms require an external FalkorDB service.
 
-- **search** — Find code by meaning (vector + cross-encoder reranking)
-- **knowledge** — Store and recall project knowledge
-- **codebase** — Index management, status, source reading
-- **query** — Raw Cypher queries against the code graph
+## Project links
 
-## Features
+- [Source and quickstart](https://github.com/Phoenixrr2113/codebase-graph#install-from-source)
+- [MCP client setup](https://github.com/Phoenixrr2113/codebase-graph#use-with-an-mcp-client)
+- [Configuration and environment variables](https://github.com/Phoenixrr2113/codebase-graph#configuration)
+- [Issue tracker](https://github.com/Phoenixrr2113/codebase-graph/issues)
+- [Web app](https://v0-landing-page-build-kappa-virid.vercel.app)
 
-- 42+ languages via Tree-sitter
-- Vector search with cross-encoder reranking (94.4% MRR)
-- FalkorDB graph database (Docker or embedded)
-- Knowledge graph for storing project context
+## License
 
-## Docs
+MIT
+`,
+);
 
-[codegraph.dev/docs](https://codegraph.dev/docs)
-`);
-
-// Report
-const serverSize = readFileSync(resolve(NPM_DIST, 'server/index.mjs')).length;
-const nmSize = execSync(`du -sh ${resolve(NPM_DIST, 'server/node_modules')} 2>/dev/null || echo "0\t-"`)
-  .toString().trim().split('\t')[0];
-
-console.log(`\n✅ npm package built!`);
-console.log(`   Bundle: ${(serverSize / 1024 / 1024).toFixed(1)} MB`);
-console.log(`   Native modules: ${nmSize}`);
-console.log(`   Output: ${NPM_DIST}`);
-console.log(`\nTo publish:`);
-console.log(`   cd ${NPM_DIST}`);
-console.log(`   npm publish --access public`);
+const bundleBytes = readFileSync(resolve(outputDirectory, 'server/index.mjs')).byteLength;
+console.log(`Built codegraph-mcp staging directory (${(bundleBytes / 1024 / 1024).toFixed(1)} MB bundle).`);

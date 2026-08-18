@@ -4,16 +4,16 @@
   "display_name": "CodeGraph",
   "version": "0.1.0",
   "description": "Index any codebase into a graph database. Search by meaning, trace relationships, and get AI-powered context for your code.",
-  "long_description": "CodeGraph indexes your codebase into a graph database (FalkorDB) and provides tools for semantic code search, relationship tracing, and knowledge management. Supports 42+ languages via Tree-sitter.\n\n**Tools:**\n- `search` — Find code by meaning (vector + reranker)\n- `codebase` — Index management, status, source reading\n- `knowledge` — Store and recall project knowledge\n- `query` — Raw Cypher queries against the code graph\n\n**Requirements:**\n- Docker (for FalkorDB) or `redis-server` (for embedded mode)\n- Voyage AI API key (for embeddings)\n- Jina AI API key (for reranking)",
+  "long_description": "CodeGraph indexes source code into a graph and exposes search, codebase, knowledge, and Cypher tools through MCP. Offline structural search works without API keys by setting the embedding provider to none.",
   "author": {
     "name": "Randy Wilson",
-    "url": "https://codegraph.dev"
+    "url": "https://github.com/Phoenixrr2113"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/randywilson/codegraph"
+    "url": "https://github.com/Phoenixrr2113/codebase-graph"
   },
-  "homepage": "https://codegraph.dev",
+  "homepage": "https://v0-landing-page-build-kappa-virid.vercel.app",
   "icon": "icon.png",
   "server": {
     "type": "node",
@@ -24,8 +24,7 @@
         "${__dirname}/server/index.mjs"
       ],
       "env": {
-        "VOYAGE_API_KEY": "${user_config.voyage_api_key}",
-        "JINA_API_KEY": "${user_config.jina_api_key}",
+        "CODEGRAPH_EMBEDDING_PROVIDER": "none",
         "CODEGRAPH_PROJECTS": "${user_config.project_paths}",
         "FALKORDB_HOST": "${user_config.falkordb_host}",
         "FALKORDB_PORT": "${user_config.falkordb_port}"
@@ -39,11 +38,11 @@
     },
     {
       "name": "codebase",
-      "description": "Manage codebase indexing — configure projects, reindex, check status, read source"
+      "description": "Manage codebase indexing: configure projects, reindex, check status, read source"
     },
     {
       "name": "knowledge",
-      "description": "Store and recall project knowledge — entities, relationships, and facts"
+      "description": "Store and recall project knowledge: entities, relationships, and facts"
     },
     {
       "name": "query",
@@ -62,20 +61,6 @@
   ],
   "license": "MIT",
   "user_config": {
-    "voyage_api_key": {
-      "type": "string",
-      "title": "Voyage AI API Key",
-      "description": "API key for Voyage AI embeddings (get one at dash.voyageai.com)",
-      "sensitive": true,
-      "required": true
-    },
-    "jina_api_key": {
-      "type": "string",
-      "title": "Jina AI API Key",
-      "description": "API key for Jina reranker (get one at jina.ai)",
-      "sensitive": true,
-      "required": true
-    },
     "project_paths": {
       "type": "directory",
       "title": "Project Directory",

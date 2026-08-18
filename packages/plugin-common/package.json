@@ -16,14 +16,14 @@
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
-    "test": "vitest"
+    "test": "vitest run --root . --config ../../vitest.package.config.ts"
   },
   "dependencies": {
     "@codegraph/types": "workspace:*"
   },
   "devDependencies": {
     "tree-sitter": "^0.22.4",
-    "tree-sitter-c-sharp": "^0.23.5",
+    "tree-sitter-c-sharp": "^0.21.3",
     "tree-sitter-go": "^0.23.4",
     "tree-sitter-java": "^0.23.5",
     "tree-sitter-php": "^0.23.12",

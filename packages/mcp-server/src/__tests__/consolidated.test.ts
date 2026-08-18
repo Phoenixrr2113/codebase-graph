@@ -1,151 +1,159 @@
 /**
  * Consolidated MCP Tool Tests
  *
- * Tests the 5 consolidated tools: ping, configure_projects, search, get_context, query
- * Runs against whichever backend is configured (.codegraph/config.json or env vars).
+ * Tests the 4 public persona tools against an isolated indexed fixture.
  */
 
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { handleToolCall } from '../tools/router';
-import {
-  SRC_DIR,
-  KNOWN_SYMBOL,
-  KNOWN_FILE,
-  teardownGraphClient,
-  assertNoError,
-} from './helpers';
+import { setActiveProjects } from '@codegraph/core';
+import { triggerReindex } from '../tools/reindex';
+import { teardownGraphClient, assertNoError } from './helpers';
+
+let fixtureDirectory: string;
+let fixtureFile: string;
+let previousEmbeddingProvider: string | undefined;
+
+beforeAll(async () => {
+  previousEmbeddingProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
+  process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = 'local';
+  fixtureDirectory = mkdtempSync(join(tmpdir(), 'codegraph-mcp-personas-'));
+  const sourceDirectory = join(fixtureDirectory, 'src');
+  mkdirSync(sourceDirectory);
+  fixtureFile = join(sourceDirectory, 'widget.ts');
+  writeFileSync(
+    fixtureFile,
+    [
+      'export class Widget {}',
+      'export function buildWidget(): Widget {',
+      '  return new Widget();',
+      '}',
+    ].join('\n'),
+  );
+
+  await setActiveProjects([fixtureDirectory]);
+  const result = await triggerReindex({
+    scope: fixtureDirectory,
+    mode: 'full',
+    deferEmbeddings: false,
+  });
+  if (!result.success) {
+    throw new Error(`Unable to index MCP persona fixture: ${result.errors.join('; ')}`);
+  }
+});
 
 afterAll(async () => {
+  await setActiveProjects([]);
   await teardownGraphClient();
+  if (previousEmbeddingProvider === undefined) {
+    delete process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
+  } else {
+    process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = previousEmbeddingProvider;
+  }
+  rmSync(fixtureDirectory, { recursive: true, force: true });
 });
 
 // ─── ping ────────────────────────────────────────────────────────────────────
 
-describe('ping', () => {
+describe('codebase persona', () => {
   it('returns ok status with timestamp', async () => {
-    const result = (await handleToolCall('ping', {})) as Record<string, unknown>;
+    const result = (await handleToolCall('codebase', {
+      action: 'ping',
+    })) as Record<string, unknown>;
     expect(result.status).toBe('ok');
     expect(result.message).toContain('running');
     expect(result.timestamp).toBeDefined();
   });
-});
 
-// ─── configure_projects ──────────────────────────────────────────────────────
-
-describe('configure_projects', () => {
   it('returns status with active projects', async () => {
-    const result = (await handleToolCall('configure_projects', {
-      action: 'status',
+    const result = (await handleToolCall('codebase', {
+      action: 'configure',
+      projectAction: 'status',
     })) as Record<string, unknown>;
 
-    assertNoError(result, 'configure_projects status');
+    assertNoError(result, 'codebase configure status');
     expect(result.setupComplete).toBeDefined();
-    // Should have at least the codebase-graph project
-    expect(Array.isArray(result.activeProjects)).toBe(true);
+    expect(result.activeProjects).toEqual([fixtureDirectory]);
   });
 });
 
 // ─── search ──────────────────────────────────────────────────────────────────
 
 describe('search', () => {
-  it('finds symbols matching a keyword (all types)', async () => {
+  it('finds symbols in the indexed fixture', async () => {
     const result = (await handleToolCall('search', {
-      query: 'create',
+      action: 'find',
+      query: 'buildWidget',
     })) as Record<string, unknown>;
 
-    assertNoError(result, 'search all');
+    assertNoError(result, 'search find');
     expect(result.total).toBeGreaterThan(0);
     const results = result.results as Array<Record<string, unknown>>;
     expect(results.length).toBeGreaterThan(0);
-    // Every result should have required fields
-    for (const r of results) {
-      expect(r.name).toBeDefined();
-      expect(r.type).toBeDefined();
-      expect(typeof r.type).toBe('string');
-      expect((r.type as string).length).toBeGreaterThan(1); // not truncated
-    }
+    expect(result._meta).toMatchObject({ action: 'find', toolUsed: 'search_code' });
   });
 
-  it('filters by type: function', async () => {
+  it('rejects an empty search query', async () => {
     const result = (await handleToolCall('search', {
-      query: 'build',
-      type: 'function',
+      action: 'find',
+      query: '   ',
     })) as Record<string, unknown>;
 
-    assertNoError(result, 'search function');
-    const results = result.results as Array<Record<string, unknown>>;
-    for (const r of results) {
-      expect(r.type).toBe('Function');
-    }
-  });
-
-  it('filters by type: file', async () => {
-    const result = (await handleToolCall('search', {
-      query: 'client',
-      type: 'file',
-    })) as Record<string, unknown>;
-
-    assertNoError(result, 'search file');
-    const results = result.results as Array<Record<string, unknown>>;
-    expect(results.length).toBeGreaterThan(0);
-    for (const r of results) {
-      expect(r.type).toBe('File');
-    }
-  });
-
-  it('returns empty results for nonexistent term', async () => {
-    const result = (await handleToolCall('search', {
-      query: 'xyzNonexistentTerm12345',
-    })) as Record<string, unknown>;
-
-    assertNoError(result, 'search empty');
+    expect(result.error).toContain('required');
     expect(result.total).toBe(0);
   });
 });
 
-// ─── get_context ─────────────────────────────────────────────────────────────
+// ─── search context ─────────────────────────────────────────────────────────
 
-describe('get_context', () => {
+describe('search context', () => {
   it('returns file context with entities', async () => {
-    const result = (await handleToolCall('get_context', {
-      file: KNOWN_FILE,
+    const result = (await handleToolCall('search', {
+      action: 'context',
+      file: fixtureFile,
     })) as Record<string, unknown>;
 
-    assertNoError(result, 'get_context file');
+    assertNoError(result, 'search context file');
     expect(result.file).toBeDefined();
     const file = result.file as Record<string, unknown>;
-    expect(file.path).toBe(KNOWN_FILE);
+    expect(file.path).toBe(fixtureFile);
     expect(Array.isArray(file.entities)).toBe(true);
     expect((file.entities as unknown[]).length).toBeGreaterThan(0);
   });
 
   it('returns symbol context with type and location', async () => {
-    const result = (await handleToolCall('get_context', {
-      symbol: KNOWN_SYMBOL,
+    const result = (await handleToolCall('search', {
+      action: 'context',
+      symbol: 'buildWidget',
     })) as Record<string, unknown>;
 
-    assertNoError(result, 'get_context symbol');
+    assertNoError(result, 'search context symbol');
     expect(result.entity).toBeDefined();
     const entity = result.entity as Record<string, unknown>;
-    expect(entity.name).toBe(KNOWN_SYMBOL);
-    expect(entity.type).toBe('Function');
+    expect(entity.name).toBe('buildWidget');
+    expect(entity.type).toBe('function');
     expect(typeof entity.startLine).toBe('number');
   });
 
   it('returns symbol context scoped to file', async () => {
-    const result = (await handleToolCall('get_context', {
-      symbol: KNOWN_SYMBOL,
-      file: KNOWN_FILE,
+    const result = (await handleToolCall('search', {
+      action: 'context',
+      symbol: 'buildWidget',
+      file: fixtureFile,
     })) as Record<string, unknown>;
 
-    assertNoError(result, 'get_context sym+file');
+    assertNoError(result, 'search context symbol and file');
     const entity = result.entity as Record<string, unknown>;
-    expect(entity.name).toBe(KNOWN_SYMBOL);
-    expect(entity.filePath).toBe(KNOWN_FILE);
+    expect(entity.name).toBe('buildWidget');
+    expect(entity.filePath).toBe(fixtureFile);
   });
 
   it('returns error for missing symbol', async () => {
-    const result = (await handleToolCall('get_context', {
+    const result = (await handleToolCall('search', {
+      action: 'context',
       symbol: 'xyzNonexistent999',
     })) as Record<string, unknown>;
 

@@ -7,6 +7,7 @@
 
 import { homedir } from 'os';
 import { join } from 'path';
+import { randomUUID } from 'node:crypto';
 import { readFile, writeFile, mkdir, rename } from 'fs/promises';
 import { existsSync } from 'fs';
 import { createLogger } from '@codegraph/logger';
@@ -80,7 +81,7 @@ export async function saveConfig(config: MCPContextConfig): Promise<void> {
     }
     // Atomic write: write to unique temp file, then rename.
     // Unique suffix prevents concurrent saveConfig calls from clobbering each other's temp files.
-    const tmpFile = `${CONFIG_FILE}.tmp.${process.pid}.${Date.now()}`;
+    const tmpFile = `${CONFIG_FILE}.tmp.${process.pid}.${randomUUID()}`;
     await writeFile(tmpFile, JSON.stringify(config, null, 2));
     await rename(tmpFile, CONFIG_FILE);
     logger.info('Config saved', { projects: config.activeProjects });

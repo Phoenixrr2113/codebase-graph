@@ -14,26 +14,22 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CODEGRAPH_EMBEDDING_PROVIDER: none
+
 jobs:
-  # Hard gate: must be green for a PR to merge.
-  # Builds every package (tsc, so this also typechecks the whole monorepo)
-  # and runs @codegraph/core's suite, which is green without any API keys
-  # or services.
-  build-and-test:
-    name: Build & unit tests
+  repository:
+    name: Repository
     runs-on: ubuntu-latest
-    env:
-      # Documented offline/CI mode (see README): skip vector indexes so no
-      # embedding API key is required.
-      CODEGRAPH_EMBEDDING_PROVIDER: none
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: pnpm
@@ -41,56 +37,49 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build & typecheck library packages
-        # Excludes @codegraph/mcp (release-only esbuild + native-module
-        # packaging via packages/npm-package/build.mjs — not a correctness
-        # check, and needs a populated tree) and codegraph-landing (the
-        # marketing app, already gated by Vercel). Everything else is tsc.
-        run: pnpm turbo build --filter='!@codegraph/mcp' --filter='!codegraph-landing'
+      - name: Audit production dependencies
+        run: pnpm audit:prod
 
-      - name: Unit tests (core)
-        run: pnpm turbo test --filter=@codegraph/core
+      - name: Lint
+        run: pnpm lint
 
-  # Non-blocking smoke run against a live FalkorDB. Surfaces graph/plugin-nlp
-  # status without gating merges, because the suite still has pre-existing
-  # failures that need triage (integration tests that require an embedding
-  # provider + LLM/Voyage credentials, a few legacy tests referencing removed
-  # APIs, and packages lacking --passWithNoTests). Once those are resolved,
-  # drop `continue-on-error` and fold these filters into build-and-test.
-  integration-smoke:
-    name: Integration smoke (FalkorDB, non-blocking)
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Build desktop extension
+        run: pnpm build:mcpb
+
+  integration:
+    name: Integration (FalkorDB)
     runs-on: ubuntu-latest
-    continue-on-error: true
     env:
-      CODEGRAPH_EMBEDDING_PROVIDER: none
       FALKORDB_HOST: localhost
+      FALKORDB_PORT: 16379
     services:
       falkordb:
-        image: falkordb/falkordb:latest
+        image: falkordb/falkordb@sha256:52b6583afe7b5ba6bbf5b5f0290bdaa765bd97477b310a590771dc33ebc7b5f5
         ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-      cgbench-falkordb:
-        image: falkordb/falkordb:latest
-        ports:
-          - 6380:6379
+          - 16379:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: pnpm
@@ -98,7 +87,75 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Graph + NLP tests (informational)
-        # turbo builds the needed deps automatically (test depends on build);
-        # this never triggers the @codegraph/mcp packaging build.
-        run: pnpm turbo test --filter=@codegraph/graph --filter=@codegraph/plugin-nlp
+      - name: Build packages
+        run: pnpm build
+
+      - name: Run service-backed integration tests
+        run: pnpm test:integration
+
+      - name: Test repository scripts
+        run: pnpm test:scripts
+
+  package-build:
+    name: Build package artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build npm package
+        run: pnpm build:npm
+
+      - name: Validate npm package
+        run: pnpm validate:npm
+
+      - name: Upload exact package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codegraph-mcp-package
+          path: tmp/release
+          if-no-files-found: error
+          retention-days: 3
+
+  package:
+    name: Package (${{ matrix.os }})
+    needs: package-build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Download exact package artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codegraph-mcp-package
+          path: tmp/release
+
+      - name: Install macOS embedded runtime libraries
+        if: runner.os == 'macOS'
+        run: brew install libomp openssl@3
+
+      - name: Test package in a fresh consumer
+        run: node scripts/release/smoke-package.mjs tmp/release/package-result.json

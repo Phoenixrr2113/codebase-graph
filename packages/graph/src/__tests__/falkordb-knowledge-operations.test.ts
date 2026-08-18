@@ -1,5 +1,5 @@
 /**
- * Knowledge Graph Operations — FalkorDB Integration Tests
+ * Knowledge Graph Operations: FalkorDB Integration Tests
  *
  * Tests Entity + RELATES_TO CRUD, temporal memory, and vector search
  * against a real FalkorDB Docker instance (localhost:6379).
@@ -11,6 +11,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createClient, type GraphClient, createKnowledgeOperations, type KnowledgeOperations } from '../index';
 
 const GRAPH_NAME = `test_kg_${Date.now()}`;
+const TEST_HOST = process.env['FALKORDB_HOST'] ?? 'localhost';
+const TEST_PORT = Number(process.env['FALKORDB_PORT'] ?? '6379');
 
 describe('Knowledge Graph Operations (FalkorDB)', () => {
   let client: GraphClient;
@@ -20,12 +22,12 @@ describe('Knowledge Graph Operations (FalkorDB)', () => {
     try {
       client = await createClient({
         driver: 'falkordb',
-        host: 'localhost',
-        port: 6379,
+        host: TEST_HOST,
+        port: TEST_PORT,
         graphName: GRAPH_NAME,
       });
     } catch (error) {
-      console.error('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      console.error('FalkorDB not available: skipping tests. Run: docker compose up -d falkordb');
       throw error;
     }
 
@@ -206,8 +208,8 @@ describe('Knowledge Graph Operations (FalkorDB)', () => {
     };
 
     const emb1 = makeEmbedding(1.0);  // "payment" entity
-    const emb2 = makeEmbedding(1.05); // "billing" entity — close to payment
-    const emb3 = makeEmbedding(5.0);  // "authentication" entity — far from payment
+    const emb2 = makeEmbedding(1.05); // "billing" entity: close to payment
+    const emb3 = makeEmbedding(5.0);  // "authentication" entity: far from payment
 
     await ops.createEntity({
       text: 'processPayment',

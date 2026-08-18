@@ -15,7 +15,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -35,6 +37,6 @@
     "@types/node": "^22.19.19",
     "@types/pdf-parse": "^1.1.5",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.7"
+    "vitest": "^3.2.4"
   }
 }

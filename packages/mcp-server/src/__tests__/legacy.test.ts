@@ -6,22 +6,49 @@
  */
 
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { handleToolCall } from '../tools/router';
 import { registerPlugins } from '@codegraph/core';
-import {
-  SRC_DIR,
-  KNOWN_SYMBOL,
-  KNOWN_FILE,
-  teardownGraphClient,
-  assertNoError,
-} from './helpers';
+import { triggerReindex } from '../tools/reindex';
+import { teardownGraphClient, assertNoError } from './helpers';
 
-beforeAll(() => {
+let fixtureDirectory: string;
+let fixtureFile: string;
+let previousEmbeddingProvider: string | undefined;
+
+beforeAll(async () => {
+  previousEmbeddingProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
+  process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = 'local';
   registerPlugins();
+  fixtureDirectory = mkdtempSync(join(tmpdir(), 'codegraph-mcp-raw-'));
+  const sourceDirectory = join(fixtureDirectory, 'src');
+  mkdirSync(sourceDirectory);
+  fixtureFile = join(sourceDirectory, 'legacy-widget.ts');
+  writeFileSync(
+    fixtureFile,
+    'export function createLegacyWidget(): string { return "legacy-widget"; }\n',
+  );
+
+  const result = await triggerReindex({
+    scope: fixtureDirectory,
+    mode: 'full',
+    deferEmbeddings: false,
+  });
+  if (!result.success) {
+    throw new Error(`Unable to index raw tool fixture: ${result.errors.join('; ')}`);
+  }
 });
 
 afterAll(async () => {
   await teardownGraphClient();
+  if (previousEmbeddingProvider === undefined) {
+    delete process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
+  } else {
+    process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = previousEmbeddingProvider;
+  }
+  rmSync(fixtureDirectory, { recursive: true, force: true });
 });
 
 // ─── ping ────────────────────────────────────────────────────────────────────
@@ -80,7 +107,7 @@ describe('trigger_reindex', () => {
   it('can index a single file', async () => {
     const result = (await handleToolCall('trigger_reindex', {
       mode: 'full',
-      scope: KNOWN_FILE,
+      scope: fixtureFile,
     })) as Record<string, unknown>;
 
     expect(result.success).toBe(true);

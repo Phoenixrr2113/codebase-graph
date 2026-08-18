@@ -3,13 +3,13 @@
  * Implements Model Context Protocol for AI assistant integration
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   type Tool,
-} from '@modelcontextprotocol/sdk/types';
+} from '@modelcontextprotocol/sdk/types.js';
 import { createLogger, toErrorMessage } from '@codegraph/logger';
 import { getTools, handleToolCall, staticTools } from './tools/router';
 import { createRequire } from 'node:module';
@@ -113,7 +113,7 @@ export class CodeGraphMCPServer {
       transport: 'stdio',
     });
 
-    // Server started — config sync handled by tools on first use
+    // Server started: config sync handled by tools on first use
   }
 
   /**

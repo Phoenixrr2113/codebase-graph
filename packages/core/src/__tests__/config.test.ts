@@ -146,6 +146,27 @@ describe('Core Config', () => {
       expect(existsSync(CONFIG_FILE + '.tmp')).toBe(false);
       expect(existsSync(CONFIG_FILE)).toBe(true);
     });
+
+    it('uses distinct temp files for concurrent writes in the same millisecond', async () => {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(1_234_567);
+
+      try {
+        await expect(Promise.all([
+          saveConfig({
+            activeProjects: ['/concurrent/a'],
+            lastUpdated: new Date().toISOString(),
+            setupComplete: true,
+          }),
+          saveConfig({
+            activeProjects: ['/concurrent/b'],
+            lastUpdated: new Date().toISOString(),
+            setupComplete: true,
+          }),
+        ])).resolves.toEqual([undefined, undefined]);
+      } finally {
+        now.mockRestore();
+      }
+    });
   });
 
   // ============================================================

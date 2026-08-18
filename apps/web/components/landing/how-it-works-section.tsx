@@ -24,7 +24,7 @@ const steps = [
     number: "03",
     icon: Sparkles,
     title: "Query",
-    description: "Four MCP persona tools — search, knowledge, codebase, query — give your AI agent vector search, knowledge recall, project management, and raw Cypher. Cross-encoder reranking and graph enrichment included.",
+    description: "Four MCP persona tools: search, knowledge, codebase, query: give your AI agent vector search, knowledge recall, project management, and raw Cypher. Cross-encoder reranking and graph enrichment included.",
   },
 ]
 
@@ -48,17 +48,17 @@ export function HowItWorksSection() {
         </motion.div>
 
         <div className="space-y-12 sm:space-y-16 md:space-y-20">
-          {/* Step 1: Parse — show indexing pipeline animation */}
+          {/* Step 1: Parse: show indexing pipeline animation */}
           <StepRow step={steps[0]} index={0}>
             <IndexingDemo />
           </StepRow>
 
-          {/* Step 2: Graph — show a graph illustration */}
+          {/* Step 2: Graph: show a graph illustration */}
           <StepRow step={steps[1]} index={1} reverse>
             <GraphIllustration />
           </StepRow>
 
-          {/* Step 3: Query — interactive MCP tool call */}
+          {/* Step 3: Query: interactive MCP tool call */}
           <StepRow step={steps[2]} index={2}>
             <ImpactAnalysisDemo />
           </StepRow>
@@ -205,6 +205,9 @@ function IndexingDemo() {
                   <Check className="h-3 w-3 sm:h-4 sm:w-4 text-accent" />
                 )}
                 <span className="text-xs sm:text-sm">Parsing files...</span>
+                {phase === "parsing" && (
+                  <span className="ml-auto text-xs text-muted-foreground">{Math.round(progress)}%</span>
+                )}
               </div>
 
               {phase !== "parsing" && (

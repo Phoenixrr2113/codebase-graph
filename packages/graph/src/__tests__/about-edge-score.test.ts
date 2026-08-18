@@ -5,7 +5,7 @@ import type { GraphClient } from '../client';
 import type { KnowledgeOperations } from '../knowledge-operations';
 
 const TEST_HOST = process.env['FALKORDB_HOST'] ?? 'localhost';
-const TEST_PORT = process.env['FALKORDB_PORT'] ?? '6380';
+const TEST_PORT = process.env['FALKORDB_PORT'] ?? '6379';
 
 describe('AboutEdgeInput.crossEncoderScore', () => {
   let client: GraphClient;
@@ -54,7 +54,7 @@ describe('AboutEdgeInput.crossEncoderScore', () => {
   });
 
   it('defaults to null when crossEncoderScore is omitted (legacy compat)', async () => {
-    // Same edge as test 1 — MERGE + ON MATCH SET overwrites crossEncoderScore back to null.
+    // Same edge as test 1: MERGE + ON MATCH SET overwrites crossEncoderScore back to null.
     await kgOps.createAboutEdge({
       entityText: 'redirect logic',
       entityType: 'Concept',

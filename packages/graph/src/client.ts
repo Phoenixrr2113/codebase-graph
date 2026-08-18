@@ -4,6 +4,7 @@
  */
 
 import type { Graph } from 'falkordb';
+import { existsSync } from 'node:fs';
 import { trace, toErrorMessage } from '@codegraph/logger';
 import type { DatabaseDriver, DriverConfig, CypherDialect } from './driver';
 import { FalkorDBDriver } from './drivers/falkordb';
@@ -271,9 +272,27 @@ async function loadConfigFile(): Promise<Partial<GraphConfig>> {
  * Detect the best default driver. Prefers FalkorDBLite (embedded, no Docker)
  * when the package is installed; falls back to FalkorDB (remote) otherwise.
  */
+export function supportsEmbeddedPlatform(
+  platform: NodeJS.Platform = process.platform,
+  architecture: string = process.arch,
+  fileExists: (path: string) => boolean = existsSync,
+): boolean {
+  if (platform === 'linux' && architecture === 'x64') return true;
+  if (platform !== 'darwin' || architecture !== 'arm64') return false;
+
+  return [
+    '/opt/homebrew/opt/libomp/lib/libomp.dylib',
+    '/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib',
+    '/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib',
+  ].every(fileExists);
+}
+
 async function detectDefaultDriver(): Promise<'falkordb' | 'falkordblite'> {
   // If remote connection is configured, use the remote driver
   if (process.env['FALKORDB_URL'] || process.env['FALKORDB_HOST']) {
+    return 'falkordb';
+  }
+  if (!supportsEmbeddedPlatform()) {
     return 'falkordb';
   }
   try {

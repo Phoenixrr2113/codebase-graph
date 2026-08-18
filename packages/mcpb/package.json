@@ -1,0 +1,14 @@
+{
+  "name": "@codegraph/mcpb",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "^2.1.2",
+    "@codegraph/mcp-server": "workspace:*",
+    "esbuild": "^0.27.7"
+  }
+}

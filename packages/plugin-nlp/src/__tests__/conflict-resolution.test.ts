@@ -1,5 +1,5 @@
 /**
- * Temporal Conflict Resolution — Integration Tests
+ * Temporal Conflict Resolution: Integration Tests
  *
  * Tests the full conflict resolution pipeline (WS9):
  *   - Contradicting facts → old invalidated, new stored
@@ -91,12 +91,12 @@ describe('Temporal Conflict Resolution (FalkorDB)', () => {
     try {
       client = await createClient({
         driver: 'falkordb',
-        host: 'localhost',
-        port: 6379,
+        host: process.env['FALKORDB_HOST'] ?? 'localhost',
+        port: Number(process.env['FALKORDB_PORT'] ?? '6379'),
         graphName: GRAPH_NAME,
       });
     } catch {
-      console.warn('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      console.warn('FalkorDB not available: skipping tests. Run: docker compose up -d falkordb');
       falkordbAvailable = false;
       return;
     }
@@ -107,7 +107,7 @@ describe('Temporal Conflict Resolution (FalkorDB)', () => {
 
   beforeEach(async (ctx) => {
     if (!falkordbAvailable) {
-      ctx.skip('FalkorDB not available — run: docker compose up -d falkordb');
+      ctx.skip('FalkorDB not available: run: docker compose up -d falkordb');
       return;
     }
     try {
@@ -238,7 +238,7 @@ describe('Temporal Conflict Resolution (FalkorDB)', () => {
     // Mock LLM that says NO_CONTRADICTION
     const mockLlm = makeContradictionMock(false);
 
-    // New fact about Sarah — not contradicting
+    // New fact about Sarah: not contradicting
     const result = await checkAndResolveConflicts(ops, {
       headText: 'Sarah',
       headType: 'Person',
@@ -276,7 +276,7 @@ describe('Temporal Conflict Resolution (FalkorDB)', () => {
       confidence: 0.9,
     });
 
-    // No LLM — should return empty result
+    // No LLM: should return empty result
     const result = await checkAndResolveConflicts(ops, {
       headText: 'team',
       headType: 'Organization',
@@ -303,7 +303,7 @@ describe('Temporal Conflict Resolution (FalkorDB)', () => {
     await ops.createEntity({ text: 'NewProject', type: 'Project', confidence: 0.9 });
     await ops.createEntity({ text: 'Go', type: 'Technology', confidence: 0.9 });
 
-    // No existing relationships — new fact is first
+    // No existing relationships: new fact is first
     const mockLlm = makeContradictionMock(true);
     const result = await checkAndResolveConflicts(ops, {
       headText: 'NewProject',
@@ -353,12 +353,12 @@ describe('Temporal Conflict Resolution (FalkorDB)', () => {
     // Invalidate the old $50k relationship
     await ops.invalidateRelationship('budget', 'Concept', '$50k', 'Amount', 'IS');
 
-    // Default recall — only valid facts
+    // Default recall: only valid facts
     const validRels = await ops.getRelationships({ entityText: 'budget' });
     expect(validRels.length).toBe(1);
     expect(validRels[0]!.tailText).toBe('$75k');
 
-    // History recall — all facts including invalidated
+    // History recall: all facts including invalidated
     const allRels = await ops.getRelationships({
       entityText: 'budget',
       includeInvalidated: true,

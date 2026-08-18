@@ -1,5 +1,5 @@
 /**
- * Graph CRUD Operations — FalkorDB Integration Tests
+ * Graph CRUD Operations: FalkorDB Integration Tests
  *
  * Tests entity upserts, edge creation, batchUpsert, project operations,
  * vector search, and clearAll against a real FalkorDB Docker instance.
@@ -25,6 +25,8 @@ import type {
 } from '@codegraph/types';
 
 const GRAPH_NAME = `test_ops_${Date.now()}`;
+const TEST_HOST = process.env['FALKORDB_HOST'] ?? 'localhost';
+const TEST_PORT = Number(process.env['FALKORDB_PORT'] ?? '6379');
 
 // ============================================================================
 // Test Fixtures
@@ -113,12 +115,12 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
     try {
       client = await createClient({
         driver: 'falkordb',
-        host: 'localhost',
-        port: 6379,
+        host: TEST_HOST,
+        port: TEST_PORT,
         graphName: GRAPH_NAME,
       });
     } catch (error) {
-      console.error('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      console.error('FalkorDB not available: skipping tests. Run: docker compose up -d falkordb');
       throw error;
     }
 
@@ -419,10 +421,16 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
         extendsEdges: [],
         implementsEdges: [],
         rendersEdges: [],
+        hasMethodEdges: [],
+        hasPropertyEdges: [],
+        typeRefs: [],
+        hasParamEdges: [],
+        returnsEdges: [],
+        usesTypeEdges: [],
       };
     }
 
-    it('full ParsedFileEntities round-trip — creates file, functions, classes', async () => {
+    it('full ParsedFileEntities round-trip: creates file, functions, classes', async () => {
       const entities = makeBatchEntities('/src/batch-roundtrip.ts');
       await ops.batchUpsert(entities);
 
@@ -457,7 +465,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       expect(typeCount.data[0]?.count).toBe(1);
     });
 
-    it('batchUpsert is idempotent — second call does not create duplicates', async () => {
+    it('batchUpsert is idempotent: second call does not create duplicates', async () => {
       const entities = makeBatchEntities('/src/batch-idempotent.ts');
       await ops.batchUpsert(entities);
       await ops.batchUpsert(entities);
@@ -507,6 +515,12 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
         extendsEdges: [],
         implementsEdges: [],
         rendersEdges: [],
+        hasMethodEdges: [],
+        hasPropertyEdges: [],
+        typeRefs: [],
+        hasParamEdges: [],
+        returnsEdges: [],
+        usesTypeEdges: [],
       };
 
       await ops.batchUpsert(entities);
@@ -643,7 +657,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       );
       expect(edgeBefore.data[0]?.count).toBe(1);
 
-      // Remove the CALLEE file — the function should be preserved because fnCaller still points to it
+      // Remove the CALLEE file: the function should be preserved because fnCaller still points to it
       await ops.removeFileAndCleanup('/src/perf4-callee.ts');
 
       // File node should be gone
@@ -676,7 +690,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       // Create cross-file EXTENDS edge: ClassChild → ClassBase
       await ops.createExtendsEdge('ClassChild', '/src/perf4-child.ts', 'ClassBase', '/src/perf4-base.ts');
 
-      // Remove the BASE file — ClassBase should be preserved due to incoming EXTENDS
+      // Remove the BASE file: ClassBase should be preserved due to incoming EXTENDS
       await ops.removeFileAndCleanup('/src/perf4-base.ts');
 
       // ClassBase should still exist
@@ -702,7 +716,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
 
       await ops.createCallEdge('fnSrc', '/src/perf4-src.ts', 'fnDst', '/src/perf4-dst.ts', 10);
 
-      // Remove the CALLER file — fnSrc has no incoming edges, so it should be removed
+      // Remove the CALLER file: fnSrc has no incoming edges, so it should be removed
       await ops.removeFileAndCleanup('/src/perf4-src.ts');
 
       // fnSrc should be gone (no incoming edges)
@@ -772,12 +786,12 @@ describe('Vector Search (FalkorDB)', () => {
     try {
       client = await createClient({
         driver: 'falkordb',
-        host: 'localhost',
-        port: 6379,
+        host: TEST_HOST,
+        port: TEST_PORT,
         graphName: VECTOR_GRAPH,
       });
     } catch (error) {
-      console.error('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      console.error('FalkorDB not available: skipping tests. Run: docker compose up -d falkordb');
       throw error;
     }
 
@@ -927,12 +941,12 @@ describe('Provenance Stamping (FalkorDB)', () => {
     try {
       client = await createClient({
         driver: 'falkordb',
-        host: 'localhost',
-        port: 6379,
+        host: TEST_HOST,
+        port: TEST_PORT,
         graphName: PROV_GRAPH,
       });
     } catch (error) {
-      console.error('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      console.error('FalkorDB not available: skipping tests. Run: docker compose up -d falkordb');
       throw error;
     }
 
