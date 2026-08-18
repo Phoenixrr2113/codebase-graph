@@ -112,11 +112,15 @@ try {
     });
     const storeText = storeResult.content.find((item) => item.type === 'text')?.text;
     if (storeResult.isError || typeof storeText !== 'string') {
-      throw new Error('Database-backed knowledge store call failed');
+      throw new Error(
+        'Database-backed knowledge store call failed: ' + JSON.stringify(storeResult.content),
+      );
     }
     const stored = JSON.parse(storeText);
     if (typeof stored !== 'object' || stored === null || stored.stored !== true) {
-      throw new Error('Database-backed knowledge store returned an error');
+      throw new Error(
+        'Database-backed knowledge store returned an error: ' + JSON.stringify(stored),
+      );
     }
     const queryResult = await client.callTool({
       name: 'query',
