@@ -38,7 +38,7 @@ function createValidFixture(): string {
     bugs: { url: 'https://github.com/Phoenixrr2113/codebase-graph/issues' },
     engines: { node: '>=20.0.0' },
     publishConfig: { access: 'public' },
-    bin: { 'codegraph-mcp': './bin/codegraph-mcp.mjs' },
+    bin: { 'codegraph-mcp': 'bin/codegraph-mcp.mjs' },
     dependencies: { 'tree-sitter': '^0.22.4' },
   }));
   return directory;

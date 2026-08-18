@@ -154,8 +154,8 @@ export async function validatePackageDirectory(directoryUrl) {
 
   const bin = requireRecord(manifest.bin, 'package.json bin', violations);
   const binRelativePath = bin['codegraph-mcp'];
-  if (binRelativePath !== './bin/codegraph-mcp.mjs') {
-    violations.push('package.json bin must map codegraph-mcp to ./bin/codegraph-mcp.mjs');
+  if (binRelativePath !== 'bin/codegraph-mcp.mjs') {
+    violations.push('package.json bin must map codegraph-mcp to bin/codegraph-mcp.mjs');
   } else {
     try {
       const binStats = await lstat(join(directory, binRelativePath));
