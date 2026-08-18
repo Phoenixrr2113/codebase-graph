@@ -182,8 +182,10 @@ describe('E2E: NLP extraction → knowledge graph → MCP recall', () => {
       modelId: 'test-model',
       doGenerate: {
         content: [{
-          type: 'text' as const,
-          text: JSON.stringify({
+          type: 'tool-call' as const,
+          toolCallId: 'e2e-extraction',
+          toolName: 'emit_extraction',
+          input: JSON.stringify({
             entities: [
               { text: 'Charlie', type: 'Person' },
               { text: 'GraphProject', type: 'Project' },
@@ -193,10 +195,10 @@ describe('E2E: NLP extraction → knowledge graph → MCP recall', () => {
             ],
           }),
         }],
-        finishReason: { unified: 'stop' as const, raw: 'stop' },
+        finishReason: { unified: 'tool-calls' as const, raw: 'tool-calls' },
         usage: {
           inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
-          outputTokens: { total: 10, text: 10, reasoning: 0 },
+          outputTokens: { total: 10, text: 0, reasoning: 0 },
         },
         warnings: [],
       },

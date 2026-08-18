@@ -1,5 +1,5 @@
 /**
- * Speaker Entities + SAID Edges — Unit Tests (Task 6)
+ * Speaker Entities + SAID Edges: Unit Tests (Task 6)
  *
  * Verifies that conversation ingestion creates Person entities for speakers
  * and links them to extracted fact entities via SAID edges.
@@ -7,18 +7,18 @@
  * Implementation location: packages/plugin-nlp/src/extract-and-store.ts
  * The speaker attribution block is at lines 489-514 of extractConversation().
  *
- * Uses MockLanguageModelV3 from ai/test to mock the LLM — no network calls.
- * Uses vi.fn() ops mock to capture DB writes — no FalkorDB required.
+ * Uses MockLanguageModelV3 from ai/test to mock the LLM: no network calls.
+ * Uses vi.fn() ops mock to capture DB writes: no FalkorDB required.
  *
  * Integration tests (with real FalkorDB) live in:
  *   src/__tests__/ingest-conversation.test.ts
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MockLanguageModelV3 } from 'ai/test';
 import { extractConversation } from '../extract-and-store';
 import { chunkConversation } from '../conversation';
 import type { KnowledgeOperations } from '@codegraph/graph';
+import { makeToolCallModel } from './helpers/mock-tool-call-model';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,37 +29,22 @@ import type { KnowledgeOperations } from '@codegraph/graph';
  * Returns Redis and JWT as Technology entities for any input.
  */
 function makeMockModel() {
-  return new MockLanguageModelV3({
-    provider: 'test',
-    modelId: 'test-speaker-model',
-    doGenerate: async () => {
-      const response = {
-        entities: [
-          { text: 'Redis', type: 'Technology', confidence: 0.9 },
-          { text: 'JWT', type: 'Technology', confidence: 0.85 },
-        ],
-        relationships: [],
-      };
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(response) }],
-        finishReason: { unified: 'stop' as const, raw: 'stop' },
-        usage: {
-          inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
-          outputTokens: { total: 10, text: 10, reasoning: 0 },
-        },
-        warnings: [],
-      };
-    },
+  return makeToolCallModel({
+    entities: [
+      { text: 'Redis', type: 'Technology', confidence: 0.9 },
+      { text: 'JWT', type: 'Technology', confidence: 0.85 },
+    ],
+    relationships: [],
   });
 }
 
-/** Minimal mock for KnowledgeOperations — captures createEntity/createRelationship calls */
+/** Minimal mock for KnowledgeOperations: captures createEntity/createRelationship calls */
 function makeMockOps(): KnowledgeOperations {
   return {
     createEntity: vi.fn().mockResolvedValue('mock-entity-id'),
     createRelationship: vi.fn().mockResolvedValue(undefined),
     createEntities: vi.fn().mockResolvedValue([]),
-    // importEntitiesAndRelationships is called by extractAndStore — return non-zero to trigger speaker attribution
+    // importEntitiesAndRelationships is called by extractAndStore: return non-zero to trigger speaker attribution
     importEntitiesAndRelationships: vi.fn().mockResolvedValue({ entities: 2, relationships: 0 }),
     searchEntities: vi.fn().mockResolvedValue([]),
     getEntity: vi.fn().mockResolvedValue(null),

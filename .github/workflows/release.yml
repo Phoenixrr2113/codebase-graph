@@ -1,0 +1,327 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      bootstrap_version:
+        description: "Existing npm version to finalize as the one-time bootstrap release"
+        required: true
+        type: string
+      bootstrap_commit:
+        description: "Full reviewed commit SHA used for the manual npm publication"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CODEGRAPH_EMBEDDING_PROVIDER: none
+      FALKORDB_HOST: localhost
+      FALKORDB_PORT: 16379
+    services:
+      falkordb:
+        image: falkordb/falkordb@sha256:52b6583afe7b5ba6bbf5b5f0290bdaa765bd97477b310a590771dc33ebc7b5f5
+        ports:
+          - 16379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check out exact tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_commit || github.ref }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.14.0
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify annotated release tag
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$(git cat-file -t "$GITHUB_REF")" != "tag" ]]; then
+            echo "Release tag must be annotated: $GITHUB_REF" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          release_commit="$(git rev-list -n 1 "$GITHUB_REF")"
+          if ! git merge-base --is-ancestor "$release_commit" origin/main; then
+            echo "Release tag commit must be reachable from origin/main" >&2
+            exit 1
+          fi
+
+      - name: Verify release request and npm state
+        env:
+          BOOTSTRAP_COMMIT: ${{ inputs.bootstrap_commit }}
+          BOOTSTRAP_VERSION: ${{ inputs.bootstrap_version }}
+        run: node scripts/release/verify-release-tag.mjs
+
+      - name: Verify bootstrap source commit
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          REVIEWED_COMMIT: ${{ inputs.bootstrap_commit }}
+        run: |
+          set -euo pipefail
+          if [[ "$(git rev-parse HEAD)" != "$REVIEWED_COMMIT" ]]; then
+            echo "Checked-out commit does not match bootstrap_commit" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$REVIEWED_COMMIT" origin/main; then
+            echo "Bootstrap commit must be reachable from origin/main" >&2
+            exit 1
+          fi
+
+      - name: Verify bootstrap tag is unused
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.bootstrap_version }}
+        run: |
+          set -euo pipefail
+          if git rev-parse --verify "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "Bootstrap tag v$VERSION already exists locally" >&2
+            exit 1
+          fi
+          if [[ -n "$(git ls-remote --tags origin "refs/tags/v$VERSION")" ]]; then
+            echo "Bootstrap tag v$VERSION already exists on origin" >&2
+            exit 1
+          fi
+
+      - name: Audit production dependencies
+        run: pnpm audit:prod
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Integration test
+        run: pnpm test:integration
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test repository scripts
+        run: pnpm test:scripts
+
+      - name: Build desktop extension
+        run: pnpm build:mcpb
+
+      - name: Build, validate, and smoke npm artifact
+        run: pnpm release:check
+
+      - name: Upload verified npm artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codegraph-release-package
+          path: tmp/release
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Publish npm package
+    if: github.event_name == 'push'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out exact tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.14.0
+          package-manager-cache: false
+
+      - name: Install trusted-publishing npm version
+        run: npm install --global --ignore-scripts npm@11.5.1
+
+      - name: Download verified npm artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codegraph-release-package
+          path: tmp/release
+
+      - name: Read release metadata
+        id: metadata
+        shell: bash
+        run: |
+          echo "version=$(node -p "require('./tmp/release/package-result.json').version")" >> "$GITHUB_OUTPUT"
+          echo "filename=$(node -p "const p=require('./tmp/release/package-result.json'); p.filename")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish with trusted publishing
+        env:
+          FILENAME: ${{ steps.metadata.outputs.filename }}
+        run: npm publish "tmp/release/$FILENAME" --access public
+
+      - name: Wait for registry propagation
+        shell: bash
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if [[ "$(npm view "codegraph-mcp@$VERSION" version --json 2>/dev/null)" == "\"$VERSION\"" ]]; then
+              exit 0
+            fi
+            if [[ "$attempt" == "6" ]]; then
+              echo "codegraph-mcp@$VERSION did not become visible after six attempts" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Verify registry package
+        shell: bash
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          mkdir -p tmp/registry
+          npm pack "codegraph-mcp@$VERSION" --pack-destination tmp/registry
+          node scripts/release/smoke-package.mjs \
+            --tarball "tmp/registry/codegraph-mcp-$VERSION.tgz" \
+            --version "$VERSION"
+
+      - name: Create package checksum
+        shell: bash
+        env:
+          FILENAME: ${{ steps.metadata.outputs.filename }}
+        run: |
+          cd tmp/registry
+          sha256sum "$FILENAME" > "$FILENAME.sha256"
+
+      - name: Create verified GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FILENAME: ${{ steps.metadata.outputs.filename }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            "tmp/registry/$FILENAME" \
+            "tmp/registry/$FILENAME.sha256" \
+            --verify-tag \
+            --generate-notes \
+            --title "v$VERSION"
+
+  bootstrap-finalize:
+    name: Finalize bootstrap release
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out reviewed bootstrap commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.bootstrap_commit }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.14.0
+          package-manager-cache: false
+
+      - name: Download verified npm artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codegraph-release-package
+          path: tmp/release
+
+      - name: Read release metadata
+        id: metadata
+        shell: bash
+        run: |
+          echo "version=$(node -p "require('./tmp/release/package-result.json').version")" >> "$GITHUB_OUTPUT"
+          echo "filename=$(node -p "const p=require('./tmp/release/package-result.json'); p.filename")" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify registry package
+        shell: bash
+        env:
+          FILENAME: ${{ steps.metadata.outputs.filename }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          mkdir -p tmp/registry
+          npm pack "codegraph-mcp@$VERSION" --pack-destination tmp/registry
+          if ! cmp -s "tmp/release/$FILENAME" "tmp/registry/$FILENAME"; then
+            echo "Registry tarball does not match the artifact built from bootstrap_commit" >&2
+            sha256sum "tmp/release/$FILENAME" "tmp/registry/$FILENAME" >&2
+            exit 1
+          fi
+          node scripts/release/smoke-package.mjs \
+            --tarball "tmp/registry/codegraph-mcp-$VERSION.tgz" \
+            --version "$VERSION"
+
+      - name: Create package checksum
+        shell: bash
+        env:
+          FILENAME: ${{ steps.metadata.outputs.filename }}
+        run: |
+          cd tmp/registry
+          sha256sum "$FILENAME" > "$FILENAME.sha256"
+
+      - name: Create annotated bootstrap tag
+        shell: bash
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Create verified GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FILENAME: ${{ steps.metadata.outputs.filename }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            "tmp/registry/$FILENAME" \
+            "tmp/registry/$FILENAME.sha256" \
+            --verify-tag \
+            --generate-notes \
+            --title "v$VERSION"

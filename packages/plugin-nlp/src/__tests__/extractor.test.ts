@@ -1,5 +1,5 @@
 /**
- * EntityExtractor — Unit Tests
+ * EntityExtractor: Unit Tests
  *
  * Uses MockLanguageModelV3 from ai/test to mock LLM responses.
  * Tests zero-shot, few-shot, and batch extraction modes.
@@ -9,26 +9,11 @@ import { describe, it, expect } from 'vitest';
 import { MockLanguageModelV3 } from 'ai/test';
 import { EntityExtractor } from '../extractor';
 import type { Sample, AnnotatedSample } from '@codegraph/types';
+import { makeToolCallModel } from './helpers/mock-tool-call-model';
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-function makeMockModel(responseJson: object) {
-  return new MockLanguageModelV3({
-    provider: 'test',
-    modelId: 'test-model',
-    doGenerate: {
-      content: [{ type: 'text' as const, text: JSON.stringify(responseJson) }],
-      finishReason: { unified: 'stop' as const, raw: 'stop' },
-      usage: {
-        inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
-        outputTokens: { total: 10, text: 10, reasoning: 0 },
-      },
-      warnings: [],
-    },
-  });
-}
 
 function makeSample(text: string, id?: string): Sample {
   return { id: id ?? 'test-sample', text };
@@ -38,9 +23,9 @@ function makeSample(text: string, id?: string): Sample {
 // Zero-shot extraction
 // ============================================================================
 
-describe('EntityExtractor — zero-shot', () => {
+describe('EntityExtractor: zero-shot', () => {
   it('should extract entities and relationships from text', async () => {
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Randy', type: 'Person' },
         { text: 'Kuzu', type: 'CodeEntity' },
@@ -68,7 +53,7 @@ describe('EntityExtractor — zero-shot', () => {
   });
 
   it('should normalize entity type synonyms', async () => {
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Randy', type: 'Person' },
         { text: 'something', type: 'defect' },
@@ -79,14 +64,14 @@ describe('EntityExtractor — zero-shot', () => {
     const extractor = new EntityExtractor({ languageModel: mockModel });
     const result = await extractor.extract(makeSample('Randy found something'));
 
-    // Both entities should pass — synonym "defect" normalizes to "Bug"
+    // Both entities should pass: synonym "defect" normalizes to "Bug"
     expect(result.entities).toHaveLength(2);
     expect(result.entities[0]!.type).toBe('Person');
     expect(result.entities[1]!.type).toBe('Bug');
   });
 
   it('should pass through novel entity and relationship types', async () => {
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Alice', type: 'Person' },
         { text: 'Bob', type: 'Person' },
@@ -110,7 +95,7 @@ describe('EntityExtractor — zero-shot', () => {
   });
 
   it('should normalize relationship type synonyms', async () => {
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Alice', type: 'Person' },
         { text: 'Bob', type: 'Person' },
@@ -131,7 +116,7 @@ describe('EntityExtractor — zero-shot', () => {
   });
 
   it('should skip entities whose text is not found in the sample', async () => {
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Randy', type: 'Person' },
         { text: 'NotInText', type: 'Concept' },
@@ -170,7 +155,7 @@ describe('EntityExtractor — zero-shot', () => {
 
   it('should compute correct start/end offsets for entities', async () => {
     const text = 'Alice met Bob at the conference';
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Alice', type: 'Person' },
         { text: 'Bob', type: 'Person' },
@@ -195,7 +180,7 @@ describe('EntityExtractor — zero-shot', () => {
 // Few-shot extraction
 // ============================================================================
 
-describe('EntityExtractor — few-shot (extractWithExamples)', () => {
+describe('EntityExtractor: few-shot (extractWithExamples)', () => {
   const exampleSample: AnnotatedSample = {
     id: 'example-1',
     text: 'John decided to use React',
@@ -211,7 +196,7 @@ describe('EntityExtractor — few-shot (extractWithExamples)', () => {
   };
 
   it('should extract using few-shot examples', async () => {
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Sarah', type: 'Person' },
         { text: 'Vue', type: 'CodeEntity' },
@@ -231,7 +216,7 @@ describe('EntityExtractor — few-shot (extractWithExamples)', () => {
   });
 
   it('should fall back to zero-shot when no examples given', async () => {
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [{ text: 'test', type: 'Concept' }],
       relationships: [],
     });
@@ -263,11 +248,16 @@ describe('EntityExtractor — few-shot (extractWithExamples)', () => {
         }
 
         return {
-          content: [{ type: 'text' as const, text: '{"entities":[],"relationships":[]}' }],
-          finishReason: { unified: 'stop' as const, raw: 'stop' },
+          content: [{
+            type: 'tool-call' as const,
+            toolCallId: 'test-tool-call-1',
+            toolName: 'emit_extraction',
+            input: '{"entities":[],"relationships":[]}',
+          }],
+          finishReason: { unified: 'tool-calls' as const, raw: 'tool-calls' },
           usage: {
             inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
-            outputTokens: { total: 5, text: 5, reasoning: 0 },
+            outputTokens: { total: 5, text: 0, reasoning: 0 },
           },
           warnings: [],
         };
@@ -290,9 +280,9 @@ describe('EntityExtractor — few-shot (extractWithExamples)', () => {
 // Batch extraction
 // ============================================================================
 
-describe('EntityExtractor — batch', () => {
+describe('EntityExtractor: batch', () => {
   it('should extract from multiple samples in one call', async () => {
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       results: [
         {
           sampleId: 's1',
@@ -305,7 +295,7 @@ describe('EntityExtractor — batch', () => {
           relationships: [],
         },
       ],
-    });
+    }, 'emit_batch');
 
     const extractor = new EntityExtractor({ languageModel: mockModel });
     const results = await extractor.extractBatch([

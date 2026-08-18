@@ -15,6 +15,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest",
+    "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -35,6 +36,9 @@
     "simple-git": "^3.36.0",
     "tree-sitter": "^0.22.4",
     "zod": "^3.25.76"
+  },
+  "optionalDependencies": {
+    "@codegraph/plugin-languages": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

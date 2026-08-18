@@ -19,6 +19,20 @@ interface ResultItem {
   [key: string]: unknown
 }
 
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
+
+function asFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) && value.every((item): item is string => typeof item === 'string')
+    ? value
+    : []
+}
+
 export function QueryPanel({ apiUrl }: QueryPanelProps) {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<QueryMode>('cypher')
@@ -125,6 +139,10 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
     search: 'createUser authentication handler',
     natural: 'What functions call createOrder? Why does payment retry 3 times?',
   }
+  const routedTo = asString(meta?.routedTo)
+  const iterations = asFiniteNumber(meta?.iterations)
+  const queries = asStringArray(meta?.queries)
+  const total = asFiniteNumber(meta?.total)
 
   return (
     <div className="flex h-full min-h-0 flex-col border-t border-border bg-card">
@@ -192,16 +210,16 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
         {results !== null ? (
           <div className="space-y-2">
             {/* Meta info (routing, iterations) */}
-            {meta?.routedTo && (
+            {routedTo && (
               <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <Badge variant="outline" className="text-[10px]">{meta.routedTo as string}</Badge>
-                {meta.iterations && <span>{meta.iterations as number} iterations</span>}
+                <Badge variant="outline" className="text-[10px]">{routedTo}</Badge>
+                {iterations !== undefined && <span>{iterations} iterations</span>}
                 {durationMs != null && <span>{durationMs}ms</span>}
               </div>
             )}
-            {meta?.queries && (meta.queries as string[]).length > 1 && (
+            {queries.length > 1 && (
               <div className="text-[10px] text-muted-foreground/70">
-                Queries: {(meta.queries as string[]).map((q, i) => (
+                Queries: {queries.map((q, i) => (
                   <span key={i}>{i > 0 && ' → '}<span className="text-muted-foreground">{q}</span></span>
                 ))}
               </div>
@@ -210,8 +228,8 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
             {/* Result count + copy */}
             <div className="flex items-center justify-between">
               <div className="text-xs text-muted-foreground">
-                {results.length} result{results.length !== 1 ? 's' : ''}
-                {durationMs != null && !meta?.routedTo && <span className="ml-2 text-muted-foreground/60">{durationMs}ms</span>}
+                {total ?? results.length} result{(total ?? results.length) !== 1 ? 's' : ''}
+                {durationMs != null && !routedTo && <span className="ml-2 text-muted-foreground/60">{durationMs}ms</span>}
               </div>
               <button
                 onClick={handleCopy}
@@ -233,7 +251,7 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
                 <div className="space-y-1">
                   {(results as ResultItem[]).map((r, i) => (
                     <div key={i} className="flex items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 hover:bg-accent/30 transition-colors">
-                      <Badge variant="outline" className="text-[10px] shrink-0">{r.nodeType ?? r.type}</Badge>
+                      <Badge variant="outline" className="text-[10px] shrink-0">{asString(r.nodeType) ?? r.type}</Badge>
                       {r.source && <Badge variant="outline" className="text-[9px] shrink-0 text-muted-foreground">{r.source}</Badge>}
                       <span className="text-sm font-medium truncate">{r.name}</span>
                       {r.filePath && (
@@ -260,7 +278,7 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
           <div className="text-xs text-muted-foreground text-center py-6">
             {mode === 'cypher' && 'Enter a Cypher query and press Execute'}
             {mode === 'search' && 'Search for code symbols by name or description'}
-            {mode === 'natural' && 'Ask a question in plain English — it will auto-route to the best search strategy'}
+            {mode === 'natural' && 'Ask a question in plain English: it will auto-route to the best search strategy'}
           </div>
         )}
       </div>

@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:competitors": "vitest run --config vitest.competitors.config.ts",
     "test:watch": "vitest",
     "bench": "tsx src/cli.ts",
     "bench:clone-corpora": "tsx scripts/clone-corpora.ts",
@@ -15,7 +17,7 @@
     "@codegraph/core": "workspace:*",
     "@codegraph/graph": "workspace:*",
     "@codegraph/types": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

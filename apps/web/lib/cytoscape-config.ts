@@ -4,6 +4,8 @@
  * Ported from old packages/web with adaptations for current dashboard.
  */
 
+import type cytoscape from 'cytoscape'
+
 // ============================================================================
 // Node Colors
 // ============================================================================
@@ -29,7 +31,7 @@ export const NODE_COLORS: Record<string, string> = {
 // Node Shapes
 // ============================================================================
 
-export const NODE_SHAPES: Record<string, string> = {
+export const NODE_SHAPES: Record<string, cytoscape.Css.NodeShape> = {
   File: 'round-rectangle',
   Class: 'diamond',
   Interface: 'diamond',
@@ -91,35 +93,39 @@ export const EDGE_COLORS: Record<string, string> = {
 // Cytoscape Stylesheet
 // ============================================================================
 
-function nodeStyle(label: string) {
+function nodeStyle(label: string): cytoscape.StylesheetJsonBlock {
   const color = NODE_COLORS[label] ?? '#64748b'
   const shape = NODE_SHAPES[label] ?? 'ellipse'
   const size = NODE_SIZES[label] ?? { width: 25, height: 25 }
+  const style: cytoscape.Css.Node = {
+    'background-color': color,
+    shape,
+    width: size.width,
+    height: size.height,
+    ...(label === 'Interface' ? { 'border-width': 2, 'border-style': 'dashed' as const, 'border-color': '#fbbf24' } : {}),
+  }
+
   return {
     selector: `node[type="${label}"]`,
-    style: {
-      'background-color': color,
-      shape,
-      width: size.width,
-      height: size.height,
-      ...(label === 'Interface' ? { 'border-width': 2, 'border-style': 'dashed' as const, 'border-color': '#fbbf24' } : {}),
-    },
+    style,
   }
 }
 
-function edgeStyle(label: string, extra?: Record<string, unknown>) {
+function edgeStyle(label: string, extra: cytoscape.Css.Edge = {}): cytoscape.StylesheetJsonBlock {
   const color = EDGE_COLORS[label] ?? '#64748b'
+  const style: cytoscape.Css.Edge = {
+    'line-color': color,
+    'target-arrow-color': color,
+    ...extra,
+  }
+
   return {
     selector: `edge[label="${label}"]`,
-    style: {
-      'line-color': color,
-      'target-arrow-color': color,
-      ...extra,
-    },
+    style,
   }
 }
 
-export const cytoscapeStylesheet = [
+export const cytoscapeStylesheet: cytoscape.StylesheetJson = [
   // Base node
   {
     selector: 'node',
@@ -205,7 +211,7 @@ export const cytoscapeStylesheet = [
 
 export type LayoutName = 'cose' | 'concentric' | 'breadthfirst'
 
-export const LAYOUT_OPTIONS: Record<LayoutName, Record<string, unknown>> = {
+export const LAYOUT_OPTIONS: Record<LayoutName, cytoscape.LayoutOptions> = {
   cose: {
     name: 'cose',
     animate: true,

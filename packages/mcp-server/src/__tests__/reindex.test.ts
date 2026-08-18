@@ -3,27 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { triggerReindex } from '../tools/reindex';
-import { closeGraphClient, createClient } from '@codegraph/core';
-
-const FALKORDB_HOST = process.env['FALKORDB_HOST'] ?? 'localhost';
-const FALKORDB_PORT = process.env['FALKORDB_PORT'] ?? '6379';
-
-// Check if FalkorDB is reachable before running tests
-let isAvailable = false;
-beforeAll(async () => {
-  try {
-    const client = await createClient({
-      driver: 'falkordb',
-      host: FALKORDB_HOST,
-      port: Number(FALKORDB_PORT),
-      graphName: `skip-check-${Date.now()}`,
-    });
-    isAvailable = true;
-    await client.close();
-  } catch {
-    isAvailable = false;
-  }
-});
+import { closeGraphClient } from '@codegraph/core';
 
 // Tiny in-memory corpus so reindex completes in seconds.
 function makeFixture(): string {
@@ -36,13 +16,9 @@ function makeFixture(): string {
   return dir;
 }
 
-describe.skipIf(!isAvailable)('triggerReindex — blocks on embeddings by default', () => {
+describe('triggerReindex blocks on embeddings by default', () => {
   let fixture: string;
   beforeAll(() => {
-    process.env['FALKORDB_HOST'] = FALKORDB_HOST;
-    process.env['FALKORDB_PORT'] = FALKORDB_PORT;
-    process.env['CODEGRAPH_DRIVER'] = 'falkordb';
-    process.env['FALKORDB_GRAPH'] = 'reindex-test-' + Date.now();
     process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = 'local';
     fixture = makeFixture();
   });
@@ -51,6 +27,7 @@ describe.skipIf(!isAvailable)('triggerReindex — blocks on embeddings by defaul
   });
   afterAll(async () => {
     await closeGraphClient();
+    process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = 'none';
     rmSync(fixture, { recursive: true, force: true });
   });
 
@@ -63,7 +40,6 @@ describe.skipIf(!isAvailable)('triggerReindex — blocks on embeddings by defaul
   }, 120_000);
 
   it('respects deferEmbeddings=true override (returns embeddingsDeferred=true)', async () => {
-    process.env['FALKORDB_GRAPH'] = 'reindex-test-defer-' + Date.now();
     const fixture2 = makeFixture();
     try {
       const result = await triggerReindex({ scope: fixture2, mode: 'full', deferEmbeddings: true });

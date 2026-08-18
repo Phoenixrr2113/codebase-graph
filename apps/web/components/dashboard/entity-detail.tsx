@@ -56,9 +56,10 @@ export function EntityDetail({ node }: EntityDetailProps) {
   const isExported = props.isExported === true
   const isAsync = props.isAsync === true
   const isArrow = props.isArrow === true
+  const isAbstract = props.isAbstract === true
+  const extendsName = typeof props.extends === 'string' ? props.extends : undefined
   const docstring = props.docstring as string | undefined
   const bodySnippet = props.bodySnippet as string | undefined
-  const signature = props.signature as string | undefined
   const params = props.params
   const returnType = props.returnType as string | undefined
 
@@ -122,9 +123,9 @@ export function EntityDetail({ node }: EntityDetailProps) {
         {node.type === 'Class' && (
           <Section title="Signature" icon={<FnIcon />}>
             <div className="rounded-lg border border-border bg-background/50 p-2.5 font-mono text-xs" style={{ overflowWrap: 'anywhere' }}>
-              {props.isAbstract && <span className="text-purple-400">abstract </span>}
+              {isAbstract && <span className="text-purple-400">abstract </span>}
               <span className="text-amber-400 font-semibold">class {node.label}</span>
-              {props.extends && <span className="text-muted-foreground"> extends <span className="text-cyan-400">{String(props.extends)}</span></span>}
+              {extendsName && <span className="text-muted-foreground"> extends <span className="text-cyan-400">{extendsName}</span></span>}
             </div>
           </Section>
         )}
@@ -151,6 +152,7 @@ export function EntityDetail({ node }: EntityDetailProps) {
         {filePath && startLine != null && (
           <Section title="Code Preview">
             <CodePreview
+              key={`${node.id}:${filePath}:${startLine}:${endLine ?? ''}`}
               apiUrl={API_URL}
               filePath={filePath}
               startLine={startLine}
@@ -374,10 +376,6 @@ function CodePreview({ apiUrl, filePath, startLine, endLine, nodeId }: {
 
   // Fetch source code
   useEffect(() => {
-    setLoading(true)
-    setLines(null)
-    setHighlightedHtml(null)
-
     const el = endLine ?? startLine
     fetch(`${apiUrl}/api/source?path=${encodeURIComponent(filePath)}&startLine=${startLine}&endLine=${el}&context=5`)
       .then(r => r.ok ? r.json() : null)

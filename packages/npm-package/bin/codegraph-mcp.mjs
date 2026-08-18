@@ -1,27 +1,49 @@
 #!/usr/bin/env node
 /**
- * CodeGraph MCP Server — CLI entry point
+ * CodeGraph MCP Server CLI entry point
  *
  * Usage:
  *   codegraph-mcp                          # start MCP server (stdio transport)
- *   npx @codegraph/mcp                     # run without global install
+ *   npx codegraph-mcp                      # run without global install
  *
  * Environment:
- *   CODEGRAPH_LICENSE        — License key (required, purchase at polar.sh/codegraph)
- *   VOYAGE_API_KEY           — Voyage AI API key (for embeddings)
- *   JINA_API_KEY             — Jina AI API key (for reranking)
- *   CODEGRAPH_DRIVER         — Database driver: falkordb (default) or falkordblite
- *   CODEGRAPH_DB_PATH        — Database path for falkordblite (default: .codegraph/falkordb)
+ *   CODEGRAPH_EMBEDDING_PROVIDER  Embedding provider or "none" for offline mode
+ *   CODEGRAPH_DRIVER              Database driver: falkordb or falkordblite
+ *   CODEGRAPH_DB_PATH             Database path for falkordblite
  */
 
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const serverPath = join(__dirname, '..', 'server', 'index.mjs');
 
-// Force logs to stderr (MCP stdio requires clean stdout)
-process.env.CODEGRAPH_LOG_STDERR = 'true';
+function readPackageVersion() {
+  const manifest = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  );
+  if (
+    typeof manifest !== 'object' ||
+    manifest === null ||
+    manifest.name !== 'codegraph-mcp' ||
+    typeof manifest.version !== 'string'
+  ) {
+    throw new Error('invalid package manifest');
+  }
+  return manifest.version;
+}
 
-// Import and run
-await import(serverPath);
+if (process.argv.includes('--version') || process.argv.includes('-v')) {
+  try {
+    process.stdout.write(`${readPackageVersion()}\n`);
+  } catch {
+    process.stderr.write('codegraph-mcp: unable to read package version\n');
+    process.exitCode = 1;
+  }
+} else {
+  // MCP stdio reserves stdout for protocol messages.
+  process.env.CODEGRAPH_LOG_STDERR = 'true';
+
+  await import(pathToFileURL(serverPath).href);
+}

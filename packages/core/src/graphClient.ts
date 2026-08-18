@@ -8,16 +8,32 @@
 import { createClient, type GraphClient } from '@codegraph/graph';
 
 let graphClient: GraphClient | null = null;
+let graphClientPromise: Promise<GraphClient> | null = null;
 
 /**
  * Get the shared graph client instance.
  * Creates the client on first call, returns cached instance thereafter.
  */
 export async function getGraphClient(): Promise<GraphClient> {
-  if (!graphClient) {
-    graphClient = await createClient();
+  if (graphClient) {
+    return graphClient;
   }
-  return graphClient;
+  if (!graphClientPromise) {
+    const connection = createClient().then((client) => {
+      graphClient = client;
+      return client;
+    });
+    graphClientPromise = connection;
+    void connection.then(
+      () => {
+        if (graphClientPromise === connection) graphClientPromise = null;
+      },
+      () => {
+        if (graphClientPromise === connection) graphClientPromise = null;
+      },
+    );
+  }
+  return graphClientPromise;
 }
 
 /**
@@ -25,8 +41,20 @@ export async function getGraphClient(): Promise<GraphClient> {
  * Call this when shutting down.
  */
 export async function closeGraphClient(): Promise<void> {
+  if (graphClientPromise) {
+    const connection = graphClientPromise;
+    try {
+      await connection;
+    } catch {
+      // The original getGraphClient caller receives the connection error.
+      // Shutdown only needs to ensure no client was left open.
+    } finally {
+      if (graphClientPromise === connection) graphClientPromise = null;
+    }
+  }
   if (graphClient) {
-    await graphClient.close();
+    const client = graphClient;
     graphClient = null;
+    await client.close();
   }
 }

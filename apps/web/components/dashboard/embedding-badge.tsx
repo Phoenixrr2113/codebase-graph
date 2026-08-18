@@ -37,9 +37,12 @@ export function EmbeddingBadge() {
   }, [])
 
   useEffect(() => {
-    fetchStats()
+    const initialFetch = window.setTimeout(fetchStats, 0)
     const interval = setInterval(fetchStats, 30_000)
-    return () => clearInterval(interval)
+    return () => {
+      clearTimeout(initialFetch)
+      clearInterval(interval)
+    }
   }, [fetchStats])
 
   const handleGenerate = useCallback(async () => {

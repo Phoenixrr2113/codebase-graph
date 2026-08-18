@@ -82,8 +82,8 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdge
         const instance = cy({
           container: containerRef.current,
           elements: [...nodes, ...edges],
-          style: cytoscapeStylesheet as cytoscape.Stylesheet[],
-          layout: LAYOUT_OPTIONS.cose as cytoscape.LayoutOptions,
+          style: cytoscapeStylesheet,
+          layout: LAYOUT_OPTIONS.cose,
           minZoom: 0.1,
           maxZoom: 5,
         })
@@ -224,7 +224,7 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdge
   const handleRelayout = useCallback((newLayout?: LayoutName) => {
     const l = newLayout ?? layout
     if (newLayout) setLayout(l)
-    cyRef.current?.layout(LAYOUT_OPTIONS[l] as cytoscape.LayoutOptions).run()
+    cyRef.current?.layout(LAYOUT_OPTIONS[l]).run()
   }, [layout])
 
   return (

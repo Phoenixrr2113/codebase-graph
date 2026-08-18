@@ -1,5 +1,5 @@
 /**
- * Bridge-Linker Embedding Similarity — Focused Unit Tests
+ * Bridge-Linker Embedding Similarity: Focused Unit Tests
  *
  * Spec reference: docs/superpowers/specs/2026-04-27-pre-benchmark-fixes-design.md §4.7
  *
@@ -20,7 +20,7 @@
  * node types). Scenario 3 from the spec is documented here as a gap test that
  * asserts the current behavior (1 edge), not the spec's hoped-for behavior (K edges).
  *
- * Uses vi.mock to control embeddings — no real embedding model needed.
+ * Uses vi.mock to control embeddings: no real embedding model needed.
  * Uses FalkorDB Docker for graph storage. Requires: docker compose up -d falkordb
  */
 
@@ -86,12 +86,12 @@ describe('Bridge-Linker Embedding Similarity', () => {
     try {
       client = await createClient({
         driver: 'falkordb',
-        host: 'localhost',
-        port: 6379,
+        host: process.env['FALKORDB_HOST'] ?? 'localhost',
+        port: Number(process.env['FALKORDB_PORT'] ?? '6379'),
         graphName: GRAPH_NAME,
       });
     } catch {
-      console.warn('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      console.warn('FalkorDB not available: skipping tests. Run: docker compose up -d falkordb');
       falkordbAvailable = false;
       return;
     }
@@ -109,7 +109,7 @@ describe('Bridge-Linker Embedding Similarity', () => {
       loc: 100, lastModified: '2025-01-01', hash: 'pay001',
     });
 
-    // Payment cluster — dim 0
+    // Payment cluster: dim 0
     await ops.upsertFunction({
       name: 'processPayment', filePath: '/src/payments.ts',
       startLine: 1, endLine: 20,
@@ -121,7 +121,7 @@ describe('Bridge-Linker Embedding Similarity', () => {
       isExported: true, isAsync: false, isArrow: false, params: [],
     });
 
-    // Chart cluster — dim 1
+    // Chart cluster: dim 1
     await ops.upsertFunction({
       name: 'renderChart', filePath: '/src/payments.ts',
       startLine: 42, endLine: 60,
@@ -160,7 +160,7 @@ describe('Bridge-Linker Embedding Similarity', () => {
 
   beforeEach(async (ctx) => {
     if (!falkordbAvailable) {
-      ctx.skip('FalkorDB not available — run: docker compose up -d falkordb');
+      ctx.skip('FalkorDB not available: run: docker compose up -d falkordb');
       return;
     }
     // Remove all Entity nodes and ABOUT edges between tests
@@ -219,7 +219,7 @@ describe('Bridge-Linker Embedding Similarity', () => {
     });
 
     const result = await linkByEmbedding(client, kg, {
-      threshold: 0.99, // very high — nothing will match
+      threshold: 0.99, // very high: nothing will match
       force: true,
     });
 
@@ -242,7 +242,7 @@ describe('Bridge-Linker Embedding Similarity', () => {
     // Entity "payment work" is in the middle of the payment cluster
     await kg.createEntity({ text: 'payment work', type: 'Task', confidence: 0.9 });
 
-    // Mock: embedding near dim 0 — both processPayment and validatePayment are candidates
+    // Mock: embedding near dim 0: both processPayment and validatePayment are candidates
     vi.mocked(generateEmbedding).mockResolvedValue({
       embedding: makeVec(0, 0.92),
       dimensions: DIM,
@@ -261,7 +261,7 @@ describe('Bridge-Linker Embedding Similarity', () => {
   });
 
   // ==========================================================================
-  // Scenario 4 / 5: Threshold tuning — lower threshold → more edges
+  // Scenario 4 / 5: Threshold tuning: lower threshold → more edges
   // ==========================================================================
 
   it('lowering threshold from 0.99 to 0.7 increases linked edge count', async () => {
@@ -275,7 +275,7 @@ describe('Bridge-Linker Embedding Similarity', () => {
       callCount++;
       const dim = callCount % 2 === 1 ? 0 : 1;
       return {
-        embedding: makeVec(dim, 0.93),
+        embedding: mixedVec(dim, 0.9, 100, 0.4358898943540673),
         dimensions: DIM,
         provider: 'test',
       };
@@ -297,7 +297,7 @@ describe('Bridge-Linker Embedding Similarity', () => {
   });
 
   // ==========================================================================
-  // Scenario 6: Skip-list — Person/Organization/etc. are not linked
+  // Scenario 6: Skip-list: Person/Organization/etc. are not linked
   // ==========================================================================
 
   it('respects the skip-list: Person, Organization, Event, Document, and similar types are not linked', async () => {
@@ -315,7 +315,7 @@ describe('Bridge-Linker Embedding Similarity', () => {
     });
 
     const result = await linkByEmbedding(client, kg, {
-      threshold: 0.5, // very permissive — would match if not skipped
+      threshold: 0.5, // very permissive: would match if not skipped
       force: true,
     });
 

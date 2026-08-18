@@ -1,5 +1,5 @@
 /**
- * Bridge Linker — Integration Tests
+ * Bridge Linker: Integration Tests
  *
  * Tests auto-creation of ABOUT edges from knowledge entities to code graph nodes
  * via name matching. Runs against FalkorDB Docker.
@@ -90,7 +90,7 @@ describe('Bridge Linker (name matching)', () => {
         graphName: TEST_GRAPH,
       });
     } catch {
-      console.warn('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      console.warn('FalkorDB not available: skipping tests. Run: docker compose up -d falkordb');
       falkordbAvailableNameMatching = false;
       return;
     }
@@ -129,7 +129,7 @@ describe('Bridge Linker (name matching)', () => {
   }, 30_000);
 
   beforeEach((ctx) => {
-    if (!falkordbAvailableNameMatching) ctx.skip('FalkorDB not available — run: docker compose up -d falkordb');
+    if (!falkordbAvailableNameMatching) ctx.skip('FalkorDB not available: run: docker compose up -d falkordb');
   });
 
   afterAll(async () => {
@@ -262,7 +262,7 @@ describe('Bridge Linker (name matching)', () => {
     expect(funcEdge!.confidence).toBe(1.0);
   });
 
-  it('should create ABOUT edges that are queryable via getAboutEdgesForCodeNode', async () => {
+  it('should create ABOUT edges that are queryable from a code node', async () => {
     // Link a class entity
     await linkEntitiesToCode(
       [{ text: 'PaymentService', type: 'Technology' }],
@@ -270,9 +270,14 @@ describe('Bridge Linker (name matching)', () => {
       kg,
     );
 
-    const edges = await kg.getAboutEdgesForCodeNode('Class', 'PaymentService');
-    expect(edges.length).toBeGreaterThanOrEqual(1);
-    expect(edges[0]!.entityText).toBe('PaymentService');
+    const edges = await client.roQuery<{ entityText: string }>(
+      `MATCH (e:Entity)-[:ABOUT]->(target:Class)
+       WHERE target.name = $targetValue
+       RETURN e.text AS entityText`,
+      { params: { targetValue: 'PaymentService' } },
+    );
+    expect(edges.data.length).toBeGreaterThanOrEqual(1);
+    expect(edges.data[0]!.entityText).toBe('PaymentService');
   });
 
   // ---------- Contained match ----------
@@ -349,12 +354,12 @@ describe('Bridge Linker (embedding similarity)', () => {
     try {
       client = await createClient({
         driver: 'falkordb',
-        host: 'localhost',
-        port: 6379,
+        host: process.env['FALKORDB_HOST'] ?? 'localhost',
+        port: Number(process.env['FALKORDB_PORT'] ?? '6379'),
         graphName: GRAPH_NAME,
       });
     } catch {
-      console.warn('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      console.warn('FalkorDB not available: skipping tests. Run: docker compose up -d falkordb');
       falkordbAvailableEmbedding = false;
       return;
     }
@@ -382,7 +387,7 @@ describe('Bridge Linker (embedding similarity)', () => {
       startLine: 40, endLine: 50, isExported: true, isAsync: false, isArrow: false, params: [],
     });
 
-    // Set embeddings on code nodes — "payment" cluster near dim 0, "chart" near dim 1
+    // Set embeddings on code nodes: "payment" cluster near dim 0, "chart" near dim 1
     const RETRY_VEC = makeVec({ 0: 0.85, 1: 0.05, 2: 0.1 });
     const PAYMENT_VEC = makeVec({ 0: 0.95, 1: 0.0, 2: 0.05 });
     const CHART_VEC = makeVec({ 0: 0.05, 1: 0.95, 2: 0.0 });
@@ -398,7 +403,7 @@ describe('Bridge Linker (embedding similarity)', () => {
   }, 30_000);
 
   beforeEach((ctx) => {
-    if (!falkordbAvailableEmbedding) ctx.skip('FalkorDB not available — run: docker compose up -d falkordb');
+    if (!falkordbAvailableEmbedding) ctx.skip('FalkorDB not available: run: docker compose up -d falkordb');
   });
 
   afterAll(async () => {
@@ -461,7 +466,7 @@ describe('Bridge Linker (embedding similarity)', () => {
     });
 
     const result = await linkByEmbedding(client, kg, {
-      threshold: 0.99, // very high threshold — nothing should match
+      threshold: 0.99, // very high threshold: nothing should match
       force: true,
     });
 
@@ -500,13 +505,7 @@ describe('Bridge Linker (embedding similarity)', () => {
 
   it('should create ABOUT edges with method=embedding_similarity', async () => {
     // Clean up any ABOUT edges from previous tests
-    const entities = await kg.searchEntities({ limit: 100 });
-    for (const e of entities) {
-      const edges = await kg.getAboutEdgesForEntity(e.text, e.type, 100);
-      for (const edge of edges) {
-        await kg.deleteAboutEdge(e.text, e.type, edge.targetLabel, edge.targetValue);
-      }
-    }
+    await client.query('MATCH ()-[r:ABOUT]->() DELETE r', { params: {} });
 
     vi.mocked(isEmbeddingAvailable).mockReturnValue(true);
     vi.mocked(generateEmbedding).mockResolvedValue({

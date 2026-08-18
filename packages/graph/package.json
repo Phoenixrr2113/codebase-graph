@@ -14,7 +14,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts && vitest run --config vitest.lite.integration.config.ts",
+    "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -26,5 +28,9 @@
     "falkordblite": "^0.2.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
+  },
+  "optionalDependencies": {
+    "@falkordblite/darwin-arm64": "8.2.3-falkordb.4.16.3",
+    "@falkordblite/linux-x64": "8.2.3-falkordb.4.16.3"
   }
 }
