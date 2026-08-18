@@ -15,7 +15,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts && vitest run --config vitest.lite.integration.config.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

@@ -60,12 +60,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FALKORDB_HOST: localhost
-      FALKORDB_PORT: 6379
+      FALKORDB_PORT: 16379
     services:
       falkordb:
         image: falkordb/falkordb@sha256:52b6583afe7b5ba6bbf5b5f0290bdaa765bd97477b310a590771dc33ebc7b5f5
         ports:
-          - 6379:6379
+          - 16379:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -83,6 +83,11 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Install FalkorDBLite runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes redis-server
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

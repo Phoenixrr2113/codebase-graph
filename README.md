@@ -151,6 +151,7 @@ pnpm release:check
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the pull request workflow and required evidence.
+The integration suite also requires a `redis-server` executable on `PATH` for FalkorDBLite coverage.
 
 ## Packages
 

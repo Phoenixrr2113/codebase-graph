@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SpawnSyncReturns } from 'node:child_process';
 import {
+  resolveNpmCommand,
   resolveSmokeInput,
   resolveValidatedPackageInput,
   smokePackage,
@@ -53,6 +54,12 @@ function successfulRunner() {
 }
 
 describe('smokePackage', () => {
+  it('uses the Windows npm command shim on win32', () => {
+    expect(resolveNpmCommand('win32')).toBe('npm.cmd');
+    expect(resolveNpmCommand('linux')).toBe('npm');
+    expect(resolveNpmCommand('darwin')).toBe('npm');
+  });
+
   it('rejects a missing tarball before running commands', async () => {
     const runner = successfulRunner();
 
@@ -72,6 +79,26 @@ describe('smokePackage', () => {
       expectedVersion: '0.1.0',
       runner,
     })).rejects.toThrow('install failed');
+  });
+
+  it('reports a spawn error when stderr is unavailable', async () => {
+    const runner = {
+      run: vi.fn().mockReturnValue({
+        pid: 0,
+        output: null,
+        stdout: undefined,
+        stderr: undefined,
+        status: null,
+        signal: null,
+        error: new Error('spawn EINVAL'),
+      }),
+    };
+
+    await expect(smokePackage({
+      tarballPath: createTarball(),
+      expectedVersion: '0.1.0',
+      runner,
+    })).rejects.toThrow('spawn EINVAL');
   });
 
   it('rejects a CLI version mismatch', async () => {

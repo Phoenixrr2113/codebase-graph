@@ -5,6 +5,7 @@ Thanks for helping improve CodeGraph. Bug reports, focused feature proposals, do
 ## Development setup
 
 CodeGraph requires Node.js 22 and the pnpm version declared in the root `package.json` `packageManager` field. Corepack can install that exact pnpm release.
+Docker supplies the external FalkorDB integration service. The FalkorDBLite integration suite also requires a `redis-server` executable on `PATH`.
 
 ```bash
 corepack enable

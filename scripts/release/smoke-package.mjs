@@ -23,8 +23,13 @@ const defaultRunner = {
 };
 
 function commandFailure(label, result) {
-  const detail = result.stderr.trim() || result.error?.message || `exit status ${result.status}`;
+  const stderr = typeof result.stderr === 'string' ? result.stderr.trim() : '';
+  const detail = stderr || result.error?.message || `exit status ${result.status}`;
   return new Error(`${label} failed: ${detail}`);
+}
+
+export function resolveNpmCommand(platform = process.platform) {
+  return platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
 function parseHandshake(stdout) {
@@ -105,7 +110,7 @@ export async function smokePackage({ tarballPath, expectedVersion, runner = defa
       '{"name":"codegraph-package-smoke","version":"1.0.0","private":true,"type":"module"}\n',
     );
     const installResult = runner.run(
-      'npm',
+      resolveNpmCommand(),
       ['install', absoluteTarball, '--ignore-scripts', '--no-audit', '--no-fund'],
       { cwd: consumerDirectory, encoding: 'utf8' },
     );
