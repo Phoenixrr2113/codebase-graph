@@ -29,15 +29,15 @@
     "@codegraph/plugin-nlp": "workspace:*",
     "@modelcontextprotocol/ext-apps": "^1.7.2",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "glob": "^10.5.0"
+    "glob": "^13.0.6"
   },
   "devDependencies": {
-    "@types/node": "^22.19.19",
-    "ai": "^6.0.193",
+    "@types/node": "^26.2.0",
+    "ai": "^7.0.66",
     "esbuild": "^0.27.7",
     "tsx": "^4.22.3",
-    "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=20.0.0"

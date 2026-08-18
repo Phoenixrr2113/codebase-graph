@@ -28,20 +28,20 @@
     "@codegraph/plugin-rust": "workspace:*",
     "@codegraph/plugin-typescript": "workspace:*",
     "@codegraph/types": "workspace:*",
-    "ai": "^6.0.193",
+    "ai": "^7.0.66",
     "chokidar": "5.0.0",
     "fast-glob": "^3.3.3",
-    "glob": "^10.5.0",
+    "glob": "^13.0.6",
     "ignore": "^7.0.5",
     "simple-git": "^3.36.0",
     "tree-sitter": "^0.22.4",
-    "zod": "^3.25.76"
+    "zod": "^4.4.3"
   },
   "optionalDependencies": {
     "@codegraph/plugin-languages": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }

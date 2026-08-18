@@ -34,15 +34,15 @@
     "release:check": "pnpm build:npm && pnpm validate:npm && pnpm smoke:npm"
   },
   "devDependencies": {
-    "@huggingface/transformers": "^3.8.1",
+    "@huggingface/transformers": "^4.2.0",
     "@playwright/test": "^1.60.0",
-    "@types/node": "^22.19.19",
+    "@types/node": "^26.2.0",
     "kuzu": "0.11.3",
     "prettier": "^3.8.3",
     "tsx": "^4.22.3",
     "turbo": "^2.9.16",
-    "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   },
   "packageManager": "pnpm@9.15.4+sha512.b2dc20e2fc72b3e18848459b37359a32064663e5627a51e4c74b2c29dd8e8e0491483c3abb40789cfd578bf362fb6ba8261b05f0387d76792ed6e23ea3b1b6a0",
   "engines": {
