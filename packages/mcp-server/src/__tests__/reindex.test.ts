@@ -5,9 +5,6 @@ import { join } from 'node:path';
 import { triggerReindex } from '../tools/reindex';
 import { closeGraphClient } from '@codegraph/core';
 
-const FALKORDB_HOST = process.env['FALKORDB_HOST'] ?? 'localhost';
-const FALKORDB_PORT = process.env['FALKORDB_PORT'] ?? '6379';
-
 // Tiny in-memory corpus so reindex completes in seconds.
 function makeFixture(): string {
   const dir = mkdtempSync(join(tmpdir(), 'reindex-test-'));
@@ -22,10 +19,6 @@ function makeFixture(): string {
 describe('triggerReindex blocks on embeddings by default', () => {
   let fixture: string;
   beforeAll(() => {
-    process.env['FALKORDB_HOST'] = FALKORDB_HOST;
-    process.env['FALKORDB_PORT'] = FALKORDB_PORT;
-    process.env['CODEGRAPH_DRIVER'] = 'falkordb';
-    process.env['FALKORDB_GRAPH'] = 'reindex-test-' + Date.now();
     process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = 'local';
     fixture = makeFixture();
   });
@@ -34,6 +27,7 @@ describe('triggerReindex blocks on embeddings by default', () => {
   });
   afterAll(async () => {
     await closeGraphClient();
+    process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = 'none';
     rmSync(fixture, { recursive: true, force: true });
   });
 
@@ -46,7 +40,6 @@ describe('triggerReindex blocks on embeddings by default', () => {
   }, 120_000);
 
   it('respects deferEmbeddings=true override (returns embeddingsDeferred=true)', async () => {
-    process.env['FALKORDB_GRAPH'] = 'reindex-test-defer-' + Date.now();
     const fixture2 = makeFixture();
     try {
       const result = await triggerReindex({ scope: fixture2, mode: 'full', deferEmbeddings: true });

@@ -38,4 +38,33 @@ describe('codegraph-mcp CLI', () => {
     expect(result.stdout).toBe('9.8.7\n');
     expect(result.stderr).toBe('');
   });
+
+  it('loads the adjacent server entry module', () => {
+    const fixtureDirectory = mkdtempSync(join(tmpdir(), 'codegraph-cli-'));
+    temporaryDirectories.push(fixtureDirectory);
+    mkdirSync(join(fixtureDirectory, 'bin'));
+    mkdirSync(join(fixtureDirectory, 'server'));
+    copyFileSync(
+      join(packageDirectory, 'bin', 'codegraph-mcp.mjs'),
+      join(fixtureDirectory, 'bin', 'codegraph-mcp.mjs'),
+    );
+    writeFileSync(
+      join(fixtureDirectory, 'package.json'),
+      JSON.stringify({ name: 'codegraph-mcp', version: '9.8.7', type: 'module' }),
+    );
+    writeFileSync(
+      join(fixtureDirectory, 'server', 'index.mjs'),
+      "process.stderr.write('fixture server loaded\\n');\n",
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [join(fixtureDirectory, 'bin', 'codegraph-mcp.mjs')],
+      { encoding: 'utf8' },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe('fixture server loaded\n');
+  });
 });

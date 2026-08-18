@@ -13,7 +13,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -45,5 +45,5 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
   // MCP stdio reserves stdout for protocol messages.
   process.env.CODEGRAPH_LOG_STDERR = 'true';
 
-  await import(serverPath);
+  await import(pathToFileURL(serverPath).href);
 }

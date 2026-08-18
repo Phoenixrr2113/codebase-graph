@@ -109,7 +109,7 @@ Then configure an MCP client to run \`codegraph-mcp\`. The server uses stdio and
 CODEGRAPH_EMBEDDING_PROVIDER=none codegraph-mcp
 \`\`\`
 
-This structural-search mode requires no API keys. Embedded FalkorDBLite is available on Linux x64 and Apple silicon macOS. Other platforms require an external FalkorDB service.
+This structural-search mode requires no API keys. Embedded FalkorDBLite is available on Linux x64. Apple silicon macOS also requires Homebrew \`libomp\` and \`openssl@3\`; CodeGraph falls back to external FalkorDB when they are absent. Other platforms require an external FalkorDB service.
 
 ## Project links
 

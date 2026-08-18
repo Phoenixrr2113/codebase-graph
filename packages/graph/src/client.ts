@@ -4,6 +4,7 @@
  */
 
 import type { Graph } from 'falkordb';
+import { existsSync } from 'node:fs';
 import { trace, toErrorMessage } from '@codegraph/logger';
 import type { DatabaseDriver, DriverConfig, CypherDialect } from './driver';
 import { FalkorDBDriver } from './drivers/falkordb';
@@ -274,9 +275,16 @@ async function loadConfigFile(): Promise<Partial<GraphConfig>> {
 export function supportsEmbeddedPlatform(
   platform: NodeJS.Platform = process.platform,
   architecture: string = process.arch,
+  fileExists: (path: string) => boolean = existsSync,
 ): boolean {
-  return (platform === 'darwin' && architecture === 'arm64')
-    || (platform === 'linux' && architecture === 'x64');
+  if (platform === 'linux' && architecture === 'x64') return true;
+  if (platform !== 'darwin' || architecture !== 'arm64') return false;
+
+  return [
+    '/opt/homebrew/opt/libomp/lib/libomp.dylib',
+    '/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib',
+    '/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib',
+  ].every(fileExists);
 }
 
 async function detectDefaultDriver(): Promise<'falkordb' | 'falkordblite'> {

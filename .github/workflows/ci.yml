@@ -153,5 +153,9 @@ jobs:
           name: codegraph-mcp-package
           path: tmp/release
 
+      - name: Install macOS embedded runtime libraries
+        if: runner.os == 'macOS'
+        run: brew install libomp openssl@3
+
       - name: Test package in a fresh consumer
         run: node scripts/release/smoke-package.mjs tmp/release/package-result.json

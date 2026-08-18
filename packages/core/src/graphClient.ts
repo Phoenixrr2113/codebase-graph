@@ -42,7 +42,15 @@ export async function getGraphClient(): Promise<GraphClient> {
  */
 export async function closeGraphClient(): Promise<void> {
   if (graphClientPromise) {
-    await graphClientPromise;
+    const connection = graphClientPromise;
+    try {
+      await connection;
+    } catch {
+      // The original getGraphClient caller receives the connection error.
+      // Shutdown only needs to ensure no client was left open.
+    } finally {
+      if (graphClientPromise === connection) graphClientPromise = null;
+    }
   }
   if (graphClient) {
     const client = graphClient;

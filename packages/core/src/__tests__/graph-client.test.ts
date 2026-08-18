@@ -47,4 +47,19 @@ describe('getGraphClient', () => {
     await expect(getGraphClient()).resolves.toBe(client);
     expect(createClientMock).toHaveBeenCalledTimes(2);
   });
+
+  it('allows shutdown to finish while an in-flight connection fails', async () => {
+    let rejectConnection: ((reason: Error) => void) | undefined;
+    const connection = new Promise<GraphClient>((_resolve, reject) => {
+      rejectConnection = reject;
+    });
+    createClientMock.mockReturnValue(connection);
+
+    const clientRequest = getGraphClient();
+    const shutdown = closeGraphClient();
+    rejectConnection?.(new Error('startup disconnected'));
+
+    await expect(clientRequest).rejects.toThrow('startup disconnected');
+    await expect(shutdown).resolves.toBeUndefined();
+  });
 });

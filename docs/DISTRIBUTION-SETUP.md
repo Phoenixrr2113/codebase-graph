@@ -5,8 +5,8 @@ This is the operator guide for the public `codegraph-mcp` npm package and the pl
 ## Release model
 
 - `main` is the source of truth.
-- CI validates the repository and tests one exact npm tarball on Linux, macOS, and Windows. Linux x64 and Apple silicon macOS also exercise a database-backed MCP call through embedded FalkorDBLite.
-- The first `0.1.0` npm publication is a manual authenticated bootstrap.
+- CI validates the repository and tests one exact npm tarball on Linux, macOS, and Windows. Linux x64 and Apple silicon macOS also exercise a database-backed MCP call through embedded FalkorDBLite; the macOS job installs the module's required Homebrew `libomp` and `openssl@3` libraries first.
+- The first `0.1.0` npm publication is a manual authenticated bootstrap, followed by a one-time Release workflow run that verifies the registry package and creates its annotated tag and GitHub release.
 - Later annotated `vX.Y.Z` tags publish through npm trusted publishing with GitHub Actions OIDC.
 - The release workflow creates a GitHub release only after the registry package passes the CLI and MCP handshake smoke tests.
 - MCPB artifacts are built for the current runner platform. They are not claimed to be portable across operating systems.
@@ -25,11 +25,13 @@ Do not create an npm automation token for this project. The steady-state workflo
 Use a clean checkout of the reviewed commit. Confirm authentication without displaying configuration or token data:
 
 ```bash
+git status --short
+git rev-parse HEAD
 npm whoami
 npm view codegraph-mcp version --json
 ```
 
-An npm `E404` response is expected before the first publication. Then run the full local gate:
+The status output must be empty. Save the full 40-character commit SHA as `BOOTSTRAP_COMMIT`; it identifies the reviewed source used to build the registry package. An npm `E404` response is expected before the first publication. Then run the full local gate:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -45,11 +47,10 @@ pnpm build:mcpb
 pnpm release:check
 ```
 
-Publish only the generated staging directory:
+Publish only the exact tarball created and verified by `pnpm release:check`:
 
 ```bash
-cd packages/npm-package/dist
-npm publish --access public
+npm publish tmp/release/codegraph-mcp-0.1.0.tgz --access public
 ```
 
 The authenticated bootstrap cannot use trusted-publishing provenance because the npm package does not exist yet. Later releases use the trusted publisher and receive automatic provenance from npm.
@@ -69,7 +70,11 @@ node scripts/release/smoke-package.mjs \
   --version 0.1.0
 ```
 
-The smoke test creates a temporary consumer, installs the registry tarball without lifecycle scripts, checks `codegraph-mcp --version`, opens an MCP stdio connection, and verifies the `search`, `knowledge`, `codebase`, and `query` tools. On Linux x64 and Apple silicon macOS it also stores and reads an isolated verification entity through embedded FalkorDBLite. Other platforms require an external FalkorDB service for database operations.
+The smoke test creates a temporary consumer, installs the registry tarball without lifecycle scripts, checks `codegraph-mcp --version`, opens an MCP stdio connection, and verifies the `search`, `knowledge`, `codebase`, and `query` tools. On Linux x64 and Apple silicon macOS it also stores and reads an isolated verification entity through embedded FalkorDBLite. Apple silicon requires `brew install libomp openssl@3`; without those libraries CodeGraph falls back to external FalkorDB. Other platforms require an external FalkorDB service for database operations.
+
+After the registry smoke passes, create the GitHub `npm` environment for later tag releases. In GitHub Actions, open the Release workflow, choose **Run workflow** from `main`, enter `0.1.0` as `bootstrap_version`, and enter the saved full SHA as `bootstrap_commit`. This one-time path accepts only the `0.1.0` package version, checks out that exact commit, requires it to be reachable from `main`, reruns the full release gate, confirms that the exact version already exists on npm, requires the registry tarball to be byte-for-byte identical to the artifact rebuilt from `bootstrap_commit`, creates the annotated `v0.1.0` tag on that commit, and publishes the tarball plus checksum as a GitHub release. It does not use the `npm` environment, request an OIDC token, or call `npm publish` again.
+
+Do not push `v0.1.0` yourself after the manual npm publication. A normal tag-triggered release correctly requires its version to be unpublished; the bootstrap workflow dispatch owns the initial tag and avoids a duplicate publication attempt.
 
 ## Configure trusted publishing
 
@@ -108,6 +113,7 @@ The workflow runs the repository gate, package gate, publication, bounded regist
 
 - If tag validation, audit, tests, build, package validation, or package smoke fails before publication, fix the branch and create a new version commit and tag.
 - If npm publication succeeds but registry verification or GitHub release creation fails, do not try to publish the same version again. Verify the existing registry artifact, fix the automation, and create the missing GitHub release manually or ship a new patch version.
+- If the manual `0.1.0` publication succeeds but bootstrap finalization fails before the tag is created, fix the workflow and rerun it with `bootstrap_version` set to `0.1.0`. If the tag exists, do not rerun the bootstrap path; verify the registry artifact and create only the missing GitHub release.
 - Do not unpublish a valid public release to reuse its version. npm versions are immutable release identifiers.
 - If trusted publishing fails, confirm the npm owner, repository, workflow filename, and `npm` environment match exactly. Do not fall back to a long-lived token.
 
