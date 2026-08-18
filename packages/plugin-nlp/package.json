@@ -25,7 +25,7 @@
     "@codegraph/graph": "workspace:*",
     "@codegraph/logger": "workspace:*",
     "@codegraph/types": "workspace:*",
-    "@huggingface/transformers": "^3.8.1",
+    "@huggingface/transformers": "^4.2.0",
     "@openrouter/ai-sdk-provider": "^1.5.4",
     "ai": "^6.0.193",
     "cheerio": "^1.2.0",
