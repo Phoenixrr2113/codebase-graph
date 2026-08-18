@@ -9,6 +9,7 @@
     "dev": "turbo run dev --concurrency 22",
     "lint": "turbo run lint",
     "test": "turbo run test",
+    "test:integration": "pnpm --filter @codegraph/graph test:integration && pnpm --filter @codegraph/plugin-nlp test:integration",
     "audit:prod": "pnpm audit --prod --audit-level high",
     "test:e2e": "playwright test",
     "test:scripts": "vitest run --config vitest.config.ts",
@@ -23,9 +24,14 @@
     "docker:reset": "docker-compose down -v && docker-compose up -d falkordb",
     "start": "docker-compose up -d falkordb && turbo run dev --concurrency 15",
     "stop": "docker-compose down",
-    "typecheck": "turbo run build --filter=@codegraph/types",
-    "build:mcpb": "turbo run build && node packages/mcpb/build.mjs && cd packages/mcpb/dist && mcpb pack",
-    "build:npm": "turbo run build && node packages/mcpb/build.mjs && node packages/npm-package/build.mjs"
+    "typecheck": "turbo run typecheck",
+    "build:mcpb": "pnpm turbo run build --filter=@codegraph/mcpb && pnpm --filter @codegraph/mcpb exec mcpb validate dist && pnpm --filter @codegraph/mcpb exec mcpb pack dist",
+    "build:npm": "pnpm turbo run build --filter=!codegraph-mcp && node packages/npm-package/build.mjs",
+    "pack:npm": "npm pack --dry-run --json packages/npm-package/dist",
+    "validate:npm": "node scripts/release/validate-package.mjs packages/npm-package/dist",
+    "smoke:npm": "node scripts/release/smoke-package.mjs",
+    "verify:release-tag": "node scripts/release/verify-release-tag.mjs",
+    "release:check": "pnpm build:npm && pnpm validate:npm && pnpm smoke:npm"
   },
   "devDependencies": {
     "@huggingface/transformers": "^3.8.1",

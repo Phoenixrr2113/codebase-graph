@@ -1,7 +1,7 @@
 {
-  "name": "@codegraph/mcp",
+  "name": "codegraph-mcp",
   "version": "0.1.0",
-  "description": "CodeGraph MCP Server — Index any codebase into a graph database. Search by meaning, trace relationships, and manage project knowledge.",
+  "description": "CodeGraph MCP Server: Index any codebase into a graph database. Search by meaning, trace relationships, and manage project knowledge.",
   "type": "module",
   "bin": {
     "codegraph-mcp": "./bin/codegraph-mcp.mjs"
@@ -9,7 +9,7 @@
   "main": "./server/index.mjs",
   "scripts": {
     "build": "node build.mjs",
-    "postinstall": "node postinstall.mjs || true"
+    "test": "vitest run"
   },
   "keywords": [
     "mcp",
@@ -24,13 +24,19 @@
   ],
   "author": {
     "name": "Randy Wilson",
-    "url": "https://codegraph.dev"
+    "url": "https://github.com/Phoenixrr2113"
   },
-  "license": "SEE LICENSE IN LICENSE",
-  "homepage": "https://codegraph.dev",
+  "license": "MIT",
+  "homepage": "https://v0-landing-page-build-kappa-virid.vercel.app",
   "repository": {
     "type": "git",
-    "url": "https://github.com/randywilson/codegraph"
+    "url": "git+https://github.com/Phoenixrr2113/codebase-graph.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Phoenixrr2113/codebase-graph/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -39,7 +45,11 @@
     "bin/",
     "server/",
     "LICENSE",
-    "README.md",
-    "postinstall.mjs"
-  ]
+    "README.md"
+  ],
+  "devDependencies": {
+    "@codegraph/mcp-server": "workspace:*",
+    "esbuild": "^0.27.7",
+    "vitest": "^3.2.4"
+  }
 }

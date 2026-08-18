@@ -10,6 +10,7 @@ import { cpSync, mkdirSync, rmSync, existsSync, readdirSync, readFileSync, write
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
+import { build } from 'esbuild';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '../..');
@@ -63,7 +64,7 @@ const externalPackages = [
   '@huggingface/transformers',
   'onnxruntime-node',
   'falkordblite',
-  // MCP SDK has wildcard exports that esbuild can't resolve — we externalize
+  // MCP SDK has wildcard exports that esbuild can't resolve: we externalize
   // and copy it, then patch the imports to add .js extensions post-build
   '@modelcontextprotocol/sdk',
   '@modelcontextprotocol/sdk/*',
@@ -72,28 +73,22 @@ const externalPackages = [
 console.log(`Found ${treeSitterGrammars.length} tree-sitter grammars`);
 console.log(`Bundling with ${externalPackages.length} external packages...`);
 
-// Build external args for esbuild CLI
-const externalArgs = externalPackages.map(p => `--external:${p}`).join(' ');
-
-// Run esbuild via CLI — use the native binary from pnpm's store
-const esbuildBin = resolve(ROOT, 'node_modules/.pnpm/@esbuild+darwin-arm64@0.27.4/node_modules/@esbuild/darwin-arm64/bin/esbuild');
-const esbuildCmd = [
-  esbuildBin,
-  resolve(ROOT, 'packages/mcp-server/dist/index.js'),
-  '--bundle',
-  '--platform=node',
-  '--target=node20',
-  '--format=esm',
-  `--outfile=${resolve(SERVER_DIR, 'index.mjs')}`,
-  '--log-level=info',
-  '--conditions=import,node',
-  '--resolve-extensions=.js,.mjs,.ts,.tsx,.json',
-  '--banner:js=\'import { createRequire as __bundleRequire } from "module"; const require = __bundleRequire(import.meta.url);\'',
-  externalArgs,
-].join(' ');
-
 console.log('Running esbuild...');
-execSync(esbuildCmd, { stdio: 'inherit', cwd: ROOT });
+await build({
+  entryPoints: [resolve(ROOT, 'packages/mcp-server/dist/index.js')],
+  outfile: resolve(SERVER_DIR, 'index.mjs'),
+  bundle: true,
+  platform: 'node',
+  target: 'node20',
+  format: 'esm',
+  logLevel: 'info',
+  conditions: ['import', 'node'],
+  resolveExtensions: ['.js', '.mjs', '.ts', '.tsx', '.json'],
+  banner: {
+    js: 'import { createRequire as __bundleRequire } from "node:module"; const require = __bundleRequire(import.meta.url);',
+  },
+  external: externalPackages,
+});
 
 console.log('Bundle created. Installing MCP SDK dependencies...');
 
@@ -114,7 +109,7 @@ const nmDest = resolve(SERVER_DIR, 'node_modules');
 mkdirSync(nmDest, { recursive: true });
 
 function resolveRealPath(pkgName) {
-  // pnpm uses symlinks — resolve through them
+  // pnpm uses symlinks: resolve through them
   const candidates = [
     resolve(ROOT, 'node_modules', pkgName),
     resolve(ROOT, 'packages/core/node_modules', pkgName),
@@ -144,7 +139,7 @@ function resolveRealPath(pkgName) {
   return null;
 }
 
-// tree-sitter-cli is a CLI tool, not a grammar — don't bundle it
+// tree-sitter-cli is a CLI tool, not a grammar: don't bundle it
 const skipPackages = new Set(['tree-sitter-cli']);
 
 let copiedCount = 0;
@@ -176,7 +171,7 @@ if (mcpSdkSrc) {
 // The SDK has explicit exports (./server, ./client, ./types, etc.) that Node resolves
 // correctly, but wildcard "./*" exports need .js suffix for Node ESM resolution.
 // Explicit export entries: client, server, validation, validation/ajv, validation/cfworker,
-// experimental, experimental/tasks — these DON'T need patching.
+// experimental, experimental/tasks: these DON'T need patching.
 const bundlePath = resolve(SERVER_DIR, 'index.mjs');
 let bundleContent = readFileSync(bundlePath, 'utf-8');
 const explicitExports = new Set([
@@ -193,7 +188,7 @@ bundleContent = bundleContent.replace(
 );
 writeFileSync(bundlePath, bundleContent);
 
-// MCP SDK already installed above — just copy if not present
+// MCP SDK already installed above: just copy if not present
 const mcpSdkDest = resolve(nmDest, '@modelcontextprotocol/sdk');
 if (!existsSync(mcpSdkDest)) {
   const mcpSdkSrc = resolveRealPath('@modelcontextprotocol/sdk');
@@ -211,21 +206,40 @@ for (const dep of ['node-addon-api', 'prebuild-install', 'node-gyp-build']) {
   }
 }
 
-// Copy manifest.json and create package.json for the bundle
-cpSync(resolve(__dirname, 'manifest.json'), resolve(OUT, 'manifest.json'));
+// Generate platform-local metadata from the canonical npm package version.
+const npmPackage = JSON.parse(
+  readFileSync(resolve(ROOT, 'packages/npm-package/package.json'), 'utf8'),
+);
+const manifest = JSON.parse(readFileSync(resolve(__dirname, 'manifest.json'), 'utf8'));
+manifest.version = npmPackage.version;
+manifest.author.url = 'https://github.com/Phoenixrr2113';
+manifest.repository = {
+  type: 'git',
+  url: 'https://github.com/Phoenixrr2113/codebase-graph',
+};
+manifest.homepage = 'https://v0-landing-page-build-kappa-virid.vercel.app';
+manifest.long_description = 'CodeGraph indexes source code into a graph and exposes search, codebase, knowledge, and Cypher tools through MCP. Offline structural search works without API keys by setting the embedding provider to none.';
+delete manifest.user_config.voyage_api_key;
+delete manifest.user_config.jina_api_key;
+delete manifest.server.mcp_config.env.VOYAGE_API_KEY;
+delete manifest.server.mcp_config.env.JINA_API_KEY;
+manifest.server.mcp_config.env.CODEGRAPH_EMBEDDING_PROVIDER = 'none';
+manifest.compatibility.platforms = [process.platform];
+writeFileSync(resolve(OUT, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 writeFileSync(resolve(OUT, 'package.json'), JSON.stringify({
   name: 'codegraph-mcpb',
-  version: '0.1.0',
+  version: npmPackage.version,
   type: 'module',
   private: true,
-}));
+}, null, 2));
+cpSync(resolve(__dirname, 'README.md'), resolve(OUT, 'README.md'));
 
 // Copy icon if it exists
 const iconSrc = resolve(__dirname, 'icon.png');
 if (existsSync(iconSrc)) {
   cpSync(iconSrc, resolve(OUT, 'icon.png'));
 } else {
-  console.warn('⚠ No icon.png found — add one for the extension listing');
+  console.warn('⚠ No icon.png found: add one for the extension listing');
 }
 
 // Calculate sizes

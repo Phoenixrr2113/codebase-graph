@@ -3,24 +3,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@font-face {
-  font-family: 'Geist';
-  src: url('/fonts/GeistVF.woff2') format('woff2');
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Geist Mono';
-  src: url('/fonts/GeistMonoVF.woff2') format('woff2');
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  src: url('/fonts/JetBrainsMonoVF.woff2') format('woff2');
-  font-display: swap;
-}
-
 /* Dark-first developer tool theme - inspired by Linear, Vercel, Raycast */
 :root {
   /* Light mode fallback */
@@ -84,8 +66,8 @@
 }
 
 @theme inline {
-  --font-sans: 'Geist', 'Geist Fallback', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Geist Mono', 'Geist Mono Fallback', ui-monospace, monospace;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -160,7 +142,7 @@
   display: inline;
 }
 
-/* Wider panes (integrations tabs) keep strict pre wrapping — the box is
+/* Wider panes (integrations tabs) keep strict pre wrapping: the box is
    wide enough that horizontal scroll is never triggered. */
 .code-snippet--wide pre.shiki {
   white-space: pre;

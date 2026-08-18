@@ -1,6 +1,6 @@
 # @codegraph/mcpb
 
-MCP Bundle (MCPB) -- a pre-built, distributable bundle of the CodeGraph MCP server for Claude Desktop and other MCP clients.
+MCP Bundle (MCPB) for the CodeGraph server in Claude Desktop and other compatible MCP clients.
 
 This is a **build artifact**, not a development package. It bundles the MCP server and all dependencies into a single deployable unit.
 
@@ -23,7 +23,7 @@ dist/
 1. **esbuild** bundles `packages/mcp-server/dist/index.js` into a single ESM file targeting Node 20
 2. Native modules that cannot be bundled are kept external and copied separately:
    - `tree-sitter` + all grammar packages (native `.node` bindings)
-   - `@huggingface/transformers` + `onnxruntime-node` (ONNX runtime)
+   - `@huggingface/transformers` + `onnxruntime-node` (optional local embeddings)
    - `@modelcontextprotocol/sdk` (wildcard exports incompatible with bundling)
    - `falkordblite` (optional native dependency)
 3. MCP SDK runtime dependencies are installed via `npm install --production` into the bundle
@@ -35,23 +35,23 @@ dist/
 Defines the extension metadata, tools, user configuration, and server entry point. Key sections:
 
 - **tools**: `search`, `codebase`, `knowledge`, `query`
-- **user_config**: Prompts for Voyage API key, Jina API key, project paths, FalkorDB host/port
+- **user_config**: Prompts for project paths and optional external FalkorDB host/port
 - **server.mcp_config**: The `node` command and environment variables used to launch the server
-- **compatibility**: Node >= 20, platforms: macOS, Windows, Linux
+- **compatibility**: Node >= 20 and the platform where the bundle was built
+
+The generated bundle defaults to `CODEGRAPH_EMBEDDING_PROVIDER=none`, so API keys are not required for structural search.
 
 ## How to Build
 
 ```bash
-# From the monorepo root -- build the MCP server first, then the bundle
-pnpm turbo build --filter=@codegraph/mcp-server
-node packages/mcpb/build.mjs
+# From the monorepo root: build the MCP server first, then the bundle
+pnpm --filter @codegraph/mcpb build
 ```
 
 ## How to Pack
 
 ```bash
-cd packages/mcpb/dist
-mcpb pack
+pnpm exec mcpb pack packages/mcpb/dist
 # Produces codegraph-0.1.0.mcpb
 ```
 

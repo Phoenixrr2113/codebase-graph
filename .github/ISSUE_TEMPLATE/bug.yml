@@ -1,0 +1,77 @@
+name: Bug report
+description: Report a reproducible problem in CodeGraph
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. For security issues, use private vulnerability reporting instead of this form.
+  - type: input
+    id: version
+    attributes:
+      label: CodeGraph version or commit
+      description: Provide the npm version or full Git commit SHA.
+      placeholder: 0.1.0 or 0123456789abcdef...
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      placeholder: 22.14.0
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Include the operating system and CPU architecture.
+      placeholder: macOS 15 arm64
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - npx or npm package
+        - Source checkout
+        - MCPB desktop extension
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Give the smallest complete sequence that reproduces the problem.
+      placeholder: Numbered commands and configuration, with secrets removed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Remove tokens, credentials, private source code, personal data, and local usernames.
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Sensitive information
+      options:
+        - label: I removed credentials, private source code, personal data, and other sensitive information.
+          required: true

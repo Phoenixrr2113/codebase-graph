@@ -1,146 +1,171 @@
 # CodeGraph
 
-A code knowledge graph and search system for AI agents. Indexes your codebase into a graph database, embeds symbols and documentation, and exposes search through a Model Context Protocol (MCP) server.
+[![CI](https://github.com/Phoenixrr2113/codebase-graph/actions/workflows/ci.yml/badge.svg)](https://github.com/Phoenixrr2113/codebase-graph/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/Phoenixrr2113/codebase-graph/actions/workflows/codeql.yml/badge.svg)](https://github.com/Phoenixrr2113/codebase-graph/actions/workflows/codeql.yml)
+[![GitHub stars](https://img.shields.io/github/stars/Phoenixrr2113/codebase-graph?style=flat)](https://github.com/Phoenixrr2113/codebase-graph/stargazers)
+[![MIT license](https://img.shields.io/github/license/Phoenixrr2113/codebase-graph)](LICENSE)
+
+CodeGraph turns source code and project knowledge into a searchable graph for AI agents. It parses code with tree-sitter, stores structural and temporal relationships in FalkorDB, and exposes four focused tools through the Model Context Protocol (MCP).
+
+## Access the project
+
+- [Live application](https://v0-landing-page-build-kappa-virid.vercel.app)
+- [Source code](https://github.com/Phoenixrr2113/codebase-graph)
+- [Issues](https://github.com/Phoenixrr2113/codebase-graph/issues)
+- [Discussions](https://github.com/Phoenixrr2113/codebase-graph/discussions)
+- [Contribution guide](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [MIT license](LICENSE)
+
+The public npm package is named `codegraph-mcp`. Its npm link, version badge, and weekly-download badge will be added after the one-time `0.1.0` bootstrap publish is verified against the registry.
 
 ## What it does
 
-- **Search code by meaning** — vector embeddings + cross-encoder reranking find the function, class, or interface you describe, even when you don't know the name. Internal benchmark: MRR 0.969, Success@1 94%, Success@5 100%, ~447ms latency on a project of ~2.3K nodes.
-- **Understand structure** — tree-sitter parsers extract Functions, Classes, Interfaces, Variables, and Types across 5 first-class languages (TypeScript, Python, Go, Rust, Markdown), with tree-sitter coverage for additional languages via the generic plugin.
-- **Track decisions over time** — bitemporal knowledge graph stores facts with `valid_at` / `invalid_at` timestamps, supporting point-in-time queries ("what was true on March 1st?").
-- **Plug into AI agents** — exposes 4 MCP tool groups (`search`, `knowledge`, `codebase`, `query`) for use in Claude Desktop, Cursor, Claude Code, or any MCP client.
+- Searches code by symbol, structure, and meaning.
+- Extracts functions, classes, interfaces, variables, types, imports, calls, and other relationships.
+- Stores project facts with `valid_at` and `invalid_at` timestamps for point-in-time queries.
+- Supports first-class TypeScript, JavaScript, Python, Go, Rust, and Markdown parsing, with generic tree-sitter support for additional languages.
+- Runs with embedded FalkorDBLite or an external FalkorDB service.
+- Exposes `search`, `knowledge`, `codebase`, and `query` MCP tools.
 
-## Quickstart
+## Install from source
+
+Requirements: Node.js 22, Corepack, and Docker for the external FalkorDB quickstart.
 
 ```bash
 git clone https://github.com/Phoenixrr2113/codebase-graph.git
 cd codebase-graph
-pnpm install
+corepack enable
+pnpm install --frozen-lockfile
 pnpm build
-
-# Option A — embedded database (no Docker required)
-brew install redis  # macOS — FalkorDBLite needs redis-server
-echo "CODEGRAPH_DRIVER=falkordblite" > .env
-echo "CODEGRAPH_DB_PATH=.codegraph/falkordb" >> .env
-
-# Option B — FalkorDB via Docker
-# pnpm docker:db
-# echo "CODEGRAPH_DRIVER=falkordb" > .env
-
-# Index a project
-pnpm --filter @codegraph/cli start configure --projects /path/to/your/project
-pnpm --filter @codegraph/cli start reindex
-
-# Run the MCP server (stdio transport)
-pnpm --filter @codegraph/mcp-server start
+pnpm docker:db
 ```
+
+Use `CODEGRAPH_EMBEDDING_PROVIDER=none` for structural search without an API key. Configure a supported embedding provider later if you want semantic vector search.
 
 ## Use with an MCP client
 
-### Claude Desktop
+### Source checkout
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+After building the repository, point the client at the generated server entry point. Replace both absolute paths with paths on your machine.
 
 ```json
 {
   "mcpServers": {
     "codegraph": {
       "command": "node",
-      "args": ["/absolute/path/to/codebase-graph/packages/mcp-server/dist/index.js"],
+      "args": [
+        "/absolute/path/to/codebase-graph/packages/mcp-server/dist/index.js"
+      ],
       "env": {
-        "VOYAGE_API_KEY": "your-key",
-        "JINA_API_KEY": "your-key"
+        "CODEGRAPH_EMBEDDING_PROVIDER": "none",
+        "CODEGRAPH_DRIVER": "falkordb",
+        "FALKORDB_HOST": "localhost",
+        "FALKORDB_PORT": "6379"
       }
     }
   }
 }
 ```
 
-### Claude Code
+For Claude Code:
 
 ```bash
-claude mcp add codegraph node /absolute/path/to/codebase-graph/packages/mcp-server/dist/index.js
+claude mcp add codegraph \
+  --env CODEGRAPH_EMBEDDING_PROVIDER=none \
+  --env CODEGRAPH_DRIVER=falkordb \
+  --env FALKORDB_HOST=localhost \
+  --env FALKORDB_PORT=6379 \
+  -- node /absolute/path/to/codebase-graph/packages/mcp-server/dist/index.js
+```
+
+### npm package after bootstrap
+
+After `codegraph-mcp@0.1.0` is visible on npm, clients can run the server without a source checkout:
+
+```json
+{
+  "mcpServers": {
+    "codegraph": {
+      "command": "npx",
+      "args": ["-y", "codegraph-mcp"],
+      "env": {
+        "CODEGRAPH_EMBEDDING_PROVIDER": "none"
+      }
+    }
+  }
+}
+```
+
+The first conversation can configure and index a project through the `codebase` tool:
+
+```json
+{ "action": "configure", "projectAction": "set", "projects": ["/absolute/path/to/project"] }
+```
+
+```json
+{ "action": "reindex", "mode": "full" }
 ```
 
 ## MCP tools
 
-Four persona-based tool groups by default. Set `CODEGRAPH_RAW_TOOLS=1` to expose the underlying handlers individually.
+| Tool | Purpose |
+| --- | --- |
+| `search` | Find code and project knowledge by name, structure, or meaning |
+| `knowledge` | Store and recall entities, relationships, facts, and documents |
+| `codebase` | Configure projects, index code, inspect status, and read source |
+| `query` | Run read-only Cypher queries against the graph |
 
-| Tool | What it does |
-|------|--------------|
-| **search** | Find code/symbols by name or meaning; get context for a file or symbol |
-| **knowledge** | Store and recall entities, relationships, and facts (with bitemporal queries) |
-| **codebase** | Configure projects, reindex, check status/stats, read source code |
-| **query** | Execute read-only Cypher against the graph (power users) |
-
-See [CLAUDE.md](./CLAUDE.md) for the complete tool reference (parameters, examples, workflows).
-
-## Architecture
-
-- **Graph storage:** FalkorDB (Docker) or FalkorDBLite (embedded), with HNSW vector indexes per node type.
-- **Embeddings:** pluggable — Voyage AI (`voyage-code-3`, 1024-dim), OpenRouter, or local nomic-embed via `@huggingface/transformers` (768-dim, runs on CPU).
-- **Reranker:** cross-encoder via Jina (`jina-reranker-v2-base-multilingual`) or Voyage.
-- **Indexer:** tree-sitter for AST parsing, SHA-256 file-hash incremental change detection.
-- **MCP server:** 4 persona tools by default; raw mode exposes the underlying handlers.
+Set `CODEGRAPH_RAW_TOOLS=1` to expose the lower-level handlers instead of the four grouped tools.
 
 ## Configuration
 
-Environment variables (set in `.env` at the repo root):
+| Variable | Purpose |
+| --- | --- |
+| `CODEGRAPH_DRIVER` | `falkordblite` for embedded storage or `falkordb` for an external service |
+| `CODEGRAPH_DB_PATH` | Embedded FalkorDBLite data path |
+| `FALKORDB_HOST` | External FalkorDB host, default `localhost` |
+| `FALKORDB_PORT` | External FalkorDB port, default `6379` |
+| `FALKORDB_GRAPH` | Graph name, default `codegraph` |
+| `CODEGRAPH_EMBEDDING_PROVIDER` | `none`, `local`, `voyage`, or `openrouter` |
+| `VOYAGE_API_KEY` | Voyage embeddings and optional reranking |
+| `OPENROUTER_API_KEY` | OpenRouter embeddings or LLM features |
+| `CEREBRAS_API_KEY` | Optional LLM-backed knowledge extraction |
 
-```bash
-# Embedding provider (auto-detected from API keys)
-CODEGRAPH_EMBEDDING_PROVIDER=voyage    # voyage | local | openrouter
-VOYAGE_API_KEY=...
-
-# Reranker provider (auto-detected from API keys)
-CODEGRAPH_RERANK_PROVIDER=jina         # jina | voyage
-JINA_API_KEY=...
-
-# LLM (for knowledge extraction + chain-of-thought search)
-LLM_PROVIDER=cerebras
-CEREBRAS_API_KEY=...
-
-# Graph driver
-CODEGRAPH_DRIVER=falkordblite          # falkordblite | falkordb
-CODEGRAPH_DB_PATH=.codegraph/falkordb  # for falkordblite
-```
-
-## Packages
-
-| Package | Description |
-|---------|-------------|
-| [`@codegraph/core`](packages/core/) | Indexer, search pipelines, service layer, git sync |
-| [`@codegraph/graph`](packages/graph/) | Graph DB driver abstraction, knowledge operations, Cypher templates |
-| [`@codegraph/plugin-nlp`](packages/plugin-nlp/) | Embeddings, reranker, entity resolution, conversation/document ingestion |
-| [`@codegraph/mcp-server`](packages/mcp-server/) | MCP server with 4 persona tools |
-| [`@codegraph/api`](packages/api/) | Express REST API for the dashboard |
-| [`@codegraph/cli`](packages/cli/) | CLI wrapper around the core service |
-| [`@codegraph/plugin-typescript`](packages/plugin-typescript/) | TS/JS/JSX tree-sitter plugin |
-| [`@codegraph/plugin-python`](packages/plugin-python/) | Python tree-sitter plugin |
-| [`@codegraph/plugin-go`](packages/plugin-go/) | Go tree-sitter plugin |
-| [`@codegraph/plugin-rust`](packages/plugin-rust/) | Rust tree-sitter plugin |
-| [`@codegraph/plugin-markdown`](packages/plugin-markdown/) | Markdown parser |
-| [`@codegraph/plugin-generic`](packages/plugin-generic/) | Tree-sitter fallback for additional languages |
-| [`@codegraph/plugin-common`](packages/plugin-common/) | Shared extraction utilities (complexity, AST helpers) |
-| [`@codegraph/plugin-languages`](packages/plugin-languages/) | Plugin registry coordination |
-| [`@codegraph/logger`](packages/logger/) | Structured logging + tracing decorator |
-| [`@codegraph/types`](packages/types/) | Shared TypeScript type definitions |
-
-Plus `apps/web` (Next.js dashboard with Graph Explorer + Operations tabs at `localhost:3000`).
+Never commit provider keys. Put secrets in the MCP client's protected environment configuration or a local ignored `.env` file.
 
 ## Development
 
 ```bash
-pnpm install        # Install dependencies
-pnpm build          # Build all packages
-pnpm dev            # Start dev mode
-pnpm test           # Run all tests
-pnpm docker:db      # Start FalkorDB via Docker
+pnpm install --frozen-lockfile
+pnpm audit:prod
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm docker:db
+pnpm test:integration
+pnpm test:scripts
+pnpm build:mcpb
+pnpm release:check
 ```
 
-## Status
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the pull request workflow and required evidence.
 
-Active development. Public on 2026-04-25. No releases yet — install from source.
+## Packages
+
+| Package | Responsibility |
+| --- | --- |
+| [`@codegraph/core`](packages/core/) | Indexing, search pipelines, services, and git synchronization |
+| [`@codegraph/graph`](packages/graph/) | FalkorDB and FalkorDBLite drivers, graph queries, and knowledge operations |
+| [`@codegraph/plugin-nlp`](packages/plugin-nlp/) | Embeddings, reranking, entity resolution, and document ingestion |
+| [`@codegraph/mcp-server`](packages/mcp-server/) | MCP transport and the four public tool groups |
+| [`@codegraph/cli`](packages/cli/) | Source-checkout command-line tools |
+| [`codegraph-mcp`](packages/npm-package/) | Public npm distribution staging and entry point |
+| [`@codegraph/mcpb`](packages/mcpb/) | Platform-local MCPB desktop extension build |
+
+The Next.js application lives in [`apps/web`](apps/web/), and the reproducible search benchmark lives in [`benchmarks/cgbench-v1`](benchmarks/cgbench-v1/).
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+CodeGraph is available under the [MIT License](LICENSE).

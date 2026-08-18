@@ -1,5 +1,5 @@
 /**
- * forgetAfter — Unit Tests
+ * forgetAfter: Unit Tests
  *
  * Verifies that:
  * 1. LLM-provided forgetAfter + forgetReason land on the RelationshipAnnotation returned
@@ -10,31 +10,15 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { MockLanguageModelV3 } from 'ai/test';
 import { EntityExtractor } from '../extractor';
 import { extractAndStore } from '../extract-and-store';
 import type { KnowledgeOperations, KnowledgeEntity, KnowledgeRelationship } from '@codegraph/graph';
 import type { Sample } from '@codegraph/types';
+import { makeToolCallModel } from './helpers/mock-tool-call-model';
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-function makeMockModel(responseJson: object) {
-  return new MockLanguageModelV3({
-    provider: 'test',
-    modelId: 'test-model',
-    doGenerate: {
-      content: [{ type: 'text' as const, text: JSON.stringify(responseJson) }],
-      finishReason: { unified: 'stop' as const, raw: 'stop' },
-      usage: {
-        inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
-        outputTokens: { total: 10, text: 10, reasoning: 0 },
-      },
-      warnings: [],
-    },
-  });
-}
 
 function makeSample(text: string): Sample {
   return {
@@ -96,13 +80,13 @@ function makeMockOps(): KnowledgeOperations & {
 }
 
 // ============================================================================
-// EntityExtractor — forgetAfter propagation to RelationshipAnnotation
+// EntityExtractor: forgetAfter propagation to RelationshipAnnotation
 // ============================================================================
 
-describe('EntityExtractor — forgetAfter', () => {
+describe('EntityExtractor: forgetAfter', () => {
   it('should preserve forgetAfter and forgetReason on RelationshipAnnotation when LLM provides them', async () => {
     const forgetAfterTs = '2026-05-01T15:00:00Z';
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Alice', type: 'Person' },
         { text: 'standup meeting', type: 'Event' },
@@ -129,7 +113,7 @@ describe('EntityExtractor — forgetAfter', () => {
   });
 
   it('should leave forgetAfter undefined when LLM omits it for a permanent fact', async () => {
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Randy', type: 'Person' },
         { text: 'FalkorDB', type: 'Technology' },
@@ -155,7 +139,7 @@ describe('EntityExtractor — forgetAfter', () => {
   });
 
   it('should treat explicit null forgetAfter as permanent fact', async () => {
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Randy', type: 'Person' },
         { text: 'codebase-graph', type: 'Project' },
@@ -184,13 +168,13 @@ describe('EntityExtractor — forgetAfter', () => {
 });
 
 // ============================================================================
-// extractAndStore — forgetAfter propagation to KnowledgeRelationship
+// extractAndStore: forgetAfter propagation to KnowledgeRelationship
 // ============================================================================
 
-describe('extractAndStore — forgetAfter persistence', () => {
+describe('extractAndStore: forgetAfter persistence', () => {
   it('should pass forgetAfter and forgetReason to importEntitiesAndRelationships', async () => {
     const forgetAfterTs = '2026-06-15T09:00:00Z';
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Bob', type: 'Person' },
         { text: 'sprint review', type: 'Event' },
@@ -219,7 +203,7 @@ describe('extractAndStore — forgetAfter persistence', () => {
   });
 
   it('should leave forgetAfter absent on KnowledgeRelationship when LLM omits it', async () => {
-    const mockModel = makeMockModel({
+    const mockModel = makeToolCallModel({
       entities: [
         { text: 'Alice', type: 'Person' },
         { text: 'codegraph', type: 'Project' },
@@ -242,7 +226,7 @@ describe('extractAndStore — forgetAfter persistence', () => {
 
     expect(ops.capturedRelationships).toHaveLength(1);
     const rel = ops.capturedRelationships[0]!;
-    // forgetAfter should be absent (undefined or null — not set to a value)
+    // forgetAfter should be absent (undefined or null: not set to a value)
     expect(rel.forgetAfter == null).toBe(true);
   });
 });

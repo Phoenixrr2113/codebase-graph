@@ -1,5 +1,5 @@
 /**
- * Episodic Extraction — Unit Tests
+ * Episodic Extraction: Unit Tests
  *
  * Tests the conversation episodic extraction pipeline:
  *   1. Context window builds correct prior episode context
@@ -13,7 +13,32 @@
  * Prerequisites: docker compose up -d falkordb
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+
+vi.mock('../embeddings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../embeddings')>();
+  const createEmbedding = (text: string): number[] => {
+    const embedding = new Array<number>(768).fill(0);
+    const dimension = [...text].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 768;
+    embedding[dimension] = 1;
+    return embedding;
+  };
+  return {
+    ...actual,
+    isEmbeddingAvailable: vi.fn(() => true),
+    generateEmbedding: vi.fn(async (text: string) => ({
+      embedding: createEmbedding(text),
+      dimensions: 768,
+      provider: 'test',
+    })),
+    generateEmbeddings: vi.fn(async (texts: string[]) => ({
+      embeddings: texts.map(createEmbedding),
+      dimensions: 768,
+      provider: 'test',
+    })),
+  };
+});
+
 import { MockLanguageModelV3 } from 'ai/test';
 import {
   createClient,
@@ -23,6 +48,7 @@ import {
 } from '@codegraph/graph';
 import { chunkConversation } from '../conversation';
 import { extractConversation } from '../extract-and-store';
+import { makeToolCallResult } from './helpers/mock-tool-call-model';
 
 // ============================================================================
 // Helpers
@@ -97,15 +123,7 @@ function makeMockModel() {
       // (This is what the real parseResponse does via indexOf)
 
       const responseJson = { entities, relationships };
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(responseJson) }],
-        finishReason: { unified: 'stop' as const, raw: 'stop' },
-        usage: {
-          inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
-          outputTokens: { total: 10, text: 10, reasoning: 0 },
-        },
-        warnings: [],
-      };
+      return makeToolCallResult(responseJson);
     },
   });
 }
@@ -124,12 +142,12 @@ describe('Episodic Extraction (FalkorDB)', () => {
     try {
       client = await createClient({
         driver: 'falkordb',
-        host: 'localhost',
-        port: 6379,
+        host: process.env['FALKORDB_HOST'] ?? 'localhost',
+        port: Number(process.env['FALKORDB_PORT'] ?? '6379'),
         graphName: GRAPH_NAME,
       });
     } catch {
-      console.warn('FalkorDB not available — skipping tests. Run: docker compose up -d falkordb');
+      console.warn('FalkorDB not available: skipping tests. Run: docker compose up -d falkordb');
       falkordbAvailable = false;
       return;
     }
@@ -139,7 +157,7 @@ describe('Episodic Extraction (FalkorDB)', () => {
   }, 30_000);
 
   beforeEach((ctx) => {
-    if (!falkordbAvailable) ctx.skip('FalkorDB not available — run: docker compose up -d falkordb');
+    if (!falkordbAvailable) ctx.skip('FalkorDB not available: run: docker compose up -d falkordb');
   });
 
   afterAll(async () => {

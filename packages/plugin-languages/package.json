@@ -1,7 +1,7 @@
 {
   "name": "@codegraph/plugin-languages",
   "version": "0.1.0",
-  "description": "Tier-2 language plugins for CodeGraph — config-only definitions with lazy-loaded grammars",
+  "description": "Tier-2 language plugins for CodeGraph: config-only definitions with lazy-loaded grammars",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,7 +16,7 @@
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --root . --config ../../vitest.package.config.ts"
   },
   "dependencies": {
     "@codegraph/plugin-common": "workspace:*",

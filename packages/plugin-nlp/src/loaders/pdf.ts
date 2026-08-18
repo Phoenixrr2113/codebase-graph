@@ -1,5 +1,5 @@
 /**
- * PDF Loader — extracts text from PDF files using pdf-parse.
+ * PDF Loader: extracts text from PDF files using pdf-parse.
  */
 
 import type { TextLoader, LoaderResult } from './index';
@@ -8,11 +8,6 @@ export const PDFLoader: TextLoader = {
   extensions: ['pdf'],
 
   async extract(input: string | Buffer): Promise<LoaderResult> {
-    // Dynamic import — pdf-parse is optional
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pdfParseModule = await import('pdf-parse') as any;
-    const pdfParse = pdfParseModule.default ?? pdfParseModule;
-
     let buffer: Buffer;
     if (typeof input === 'string') {
       const { readFile } = await import('node:fs/promises');
@@ -21,17 +16,25 @@ export const PDFLoader: TextLoader = {
       buffer = input;
     }
 
-    const data = await pdfParse(buffer) as { text: string; numpages: number; info?: Record<string, unknown> };
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: buffer });
 
-    const title = data.info?.Title as string | undefined;
+    try {
+      const textResult = await parser.getText();
+      const infoResult = await parser.getInfo();
+      const rawTitle: unknown = infoResult.info?.Title;
+      const title = typeof rawTitle === 'string' ? rawTitle : undefined;
 
-    return {
-      text: data.text,
-      metadata: {
-        format: 'pdf',
-        pageCount: data.numpages,
-        ...(title != null ? { title } : {}),
-      },
-    };
+      return {
+        text: textResult.text,
+        metadata: {
+          format: 'pdf',
+          pageCount: textResult.total,
+          ...(title ? { title } : {}),
+        },
+      };
+    } finally {
+      await parser.destroy();
+    }
   },
 };
