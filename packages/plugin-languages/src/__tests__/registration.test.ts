@@ -6,6 +6,8 @@ import { registerAllLanguages, registerLanguage, allLanguageEntries } from '../i
 import { clearGrammarCache } from '../grammar-loader';
 import type { LanguagePlugin } from '@codegraph/types';
 
+const COLD_GRAMMAR_IMPORT_TIMEOUT_MS = 30_000;
+
 /** Mock registry that tracks registrations */
 class MockRegistry {
   registered: LanguagePlugin[] = [];
@@ -21,7 +23,7 @@ describe('Language Registration', () => {
   });
 
   describe('registerAllLanguages()', () => {
-    it('should return registered and skipped arrays', async () => {
+    it('should return registered and skipped arrays', { timeout: COLD_GRAMMAR_IMPORT_TIMEOUT_MS }, async () => {
       const registry = new MockRegistry();
       const result = await registerAllLanguages(registry);
 
@@ -34,7 +36,7 @@ describe('Language Registration', () => {
       );
     });
 
-    it('should skip languages with unavailable grammars', async () => {
+    it('should skip languages with unavailable grammars', { timeout: COLD_GRAMMAR_IMPORT_TIMEOUT_MS }, async () => {
       const registry = new MockRegistry();
       const result = await registerAllLanguages(registry);
 
@@ -43,7 +45,7 @@ describe('Language Registration', () => {
       expect(result.skipped.length).toBeGreaterThan(0);
     });
 
-    it('should register plugins in the provided registry', async () => {
+    it('should register plugins in the provided registry', { timeout: COLD_GRAMMAR_IMPORT_TIMEOUT_MS }, async () => {
       const registry = new MockRegistry();
       const result = await registerAllLanguages(registry);
 

@@ -167,8 +167,15 @@ export async function registerAllLanguages(registry: PluginRegistry): Promise<{
   const registered: string[] = [];
   const skipped: string[] = [];
 
-  for (const entry of allLanguageEntries) {
-    let grammar = await loadGrammar(entry.grammarPackage);
+  const loadedEntries = await Promise.all(
+    allLanguageEntries.map(async (entry) => ({
+      entry,
+      grammar: await loadGrammar(entry.grammarPackage),
+    }))
+  );
+
+  for (const { entry, grammar: loadedGrammar } of loadedEntries) {
+    let grammar = loadedGrammar;
     if (grammar && entry.grammarTransform) grammar = entry.grammarTransform(grammar);
 
     if (grammar) {
