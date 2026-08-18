@@ -10,7 +10,8 @@
  * to the remote FalkorDBDriver.
  */
 
-import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
 import type { Graph } from 'falkordb';
 import type { DatabaseDriver, DriverConfig, CypherDialect } from '../driver';
 import type { QueryParams } from '../client';
@@ -21,6 +22,26 @@ type FalkorDBLiteModule = typeof import('falkordblite');
 type FalkorDBLiteInstance = Awaited<ReturnType<FalkorDBLiteModule['FalkorDB']['open']>>;
 
 const shutdownSignals = ['SIGINT', 'SIGTERM'] as const;
+const embeddedPlatformPackages: Readonly<Record<string, string>> = {
+  'darwin-arm64': '@falkordblite/darwin-arm64',
+  'linux-x64': '@falkordblite/linux-x64',
+};
+const runtimeRequire = createRequire(import.meta.url);
+
+export function resolveEmbeddedBinaryPaths(
+  platform: NodeJS.Platform = process.platform,
+  architecture: string = process.arch,
+  resolvePackage: (specifier: string) => string = (specifier) => runtimeRequire.resolve(specifier),
+): { redisServerPath: string; modulePath: string } | undefined {
+  const packageName = embeddedPlatformPackages[`${platform}-${architecture}`];
+  if (!packageName) return undefined;
+
+  const packageDirectory = dirname(resolvePackage(`${packageName}/package.json`));
+  return {
+    redisServerPath: resolve(packageDirectory, 'bin', 'redis-server'),
+    modulePath: resolve(packageDirectory, 'bin', 'falkordb.so'),
+  };
+}
 
 function captureSignalListeners(): Map<NodeJS.Signals, Set<NodeJS.SignalsListener>> {
   return new Map(shutdownSignals.map((signal) => [signal, new Set(process.listeners(signal))]));
@@ -73,9 +94,10 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
     // The driver owns shutdown through close(). Keep the embedded wrapper from
     // installing competing signal handlers that can stop Redis before its
     // client disconnects.
+    const binaryPaths = resolveEmbeddedBinaryPaths();
     const signalListenersBeforeOpen = captureSignalListeners();
     try {
-      this.db = await FalkorDBLite.open({ path: dataPath });
+      this.db = await FalkorDBLite.open({ path: dataPath, ...(binaryPaths ?? {}) });
     } finally {
       removeAddedSignalListeners(signalListenersBeforeOpen);
     }
