@@ -22,7 +22,7 @@
   "dependencies": {
     "@codegraph/logger": "workspace:*",
     "@codegraph/types": "workspace:*",
-    "falkordb": "^6.6.2"
+    "falkordb": "^6.7.0"
   },
   "devDependencies": {
     "falkordblite": "^0.2.0",
