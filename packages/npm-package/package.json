@@ -49,7 +49,7 @@
   ],
   "devDependencies": {
     "@codegraph/mcp-server": "workspace:*",
-    "esbuild": "^0.27.7",
+    "esbuild": "^0.28.1",
     "vitest": "^3.2.4"
   }
 }
