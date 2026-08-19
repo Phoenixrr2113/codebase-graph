@@ -716,7 +716,16 @@ async function enrichedSearchV2Impl(
   const candidates = await retrieveCandidates(client, query, limit, scope, scopePaths, options.embeddings);
 
   if (candidates.length === 0) {
-    return { hits: [], meta: { query, vectorHits: 0, durationMs: Date.now() - start } };
+    // An active-project scope that matches nothing is the most common cause of
+    // an unexpectedly empty result, so name it rather than returning silence.
+    const activeScope = scope ?? (scopePaths && scopePaths.length > 0 ? scopePaths.join(', ') : undefined);
+    const meta: EnrichedV2Result['meta'] = { query, vectorHits: 0, durationMs: Date.now() - start };
+    if (activeScope !== undefined) {
+      meta.notice =
+        `No matches inside the active project scope (${activeScope}). ` +
+        'Indexed code may live outside it. Retry with scope "all", or point the active project at the indexed path.';
+    }
+    return { hits: [], meta };
   }
 
   // Test-file demotion (1st pass): apply BEFORE pool selection so non-test
