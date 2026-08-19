@@ -23,6 +23,10 @@ function createValidFixture(): string {
   mkdirSync(join(directory, 'server'));
   writeFileSync(join(directory, 'bin', 'codegraph-mcp.mjs'), '#!/usr/bin/env node\n');
   chmodSync(join(directory, 'bin', 'codegraph-mcp.mjs'), 0o755);
+  writeFileSync(join(directory, 'bin', 'codegraph-dashboard.mjs'), '#!/usr/bin/env node\n');
+  chmodSync(join(directory, 'bin', 'codegraph-dashboard.mjs'), 0o755);
+  mkdirSync(join(directory, 'dashboard'));
+  writeFileSync(join(directory, 'dashboard', 'index.html'), '<!doctype html><div id="root"></div>\n');
   writeFileSync(join(directory, 'server', 'index.mjs'), 'export {};\n');
   writeFileSync(join(directory, 'LICENSE'), 'MIT License\n');
   writeFileSync(join(directory, 'README.md'), '# CodeGraph\n');
@@ -38,7 +42,10 @@ function createValidFixture(): string {
     bugs: { url: 'https://github.com/Phoenixrr2113/codebase-graph/issues' },
     engines: { node: '>=20.0.0' },
     publishConfig: { access: 'public' },
-    bin: { 'codegraph-mcp': 'bin/codegraph-mcp.mjs' },
+    bin: {
+      'codegraph-mcp': 'bin/codegraph-mcp.mjs',
+      'codegraph-dashboard': 'bin/codegraph-dashboard.mjs',
+    },
     dependencies: { 'tree-sitter': '^0.22.4' },
   }));
   return directory;
@@ -51,7 +58,7 @@ describe('validatePackageDirectory', () => {
     await expect(validatePackageDirectory(pathToFileURL(directory))).resolves.toMatchObject({
       name: 'codegraph-mcp',
       version: '0.1.0',
-      fileCount: 5,
+      fileCount: 7,
     });
   });
 

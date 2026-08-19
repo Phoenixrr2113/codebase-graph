@@ -11,6 +11,7 @@
     "test": "turbo run test",
     "test:integration": "pnpm --filter @codegraph/graph test:integration && pnpm --filter @codegraph/plugin-nlp test:integration && pnpm --filter @codegraph/mcp-server test:integration",
     "audit:prod": "pnpm audit --prod --audit-level high",
+    "audit:consumer": "node scripts/release/audit-consumer-tree.mjs",
     "test:e2e": "playwright test",
     "test:scripts": "vitest run --config vitest.config.ts",
     "test:e2e:ui": "playwright test --ui",
@@ -26,12 +27,14 @@
     "stop": "docker-compose down",
     "typecheck": "turbo run typecheck",
     "build:mcpb": "pnpm turbo run build --filter=@codegraph/mcpb && pnpm --filter @codegraph/mcpb exec mcpb validate dist && pnpm --filter @codegraph/mcpb exec mcpb pack dist",
-    "build:npm": "pnpm turbo run build --filter=@codegraph/mcp-server... && node packages/npm-package/build.mjs",
+    "build:npm": "pnpm turbo run build --filter=@codegraph/mcp-server... --filter=@codegraph/api... --filter=@codegraph/dashboard && node packages/npm-package/build.mjs",
     "pack:npm": "npm pack --dry-run --json packages/npm-package/dist",
     "validate:npm": "node scripts/release/validate-package.mjs packages/npm-package/dist",
     "smoke:npm": "node scripts/release/smoke-package.mjs",
     "verify:release-tag": "node scripts/release/verify-release-tag.mjs",
-    "release:check": "pnpm build:npm && pnpm validate:npm && pnpm smoke:npm"
+    "release:check": "pnpm build:npm && pnpm validate:npm && pnpm audit:consumer && pnpm smoke:npm",
+    "build:dashboard": "pnpm turbo run build --filter=@codegraph/api... --filter=@codegraph/dashboard",
+    "dashboard": "pnpm build:dashboard && pnpm --filter @codegraph/api start"
   },
   "devDependencies": {
     "@huggingface/transformers": "^3.8.1",

@@ -18,6 +18,8 @@ const packageDirectory = dirname(fileURLToPath(import.meta.url));
 const rootDirectory = resolve(packageDirectory, '../..');
 const outputDirectory = resolve(packageDirectory, 'dist');
 const serverEntry = resolve(rootDirectory, 'packages/mcp-server/dist/index.js');
+const dashboardServerEntry = resolve(rootDirectory, 'packages/api/dist/index.js');
+const dashboardAssets = resolve(rootDirectory, 'packages/dashboard/dist');
 
 function readManifest(relativePath) {
   const path = resolve(rootDirectory, relativePath);
@@ -31,6 +33,18 @@ function readManifest(relativePath) {
 if (!existsSync(serverEntry)) {
   throw new Error(
     'Missing packages/mcp-server/dist/index.js. Build workspace packages before creating the npm distribution.',
+  );
+}
+
+if (!existsSync(dashboardServerEntry)) {
+  throw new Error(
+    'Missing packages/api/dist/index.js. Build workspace packages before creating the npm distribution.',
+  );
+}
+
+if (!existsSync(resolve(dashboardAssets, 'index.html'))) {
+  throw new Error(
+    'Missing packages/dashboard/dist/index.html. Run "pnpm --filter @codegraph/dashboard build" first.',
   );
 }
 
@@ -63,10 +77,18 @@ rmSync(outputDirectory, { recursive: true, force: true });
 mkdirSync(resolve(outputDirectory, 'server'), { recursive: true });
 mkdirSync(resolve(outputDirectory, 'bin'), { recursive: true });
 
+// One split build: the MCP server and the dashboard server share almost all of
+// their code (parsers, graph layer, plugins). Bundling them separately emitted
+// that payload twice and roughly doubled the published package.
 await build({
-  entryPoints: [serverEntry],
-  outfile: resolve(outputDirectory, 'server/index.mjs'),
+  entryPoints: {
+    index: serverEntry,
+    dashboard: dashboardServerEntry,
+  },
+  outdir: resolve(outputDirectory, 'server'),
+  outExtension: { '.js': '.mjs' },
   bundle: true,
+  splitting: true,
   platform: 'node',
   target: 'node20',
   format: 'esm',
@@ -79,10 +101,16 @@ await build({
   logLevel: 'info',
 });
 
-const binSource = resolve(packageDirectory, 'bin/codegraph-mcp.mjs');
-const binDestination = resolve(outputDirectory, 'bin/codegraph-mcp.mjs');
-cpSync(binSource, binDestination);
-chmodSync(binDestination, 0o755);
+// The dashboard is served from <package>/dashboard, which is what
+// resolveDashboardDir() looks for relative to the bundled server.
+cpSync(dashboardAssets, resolve(outputDirectory, 'dashboard'), { recursive: true });
+
+for (const binName of ['codegraph-mcp.mjs', 'codegraph-dashboard.mjs']) {
+  const source = resolve(packageDirectory, 'bin', binName);
+  const destination = resolve(outputDirectory, 'bin', binName);
+  cpSync(source, destination);
+  chmodSync(destination, 0o755);
+}
 cpSync(resolve(rootDirectory, 'LICENSE'), resolve(outputDirectory, 'LICENSE'));
 
 writeFileSync(

@@ -4,7 +4,8 @@
   "description": "CodeGraph MCP Server: Index any codebase into a graph database. Search by meaning, trace relationships, and manage project knowledge.",
   "type": "module",
   "bin": {
-    "codegraph-mcp": "bin/codegraph-mcp.mjs"
+    "codegraph-mcp": "bin/codegraph-mcp.mjs",
+    "codegraph-dashboard": "bin/codegraph-dashboard.mjs"
   },
   "main": "./server/index.mjs",
   "scripts": {
@@ -44,12 +45,15 @@
   "files": [
     "bin/",
     "server/",
+    "dashboard/",
     "LICENSE",
     "README.md"
   ],
   "devDependencies": {
     "@codegraph/mcp-server": "workspace:*",
     "esbuild": "^0.27.7",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "@codegraph/api": "workspace:*",
+    "@codegraph/dashboard": "workspace:*"
   }
 }

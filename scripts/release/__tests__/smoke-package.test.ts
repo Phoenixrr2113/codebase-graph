@@ -68,6 +68,7 @@ describe('smokePackage', () => {
     const runner = successfulRunner();
 
     await expect(smokePackage({
+      verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
       tarballPath: '/tmp/codegraph-missing-package.tgz',
       expectedVersion: '0.1.0',
       runner,
@@ -79,6 +80,7 @@ describe('smokePackage', () => {
     const runner = { run: vi.fn().mockReturnValue(processResult(1, '', 'install failed')) };
 
     await expect(smokePackage({
+      verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
       tarballPath: createTarball(),
       expectedVersion: '0.1.0',
       runner,
@@ -99,6 +101,7 @@ describe('smokePackage', () => {
     };
 
     await expect(smokePackage({
+      verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
       tarballPath: createTarball(),
       expectedVersion: '0.1.0',
       runner,
@@ -113,6 +116,7 @@ describe('smokePackage', () => {
     };
 
     await expect(smokePackage({
+      verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
       tarballPath: createTarball(),
       expectedVersion: '0.1.0',
       runner,
@@ -127,6 +131,7 @@ describe('smokePackage', () => {
       .mockReturnValueOnce(processResult(0, 'server log on stdout'));
 
     await expect(smokePackage({
+      verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
       tarballPath: createTarball(),
       expectedVersion: '0.1.0',
       runner,
@@ -144,6 +149,7 @@ describe('smokePackage', () => {
       })));
 
     await expect(smokePackage({
+      verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
       tarballPath: createTarball(),
       expectedVersion: '0.1.0',
       runner,
@@ -152,10 +158,11 @@ describe('smokePackage', () => {
 
   it('returns the installed version and tool names after a valid smoke run', async () => {
     await expect(smokePackage({
+      verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
       tarballPath: createTarball(),
       expectedVersion: '0.1.0',
       runner: successfulRunner(),
-    })).resolves.toEqual({
+    })).resolves.toMatchObject({
       version: '0.1.0',
       tools: ['search', 'knowledge', 'codebase', 'query'],
       databaseVerified: true,
@@ -166,6 +173,7 @@ describe('smokePackage', () => {
     const runner = successfulRunner();
 
     await smokePackage({
+      verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
       tarballPath: createTarball(),
       expectedVersion: '0.1.0',
       runner,
@@ -182,6 +190,7 @@ describe('smokePackage', () => {
     const runner = successfulRunner();
 
     await smokePackage({
+      verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
       tarballPath: createTarball(),
       expectedVersion: '0.1.0',
       runner,
