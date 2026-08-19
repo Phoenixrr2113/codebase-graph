@@ -1,5 +1,3 @@
-'use client'
-
 import { useState } from 'react'
 import { NODE_COLORS, NODE_SHAPES, EDGE_COLORS } from '@/lib/cytoscape-config'
 

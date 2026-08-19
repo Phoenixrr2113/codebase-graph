@@ -1,10 +1,8 @@
-'use client'
-
 import { useEffect, useState, useCallback } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { API_URL } from '@/lib/api'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
 interface EmbeddingLabel {
   label: string

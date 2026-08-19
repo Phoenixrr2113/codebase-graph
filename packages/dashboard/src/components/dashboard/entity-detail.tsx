@@ -1,13 +1,11 @@
-'use client'
-
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { GraphNode } from './graph-canvas'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { NODE_COLORS } from '@/lib/cytoscape-config'
+import { API_URL } from '@/lib/api'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
 interface EntityDetailProps {
   node: GraphNode | null
@@ -395,15 +393,18 @@ function CodePreview({ apiUrl, filePath, startLine, endLine, nodeId }: {
           const lang = langMap[ext] ?? 'text'
           const fullCode = data.lines.map((l: { content: string }) => l.content).join('\n')
 
-          import('shiki').then(({ codeToHtml }) => {
-            codeToHtml(fullCode, { lang, theme: 'github-dark' }).then(html => {
-              const parser = new DOMParser()
-              const doc = parser.parseFromString(html, 'text/html')
-              const lineSpans = doc.querySelectorAll('.line')
-              const htmlLines: string[] = []
-              lineSpans.forEach(span => htmlLines.push(span.innerHTML))
-              setHighlightedHtml(htmlLines)
-            }).catch(() => setHighlightedHtml(null))
+          // Loaded on demand: keeps the syntax highlighter out of the initial bundle.
+          import('@/lib/highlighter').then(({ highlightCode }) => highlightCode(fullCode, lang)).then(html => {
+            if (html === null) {
+              setHighlightedHtml(null)
+              return
+            }
+            const parser = new DOMParser()
+            const doc = parser.parseFromString(html, 'text/html')
+            const lineSpans = doc.querySelectorAll('.line')
+            const htmlLines: string[] = []
+            lineSpans.forEach(span => htmlLines.push(span.innerHTML))
+            setHighlightedHtml(htmlLines)
           }).catch(() => setHighlightedHtml(null))
         }
         setLoading(false)

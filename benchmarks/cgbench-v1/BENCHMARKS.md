@@ -4,17 +4,16 @@
 > + 10 knowledge/document docs bundled in the repo. Statistical confidence is low (n=3 questions, Task A only).
 > v0.1.2 (next release) will publish real-corpus numbers against the 4 OSS corpora pinned in `corpora/code/manifest.json` and the full Task A–F question set.
 >
-> **Plan 5 status (2026-04-28):** cognee adapter unblocked (works in standalone smoke against this fixture
-> via local Ollama at `http://localhost:11434/v1` with `qwen3.5:9b`). Cognee not yet shown in the table
-> below because batch run-all integration crashes natively on `libc++ mutex` — the standalone smoke is
-> reproducible; the orchestrator integration is a known v0.1.2 work item. Real-corpus codegraph run
-> against zod also deferred — `enrichedSearchV2` hangs at first query on the 8K-entity zod graph;
-> needs profiling.
+> **cognee status (2026-08-19):** the batch-run crash is fixed. cognee is still absent from
+> the table below, but the reason is now inference cost, not a defect. See
+> "Why cognee has no score" below the results. The real-corpus codegraph run against zod
+> also remains deferred: `enrichedSearchV2` hangs at first query on the 8K-entity zod graph
+> and needs profiling.
 
 **Run timestamp:** 2026-04-28T14:43:04.958Z
 **Corpus:** smoke fixture (`fixtures/code/tiny-ts`, `corpora/knowledge`, `documents/source`)
 **Systems tested:** codegraph, mcp-codebase-index, mempalace
-**Working but excluded from this batch:** cognee (batch crash; standalone smoke passes)
+**Runnable but unscored:** cognee (batch crash fixed 2026-08-19; unscored on inference cost, see below)
 **Deferred (no API key / Docker):** supermemory, hindsight, mastra-memory, augment
 
 Raw per-system JSON: [`results/v0.1.0-smoke/`](results/v0.1.0-smoke/)
@@ -63,14 +62,69 @@ v0.1.1 will run the full 6-task question suite.
 
 ---
 
+## Why cognee has no score
+
+cognee is the most capable system in this comparison and the most commonly suggested
+alternative to CodeGraph, so its absence from the table needs an explicit reason rather
+than a footnote.
+
+**The batch crash is fixed (2026-08-19).** Earlier releases excluded cognee because
+`bench run-all` aborted natively with `libc++ mutex lock failed`. Root cause: the runner
+dispatched queries with a concurrency of 3, and the cognee adapter opens Kuzu and LanceDB
+inside a fresh Python subprocess per query. Kuzu does not permit concurrent multi-process
+access to one database directory. The fix is a `maxQueryConcurrency` ceiling on the adapter
+contract, which cognee sets to 1. cognee is now runnable end to end under `run-all`.
+
+**The remaining blocker is inference cost, measured not guessed.** On the 3-file, 882-byte
+`fixtures/code/tiny-ts` fixture, one full ingest plus query took **160 seconds wall clock**
+and issued **31 generation calls producing 11,698 tokens** against `qwen3.5:9b` on local
+Ollama at roughly 48.5 tokens/sec. That is about 13 generated tokens per source byte,
+because `cognify()` runs LLM entity and relationship extraction over every chunk.
+
+Extrapolated linearly against the code bytes this adapter actually ingests:
+
+| Corpus | Ingestable code | Order-of-magnitude cognee ingest |
+|--------|-----------------|----------------------------------|
+| go-chi-chi | 285 KB | ~1 day |
+| psf-requests | 375 KB | ~1 day |
+| colinhacks-zod | 2.26 MB | ~1 week |
+| clap-rs-clap | 2.55 MB | ~1 week |
+
+These are extrapolations from a single fixture and include fixed startup cost, so treat
+them as magnitude rather than precision. Even discounted generously, the full battery is a
+multi-day local-inference job. Publishing a cognee column measured on a different corpus
+size than every other system would not be a comparison, so cognee stays unscored until we
+run it on identical inputs.
+
+**What we can already say without a score.** On the smoke fixture cognee answered
+"function that retries failed requests" with `retry.ts` ranked first, which is the correct
+answer. It is a competent retrieval system and we make no claim otherwise.
+
+### Fairness caveat on any future cognee number
+
+The adapter drives cognee through `cognee.add()` plus `cognify()` plus
+`SearchType.CHUNKS`. That is cognee's **general text pipeline**: chunk, LLM-extract
+entities, embed. It is not their code-specific path, which lives in
+`cognee-community-tasks-codify` and the community code retriever.
+
+We did not use the code path because it is not usable with a current cognee.
+`cognee-community-tasks-codify` v0.1.5 pins `cognee==0.5.6`, while cognee core is at v1.5.0
+(released 2026-08-15). Running their AST pipeline would require downgrading cognee by
+more than five minor versions.
+
+Any number CGBench eventually publishes for cognee must therefore be labelled
+"cognee's general memory pipeline applied to code", not "cognee".
+
+---
+
 ## Caveats
 - v0.1.0 is smoke-fixture only; n=3 questions, low statistical confidence — results demonstrate methodology, not production ranking.
 - codegraph runs with local Hugging Face embeddings (no API keys required); no reranker (CODEGRAPH_RERANK_PROVIDER=none).
 - mempalace MRR=0 reflects a fundamental file-vs-function granularity mismatch, not a retrieval failure.
 - supermemory (requires SUPERMEMORY_API_KEY), hindsight (requires HINDSIGHT_URL): READY-WITH-KEY but excluded from this run.
-- cognee: WORKING in standalone smoke (local Ollama, qwen3.5:9b); excluded from this batch due to a native `libc++ mutex` crash in the run-all orchestrator integration. Standalone results: returns ranked code matches for fixture queries (e.g. `retry.ts#retry.ts` for "function that retries failed requests").
+- cognee: runnable end to end as of 2026-08-19 (the `libc++ mutex` crash was a runner concurrency bug in CGBench, now fixed). Unscored because a like-for-like run is a multi-day local-inference job. See "Why cognee has no score".
 - mastra-memory, augment: DEFERRED stubs — see COMPETITORS.md.
-- v0.1.2 will (a) fix cognee batch integration, (b) profile the codegraph zod-corpus query hang at `enrichedSearchV2`, (c) run against the 4 OSS corpora with the full question set.
+- v0.1.2 will (a) run cognee on identical inputs once the compute budget allows, (b) profile the codegraph zod-corpus query hang at `enrichedSearchV2`, (c) run against the 4 OSS corpora with the full question set.
 
 ---
 

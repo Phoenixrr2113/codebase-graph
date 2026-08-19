@@ -116,7 +116,7 @@ export function createPublishedManifest({ packageManifest, dependencyManifests }
     bugs: cloneRecord(source, 'bugs', 'packageManifest'),
     publishConfig: { access: 'public' },
     engines: cloneRecord(source, 'engines', 'packageManifest'),
-    files: ['bin/', 'server/', 'LICENSE', 'README.md'],
+    files: ['bin/', 'server/', 'dashboard/', 'LICENSE', 'README.md'],
     dependencies: sortedRecord(dependencies),
     optionalDependencies: sortedRecord(optionalDependencies),
   };

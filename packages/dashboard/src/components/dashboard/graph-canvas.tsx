@@ -1,5 +1,3 @@
-'use client'
-
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type cytoscape from 'cytoscape'
 import { GraphControls } from './graph-controls'

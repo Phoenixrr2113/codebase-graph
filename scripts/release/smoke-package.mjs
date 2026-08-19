@@ -160,7 +160,86 @@ try {
 }
 `;
 
-export async function smokePackage({ tarballPath, expectedVersion, runner = defaultRunner }) {
+
+/** Ask the OS for a free TCP port so the smoke run cannot collide with a live server. */
+export async function findFreePort() {
+  const { createServer } = await import('node:net');
+  return await new Promise((resolvePort, rejectPort) => {
+    const server = createServer();
+    server.on('error', rejectPort);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address !== null ? address.port : undefined;
+      server.close(() => (port ? resolvePort(port) : rejectPort(new Error('no port assigned'))));
+    });
+  });
+}
+
+/**
+ * Start the packaged dashboard binary and confirm it serves the built UI.
+ *
+ * The dashboard ships inside the same package as the MCP server, so a missing or
+ * misplaced asset directory would otherwise only surface after publication.
+ */
+export async function verifyDashboardBinary({ binPath, cwd, env }) {
+  const { spawn } = await import('node:child_process');
+  const port = await findFreePort();
+  const child = spawn(process.execPath, [binPath], {
+    cwd,
+    env: { ...env, API_PORT: String(port), CODEGRAPH_EMBEDDING_PROVIDER: 'none' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  let output = '';
+  child.stdout.on('data', (chunk) => { output += String(chunk); });
+  child.stderr.on('data', (chunk) => { output += String(chunk); });
+
+  try {
+    const deadline = Date.now() + 60_000;
+    let indexHtml;
+    for (;;) {
+      if (child.exitCode !== null) {
+        throw new Error(`dashboard binary exited early (code ${child.exitCode}):\n${output.slice(0, 800)}`);
+      }
+      try {
+        const health = await fetch(`http://127.0.0.1:${port}/health`);
+        if (health.ok) {
+          const page = await fetch(`http://127.0.0.1:${port}/`);
+          if (!page.ok) throw new Error(`dashboard root returned ${page.status}`);
+          indexHtml = await page.text();
+          break;
+        }
+      } catch (error) {
+        if (Date.now() > deadline) {
+          throw new Error(`dashboard did not become ready: ${String(error)}\n${output.slice(0, 800)}`);
+        }
+      }
+      await new Promise((wait) => setTimeout(wait, 500));
+    }
+
+    if (!indexHtml.includes('id="root"')) {
+      throw new Error('dashboard root document did not contain the application mount point');
+    }
+    const assetMatch = indexHtml.match(/\/assets\/[A-Za-z0-9._-]+\.js/);
+    if (!assetMatch) {
+      throw new Error('dashboard root document did not reference a built asset');
+    }
+    const asset = await fetch(`http://127.0.0.1:${port}${assetMatch[0]}`);
+    if (!asset.ok) {
+      throw new Error(`dashboard asset ${assetMatch[0]} returned ${asset.status}`);
+    }
+    return { port, asset: assetMatch[0] };
+  } finally {
+    child.kill('SIGTERM');
+  }
+}
+
+export async function smokePackage({
+  tarballPath,
+  expectedVersion,
+  runner = defaultRunner,
+  verifyDashboard = verifyDashboardBinary,
+}) {
   const absoluteTarball = resolve(tarballPath);
   try {
     await access(absoluteTarball);
@@ -230,7 +309,21 @@ export async function smokePackage({ tarballPath, expectedVersion, runner = defa
       throw commandFailure('MCP handshake', handshakeResult);
     }
     const handshake = parseHandshake(handshakeResult.stdout);
-    return { version: installedVersion, ...handshake };
+
+    const dashboardBinPath = join(
+      consumerDirectory,
+      'node_modules',
+      'codegraph-mcp',
+      'bin',
+      'codegraph-dashboard.mjs',
+    );
+    const dashboard = await verifyDashboard({
+      binPath: dashboardBinPath,
+      cwd: consumerDirectory,
+      env: smokeEnvironment,
+    });
+
+    return { version: installedVersion, ...handshake, dashboardVerified: true, dashboardAsset: dashboard.asset };
   } finally {
     await rm(consumerDirectory, { recursive: true, force: true });
   }

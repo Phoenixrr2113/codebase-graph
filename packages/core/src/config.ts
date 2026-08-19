@@ -107,7 +107,18 @@ export async function getActiveProjectPaths(): Promise<string[]> {
   if (!config || config.activeProjects.length === 0) {
     return []; // Empty = search all
   }
-  return config.activeProjects;
+  // Drop configured directories that no longer exist. A stale entry (a project
+  // that was moved or deleted) would otherwise be used as a search scope filter
+  // and silently exclude every result, which reads as "search is broken".
+  const present = config.activeProjects.filter((path) => existsSync(path));
+  const missing = config.activeProjects.filter((path) => !present.includes(path));
+  if (missing.length > 0) {
+    logger.warn(
+      `Ignoring ${missing.length} active project path(s) that no longer exist: ${missing.join(', ')}. ` +
+        'Update them with the configure action.',
+    );
+  }
+  return present;
 }
 
 /**

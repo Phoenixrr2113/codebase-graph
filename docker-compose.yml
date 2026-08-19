@@ -28,37 +28,20 @@ services:
     profiles:
       - bench
 
-  api:
-    build:
-      context: .
-      dockerfile: packages/api/Dockerfile
-    ports:
-      - "${API_PORT:-3001}:3001"
-    environment:
-      - FALKORDB_HOST=falkordb
-      - FALKORDB_PORT=6379
-      - API_PORT=3001
-      - PROJECT_ROOT=/workspace
-    volumes:
-      - ${PROJECT_PATH:-./sample}:/workspace:ro
-    depends_on:
-      falkordb:
-        condition: service_healthy
-    profiles:
-      - full
-
-  web:
-    build:
-      context: .
-      dockerfile: packages/web/Dockerfile
-    ports:
-      - "${WEB_PORT:-3000}:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:3001
-    depends_on:
-      - api
-    profiles:
-      - full
+  # The api and web services were removed on 2026-08-19. They referenced
+  # packages/api/Dockerfile and packages/web/Dockerfile, neither of which has
+  # ever existed in this repository, and packages/web is not a real path (the
+  # marketing site lives in apps/web). Running "docker compose --profile full up"
+  # therefore always failed.
+  #
+  # The API and the dashboard now run as one process from a single binary:
+  #
+  #   pnpm dashboard            # from a checkout
+  #   npx codegraph-dashboard   # from the published package
+  #
+  # Both serve the UI and the REST API on http://localhost:3001. Point them at
+  # this database with FALKORDB_HOST=localhost FALKORDB_PORT=6379, or omit those
+  # variables to use the embedded database and skip Docker entirely.
 
 volumes:
   falkordb_data:

@@ -21,6 +21,13 @@ export interface QueryOpts {
 export interface BenchmarkAdapter {
   readonly name: string;
   readonly mode: AdapterMode;
+  /**
+   * Optional ceiling on how many query() calls the runner may have in flight
+   * against this adapter. Set it for backends that cannot tolerate concurrent
+   * access, for example a store that gets opened per query by a separate
+   * process. When unset, the runner's own concurrency setting applies.
+   */
+  readonly maxQueryConcurrency?: number;
   ingest(corpus: BenchmarkCorpus): Promise<IngestStats>;
   /**
    * Optional. Called when the runner is in --skip-ingest mode (reusing a

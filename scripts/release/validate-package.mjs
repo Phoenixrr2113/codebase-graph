@@ -153,18 +153,30 @@ export async function validatePackageDirectory(directoryUrl) {
   }
 
   const bin = requireRecord(manifest.bin, 'package.json bin', violations);
-  const binRelativePath = bin['codegraph-mcp'];
-  if (binRelativePath !== 'bin/codegraph-mcp.mjs') {
-    violations.push('package.json bin must map codegraph-mcp to bin/codegraph-mcp.mjs');
-  } else {
+  for (const [binName, expectedPath] of [
+    ['codegraph-mcp', 'bin/codegraph-mcp.mjs'],
+    ['codegraph-dashboard', 'bin/codegraph-dashboard.mjs'],
+  ]) {
+    const binRelativePath = bin[binName];
+    if (binRelativePath !== expectedPath) {
+      violations.push(`package.json bin must map ${binName} to ${expectedPath}`);
+      continue;
+    }
     try {
       const binStats = await lstat(join(directory, binRelativePath));
       if ((binStats.mode & 0o111) === 0) {
-        violations.push('codegraph-mcp bin file must be executable');
+        violations.push(`${binName} bin file must be executable`);
       }
     } catch {
-      violations.push('codegraph-mcp bin file is missing');
+      violations.push(`${binName} bin file is missing`);
     }
+  }
+
+  // The dashboard binary is useless without the built UI it serves.
+  try {
+    await lstat(join(directory, 'dashboard/index.html'));
+  } catch {
+    violations.push('dashboard/index.html is missing from the published package');
   }
 
   try {

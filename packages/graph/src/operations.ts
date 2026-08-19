@@ -7,7 +7,7 @@
 
 import type { GraphClient, QueryParams } from './client';
 import type { CypherDialect } from './driver';
-import { trace } from '@codegraph/logger';
+import { createLogger, trace } from '@codegraph/logger';
 import {
   fileToNodeProps,
   functionToNodeProps,
@@ -39,6 +39,9 @@ import type {
   ReturnsEdgeDescriptor,
   UsesTypeEdgeDescriptor,
 } from '@codegraph/types';
+
+
+const logger = createLogger({ namespace: 'graph:operations' });
 
 // ============================================================================
 // Entity ID parsing — format: "Type:filePath:name" or "Type:external:name"
@@ -2199,8 +2202,14 @@ class GraphOperationsImpl implements GraphOperations {
         if (typeof sl === 'number') entry.startLine = sl;
         return entry;
       });
-    } catch {
-      // If vector index doesn't exist or has no data, return empty
+    } catch (error) {
+      // A missing vector index is an expected, benign state on a fresh graph.
+      // Anything else is a real failure and must not be reported as "no results",
+      // which is indistinguishable from a legitimately empty search.
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/index|not indexed|no such/i.test(message)) {
+        logger.warn(`Vector search failed for ${nodeType}: ${message}`);
+      }
       return [];
     }
   }

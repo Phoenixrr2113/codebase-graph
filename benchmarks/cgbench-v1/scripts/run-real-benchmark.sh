@@ -5,7 +5,10 @@
 # only starts queries after both ingestion phases return.
 set -e
 
-cd /Users/randywilson/Desktop/codebase-graph/benchmarks/cgbench-v1
+# Resolve the benchmark root from this script's own location so the run works
+# from any checkout path.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
 
 # Load env (.env contains OLLAMA_BASE_URL, OLLAMA_API_KEY, VOYAGE keys, etc.)
 set -a

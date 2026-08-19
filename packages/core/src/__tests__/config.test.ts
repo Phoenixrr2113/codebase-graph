@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -200,14 +200,21 @@ describe('Core Config', () => {
     });
 
     it('returns active projects from config', async () => {
+      // Uses real directories: paths that do not exist are intentionally
+      // dropped, since a stale scope silently filters away every search result.
+      const projectA = join(tempHome, 'project-a');
+      const projectB = join(tempHome, 'project-b');
+      mkdirSync(projectA, { recursive: true });
+      mkdirSync(projectB, { recursive: true });
+
       await saveConfig({
-        activeProjects: ['/project-a', '/project-b'],
+        activeProjects: [projectA, projectB],
         lastUpdated: new Date().toISOString(),
         setupComplete: true,
       });
 
       const paths = await getActiveProjectPaths();
-      expect(paths).toEqual(['/project-a', '/project-b']);
+      expect(paths).toEqual([projectA, projectB]);
     });
   });
 
@@ -296,3 +303,31 @@ describe('Core Config', () => {
     });
   });
 });
+
+describe('getActiveProjectPaths with stale entries', () => {
+  // A configured project directory that has since been moved or deleted must not
+  // be handed out as a search scope. Doing so filters every result away and
+  // presents as "search returns nothing" with no explanation.
+  const realProject = join(tempHome, 'real-project');
+  const goneProject = join(tempHome, 'this-directory-was-deleted');
+
+  beforeEach(() => {
+    mkdirSync(realProject, { recursive: true });
+    rmSync(goneProject, { recursive: true, force: true });
+  });
+
+  it('drops paths that no longer exist', async () => {
+    await setActiveProjects([realProject, goneProject]);
+    expect(await getActiveProjectPaths()).toEqual([realProject]);
+  });
+
+  it('keeps every path that still exists', async () => {
+    await setActiveProjects([realProject]);
+    expect(await getActiveProjectPaths()).toEqual([realProject]);
+  });
+
+  it('returns empty when every configured path is gone', async () => {
+    await setActiveProjects([goneProject]);
+    expect(await getActiveProjectPaths()).toEqual([]);
+  });
+})

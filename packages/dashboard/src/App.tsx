@@ -1,5 +1,3 @@
-'use client'
-
 import { useState, useCallback } from 'react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AppShell } from '@/components/dashboard/app-shell'
@@ -7,10 +5,9 @@ import { OperationsTab } from '@/components/dashboard/operations-tab'
 import { ParseProjectDialog } from '@/components/dashboard/parse-project-dialog'
 import { EmbeddingBadge } from '@/components/dashboard/embedding-badge'
 import { ProjectSelector } from '@/components/dashboard/project-selector'
+import { API_URL } from '@/lib/api'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
-
-export default function DashboardPage() {
+export default function App() {
   const [activeTab, setActiveTab] = useState('explorer')
   const [projectId, setProjectId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)

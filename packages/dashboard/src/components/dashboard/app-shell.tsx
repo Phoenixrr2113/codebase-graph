@@ -1,5 +1,3 @@
-'use client'
-
 import { useState, useCallback } from 'react'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { GraphCanvas, type GraphNode } from './graph-canvas'
@@ -7,8 +5,8 @@ import { GraphLegend } from './graph-legend'
 import { SearchPanel } from './search-panel'
 import { EntityDetail } from './entity-detail'
 import { QueryPanel } from './query-panel'
+import { API_URL } from '@/lib/api'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
 export function AppShell({ projectId }: { projectId?: string | null }) {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
