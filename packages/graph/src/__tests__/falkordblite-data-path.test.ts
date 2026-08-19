@@ -86,3 +86,30 @@ describe('resolveEmbeddedDataPath', () => {
     }
   });
 });
+
+describe('resolveEmbeddedDataPath boundary handling', () => {
+  const home = '/Users/example';
+  // falkordblite appends "/fdb-" + 16 hex + ".sock", and sun_path must also hold
+  // a terminating NUL, so the usable directory budget is limit minus 26 minus 1.
+  const usableBudget = (platform: NodeJS.Platform) =>
+    unixSocketPathLimit(platform) - (1 + 'fdb-'.length + 16 + '.sock'.length) - 1;
+
+  it('accepts a directory exactly at the usable budget', () => {
+    const exact = '/' + 'a'.repeat(usableBudget('darwin') - 1);
+    expect(Buffer.byteLength(exact)).toBe(usableBudget('darwin'));
+    expect(resolveEmbeddedDataPath(exact, { platform: 'darwin', home }).relocatedFrom).toBeUndefined();
+  });
+
+  it('relocates a directory one byte over the usable budget', () => {
+    // Without reserving the NUL byte this pathname was treated as fitting, and
+    // the socket then failed to bind at runtime.
+    const overBy1 = '/' + 'a'.repeat(usableBudget('darwin'));
+    expect(Buffer.byteLength(overBy1)).toBe(usableBudget('darwin') + 1);
+    expect(resolveEmbeddedDataPath(overBy1, { platform: 'darwin', home }).relocatedFrom).toBe(overBy1);
+  });
+
+  it('leaves room for the NUL on Linux too', () => {
+    const overBy1 = '/' + 'a'.repeat(usableBudget('linux'));
+    expect(resolveEmbeddedDataPath(overBy1, { platform: 'linux', home }).relocatedFrom).toBe(overBy1);
+  });
+})

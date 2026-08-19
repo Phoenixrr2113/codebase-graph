@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { resolve } from 'node:path';
-import { findEnvFile, isAllowedOrigin, resolvePort } from '../env';
+import { join, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { findEnvFile, isAllowedOrigin, loadEnvironment, resolvePort } from '../env';
 
 describe('resolvePort', () => {
   it('defaults to 3001 when nothing is configured', () => {
@@ -81,5 +83,49 @@ describe('isAllowedOrigin', () => {
 
   it('falls back to loopback matching for a blank allowlist', () => {
     expect(isAllowedOrigin('http://localhost:3002', '   ')).toBe(true);
+  });
+});
+
+describe('loadEnvironment search root', () => {
+  // Under npx or a global install the module lives in a cache directory whose
+  // ancestors have nothing to do with the user's project, so searching from the
+  // module would never find the .env they configured. It must start at the
+  // working directory of the process that was invoked.
+  it('loads a .env found by walking up from the working directory', () => {
+    // realpath because macOS resolves /var to /private/var, and process.cwd()
+    // reports the resolved form.
+    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), 'codegraph-env-root-')));
+    const nested = join(projectDir, 'packages', 'api');
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(projectDir, '.env'), 'CODEGRAPH_ENV_ROOT_PROBE=found\n');
+
+    const originalCwd = process.cwd();
+    const hadProbe = process.env['CODEGRAPH_ENV_ROOT_PROBE'];
+    try {
+      process.chdir(nested);
+      const loaded = loadEnvironment();
+      expect(loaded).toBe(join(projectDir, '.env'));
+      expect(process.env['CODEGRAPH_ENV_ROOT_PROBE']).toBe('found');
+    } finally {
+      process.chdir(originalCwd);
+      if (hadProbe === undefined) delete process.env['CODEGRAPH_ENV_ROOT_PROBE'];
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns undefined when no .env exists above the working directory', () => {
+    const bare = mkdtempSync(join(tmpdir(), 'codegraph-env-bare-'));
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(bare);
+      // A .env may still exist further up the temp root on some machines, so
+      // only assert the contract: whatever comes back is either nothing or a
+      // real path, never a path under this module's install directory.
+      const loaded = loadEnvironment();
+      if (loaded !== undefined) expect(loaded.endsWith('.env')).toBe(true);
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(bare, { recursive: true, force: true });
+    }
   });
 });

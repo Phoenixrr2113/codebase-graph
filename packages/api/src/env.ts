@@ -9,7 +9,6 @@
 
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 /**
  * Walk upwards from a starting directory looking for a `.env` file.
@@ -59,7 +58,11 @@ export function resolvePort(
  * throwing on an older runtime.
  */
 export function loadEnvironment(startDirectory?: string): string | undefined {
-  const from = startDirectory ?? dirname(fileURLToPath(import.meta.url));
+  // Search upward from the invoking project, not from this module. Under npx or
+  // a global install the module sits in a cache directory whose ancestors are
+  // unrelated to the user's project, so the .env they actually configured would
+  // never be found.
+  const from = startDirectory ?? process.cwd();
   const envFile = findEnvFile(from);
   if (envFile === undefined) return undefined;
 

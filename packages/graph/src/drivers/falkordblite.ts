@@ -51,6 +51,12 @@ export function resolveEmbeddedBinaryPaths(
  */
 const socketFilenameBytes = 1 + 'fdb-'.length + 16 + '.sock'.length;
 
+/**
+ * sun_path is a fixed size buffer that must also hold a terminating NUL, so a
+ * pathname occupying the full documented capacity cannot be bound.
+ */
+const socketTerminatorBytes = 1;
+
 /** Maximum Unix domain socket path length, from UNIX_PATH_MAX in sys/un.h. */
 export function unixSocketPathLimit(platform: NodeJS.Platform = process.platform): number {
   return platform === 'darwin' ? 104 : 108;
@@ -80,7 +86,7 @@ export function resolveEmbeddedDataPath(
   // Windows uses named pipes, so the Unix path limit does not apply.
   if (platform === 'win32') return { dataPath: configured };
 
-  const budget = unixSocketPathLimit(platform) - socketFilenameBytes;
+  const budget = unixSocketPathLimit(platform) - socketFilenameBytes - socketTerminatorBytes;
   if (Buffer.byteLength(configured) <= budget) return { dataPath: configured };
 
   const digest = createHash('sha256').update(configured).digest('hex').slice(0, 12);
