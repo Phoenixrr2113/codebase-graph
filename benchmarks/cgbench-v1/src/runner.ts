@@ -345,7 +345,9 @@ export async function runSystem(args: RunSystemArgs): Promise<RunResult> {
   }
 
   // Parallel dispatch with bounded concurrency
-  const sem = new Semaphore(args.concurrency ?? 3);
+  const requestedConcurrency = args.concurrency ?? 3;
+  const adapterCeiling = args.adapter.maxQueryConcurrency ?? requestedConcurrency;
+  const sem = new Semaphore(Math.max(1, Math.min(requestedConcurrency, adapterCeiling)));
   const fresh = await Promise.all(
     remaining.map((q) => sem.run(() => runOne(q, args.adapter, args.resultsDir))),
   );

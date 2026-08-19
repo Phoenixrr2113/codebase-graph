@@ -11,9 +11,15 @@
  * (The knowledge corpus was already ingested in a prior iter and persisted
  *  in :6380; --skip-ingest in the cgbench run-all reuses it.)
  */
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { indexProject, getGraphClient } from '@codegraph/core';
 
-const ZOD_PATH = '/Users/randywilson/Desktop/codebase-graph/benchmarks/cgbench-v1/corpora/code/colinhacks-zod';
+// Resolve relative to this file so the script works from any checkout location.
+const benchmarkRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const ZOD_PATH =
+  process.env['CGBENCH_ZOD_PATH'] ?? resolve(benchmarkRoot, 'corpora/code/colinhacks-zod');
 
 async function main(): Promise<void> {
   // Make absolutely sure we're hitting the cgbench FalkorDB on :6380

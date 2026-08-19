@@ -40,7 +40,7 @@ This document captures what is known about each competitor at the time of Plan 3
 - Setup:
   ```bash
   # Python SDK (PyPI)
-  pip install cognee             # latest: 1.0.3 (2026-04-24)
+  pip install cognee             # 1.0.3 used in this benchmark; core is v1.5.0 as of 2026-08-15
   # MCP server (source)
   git clone https://github.com/topoteretes/cognee
   cd cognee/cognee-mcp && pip install uv && uv sync --dev --all-extras --reinstall
@@ -49,7 +49,7 @@ This document captures what is known about each competitor at the time of Plan 3
 - API keys: **none** — uses local Ollama; no external accounts or API keys required
 - Local runnable: **YES** (Ollama required; default model `qwen3.5:9b`)
 - Plan 3 status: **READY-WITH-KEY** (original)
-- Plan 5 status: **WORKING (smoke); batch run-all crash deferred to v0.1.2**. Standalone smoke against tiny-ts via local Ollama (qwen3.5:9b) returns ranked code matches (e.g., `retry.ts#retry.ts`). The orchestrator integration crashes natively (`libc++ mutex lock failed`) when invoked from `bench run-all`; root cause is concurrent `ingest_data` task starts visible in cognee's logs. Standalone adapter usage is reliable; batch integration requires further work.
+- Plan 5 status: **RUNNABLE (2026-08-19); unscored on inference cost**. Standalone smoke against tiny-ts via local Ollama (qwen3.5:9b) returns ranked code matches (`retry.ts#retry.ts` ranked first). The former `libc++ mutex lock failed` abort under `bench run-all` was a CGBench bug, not a cognee one: the runner dispatched 3 concurrent queries and the adapter opens Kuzu per query in a separate subprocess, which Kuzu does not allow. Fixed via the `maxQueryConcurrency` adapter ceiling. An earlier note here blamed concurrent `ingest_data` task starts; that was a symptom in the logs, not the cause. cognee now runs end to end and is unscored only because a like-for-like battery is a multi-day local-inference job.
 - LLM config: local Ollama at `http://localhost:11434/v1`; default model `openai/qwen3.5:9b`. `LLM_PROVIDER=openai` + custom `LLM_ENDPOINT` triggers litellm's OpenAI-compat path. `LLM_API_KEY` set to placeholder `'ollama'` (Ollama does not validate it).
 - Best ingest API: `cognee.add(file_paths)` (accepts list of absolute file paths or text strings) + `cognee.cognify(datasets=["name"])` (builds knowledge graph via LLM extraction per chunk)
 - Best query API: `cognee.search(query, query_type=SearchType.CHUNKS, top_k=N)` — returns `List[SearchResult]` where `search_result` is a `DocumentChunk` with `.text`, `.is_part_of` (Document with `.raw_data_location`)
@@ -61,6 +61,50 @@ This document captures what is known about each competitor at the time of Plan 3
   - Python 3.10–3.13 required
   - Optional cloud sync; benchmark should use local-only mode (`COGNEE_SERVICE_URL` unset)
   - v1 API (`add`/`cognify`/`search`) is used; v2 (`remember`/`recall`) may work similarly but not tested here
+
+### Verified capability audit (2026-08-19)
+
+Checked against cognee core `v1.5.0` (released 2026-08-15, ~30.1k GitHub stars, Apache-2.0)
+and the `topoteretes/cognee-community` plugin repo. Recorded because cognee is routinely
+described as a superset of CodeGraph, and parts of that description do not survive contact
+with the source.
+
+**Code parsing is Python-only.** A repo-wide code search for `tree_sitter` returns exactly
+one source file across both repos:
+`packages/task/codify_tasks/cognee_community_tasks_codify/get_local_dependencies.py`,
+which loads `tree_sitter_python` and hardcodes `language="python"`. `tree_sitter` returns
+zero hits in cognee core. Claims of broad multi-language tree-sitter coverage in cognee
+appear to originate from conflation with unrelated projects; cognee's own codebase-memory
+guide never names tree-sitter and never enumerates languages.
+
+**The code pipeline is a community package pinned to a pre-1.0 core.**
+`cognee-community-tasks-codify` v0.1.5 declares `cognee==0.5.6`. Core is v1.5.0. The string
+`codify` appears in cognee core exactly once, inside a skill markdown file. The cognee MCP
+server exposes `remember`, `recall`, `forget` plus workspace UI tools, with no code
+ingestion tool on the MCP surface.
+
+**No cross-encoder reranking.** The only `rerank` matches in core are `truth_subspace`
+centroid construction and topological rank stamping, which are different mechanisms. There
+is no community reranking package. This is a genuine CodeGraph differentiator.
+
+**Temporal support is single-axis.** `cognee/modules/retrieval/temporal_retriever.py`
+LLM-extracts a `time_from`/`time_to` interval from the query and filters events by it, with
+contradiction resolution in `resolve_temporal_contradictions`. `valid_at` appears in cognee
+only inside migration code for importing from Zep. CodeGraph stores `validAt`/`invalidAt`
+for valid time alongside `createdAt` for record time, which is two-axis.
+
+**Where cognee is clearly ahead.** Maturity and ecosystem, by a wide margin: 8 community
+vector adapters, 5 graph adapters, 2 hybrid adapters (including FalkorDB), official Rust
+and TypeScript clients, integrations spanning LangGraph, CrewAI, Claude Agent SDK, Google
+ADK, n8n, Dify, VS Code, Slack and Telegram, 20 `SearchType` retrieval modes including
+`CYPHER` and `NATURAL_LANGUAGE`, ingestion across 38+ formats including audio and images,
+ontology generation, and migration tooling from Zep and Letta.
+
+Read together: cognee is a general-purpose AI memory platform whose code-specific pipeline
+has been left behind at a pre-1.0 pin, while CodeGraph is a code-first retrieval engine
+with multi-language AST coverage and a reranking stage cognee lacks. Neither system's
+retrieval quality has been measured against the other yet. See "Why cognee has no score"
+in BENCHMARKS.md.
 
 ## Cost note
 

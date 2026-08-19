@@ -90,6 +90,15 @@ export class CogneeAdapter implements BenchmarkAdapter {
   readonly name = 'cognee';
   readonly mode = 'native' as const;
 
+  /**
+   * cognee opens its Kuzu graph store and LanceDB vector store inside a fresh
+   * Python subprocess on every query. Kuzu does not permit concurrent
+   * multi-process access to a single database directory, so parallel dispatch
+   * aborts natively with "libc++ mutex lock failed" partway through a run.
+   * Serialising queries is what makes cognee survive a full batch run.
+   */
+  readonly maxQueryConcurrency = 1;
+
   private readonly dataDir: string;
   private readonly llmEndpoint: string;
   private readonly llmModel: string;
