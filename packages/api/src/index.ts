@@ -8,6 +8,11 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { readFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { isAllowedOrigin, loadEnvironment, resolvePort } from './env';
+import { findDashboardAsset, resolveDashboardDir } from './static';
 import { healthRoutes } from './routes/health';
 import { graphRoutes } from './routes/graph';
 import { searchRoutes } from './routes/search';
@@ -18,11 +23,15 @@ import { naturalRoutes } from './routes/natural';
 import { sourceRoutes } from './routes/source';
 import { profileRoutes } from './routes/profile';
 
+// Load .env before any route module reads configuration from process.env.
+const loadedEnvFile = loadEnvironment();
+
 const app = new Hono();
 
 // CORS — allow dashboard on :3000 to call API on :3001
 app.use('*', cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: (origin) =>
+    isAllowedOrigin(origin, process.env['CODEGRAPH_CORS_ORIGINS']) ? origin : null,
   allowMethods: ['GET', 'POST', 'OPTIONS'],
   allowHeaders: ['Content-Type'],
 }));
@@ -38,11 +47,34 @@ app.route('/', naturalRoutes);
 app.route('/', sourceRoutes);
 app.route('/', profileRoutes);
 
+// Serve the built dashboard, when one is present, from the same origin as the
+// API. Same origin means the browser never needs a CORS allowance for it.
+const serverDir = dirname(fileURLToPath(import.meta.url));
+const dashboardDir = resolveDashboardDir(serverDir);
+
+if (dashboardDir !== undefined) {
+  app.get('*', async (c) => {
+    const asset = findDashboardAsset(new URL(c.req.url).pathname, dashboardDir);
+    if (asset === null) return c.notFound();
+    const body = await readFile(asset.path);
+    c.header('Content-Type', asset.contentType);
+    c.header(
+      'Cache-Control',
+      asset.immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+    );
+    return c.body(body);
+  });
+}
+
 // Start server
-const port = Number(process.env.PORT ?? 3001);
+const port = resolvePort(process.env);
 
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`CodeGraph API server running on http://localhost:${info.port}`);
+  console.log(`  Config:     ${loadedEnvFile ?? 'process environment only (no .env found)'}`);
+  console.log(
+    `  Dashboard:  ${dashboardDir !== undefined ? `http://localhost:${info.port}/` : 'not built (run: pnpm --filter @codegraph/dashboard build)'}`,
+  );
   console.log(`  Health:     GET  /health`);
   console.log(`  Graph:      GET  /api/graph/full?limit=100`);
   console.log(`  Search:     GET  /api/search?q=...`);
