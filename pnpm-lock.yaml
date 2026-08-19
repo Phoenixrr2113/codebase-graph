@@ -591,6 +591,12 @@ importers:
 
   packages/npm-package:
     devDependencies:
+      '@codegraph/api':
+        specifier: workspace:*
+        version: link:../api
+      '@codegraph/dashboard':
+        specifier: workspace:*
+        version: link:../dashboard
       '@codegraph/mcp-server':
         specifier: workspace:*
         version: link:../mcp-server
