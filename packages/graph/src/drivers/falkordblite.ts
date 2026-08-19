@@ -10,8 +10,10 @@
  * to the remote FalkorDBDriver.
  */
 
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import type { Graph } from 'falkordb';
 import type { DatabaseDriver, DriverConfig, CypherDialect } from '../driver';
 import type { QueryParams } from '../client';
@@ -40,6 +42,51 @@ export function resolveEmbeddedBinaryPaths(
   return {
     redisServerPath: resolve(packageDirectory, 'bin', 'redis-server'),
     modulePath: resolve(packageDirectory, 'bin', 'falkordb.so'),
+  };
+}
+
+/**
+ * Bytes the embedded package appends to the data directory when it generates a
+ * socket name: a path separator plus `fdb-` + 16 hex characters + `.sock`.
+ */
+const socketFilenameBytes = 1 + 'fdb-'.length + 16 + '.sock'.length;
+
+/** Maximum Unix domain socket path length, from UNIX_PATH_MAX in sys/un.h. */
+export function unixSocketPathLimit(platform: NodeJS.Platform = process.platform): number {
+  return platform === 'darwin' ? 104 : 108;
+}
+
+/**
+ * Pick the embedded database directory.
+ *
+ * falkordblite always derives its Unix socket from the data directory and does
+ * not let a caller override the socket path, so a deep checkout produces a
+ * socket path over the platform limit and every connection fails. When the
+ * configured directory cannot fit a socket name, fall back to a short,
+ * deterministic directory under the user's home so the same project always maps
+ * to the same database.
+ */
+export function resolveEmbeddedDataPath(
+  rawPath: string,
+  options: {
+    platform?: NodeJS.Platform;
+    home?: string;
+  } = {},
+): { dataPath: string; relocatedFrom?: string } {
+  const platform = options.platform ?? process.platform;
+  const home = options.home ?? homedir();
+  const configured = resolve(rawPath);
+
+  // Windows uses named pipes, so the Unix path limit does not apply.
+  if (platform === 'win32') return { dataPath: configured };
+
+  const budget = unixSocketPathLimit(platform) - socketFilenameBytes;
+  if (Buffer.byteLength(configured) <= budget) return { dataPath: configured };
+
+  const digest = createHash('sha256').update(configured).digest('hex').slice(0, 12);
+  return {
+    dataPath: join(home, '.codegraph', 'graphs', digest),
+    relocatedFrom: configured,
   };
 }
 
@@ -77,6 +124,9 @@ export interface FalkorDBLiteConfig {
 }
 
 export class FalkorDBLiteDriver implements DatabaseDriver {
+  /** Ensures the relocation notice is printed at most once per process. */
+  static warnedAboutRelocation = false;
+
   private db: FalkorDBLiteInstance | null = null;
   private graph: Graph | null = null;
   readonly dialect: CypherDialect = falkorDialect;
@@ -89,7 +139,14 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
     const rawPath = config.databasePath
       ?? process.env['CODEGRAPH_DB_PATH']
       ?? '.codegraph/falkordb';
-    const dataPath = resolve(rawPath);
+    const { dataPath, relocatedFrom } = resolveEmbeddedDataPath(rawPath);
+    if (relocatedFrom !== undefined && !FalkorDBLiteDriver.warnedAboutRelocation) {
+      FalkorDBLiteDriver.warnedAboutRelocation = true;
+      console.warn(
+        `[codegraph] Embedded database moved to ${dataPath} because "${relocatedFrom}" is too ` +
+          'long for a Unix socket on this platform. Set CODEGRAPH_DB_PATH to choose another location.',
+      );
+    }
 
     // The driver owns shutdown through close(). Keep the embedded wrapper from
     // installing competing signal handlers that can stop Redis before its
