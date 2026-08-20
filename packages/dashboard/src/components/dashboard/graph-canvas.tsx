@@ -206,7 +206,11 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, referenceK
     if (!referenceKeys || referenceKeys.size === 0) return
 
     cy.nodes().forEach((node) => {
-      const key = `${(node.data('filePath') as string | undefined) ?? ''}::${node.data('label') as string}`
+      const key = [
+        (node.data('filePath') as string | undefined) ?? '',
+        node.data('label') as string,
+        (node.data('startLine') as number | undefined) ?? '',
+      ].join('::')
       if (referenceKeys.has(key)) node.addClass('reference')
     })
   }, [referenceKeys])

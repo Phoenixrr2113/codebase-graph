@@ -60,7 +60,7 @@ export function AppShell({ projectId }: { projectId?: string | null }) {
   }, [selectedNode])
 
   const referenceKeys = new Set(
-    (references?.references ?? []).map((r) => referenceKey(r.filePath, r.name)),
+    (references?.references ?? []).map((r) => referenceKey(r.filePath, r.name, r.startLine)),
   )
 
   const handleSearchHighlight = useCallback((names: string[]) => {

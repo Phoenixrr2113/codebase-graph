@@ -106,7 +106,14 @@ function removeAddedSignalListeners(
 ): void {
   for (const signal of shutdownSignals) {
     const previousListeners = listenersBeforeOpen.get(signal) ?? new Set();
+    const ours = shutdownHandlers?.get(signal);
     for (const listener of process.listeners(signal)) {
+      // Our own handler is never "something the wrapper just added", even when
+      // it was installed after this snapshot was taken. Two connects running at
+      // once would otherwise have the second one tear down the first one's
+      // handler, and the install below would skip re-adding it because a
+      // handler was already recorded, leaving the process with none at all.
+      if (listener === ours) continue;
       if (!previousListeners.has(listener)) {
         process.removeListener(signal, listener);
       }
@@ -134,7 +141,15 @@ const openDrivers = new Set<FalkorDBLiteDriver>();
 let shutdownHandlers: Map<NodeJS.Signals, NodeJS.SignalsListener> | null = null;
 
 function installShutdownHandlers(): void {
-  if (shutdownHandlers) return;
+  if (shutdownHandlers) {
+    // Re-attach anything that was detached while another connect was in flight.
+    for (const [signal, handler] of shutdownHandlers) {
+      if (!process.listeners(signal).includes(handler)) {
+        process.on(signal, handler);
+      }
+    }
+    return;
+  }
   const handlers = new Map<NodeJS.Signals, NodeJS.SignalsListener>();
   for (const signal of shutdownSignals) {
     const handler = (): void => {

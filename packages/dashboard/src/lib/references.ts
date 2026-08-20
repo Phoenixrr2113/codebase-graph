@@ -41,9 +41,19 @@ export function isReferenceable(nodeType: string): boolean {
   return REFERENCEABLE_TYPES.has(nodeType)
 }
 
-/** Identity used to match a reference against a node on the canvas. */
-export function referenceKey(filePath: string | undefined, name: string): string {
-  return `${filePath ?? ''}::${name}`
+/**
+ * Identity used to match a reference against a node on the canvas.
+ *
+ * The line is part of the identity because a file can hold several symbols of
+ * the same name, and only one of them is the end of the relationship. Matching
+ * on path and name alone lit up all of them.
+ */
+export function referenceKey(
+  filePath: string | undefined,
+  name: string,
+  startLine: number | undefined,
+): string {
+  return `${filePath ?? ''}::${name}::${startLine ?? ''}`
 }
 
 export async function fetchReferences(

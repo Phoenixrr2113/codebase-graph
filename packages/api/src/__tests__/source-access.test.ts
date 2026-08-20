@@ -99,6 +99,17 @@ describe('authorizeSourcePath', () => {
     expect(decision).toMatchObject({ ok: false, status: 403 });
   });
 
+  it('denies everything when the graph yields no roots', () => {
+    // The route builds its roots from the graph, so an unreachable graph has to
+    // deny rather than fall back to something broader.
+    for (const path of [`${PROJECT}/src/a.ts`, '/etc/passwd', '/']) {
+      expect(authorizeSourcePath(path, [], fakeRealpath())).toMatchObject({
+        ok: false,
+        status: 403,
+      });
+    }
+  });
+
   it('accepts a file in any one of several projects', () => {
     const decision = authorizeSourcePath(`${OTHER}/src/b.ts`, [PROJECT, OTHER], fakeRealpath());
     expect(decision).toEqual({ ok: true, path: `${OTHER}/src/b.ts` });

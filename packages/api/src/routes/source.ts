@@ -1,13 +1,19 @@
 import { Hono } from 'hono';
 import { readFile } from 'node:fs/promises';
-import { codeGraphService, getActiveProjectPaths } from '@codegraph/core';
+import { codeGraphService } from '@codegraph/core';
 import { authorizeSourcePath } from '../source-access';
 
 export const sourceRoutes = new Hono();
 
 /**
- * Every directory the source endpoint may read from: the roots of indexed
- * projects, plus whatever the user has configured as active.
+ * Every directory the source endpoint may read from: the roots of projects that
+ * are actually in the graph.
+ *
+ * Deliberately not the configured active projects. Configuring a project only
+ * schedules indexing, so an active root can be a directory the graph knows
+ * nothing about, and honouring it would let this endpoint read files that no
+ * graph node refers to. An unreachable graph yields no roots, which denies
+ * everything rather than falling back to something broader.
  */
 async function readableRoots(): Promise<string[]> {
   const roots = new Set<string>();
@@ -16,12 +22,7 @@ async function readableRoots(): Promise<string[]> {
       if (project.rootPath) roots.add(project.rootPath);
     }
   } catch {
-    // An unreachable graph must not widen access, so fall through to config only.
-  }
-  try {
-    for (const path of await getActiveProjectPaths()) roots.add(path);
-  } catch {
-    // Same reasoning: a missing config narrows what is readable, never widens it.
+    // Deny by default: a graph we cannot read tells us nothing is readable.
   }
   return Array.from(roots);
 }
