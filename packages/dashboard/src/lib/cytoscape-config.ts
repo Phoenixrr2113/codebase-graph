@@ -168,6 +168,18 @@ export const cytoscapeStylesheet: cytoscape.StylesheetJson = [
     selector: 'edge.dimmed',
     style: { opacity: 0.1 },
   },
+  // Uses the selected symbol. Declared after the dimming rules on purpose: a
+  // reference has to stay legible even when a search has dimmed the rest, and
+  // cytoscape resolves competing rules in declaration order.
+  {
+    selector: 'node.reference',
+    style: {
+      'border-width': 3,
+      'border-color': '#f472b6',
+      'border-style': 'double',
+      opacity: 1,
+    },
+  },
   // Base edge
   {
     selector: 'edge',
@@ -228,21 +240,27 @@ export const LAYOUT_OPTIONS: Record<LayoutName, cytoscape.LayoutOptions> = {
     fit: true,
     padding: 40,
   },
+  // These two are unanimated for the same reason cose is: with animation on,
+  // `fit` measures the positions the nodes are leaving rather than the ones they
+  // are moving to, so the viewport settles around the old layout and most of the
+  // graph ends up off screen. Measured on the 235-node graph, the tree layout
+  // spanned x -23..1090 while the viewport showed only up to x 754.
   concentric: {
     name: 'concentric',
     fit: true,
     padding: 50,
     minNodeSpacing: 50,
-    animate: true,
-    animationDuration: 500,
+    animate: false,
   },
   breadthfirst: {
     name: 'breadthfirst',
     directed: true,
     fit: true,
     padding: 50,
-    spacingFactor: 1.5,
-    animate: true,
-    animationDuration: 500,
+    // 1.5 laid the 235-node graph out 7536px wide, which needs a zoom of 0.097
+    // to fit. Tightening the spacing keeps a graph of that size inside the
+    // zoom range the canvas allows.
+    spacingFactor: 1,
+    animate: false,
   },
 }

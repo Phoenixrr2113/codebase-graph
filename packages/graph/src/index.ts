@@ -25,7 +25,11 @@ export {
 export { FalkorDBDriver, falkorDialect } from './drivers/falkordb';
 
 // FalkorDBLite driver (embedded — no Docker needed)
-export { FalkorDBLiteDriver, type FalkorDBLiteConfig } from './drivers/falkordblite';
+export {
+  FalkorDBLiteDriver,
+  resolveEmbeddedBinaryPaths,
+  type FalkorDBLiteConfig,
+} from './drivers/falkordblite';
 
 // Driver registry (pluggable driver system)
 export { registerDriver, createDriver, getRegisteredDrivers, type DriverFactory } from './driver-registry';
@@ -37,7 +41,15 @@ import './drivers/index';
 export { createOperations, type GraphOperations, type VectorSearchResult } from './operations';
 
 // Query exports
-export { createQueries, type GraphQueries } from './queries';
+export {
+  createQueries,
+  REFERENCE_EDGE_TYPES,
+  type GraphQueries,
+  type ReferenceEdgeType,
+  type SymbolReference,
+  type SymbolReferenceQuery,
+  type SymbolReferencesResult,
+} from './queries';
 
 // Knowledge graph exports (NLC merger)
 export {

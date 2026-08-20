@@ -6,9 +6,8 @@
 >
 > **cognee status (2026-08-19):** the batch-run crash is fixed. cognee is still absent from
 > the table below, but the reason is now inference cost, not a defect. See
-> "Why cognee has no score" below the results. The real-corpus codegraph run against zod
-> also remains deferred: `enrichedSearchV2` hangs at first query on the 8K-entity zod graph
-> and needs profiling.
+> "Why cognee has no score" below the results. The zod hang is fixed (2026-08-20): see
+> "The zod query hang" below.
 
 **Run timestamp:** 2026-04-28T14:43:04.958Z
 **Corpus:** smoke fixture (`fixtures/code/tiny-ts`, `corpora/knowledge`, `documents/source`)
@@ -124,7 +123,45 @@ Any number CGBench eventually publishes for cognee must therefore be labelled
 - supermemory (requires SUPERMEMORY_API_KEY), hindsight (requires HINDSIGHT_URL): READY-WITH-KEY but excluded from this run.
 - cognee: runnable end to end as of 2026-08-19 (the `libc++ mutex` crash was a runner concurrency bug in CGBench, now fixed). Unscored because a like-for-like run is a multi-day local-inference job. See "Why cognee has no score".
 - mastra-memory, augment: DEFERRED stubs — see COMPETITORS.md.
-- v0.1.2 will (a) run cognee on identical inputs once the compute budget allows, (b) profile the codegraph zod-corpus query hang at `enrichedSearchV2`, (c) run against the 4 OSS corpora with the full question set.
+- v0.1.2 will (a) run cognee on identical inputs once the compute budget allows, (b) run against the 4 OSS corpora with the full question set. The zod query hang that blocked (b) is fixed; see "The zod query hang".
+
+---
+
+## The zod query hang
+
+Resolved 2026-08-20. Recorded here because the diagnosis says something about the
+corpus, not just about our code.
+
+`enrichedSearchV2` decorates each hit with a `dependencyDepth`: the shortest chain
+from an entry point (a file nothing imports) to the symbol, bounded to six hops.
+It asked for that with an `OPTIONAL MATCH` over a variable-length pattern. That
+form is cheap when a path exists and ruinous when one does not, because proving
+absence means enumerating the symbol's entire six-hop neighbourhood.
+
+zod has a symbol built to make that expensive. `_parse` is implemented on every
+schema type, so the name resolves to 38 nodes carrying 1406 inbound and 2340
+outbound CALLS edges among them, and no entry point reaches any of them within
+six hops. Enumerating that ran past 120s. Because FalkorDB serves one query at a
+time, the stall was not confined to the field it was computing: every later stage
+of the same search queued behind it, which is why the symptom read as "hangs at
+first query" rather than "one enrichment is slow".
+
+Rewriting the query as a plain `MATCH`, which simply yields no row for
+unreachable symbols, left the answers unchanged and removed the cost of proving
+absence. Measured over 400 distinct zod symbols:
+
+| | current form | previous form |
+|---|---|---|
+| Total time | 0.4s | 240s |
+| Symbols exceeding 20s | 0 | 12 |
+| Answers agreeing | 388 of 388 the old form could finish | baseline |
+
+The other 8K-entity structural work was never the problem: label scans, vector
+retrieval and the remaining enrichment queries all answered in single-digit
+milliseconds on the same graph. Regression cover is in
+`packages/core/src/__tests__/dependency-depth.integration.test.ts`, which
+reproduces the blowup with 16 same-named functions and fails in about 20s
+against the old query.
 
 ---
 

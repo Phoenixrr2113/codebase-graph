@@ -1,13 +1,40 @@
 import { Hono } from 'hono';
 import { readFile } from 'node:fs/promises';
+import { codeGraphService } from '@codegraph/core';
+import { authorizeSourcePath } from '../source-access';
 
 export const sourceRoutes = new Hono();
 
-/** GET /api/source?path=X&startLine=N&endLine=N — read source code with context */
+/**
+ * Every directory the source endpoint may read from: the roots of projects that
+ * are actually in the graph.
+ *
+ * Deliberately not the configured active projects. Configuring a project only
+ * schedules indexing, so an active root can be a directory the graph knows
+ * nothing about, and honouring it would let this endpoint read files that no
+ * graph node refers to. An unreachable graph yields no roots, which denies
+ * everything rather than falling back to something broader.
+ */
+async function readableRoots(): Promise<string[]> {
+  const roots = new Set<string>();
+  try {
+    for (const project of await codeGraphService.getProjects()) {
+      if (project.rootPath) roots.add(project.rootPath);
+    }
+  } catch {
+    // Deny by default: a graph we cannot read tells us nothing is readable.
+  }
+  return Array.from(roots);
+}
+
+/** GET /api/source?path=X&startLine=N&endLine=N reads source code with context. */
 sourceRoutes.get('/api/source', async (c) => {
   try {
-    const filePath = c.req.query('path');
-    if (!filePath) return c.json({ error: 'path parameter is required' }, 400);
+    const decision = authorizeSourcePath(c.req.query('path'), await readableRoots());
+    if (!decision.ok) {
+      return c.json({ error: decision.message }, decision.status);
+    }
+    const filePath = decision.path;
 
     const startLine = Number(c.req.query('startLine') ?? 1);
     const endLine = Number(c.req.query('endLine') ?? 0);

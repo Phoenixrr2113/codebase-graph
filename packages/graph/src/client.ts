@@ -303,6 +303,21 @@ async function detectDefaultDriver(): Promise<'falkordb' | 'falkordblite'> {
   }
 }
 
+/**
+ * A startup timeout and a missing package both surface as a connect failure,
+ * and they need opposite advice. Suggesting an install to someone whose only
+ * problem is a large snapshot sends them the wrong way entirely.
+ */
+export function embeddedConnectionHint(message: string): string {
+  if (/did not become ready/i.test(message)) {
+    return (
+      '\nHint: the embedded database ran out of startup time. A large graph takes ' +
+      'longer to load; raise CODEGRAPH_DB_STARTUP_TIMEOUT_MS (milliseconds) and retry.'
+    );
+  }
+  return '\nHint: Is falkordblite installed? Try: pnpm add falkordblite';
+}
+
 export async function createClient(config?: FalkorConfig | GraphConfig): Promise<GraphClient> {
   // Layer config: explicit arg > config file > env vars > default (FalkorDB)
   const fileConfig = await loadConfigFile();
@@ -352,7 +367,7 @@ export async function createClient(config?: FalkorConfig | GraphConfig): Promise
     if (driverType === 'falkordb') {
       hint = '\nHint: Is FalkorDB running? Try: docker compose up -d falkordb';
     } else if (driverType === 'falkordblite') {
-      hint = '\nHint: Is falkordblite installed? Try: pnpm add falkordblite';
+      hint = embeddedConnectionHint(msg);
     }
     throw new GraphClientError(
       `Failed to connect (${driverType}): ${msg}${hint}`,

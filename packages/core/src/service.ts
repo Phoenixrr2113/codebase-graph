@@ -29,6 +29,7 @@ import {
   getGraphStatsImpl,
   getFullGraphImpl,
   getFileSubgraphImpl,
+  getSymbolReferencesImpl,
   getDependencyTreeImpl,
   buildFileTreeImpl,
   getIndexSummaryImpl,
@@ -55,7 +56,11 @@ import type {
 
 import type { EnrichedV2Result } from './enrichedSearchV2';
 import type { GraphStats, GraphData, SubgraphData } from '@codegraph/types';
-import type { FileTreeOptions } from '@codegraph/graph';
+import type {
+  FileTreeOptions,
+  SymbolReferenceQuery,
+  SymbolReferencesResult,
+} from '@codegraph/graph';
 import type { ProjectEntity } from '@codegraph/types';
 
 // ============================================================================
@@ -86,6 +91,10 @@ class CodeGraphServiceImpl {
 
   async getFileSubgraph(filePath: string): Promise<SubgraphData> {
     return getFileSubgraphImpl(filePath);
+  }
+
+  async getSymbolReferences(query: SymbolReferenceQuery): Promise<SymbolReferencesResult> {
+    return getSymbolReferencesImpl(query);
   }
 
   async getDependencyTree(filePath: string, depth?: number): Promise<GraphData> {

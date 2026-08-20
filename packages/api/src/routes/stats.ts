@@ -7,19 +7,35 @@ export const statsRoutes = new Hono();
 statsRoutes.get('/api/projects', async (c) => {
   try {
     const client = await getGraphClient();
+    // The node records lastParsed and createdAt. There is no indexedAt property,
+    // so asking for one returned null for every project.
     const result = await client.roQuery<{
       id: string;
       name: string;
       rootPath: string | null;
-      indexedAt: string | null;
+      lastParsed: string | null;
+      createdAt: string | null;
+      fileCount: number | null;
     }>(
       `MATCH (p:Project)
-       RETURN p.id AS id, p.name AS name, p.rootPath AS rootPath, p.indexedAt AS indexedAt
+       RETURN p.id AS id, p.name AS name, p.rootPath AS rootPath,
+              p.lastParsed AS lastParsed, p.createdAt AS createdAt, p.fileCount AS fileCount
        ORDER BY p.name`,
     );
-    return c.json({ projects: result.data });
+    const projects = result.data.map((project) => ({
+      id: project.id,
+      name: project.name,
+      rootPath: project.rootPath,
+      // A project parsed once has only createdAt, and that is still when it was indexed.
+      indexedAt: project.lastParsed ?? project.createdAt,
+      fileCount: project.fileCount ?? 0,
+    }));
+    return c.json({ projects });
   } catch (error) {
-    return c.json({ projects: [], error: error instanceof Error ? error.message : 'Failed to list projects' });
+    return c.json(
+      { projects: [], error: error instanceof Error ? error.message : 'Failed to list projects' },
+      500,
+    );
   }
 });
 
