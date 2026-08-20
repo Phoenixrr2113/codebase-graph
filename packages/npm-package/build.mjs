@@ -131,6 +131,24 @@ npm install --global codegraph-mcp
 
 Then configure an MCP client to run \`codegraph-mcp\`. The server uses stdio and keeps logs on stderr.
 
+## Dashboard
+
+This package also installs \`codegraph-dashboard\`, a browser UI for exploring the
+graph: force, tree, and ring views, semantic and Cypher search, a source viewer,
+and an operations tab for indexing and embedding coverage.
+
+\`\`\`bash
+# The binary ships inside this package, so name the package explicitly.
+npx -p codegraph-mcp codegraph-dashboard
+
+# or, once installed globally
+codegraph-dashboard
+\`\`\`
+
+It serves the UI and the REST API on http://localhost:3001. Set \`API_PORT\` to
+change the port. The dashboard is optional: the MCP server neither starts it nor
+depends on it.
+
 ## Offline start
 
 \`\`\`bash

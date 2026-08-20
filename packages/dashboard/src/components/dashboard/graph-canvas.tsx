@@ -52,11 +52,16 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdge
           const nodeType = (n.label ?? nodeData.type ?? 'Unknown') as string
           return {
             data: {
+              // Spread first: the graph payload carries its own internal "id",
+              // and spreading it last replaced the cytoscape node id. Every edge
+              // referencing the real id was then treated as an orphan and
+              // dropped, so functions, classes and interfaces rendered with no
+              // edges at all while files, which carry no inner id, looked fine.
+              ...nodeData,
               id: n.id as string,
               label: displayName,
               type: nodeType,
               filePath: n.filePath as string | undefined,
-              ...nodeData,
             },
           }
         })

@@ -48,7 +48,17 @@ export function AppShell({ projectId }: { projectId?: string | null }) {
         <SearchPanel
           apiUrl={API_URL}
           onHighlight={handleSearchHighlight}
-          onSelectResult={(name) => setHighlightedNames(new Set([name]))}
+          onSelectResult={(result) => {
+            setHighlightedNames(new Set([result.name]))
+            // Open the detail panel too. The search payload already carries
+            // filePath and line numbers, which is everything the panel needs.
+            setSelectedNode({
+              id: `${result.nodeType}:${result.filePath ?? ''}:${result.name}`,
+              label: result.name,
+              type: result.nodeType,
+              properties: result,
+            })
+          }}
         />
       </ResizablePanel>
 

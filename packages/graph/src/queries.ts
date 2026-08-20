@@ -256,6 +256,27 @@ export interface GraphQueries {
 // Query Operations Implementation
 // ============================================================================
 
+/**
+ * Find the graph node an edge endpoint refers to.
+ *
+ * Prefers name plus path, which identifies a specific declaration. Falls back to
+ * the file itself only when the endpoint carries no name, since matching on path
+ * alone cannot distinguish declarations that share a file.
+ */
+function findEndpoint(
+  nodes: GraphNode[],
+  props: Record<string, unknown>,
+): GraphNode | undefined {
+  const name = props['name'];
+  const filePath = props['filePath'];
+
+  if (typeof name === 'string' && name.length > 0) {
+    const exact = nodes.find((n) => n.displayName === name && n.filePath === filePath);
+    if (exact) return exact;
+  }
+  return nodes.find((n) => n.filePath === filePath && n.label === 'File');
+}
+
 class GraphQueriesImpl implements GraphQueries {
   private readonly dialect: CypherDialect;
   private readonly templates: ReturnType<typeof buildCypherTemplates>;
@@ -300,21 +321,16 @@ class GraphQueriesImpl implements GraphQueries {
       const fromLabels = extractLabels(row.a, [], this.dialect);
       const toLabels = row.toLabels ?? extractLabels(row.b, [], this.dialect);
 
-      // Get source node from our nodes array
-      const fromNode = nodes.find((n) => {
-        return (
-          n.filePath === fromProps['filePath'] ||
-          (n.displayName === fromProps['name'] && n.filePath === fromProps['filePath'])
-        );
-      });
-
-      // Get target node - or create External node if needed
-      let toNode = nodes.find((n) => {
-        return (
-          n.filePath === toProps['filePath'] ||
-          (n.displayName === toProps['name'] && n.filePath === toProps['filePath'])
-        );
-      });
+      // Resolve each endpoint by identity.
+      //
+      // This previously tested filePath on its own first, and every function,
+      // class and interface declared in a file shares that path. The lookup
+      // therefore returned whichever node for the file happened to come first,
+      // usually the File node, so real endpoints ended up with no edges at all
+      // and rendered as a disconnected grid. The name check that followed could
+      // never run because the || had already short-circuited.
+      const fromNode = findEndpoint(nodes, fromProps);
+      let toNode = findEndpoint(nodes, toProps);
 
       // If target is External and not in nodes, add it
       const isExternalTarget = toLabels.includes('External') ||
