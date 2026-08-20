@@ -214,8 +214,14 @@ export type LayoutName = 'cose' | 'concentric' | 'breadthfirst'
 export const LAYOUT_OPTIONS: Record<LayoutName, cytoscape.LayoutOptions> = {
   cose: {
     name: 'cose',
-    animate: true,
-    animationDuration: 500,
+    // cose runs numIter (1000 by default) simulation steps. Animating them left
+    // the graph drifting for many seconds, during which nodes moved out from
+    // under the pointer and could not reliably be clicked. Animating only the
+    // final transition still fit the viewport to the pre-layout positions, so
+    // the graph settled off screen. Positioning without animation gives final
+    // coordinates immediately, which makes both the fit and the hit testing
+    // correct.
+    animate: false,
     nodeRepulsion: () => 8000,
     idealEdgeLength: () => 80,
     gravity: 0.3,

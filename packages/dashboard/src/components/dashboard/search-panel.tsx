@@ -2,18 +2,21 @@ import { useState, useCallback } from 'react'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 
-interface SearchResult {
+export interface SearchResult {
   name: string
   nodeType: string
   filePath?: string
   callerCount?: number
   importerCount?: number
+  // The search endpoint returns the full node payload (startLine, docstring,
+  // params and so on). Those extra fields are what the detail panel renders.
+  [key: string]: unknown
 }
 
 interface SearchPanelProps {
   apiUrl: string
   onHighlight: (names: string[]) => void
-  onSelectResult: (name: string) => void
+  onSelectResult: (result: SearchResult) => void
 }
 
 export function SearchPanel({ apiUrl, onHighlight, onSelectResult }: SearchPanelProps) {
@@ -82,7 +85,7 @@ export function SearchPanel({ apiUrl, onHighlight, onSelectResult }: SearchPanel
           <button
             key={`${r.name}-${i}`}
             className="w-full border-b border-border/50 px-3 py-2 text-left transition-colors hover:bg-accent/50"
-            onClick={() => onSelectResult(r.name)}
+            onClick={() => onSelectResult(r)}
           >
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-[10px] font-normal">
