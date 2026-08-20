@@ -51,9 +51,12 @@ graphRoutes.get('/api/graph/file', async (c) => {
 /**
  * GET /api/graph/references?name=X&path=Y&startLine=N&limit=M
  *
- * Where a symbol is used. `path` and `startLine` are optional and only
- * disambiguate declarations that share a name; without them the first matching
- * declaration is used.
+ * Where a symbol is used. Matches every node with this name, not just one, so
+ * references that land on a type-reference proxy node are included alongside
+ * ones that land on the declaration itself. `path` and `startLine` are
+ * optional and disambiguate between distinct declarations that share a name;
+ * a matched node with no location of its own (a proxy node) is never excluded
+ * by them.
  */
 graphRoutes.get('/api/graph/references', async (c) => {
   try {

@@ -17,7 +17,9 @@
  */
 
 import type { GraphClient, QueryParams } from './client';
-import { trace } from '@codegraph/logger';
+import { createLogger, trace, toErrorMessage } from '@codegraph/logger';
+
+const logger = createLogger({ namespace: 'graph:knowledge-operations' });
 
 // ============================================================================
 // Types
@@ -210,6 +212,23 @@ const DEFAULT_DECAY_CONFIG: DecayConfig = {
   minRelevance: 0.1,       // Keep if relevance >= 10%
 };
 
+/**
+ * Result of a mergeEntities call. See mergeEntities' doc comment for the
+ * partial-failure contract this shape exists to support.
+ */
+export interface MergeEntitiesResult {
+  /** Count of RELATES_TO edges (outgoing + incoming) moved to the canonical entity */
+  transferredRelationships: number;
+  /** Count of ABOUT edges moved to the canonical entity */
+  transferredAboutEdges: number;
+  /** True only when every transfer step succeeded and the duplicate was deleted */
+  success: boolean;
+  /** True if the duplicate entity node was deleted (always false when success is false) */
+  deleted: boolean;
+  /** Human-readable descriptions of any step that failed, in the order they occurred */
+  errors: string[];
+}
+
 // ============================================================================
 // Knowledge Graph Operations Interface
 // ============================================================================
@@ -245,8 +264,17 @@ export interface KnowledgeOperations {
   createAboutEdge(input: AboutEdgeInput): Promise<boolean>;
   getAboutEdgesForEntity(entityText: string, entityType: string, limit?: number): Promise<AboutEdgeResult[]>;
   // --- Entity Resolution ---
-  /** Merge duplicate entity into canonical: transfer relationships, ABOUT edges, then delete */
-  mergeEntities(canonicalText: string, canonicalType: string, duplicateText: string, duplicateType: string): Promise<{ transferredRelationships: number; transferredAboutEdges: number }>;
+  /**
+   * Merge duplicate entity into canonical: transfer relationships and ABOUT edges,
+   * then delete the duplicate.
+   *
+   * The duplicate is only deleted when every transfer step succeeds. If any step
+   * fails, the duplicate is left in place (with whatever edges did not get copied
+   * still attached to it) so the merge can be retried, and `success` is `false`
+   * with `errors` describing what went wrong. Callers must check `success` rather
+   * than assuming the promise resolving means the merge completed.
+   */
+  mergeEntities(canonicalText: string, canonicalType: string, duplicateText: string, duplicateType: string): Promise<MergeEntitiesResult>;
 
   // --- Speaker Queries ---
   /** Get entities mentioned by a speaker (via SAID relationships) */
@@ -1273,12 +1301,14 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
     canonicalType: string,
     duplicateText: string,
     duplicateType: string,
-  ): Promise<{ transferredRelationships: number; transferredAboutEdges: number }> {
+  ): Promise<MergeEntitiesResult> {
     let transferredRelationships = 0;
     let transferredAboutEdges = 0;
+    const errors: string[] = [];
+    const mergeLabel = `"${duplicateText}" (${duplicateType}) -> "${canonicalText}" (${canonicalType})`;
 
     // 1. Transfer outgoing RELATES_TO edges from duplicate to canonical
-    //    (duplicate)-[r:RELATES_TO]->(other) → (canonical)-[r2:RELATES_TO]->(other)
+    //    (duplicate)-[r:RELATES_TO]->(other) -> (canonical)-[r2:RELATES_TO]->(other)
     try {
       const outgoing = await this.client.query<{ count: number }>(`
         MATCH (dup:Entity { text: $dupText, type: $dupType })-[r:RELATES_TO]->(other:Entity)
@@ -1304,12 +1334,14 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
         },
       });
       transferredRelationships += outgoing.data[0]?.count ?? 0;
-    } catch {
-      // No outgoing rels to transfer — that's fine
+    } catch (error) {
+      const message = toErrorMessage(error);
+      logger.error(`mergeEntities ${mergeLabel}: outgoing RELATES_TO transfer failed: ${message}`);
+      errors.push(`outgoing RELATES_TO transfer failed: ${message}`);
     }
 
     // 2. Transfer incoming RELATES_TO edges from duplicate to canonical
-    //    (other)-[r:RELATES_TO]->(duplicate) → (other)-[r2:RELATES_TO]->(canonical)
+    //    (other)-[r:RELATES_TO]->(duplicate) -> (other)-[r2:RELATES_TO]->(canonical)
     try {
       const incoming = await this.client.query<{ count: number }>(`
         MATCH (other:Entity)-[r:RELATES_TO]->(dup:Entity { text: $dupText, type: $dupType })
@@ -1335,8 +1367,10 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
         },
       });
       transferredRelationships += incoming.data[0]?.count ?? 0;
-    } catch {
-      // No incoming rels to transfer — that's fine
+    } catch (error) {
+      const message = toErrorMessage(error);
+      logger.error(`mergeEntities ${mergeLabel}: incoming RELATES_TO transfer failed: ${message}`);
+      errors.push(`incoming RELATES_TO transfer failed: ${message}`);
     }
 
     // 3. Transfer ABOUT edges from duplicate to canonical
@@ -1357,17 +1391,46 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
         },
       });
       transferredAboutEdges += about.data[0]?.count ?? 0;
-    } catch {
-      // No ABOUT edges to transfer — that's fine
+    } catch (error) {
+      const message = toErrorMessage(error);
+      logger.error(`mergeEntities ${mergeLabel}: ABOUT edge transfer failed: ${message}`);
+      errors.push(`ABOUT edge transfer failed: ${message}`);
     }
 
-    // 4. Delete the duplicate entity
-    await this.client.query(`
-      MATCH (e:Entity { text: $text, type: $type })
-      DETACH DELETE e
-    `, { params: { text: duplicateText, type: duplicateType } });
+    // 4. Delete the duplicate entity, but only if every transfer above succeeded.
+    //
+    // Partial-failure design: steps 1-4 are four separate auto-committed Cypher
+    // statements, not one transaction, so a failure partway through can leave
+    // some edges already moved and others still attached to the duplicate (for
+    // example: outgoing edges copied, incoming edges not). Deleting the duplicate
+    // in that state would DETACH DELETE the edges that never got copied, which is
+    // pure data loss since no copy of them exists anywhere. So: any transfer
+    // error aborts the delete, the duplicate is left in place with its remaining
+    // edges intact, and the failure is reported to the caller instead of being
+    // swallowed. Because each transfer query only matches edges still attached to
+    // the duplicate, retrying mergeEntities later is safe and idempotent: steps
+    // that already succeeded simply find nothing left to move (count 0), and the
+    // merge converges to completion on a subsequent attempt.
+    if (errors.length > 0) {
+      logger.error(
+        `mergeEntities ${mergeLabel}: not deleting duplicate after ${errors.length} transfer failure(s); merge is incomplete and can be retried`,
+      );
+      return { transferredRelationships, transferredAboutEdges, success: false, deleted: false, errors };
+    }
 
-    return { transferredRelationships, transferredAboutEdges };
+    try {
+      await this.client.query(`
+        MATCH (e:Entity { text: $text, type: $type })
+        DETACH DELETE e
+      `, { params: { text: duplicateText, type: duplicateType } });
+    } catch (error) {
+      const message = toErrorMessage(error);
+      logger.error(`mergeEntities ${mergeLabel}: transfers succeeded but deleting the duplicate failed: ${message}`);
+      errors.push(`duplicate delete failed: ${message}`);
+      return { transferredRelationships, transferredAboutEdges, success: false, deleted: false, errors };
+    }
+
+    return { transferredRelationships, transferredAboutEdges, success: true, deleted: true, errors };
   }
 
 }

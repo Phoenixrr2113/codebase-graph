@@ -653,17 +653,45 @@ class GraphQueriesImpl implements GraphQueries {
   async getSymbolReferences(query: SymbolReferenceQuery): Promise<SymbolReferencesResult> {
     const limit = Math.min(Math.max(query.limit ?? 200, 1), 1000);
 
-    // The declaration is pinned first so the reference expansion starts from a
-    // single node. Expanding from the edge side instead would scan every
-    // relationship of these types in the graph.
+    // A symbol can be represented by more than one node: a declaration
+    // (Interface/Class/Type/Function/...) with a real filePath, and a TypeRef
+    // proxy node with filePath = null that USES_TYPE/HAS_PARAM/RETURNS edges
+    // actually land on. Matching every node with this name, rather than
+    // pinning to a single one, means references landing on either kind of
+    // node are found. The expansion still starts from named nodes, not the
+    // edge side, so it does not scan every relationship of these types in
+    // the graph.
+    //
+    // A node with no filePath has nothing for filePath/startLine to
+    // disambiguate against, so those filters only ever exclude a node that
+    // carries a location that disagrees with the request. That keeps this
+    // correct today (TypeRef's filePath is always null) and later, once
+    // TypeRef nodes carry a real filePath, when the plain equality check
+    // starts doing the disambiguation on its own.
     const targetFilters = ['target.name = $name'];
-    if (query.filePath !== undefined) targetFilters.push('target.filePath = $filePath');
-    if (query.startLine !== undefined) targetFilters.push('target.startLine = $startLine');
+    if (query.filePath !== undefined) {
+      targetFilters.push('(target.filePath IS NULL OR target.filePath = $filePath)');
+    }
+    if (query.startLine !== undefined) {
+      targetFilters.push('(target.filePath IS NULL OR target.startLine = $startLine)');
+    }
 
+    // "Same file" has to be judged against the symbol's declaring file, not
+    // against whichever matched node a given edge happens to land on: a
+    // reference that lands on the TypeRef proxy would otherwise always look
+    // like it comes from elsewhere, because the TypeRef's own filePath is
+    // null. matchedFilePath is the declaring file implied by the match (the
+    // first non-null filePath among the matched target nodes, computed once
+    // up front, before the per-target edge expansion), and every returned
+    // row carries the same value. query.filePath, when the caller supplied
+    // it, is preferred over that inference below since it is the caller's
+    // own assertion of which declaration it means.
     const cypher = `
       MATCH (target)
       WHERE ${targetFilters.join(' AND ')}
-      WITH target LIMIT 1
+      WITH collect(DISTINCT target) AS targets
+      WITH targets, [t IN targets WHERE t.filePath IS NOT NULL | t.filePath][0] AS matchedFilePath
+      UNWIND targets AS target
       MATCH (source)-[r:${REFERENCE_EDGE_TYPES.join('|')}]->(target)
       WHERE source.name IS NOT NULL
       RETURN DISTINCT
@@ -672,7 +700,7 @@ class GraphQueriesImpl implements GraphQueries {
         source.filePath AS filePath,
         source.startLine AS startLine,
         type(r) AS edgeType,
-        target.filePath AS targetFilePath
+        matchedFilePath
       LIMIT ${limit + 1}
     `;
 
@@ -686,18 +714,19 @@ class GraphQueriesImpl implements GraphQueries {
       filePath: string | null;
       startLine: number | null;
       edgeType: ReferenceEdgeType;
-      targetFilePath: string | null;
+      matchedFilePath: string | null;
     }>(cypher, { params: params as never });
 
     const rows = result.data ?? [];
     const truncated = rows.length > limit;
+    const declaringFilePath = query.filePath ?? rows[0]?.matchedFilePath ?? undefined;
     const references: SymbolReference[] = rows.slice(0, limit).map((row) => ({
       name: row.name,
       nodeType: row.nodeType,
       filePath: row.filePath ?? '',
       startLine: row.startLine ?? undefined,
       edgeType: row.edgeType,
-      sameFile: row.filePath != null && row.filePath === row.targetFilePath,
+      sameFile: row.filePath != null && declaringFilePath != null && row.filePath === declaringFilePath,
     }));
 
     const referencingFiles = Array.from(

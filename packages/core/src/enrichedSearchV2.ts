@@ -236,41 +236,86 @@ interface GraphEnrichment {
   commitCount: number;
 }
 
-async function enrichFromGraph(
+/**
+ * Composite key for the map `enrichFromGraph` returns, and for looking a hit
+ * up in it. Symbol names collide constantly in real codebases (many classes
+ * each declare a "constructor", many modules each export a "GraphClient"),
+ * so a map keyed on name alone lets one declaration's numbers silently
+ * overwrite another's. filePath narrows to one file, startLine narrows
+ * further to one declaration for files that declare more than one symbol
+ * under the same name (overloads). File nodes carry no startLine, and
+ * `Candidate.startLine` is `undefined` for them; the query side normalizes
+ * the same way, so both sides still agree on the key.
+ */
+export function enrichmentKey(
+  filePath: string | undefined,
+  name: string,
+  startLine: number | undefined | null,
+): string {
+  return `${filePath ?? ''}\x00${name}\x00${startLine ?? ''}`;
+}
+
+export async function enrichFromGraph(
   client: GraphClient,
   hits: Candidate[],
 ): Promise<Map<string, GraphEnrichment>> {
   if (hits.length === 0) return new Map();
 
   const names = hits.map(h => h.name);
+  const items = hits.map(h => ({ name: h.name, filePath: h.filePath ?? '' }));
 
   // Single batch query: for each hit, count callers, callees, importers,
-  // test references (files with test/spec in path), and dependency depth
+  // test references (files with test/spec in path), and dependency depth.
+  //
+  // `n` is bound by its own MATCH, on (name, filePath), before any OPTIONAL
+  // expansion runs. It used to be bound inside the first OPTIONAL MATCH,
+  // alongside the caller edge: `OPTIONAL MATCH (n {name: symbolName})<-[:CALLS]-(caller)`.
+  // When a symbol had no callers that whole pattern failed to match, so `n`
+  // came out null, and every clause after it (including the callees
+  // expansion) computed against null. A function that calls other functions
+  // but is called by nobody reported zero callees.
+  //
+  // A plain MATCH can't hang the way the one in DEPENDENCY_DEPTH_CYPHER
+  // could: this is a single-hop exact-property lookup, not a bounded path
+  // search over a densely connected hub, so there's no enumeration to blow
+  // up. The one behavior change is that a name with no matching node now
+  // produces no row at all, instead of a row of zeros. Every call site below
+  // that reads this map already treats a missing entry as "no enrichment for
+  // this hit" (see the `.get(...)` calls in enrichedSearchV2Impl), so that's
+  // safe: it degrades the same way `dependencyDepth` already does for an
+  // unreachable symbol.
   const cypher = `
-    UNWIND $names AS symbolName
-    OPTIONAL MATCH (n {name: symbolName})<-[:CALLS]-(caller)
-    WITH symbolName, n, count(DISTINCT caller) AS callers
+    UNWIND $items AS item
+    MATCH (n {name: item.name, filePath: item.filePath})
+    OPTIONAL MATCH (n)<-[:CALLS]-(caller)
+    WITH item, n, count(DISTINCT caller) AS callers
     OPTIONAL MATCH (n)-[:CALLS]->(callee)
-    WITH symbolName, n, callers, collect(DISTINCT callee.name)[0..5] AS calleeNames
+    WITH item, n, callers, collect(DISTINCT callee.name)[0..5] AS calleeNames
     OPTIONAL MATCH (n)<-[:IMPORTS]-(importer)
-    WITH symbolName, n, callers, calleeNames, count(DISTINCT importer) AS importers
+    WITH item, n, callers, calleeNames, count(DISTINCT importer) AS importers
     OPTIONAL MATCH (testFile:File)
       WHERE (testFile.filePath CONTAINS '.test.' OR testFile.filePath CONTAINS '.spec.' OR testFile.filePath CONTAINS '__tests__')
         AND ((testFile)-[:CONTAINS]->()-[:CALLS]->(n)
           OR (testFile)-[:IMPORTS]->()-[:CONTAINS]->(n))
-    WITH symbolName, callers, calleeNames, importers, count(DISTINCT testFile) AS testRefs
-    RETURN symbolName, callers, calleeNames, importers, testRefs
+    WITH item.name AS symbolName, n.filePath AS filePath, coalesce(n.startLine, n.line) AS startLine,
+         callers, calleeNames, importers, count(DISTINCT testFile) AS testRefs
+    RETURN symbolName, filePath, startLine, callers, calleeNames, importers, testRefs
   `;
 
   try {
     const result = await client.roQuery<Record<string, unknown>>(cypher, {
-      params: { names },
+      params: { items },
       timeout: ENRICHMENT_TIMEOUT_MS,
     });
 
     const map = new Map<string, GraphEnrichment>();
     for (const row of result.data) {
-      map.set(row['symbolName'] as string, {
+      const key = enrichmentKey(
+        row['filePath'] as string | undefined,
+        row['symbolName'] as string,
+        row['startLine'] as number | null | undefined,
+      );
+      map.set(key, {
         callerCount: (row['callers'] as number) ?? 0,
         callees: (row['calleeNames'] as string[]) ?? [],
         importerCount: (row['importers'] as number) ?? 0,
@@ -281,25 +326,33 @@ async function enrichFromGraph(
       });
     }
 
-    // Dependency depth: see DEPENDENCY_DEPTH_CYPHER.
+    // Dependency depth: see DEPENDENCY_DEPTH_CYPHER. That query answers by
+    // name alone (it has no filePath or startLine to key on), so a depth
+    // found for a name applies to every hit sharing that name in this batch,
+    // and gets folded into each hit's own composite-keyed entry below.
     try {
       const depthResult = await client.roQuery<Record<string, unknown>>(DEPENDENCY_DEPTH_CYPHER, {
         params: { names },
         timeout: ENRICHMENT_TIMEOUT_MS,
       });
+      const depthByName = new Map<string, number>();
       for (const row of depthResult.data) {
-        const name = row['symbolName'] as string;
-        const enrichment = map.get(name);
-        if (enrichment && row['minDepth'] != null) {
-          enrichment.dependencyDepth = row['minDepth'] as number;
+        if (row['minDepth'] != null) {
+          depthByName.set(row['symbolName'] as string, row['minDepth'] as number);
         }
+      }
+      for (const hit of hits) {
+        const depth = depthByName.get(hit.name);
+        if (depth == null) continue;
+        const enrichment = map.get(enrichmentKey(hit.filePath, hit.name, hit.startLine));
+        if (enrichment) enrichment.dependencyDepth = depth;
       }
     } catch (err) {
       logger.debug(`Dependency depth query failed (non-fatal): ${err}`);
     }
 
-    // Git churn: last modified date and commit count per file
-    // Uses MODIFIED_IN edges from File→Commit (created by syncGitHistory)
+    // Git churn: last modified date and commit count per file.
+    // Uses MODIFIED_IN edges from File to Commit (created by syncGitHistory).
     try {
       const filePaths = hits.map(h => h.filePath).filter(Boolean) as string[];
       if (filePaths.length > 0) {
@@ -313,7 +366,7 @@ async function enrichFromGraph(
           params: { filePaths },
           timeout: ENRICHMENT_TIMEOUT_MS,
         });
-        // Build filePath→git data map, then assign to hits by filePath
+        // Build filePath -> git data map, then assign to hits by filePath
         const gitByFile = new Map<string, { lastModified: string; commitCount: number }>();
         for (const row of gitResult.data) {
           gitByFile.set(row['fp'] as string, {
@@ -324,7 +377,7 @@ async function enrichFromGraph(
         for (const hit of hits) {
           if (hit.filePath) {
             const gitData = gitByFile.get(hit.filePath);
-            const enrichment = map.get(hit.name);
+            const enrichment = map.get(enrichmentKey(hit.filePath, hit.name, hit.startLine));
             if (gitData && enrichment) {
               enrichment.lastModified = gitData.lastModified;
               enrichment.commitCount = gitData.commitCount;
@@ -351,7 +404,7 @@ function distanceToScore(distance: number): number {
   return Math.max(0, 1 - distance / 2);
 }
 
-interface Candidate {
+export interface Candidate {
   name: string;
   nodeType: string;
   filePath?: string | undefined;
@@ -804,7 +857,7 @@ async function enrichedSearchV2Impl(
       if (c.properties.signature) parts.push(`Signature: ${String(c.properties.signature).slice(0, 200)}`);
       if (c.properties.docstring) parts.push(String(c.properties.docstring).slice(0, 300));
       // Graph signals help the reranker distinguish core code from leaf/UI code
-      const ge = prerankEnrichments.get(c.name);
+      const ge = prerankEnrichments.get(enrichmentKey(c.filePath, c.name, c.startLine));
       if (ge) {
         const signals: string[] = [];
         if (ge.callerCount > 0) signals.push(`called by ${ge.callerCount} functions`);
@@ -852,7 +905,7 @@ async function enrichedSearchV2Impl(
 
   // Reuse pre-rank enrichments; fetch any missing (e.g., if reranker was skipped)
   let enrichments = prerankEnrichments;
-  const missingHits = topHits.filter(h => !enrichments.has(h.name));
+  const missingHits = topHits.filter(h => !enrichments.has(enrichmentKey(h.filePath, h.name, h.startLine)));
   if (missingHits.length > 0) {
     const extra = await enrichFromGraph(client, missingHits);
     for (const [k, v] of extra) enrichments.set(k, v);
@@ -876,7 +929,7 @@ async function enrichedSearchV2Impl(
 
   const result: EnrichedV2Result = {
     hits: topHits.map(c => {
-      const graphData = enrichments.get(c.name);
+      const graphData = enrichments.get(enrichmentKey(c.filePath, c.name, c.startLine));
       const props = c.properties;
       return {
         name: c.name,

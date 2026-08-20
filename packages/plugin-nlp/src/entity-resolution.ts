@@ -355,10 +355,16 @@ export async function resolveEntities(
   for (const merge of exactMerges) {
     for (const dup of merge.duplicates) {
       try {
-        await kgOps.mergeEntities(
+        const mergeResult = await kgOps.mergeEntities(
           merge.canonical.text, merge.canonical.type,
           dup.text, dup.type,
         );
+        if (!mergeResult.success) {
+          logger.warn(
+            `Tier 1 merge incomplete: "${dup.text}" → "${merge.canonical.text}": ${mergeResult.errors.join('; ')}`,
+          );
+          continue;
+        }
         result.tier1Merges++;
         result.merged++;
         result.merges.push({
@@ -422,10 +428,16 @@ export async function resolveEntities(
   for (const merge of autoMerge) {
     for (const dup of merge.duplicates) {
       try {
-        await kgOps.mergeEntities(
+        const mergeResult = await kgOps.mergeEntities(
           merge.canonical.text, merge.canonical.type,
           dup.text, dup.type,
         );
+        if (!mergeResult.success) {
+          logger.warn(
+            `Tier 2 merge incomplete: "${dup.text}" → "${merge.canonical.text}": ${mergeResult.errors.join('; ')}`,
+          );
+          continue;
+        }
         result.tier2Merges++;
         result.merged++;
         result.merges.push({
@@ -471,10 +483,16 @@ export async function resolveEntities(
             ?? (a.text.length >= b.text.length ? b : a);
 
           try {
-            await kgOps.mergeEntities(
+            const mergeResult = await kgOps.mergeEntities(
               canonicalEntity.text, canonicalEntity.type,
               duplicateEntity.text, duplicateEntity.type,
             );
+            if (!mergeResult.success) {
+              logger.warn(
+                `Tier 3 merge incomplete: "${duplicateEntity.text}" → "${canonicalEntity.text}": ${mergeResult.errors.join('; ')}`,
+              );
+              break;
+            }
             result.tier3Merges++;
             result.merged++;
             result.merges.push({

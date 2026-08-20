@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isAllowedOrigin, loadEnvironment, resolvePort } from './env';
+import { checkMutatingRequest } from './csrf-guard';
 import { findDashboardAsset, resolveDashboardDir } from './static';
 import { healthRoutes } from './routes/health';
 import { graphRoutes } from './routes/graph';
@@ -35,6 +36,25 @@ app.use('*', cors({
   allowMethods: ['GET', 'POST', 'OPTIONS'],
   allowHeaders: ['Content-Type'],
 }));
+
+// CSRF guard. CORS only governs whether a browser may read a response, not
+// whether a cross-site request executes. Applied to every path; the guard
+// itself is a no-op for GET, HEAD and OPTIONS, and checks everything else
+// (POST today, whatever mutating verb a future route uses tomorrow) without
+// needing to know which routes exist. See csrf-guard.ts for the full
+// reasoning.
+app.use('*', async (c, next) => {
+  const decision = checkMutatingRequest({
+    method: c.req.method,
+    contentType: c.req.header('Content-Type') ?? null,
+    origin: c.req.header('Origin') ?? null,
+    isAllowedOrigin: (origin) => isAllowedOrigin(origin, process.env['CODEGRAPH_CORS_ORIGINS']),
+  });
+  if (!decision.ok) {
+    return c.json({ error: decision.message }, decision.status ?? 400);
+  }
+  return next();
+});
 
 // Mount routes
 app.route('/', healthRoutes);

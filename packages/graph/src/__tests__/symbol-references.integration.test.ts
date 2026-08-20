@@ -123,4 +123,65 @@ describeIfAvailable('getSymbolReferences', () => {
     });
     expect(scoped.references.map((r) => r.name)).toEqual(['onlyForB']);
   });
+
+  it('finds a reference that only lands on a TypeRef proxy for the same name', async () => {
+    // Mirrors how the graph is actually built: a type name exists both as a
+    // declaration node with a real filePath (Interface/Class/Type/...) and as
+    // a separate TypeRef node with filePath left unset, and USES_TYPE edges
+    // terminate on the TypeRef, never the declaration. Pinning to a single
+    // node by name picks one or the other; if it happens to pick the
+    // declaration, the only real reference (through the TypeRef) is missed.
+    await client.query(`
+      CREATE (c:File {filePath: '/x/config.ts', name: 'config.ts'})
+      CREATE (decl:Interface {name: 'WidgetConfig', filePath: '/x/config.ts', startLine: 12})
+      CREATE (ref:TypeRef {name: 'WidgetConfig', language: 'typescript', isPrimitive: false})
+      CREATE (c)-[:CONTAINS]->(decl)
+      CREATE (maker:Function {name: 'makeWidget', filePath: '/x/c.ts', startLine: 8})
+      CREATE (maker)-[:USES_TYPE]->(ref)
+    `);
+
+    const result = await queries.getSymbolReferences({ name: 'WidgetConfig' });
+
+    expect(result.references.map((r) => r.name)).toEqual(['makeWidget']);
+    expect(result.references[0]?.edgeType).toBe('USES_TYPE');
+  });
+
+  it('still finds a TypeRef-only reference when filePath/startLine pin the declaration', async () => {
+    // The declaration node has a real filePath and startLine; the TypeRef
+    // node it shares a name with does not. A caller that supplies the
+    // declaration's own filePath/startLine (as the dashboard does when a node
+    // is selected) must not filter out the TypeRef's references just because
+    // the TypeRef itself has no location to match against.
+    const result = await queries.getSymbolReferences({
+      name: 'WidgetConfig',
+      filePath: '/x/config.ts',
+      startLine: 12,
+    });
+
+    expect(result.references.map((r) => r.name)).toEqual(['makeWidget']);
+  });
+
+  it('classifies a same-file TypeRef reference as same-file, not "other file"', async () => {
+    // The TypeRef node the USES_TYPE edge lands on has filePath = null, which
+    // is not the declaration's file. sameFile must be judged against the
+    // declaring file, not against whichever node the edge happened to land
+    // on, or a use in the very same file as the declaration gets classified
+    // as coming from elsewhere.
+    await client.query(`
+      CREATE (s:File {filePath: '/x/shapes.ts', name: 'shapes.ts'})
+      CREATE (decl:Interface {name: 'LocalShape', filePath: '/x/shapes.ts', startLine: 4})
+      CREATE (ref:TypeRef {name: 'LocalShape', language: 'typescript', isPrimitive: false})
+      CREATE (user:Function {name: 'sameFileUser', filePath: '/x/shapes.ts', startLine: 20})
+      CREATE (s)-[:CONTAINS]->(decl)
+      CREATE (s)-[:CONTAINS]->(user)
+      CREATE (user)-[:USES_TYPE]->(ref)
+    `);
+
+    const result = await queries.getSymbolReferences({ name: 'LocalShape' });
+
+    expect(result.references).toHaveLength(1);
+    expect(result.references[0]?.name).toBe('sameFileUser');
+    expect(result.references[0]?.sameFile).toBe(true);
+    expect(result.referencingFiles).toEqual([]);
+  });
 });
