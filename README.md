@@ -120,6 +120,32 @@ Embedded storage is selected automatically on Linux x64. On Apple silicon macOS,
 
 Set `CODEGRAPH_RAW_TOOLS=1` to expose the lower-level handlers instead of the four grouped tools.
 
+## Dashboard
+
+CodeGraph ships a browser dashboard for exploring the graph visually: a force,
+tree, or ring view of files, functions, classes, and interfaces, semantic and
+Cypher search, a source viewer with syntax highlighting, and an operations tab
+for indexing and embedding coverage.
+
+It runs as a second binary that serves both the UI and the REST API on one
+port, so nothing else needs to be started.
+
+```bash
+npx codegraph-dashboard          # published package
+pnpm dashboard                   # source checkout
+```
+
+Then open <http://localhost:3001>. Set `API_PORT` to use a different port.
+
+The dashboard is optional. The MCP server does not start it, and running the
+MCP server does not require it.
+
+| Variable | Purpose |
+| --- | --- |
+| `API_PORT` | Port for the dashboard and REST API (default 3001) |
+| `CODEGRAPH_DASHBOARD_DIR` | Override the location of the built dashboard assets |
+| `CODEGRAPH_CORS_ORIGINS` | Comma separated origin allowlist, for a shared deployment |
+
 ## Configuration
 
 | Variable | Purpose |
@@ -166,8 +192,10 @@ FalkorDBLite's Linux x64 and Apple silicon macOS binaries are installed with the
 | [`@codegraph/cli`](packages/cli/) | Source-checkout command-line tools |
 | [`codegraph-mcp`](packages/npm-package/) | Public npm distribution staging and entry point |
 | [`@codegraph/mcpb`](packages/mcpb/) | Platform-local MCPB desktop extension build |
+| [`@codegraph/api`](packages/api/) | REST API consumed by the dashboard |
+| [`@codegraph/dashboard`](packages/dashboard/) | Static dashboard UI served by the API |
 
-The Next.js application lives in [`apps/web`](apps/web/), and the reproducible search benchmark lives in [`benchmarks/cgbench-v1`](benchmarks/cgbench-v1/).
+The marketing site lives in [`apps/web`](apps/web/), and the reproducible search benchmark lives in [`benchmarks/cgbench-v1`](benchmarks/cgbench-v1/).
 
 ## License
 
