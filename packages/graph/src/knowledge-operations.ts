@@ -268,11 +268,15 @@ export interface KnowledgeOperations {
    * Merge duplicate entity into canonical: transfer relationships and ABOUT edges,
    * then delete the duplicate.
    *
-   * The duplicate is only deleted when every transfer step succeeds. If any step
-   * fails, the duplicate is left in place (with whatever edges did not get copied
-   * still attached to it) so the merge can be retried, and `success` is `false`
-   * with `errors` describing what went wrong. Callers must check `success` rather
-   * than assuming the promise resolving means the merge completed.
+   * The duplicate is only deleted when every transfer step succeeds and both
+   * entities are confirmed to exist. If a transfer step throws, or the
+   * canonical entity turns out not to exist (its edges would have nowhere to
+   * go), the duplicate is left in place with `success: false` and `errors`
+   * describing what went wrong, so the merge can be retried. If the duplicate
+   * no longer exists (someone else already merged it), that is treated as a
+   * no-op success: `success: true`, `deleted: false`. Callers must check
+   * `success` rather than assuming the promise resolving means the merge
+   * completed.
    */
   mergeEntities(canonicalText: string, canonicalType: string, duplicateText: string, duplicateType: string): Promise<MergeEntitiesResult>;
 
@@ -1397,7 +1401,8 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
       errors.push(`ABOUT edge transfer failed: ${message}`);
     }
 
-    // 4. Delete the duplicate entity, but only if every transfer above succeeded.
+    // 4. Delete the duplicate entity, but only if every transfer above succeeded
+    //    AND both entities actually existed while those transfers ran.
     //
     // Partial-failure design: steps 1-4 are four separate auto-committed Cypher
     // statements, not one transaction, so a failure partway through can leave
@@ -1415,6 +1420,46 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
       logger.error(
         `mergeEntities ${mergeLabel}: not deleting duplicate after ${errors.length} transfer failure(s); merge is incomplete and can be retried`,
       );
+      return { transferredRelationships, transferredAboutEdges, success: false, deleted: false, errors };
+    }
+
+    // A Cypher MATCH that finds no node does not throw, it just returns zero
+    // rows. Every transfer query above MATCHes both the duplicate and the
+    // canonical entity, so if the canonical was missing the whole time, all
+    // three would have quietly reported "0 edges moved" with no exception,
+    // identical in shape to the duplicate genuinely having no edges. Absence
+    // has to be checked explicitly here rather than inferred from the
+    // transfer counts, and the two absences mean different things:
+    //   - duplicate missing: something else already consumed it (a concurrent
+    //     merge, or the same entity named in two candidate pairs within one
+    //     resolveEntities run). There is nothing left to do; not a failure.
+    //   - canonical missing (while the duplicate still exists): the
+    //     duplicate's edges, if any, had nowhere to go. Deleting it now would
+    //     destroy them with no copy anywhere, so this is a hard failure.
+    const existence = await this.client.query<{ dupCount: number; canonCount: number }>(`
+      OPTIONAL MATCH (dup:Entity { text: $dupText, type: $dupType })
+      OPTIONAL MATCH (canon:Entity { text: $canonText, type: $canonType })
+      RETURN count(dup) AS dupCount, count(canon) AS canonCount
+    `, {
+      params: {
+        dupText: duplicateText, dupType: duplicateType,
+        canonText: canonicalText, canonType: canonicalType,
+      },
+    });
+    const dupExists = (existence.data[0]?.dupCount ?? 0) > 0;
+    const canonExists = (existence.data[0]?.canonCount ?? 0) > 0;
+
+    if (!dupExists) {
+      logger.info(
+        `mergeEntities ${mergeLabel}: duplicate no longer exists, nothing to merge (already merged or removed)`,
+      );
+      return { transferredRelationships, transferredAboutEdges, success: true, deleted: false, errors };
+    }
+
+    if (!canonExists) {
+      const message = `canonical entity "${canonicalText}" (${canonicalType}) does not exist`;
+      logger.error(`mergeEntities ${mergeLabel}: ${message}; duplicate left in place`);
+      errors.push(message);
       return { transferredRelationships, transferredAboutEdges, success: false, deleted: false, errors };
     }
 

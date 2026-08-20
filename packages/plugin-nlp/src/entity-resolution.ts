@@ -365,6 +365,15 @@ export async function resolveEntities(
           );
           continue;
         }
+        if (!mergeResult.deleted) {
+          // success but a no-op: the duplicate was already gone (e.g. consumed
+          // by an earlier merge in this same run, or by a concurrent process).
+          // Nothing actually happened here, so it must not be counted.
+          logger.info(
+            `Tier 1 merge was a no-op: "${dup.text}" → "${merge.canonical.text}" (duplicate already gone)`,
+          );
+          continue;
+        }
         result.tier1Merges++;
         result.merged++;
         result.merges.push({
@@ -438,6 +447,12 @@ export async function resolveEntities(
           );
           continue;
         }
+        if (!mergeResult.deleted) {
+          logger.info(
+            `Tier 2 merge was a no-op: "${dup.text}" → "${merge.canonical.text}" (duplicate already gone)`,
+          );
+          continue;
+        }
         result.tier2Merges++;
         result.merged++;
         result.merges.push({
@@ -490,6 +505,12 @@ export async function resolveEntities(
             if (!mergeResult.success) {
               logger.warn(
                 `Tier 3 merge incomplete: "${duplicateEntity.text}" → "${canonicalEntity.text}": ${mergeResult.errors.join('; ')}`,
+              );
+              break;
+            }
+            if (!mergeResult.deleted) {
+              logger.info(
+                `Tier 3 merge was a no-op: "${duplicateEntity.text}" → "${canonicalEntity.text}" (duplicate already gone)`,
               );
               break;
             }

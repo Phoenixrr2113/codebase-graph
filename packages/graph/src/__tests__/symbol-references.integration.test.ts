@@ -184,4 +184,69 @@ describeIfAvailable('getSymbolReferences', () => {
     expect(result.references[0]?.sameFile).toBe(true);
     expect(result.referencingFiles).toEqual([]);
   });
+
+  it('judges sameFile per reference when two genuine declarations share a name', async () => {
+    // A name collision between two real declarations, each in its own file,
+    // each with its own same-file caller. Every codebase has these (every
+    // class with a constructor, in this repo three separate `close`
+    // functions). sameFile has to be decided per reference, against the
+    // specific declaration that reference's edge points at, not against one
+    // file picked for the whole name.
+    await client.query(`
+      CREATE (one:File {filePath: '/x/one.ts', name: 'one.ts'})
+      CREATE (two:File {filePath: '/x/two.ts', name: 'two.ts'})
+      CREATE (closeOne:Function {name: 'close', filePath: '/x/one.ts', startLine: 5})
+      CREATE (closeTwo:Function {name: 'close', filePath: '/x/two.ts', startLine: 8})
+      CREATE (callerOne:Function {name: 'callerOne', filePath: '/x/one.ts', startLine: 20})
+      CREATE (callerTwo:Function {name: 'callerTwo', filePath: '/x/two.ts', startLine: 30})
+      CREATE (one)-[:CONTAINS]->(closeOne)
+      CREATE (one)-[:CONTAINS]->(callerOne)
+      CREATE (two)-[:CONTAINS]->(closeTwo)
+      CREATE (two)-[:CONTAINS]->(callerTwo)
+      CREATE (callerOne)-[:CALLS]->(closeOne)
+      CREATE (callerTwo)-[:CALLS]->(closeTwo)
+    `);
+
+    const result = await queries.getSymbolReferences({ name: 'close' });
+
+    expect(result.references).toHaveLength(2);
+    const byName = new Map(result.references.map((r) => [r.name, r]));
+    expect(byName.get('callerOne')?.sameFile).toBe(true);
+    expect(byName.get('callerTwo')?.sameFile).toBe(true);
+    expect(result.referencingFiles).toEqual([]);
+  });
+
+  it('does not guess a file for a proxy reference when two declarations share the name', async () => {
+    // Two genuine declarations of 'SharedType', each in its own file, plus a
+    // single TypeRef proxy for that name. A USES_TYPE edge from either file
+    // lands on the proxy, not on either declaration, so nothing in the graph
+    // says which of the two declarations a given proxy reference means.
+    // Falling back to "whichever declaration Cypher happened to return
+    // first" would get one of the two references right by luck and the
+    // other wrong: the same batch-wide misattribution bug in a new spot.
+    // Neither reference can be honestly classified as same-file from this
+    // data, so both must come back false rather than a guess.
+    await client.query(`
+      CREATE (m1:File {filePath: '/x/m1.ts', name: 'm1.ts'})
+      CREATE (m2:File {filePath: '/x/m2.ts', name: 'm2.ts'})
+      CREATE (declM1:Interface {name: 'SharedType', filePath: '/x/m1.ts', startLine: 3})
+      CREATE (declM2:Interface {name: 'SharedType', filePath: '/x/m2.ts', startLine: 7})
+      CREATE (proxy:TypeRef {name: 'SharedType', language: 'typescript', isPrimitive: false})
+      CREATE (userM1:Function {name: 'userM1', filePath: '/x/m1.ts', startLine: 20})
+      CREATE (userM2:Function {name: 'userM2', filePath: '/x/m2.ts', startLine: 25})
+      CREATE (m1)-[:CONTAINS]->(declM1)
+      CREATE (m1)-[:CONTAINS]->(userM1)
+      CREATE (m2)-[:CONTAINS]->(declM2)
+      CREATE (m2)-[:CONTAINS]->(userM2)
+      CREATE (userM1)-[:USES_TYPE]->(proxy)
+      CREATE (userM2)-[:USES_TYPE]->(proxy)
+    `);
+
+    const result = await queries.getSymbolReferences({ name: 'SharedType' });
+
+    expect(result.references).toHaveLength(2);
+    const byUser = new Map(result.references.map((r) => [r.name, r]));
+    expect(byUser.get('userM1')?.sameFile).toBe(false);
+    expect(byUser.get('userM2')?.sameFile).toBe(false);
+  });
 });
