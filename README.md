@@ -131,8 +131,16 @@ It runs as a second binary that serves both the UI and the REST API on one
 port, so nothing else needs to be started.
 
 ```bash
-npx codegraph-dashboard          # published package
-pnpm dashboard                   # source checkout
+# published package: the binary ships inside codegraph-mcp, so name the
+# package explicitly. A bare "npx codegraph-dashboard" would look for a
+# package of that name, which does not exist.
+npx -p codegraph-mcp codegraph-dashboard
+
+# already installed globally
+npm install --global codegraph-mcp && codegraph-dashboard
+
+# source checkout
+pnpm dashboard
 ```
 
 Then open <http://localhost:3001>. Set `API_PORT` to use a different port.

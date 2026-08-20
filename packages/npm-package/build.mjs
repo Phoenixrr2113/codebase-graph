@@ -138,7 +138,11 @@ graph: force, tree, and ring views, semantic and Cypher search, a source viewer,
 and an operations tab for indexing and embedding coverage.
 
 \`\`\`bash
-npx codegraph-dashboard
+# The binary ships inside this package, so name the package explicitly.
+npx -p codegraph-mcp codegraph-dashboard
+
+# or, once installed globally
+codegraph-dashboard
 \`\`\`
 
 It serves the UI and the REST API on http://localhost:3001. Set \`API_PORT\` to
