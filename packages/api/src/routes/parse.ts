@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { indexProject } from '@codegraph/core';
+import { safeErrorMessage } from '../safe-error';
 
 export const parseRoutes = new Hono();
 
@@ -26,6 +27,6 @@ parseRoutes.post('/api/parse/project', async (c) => {
       ...result,
     });
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : 'Parse failed' }, 500);
+    return c.json({ error: safeErrorMessage('POST /api/parse/project', error, 'Parse failed.') }, 500);
   }
 });

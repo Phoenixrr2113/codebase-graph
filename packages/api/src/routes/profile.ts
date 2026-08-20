@@ -8,6 +8,7 @@
  */
 
 import { Hono } from 'hono';
+import { safeErrorMessage } from '../safe-error';
 
 export const profileRoutes = new Hono();
 
@@ -172,7 +173,7 @@ profileRoutes.get('/api/profile', async (c) => {
     return c.json(profile);
   } catch (err) {
     return c.json(
-      { error: err instanceof Error ? err.message : 'Failed to build profile' },
+      { error: safeErrorMessage('GET /api/profile', err, 'Failed to build profile.') },
       500,
     );
   }

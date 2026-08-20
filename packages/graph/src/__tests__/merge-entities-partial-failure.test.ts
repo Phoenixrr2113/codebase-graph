@@ -172,7 +172,10 @@ describe('mergeEntities - partial transfer failure', () => {
       'Canonical Corp Duplicate', 'Organization',
     );
 
-    expect(calls).toEqual(['outgoing', 'incoming', 'about']);
+    // Leading 'existence' is the cardinality pre-check (see
+    // merge-entities-identity.test.ts): it runs before any transfer to
+    // confirm the key names exactly one physical node on each side.
+    expect(calls).toEqual(['existence', 'outgoing', 'incoming', 'about']);
     expect(result.transferredRelationships).toBe(1); // outgoing's 1 edge counted
     expect(result.deleted).toBe(false);
   });
@@ -186,7 +189,10 @@ describe('mergeEntities - partial transfer failure', () => {
       'Canonical Corp Duplicate', 'Organization',
     );
 
-    expect(calls).toEqual(['outgoing', 'incoming', 'about', 'existence', 'delete']);
+    // First 'existence' is the upfront cardinality pre-check; second is the
+    // pre-delete absence check (both use the same query shape, see
+    // classifyMergeCypher's comment).
+    expect(calls).toEqual(['existence', 'outgoing', 'incoming', 'about', 'existence', 'delete']);
     expect(result.success).toBe(true);
     expect(result.deleted).toBe(true);
     expect(result.errors).toEqual([]);

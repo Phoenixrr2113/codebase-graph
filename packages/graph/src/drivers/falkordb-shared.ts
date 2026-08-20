@@ -6,8 +6,12 @@
  */
 
 import type { Graph } from 'falkordb';
+import { ConstraintType, EntityType } from 'falkordb';
 import type { QueryOptions as FalkorQueryOptions } from 'falkordb/dist/src/commands';
 import type { QueryParams } from '../client';
+import { createLogger } from '@codegraph/logger';
+
+const logger = createLogger({ namespace: 'graph:schema' });
 
 // ============================================================================
 // Shared query execution
@@ -128,6 +132,48 @@ export async function ensureSchemaImpl(
   }
   // Entity uses both 'name' and 'text'
   await safeIndex(`CALL db.idx.fulltext.createNodeIndex('Entity', 'name', 'text')`);
+
+  // --- Entity(text, type) uniqueness ---
+  // Every Entity read/write path in knowledge-operations.ts (UPSERT_ENTITY,
+  // BATCH_UPSERT_ENTITIES, touchEntity, getRelationships, mergeEntities, ...)
+  // treats {text, type} as the entity's identity key, upserting via MERGE.
+  // MERGE only behaves atomically under concurrent writes when a real
+  // constraint backs the pattern. Without one, two concurrent MERGEs that
+  // each observe "no matching node yet" can each create a node, leaving two
+  // physical nodes that share a key. mergeEntities detects and refuses that
+  // case rather than corrupting data, but it cannot resolve it (text+type
+  // cannot tell the two nodes apart): the constraint is what is supposed to
+  // stop it from happening in the first place, so its absence until now was
+  // itself a bug, not just a missing optimization.
+  //
+  // A FalkorDB UNIQUE constraint needs a prerequisite exact-match index on
+  // the same properties, and applies asynchronously. Verified empirically
+  // (a throwaway vitest probe against an embedded graph, since this is not
+  // documented in enough detail to trust) that if the label already has
+  // data violating the constraint when it is created, the command still
+  // returns without throwing, and the constraint silently settles into a
+  // FAILED (not enforced) status instead of raising an error here. Status
+  // is only visible via `CALL db.constraints()`, which this setup does not
+  // poll. So this is best-effort forward protection: it stops new
+  // duplicate-keyed nodes once it takes effect, but a graph that already
+  // has duplicate-keyed Entity nodes needs those cleaned up first, by node
+  // identity, which is outside what mergeEntities' {text, type} API can do,
+  // before the constraint can actually become OPERATIONAL. mergeEntities'
+  // own cardinality guard, not this constraint, is what keeps merges safe
+  // regardless of whether the constraint ever takes effect on a given graph.
+  await safeIndex(`CREATE INDEX FOR (n:Entity) ON (n.text, n.type)`);
+  try {
+    await graph.constraintCreate(ConstraintType.UNIQUE, EntityType.NODE, 'Entity', 'text', 'type');
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // Swallow "already exists" (expected on restart; empirically confirmed
+    // wording: "Constraint already exists"). Anything else is unexpected
+    // enough, unlike plain index setup, to be worth a log line, since a
+    // silent failure here would otherwise be undetectable.
+    if (!msg.includes('already exists')) {
+      logger.warn(`Entity(text, type) uniqueness constraint setup failed: ${msg}`);
+    }
+  }
 
   // --- Vector indexes (HNSW for embedding similarity search) ---
   // Dimension is auto-detected from API keys (VOYAGE_API_KEY, OPENROUTER_API_KEY)

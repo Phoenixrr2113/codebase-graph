@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { codeGraphService, getGraphClient } from '@codegraph/core';
 import { getKnownNodeLabels } from '../graph-labels';
+import { safeErrorMessage } from '../safe-error';
 
 export const searchRoutes = new Hono();
 
@@ -57,6 +58,31 @@ export function resolveTypeFilter(
   }
 
   const requested = types.split(',').map(t => t.trim()).filter(t => t !== '');
+
+  // A `types` value that is present but normalizes to nothing (all commas,
+  // all whitespace, or some mix) names no real label. Returning `none` here
+  // would silently discard a parameter the caller did send; returning
+  // `labels: []` is what let this reach the query-building code downstream
+  // at all, because `[]` is truthy in JavaScript. The vector-hit filter
+  // did `[].includes(hit.nodeType)`, always false, so every hit was
+  // discarded regardless of what the search actually found; the Cypher
+  // fallback then took `requestedLabels ? ... : ...`'s truthy branch and
+  // built `[].map(...).join(' OR ')`, an empty string, producing
+  // `WHERE () AND (...)`, which is not valid Cypher. FalkorDB's syntax
+  // error for that included the query text itself, which the route's catch
+  // block then forwarded straight to the caller: a 500 with a fragment of
+  // the actual Cypher in the body, on `types=%20`, `types=,`, or any value
+  // that normalizes the same way. Rejecting it here, before this function
+  // returns at all, means an empty array can never reach either the vector
+  // filter or the fallback query: `kind: 'labels'` is only ever returned
+  // with at least one entry in `labels`.
+  if (requested.length === 0) {
+    return {
+      kind: 'invalid',
+      message: `The types parameter was given but named no real label. Valid types are: ${[...knownLabels].sort().join(', ')}.`,
+    };
+  }
+
   const invalid = requested.filter(t => !knownLabels.has(t));
 
   if (invalid.length > 0) {
@@ -254,6 +280,6 @@ searchRoutes.get('/api/search', async (c) => {
       notice: fallbackNotice ?? result.meta.notice,
     });
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : 'Search failed' }, 500);
+    return c.json({ error: safeErrorMessage('GET /api/search', error, 'Search failed.') }, 500);
   }
 });

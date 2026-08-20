@@ -182,3 +182,94 @@ describe('GET /api/search: types filter emptying the page', () => {
     expect(body.notice).toBeUndefined();
   });
 });
+
+describe('GET /api/search: malformed types values (third adversarial-review finding)', () => {
+  // types=%20, types=,, and similar all normalize to an empty label list.
+  // Before the fix, resolveTypeFilter returned { kind: 'labels', labels: []
+  // }, an empty array is truthy in JavaScript, so the route treated it as a
+  // real filter, discarded every vector-search hit (`[].includes(x)` is
+  // always false), and built `WHERE () AND (...)` for the Cypher fallback,
+  // which FalkorDB rejects as a syntax error. That error's message, with
+  // Cypher text in it, went straight back to the caller as the 500 body.
+  // Verified live: GET /api/search?q=test&types=%20 returned
+  // {"error":"Read-only query failed: errMsg: Invalid input 'A' ... errCtx:
+  // AND (toLower(n.name) CONTAINS ..."}. These tests assert both the status
+  // code and that no Cypher fragment (MATCH, WHERE, errCtx) ever reaches
+  // the response body, and that the search and query layers are never even
+  // called for a value this route should reject up front.
+
+  beforeEach(() => {
+    mockedSearch.mockReset();
+    mockedGetGraphClient.mockReset();
+    mockedGetKnownNodeLabels.mockReset();
+  });
+
+  it('rejects a whitespace-only types value with 400, not a 500 with leaked Cypher', async () => {
+    mockedGetKnownNodeLabels.mockResolvedValue(KNOWN_LABELS);
+    const client = fakeGraphClient([]);
+    mockedGetGraphClient.mockResolvedValue(client as never);
+
+    const { status, body } = await searchJson('q=test&types=' + encodeURIComponent(' '));
+
+    expect(status).toBe(400);
+    const bodyText = JSON.stringify(body);
+    expect(bodyText).not.toContain('MATCH');
+    expect(bodyText).not.toContain('WHERE');
+    expect(bodyText).not.toContain('errCtx');
+    expect(bodyText).not.toContain('errMsg');
+    // The malformed value is rejected before any query runs at all.
+    expect(mockedSearch).not.toHaveBeenCalled();
+    expect(client.roQuery).not.toHaveBeenCalled();
+  });
+
+  it('rejects a comma-only types value with 400, not a 500 with leaked Cypher', async () => {
+    mockedGetKnownNodeLabels.mockResolvedValue(KNOWN_LABELS);
+    const client = fakeGraphClient([]);
+    mockedGetGraphClient.mockResolvedValue(client as never);
+
+    const { status, body } = await searchJson('q=test&types=,');
+
+    expect(status).toBe(400);
+    const bodyText = JSON.stringify(body);
+    expect(bodyText).not.toContain('MATCH');
+    expect(bodyText).not.toContain('WHERE');
+    expect(mockedSearch).not.toHaveBeenCalled();
+    expect(client.roQuery).not.toHaveBeenCalled();
+  });
+
+  it('rejects a mix of commas and whitespace with 400', async () => {
+    mockedGetKnownNodeLabels.mockResolvedValue(KNOWN_LABELS);
+    mockedGetGraphClient.mockResolvedValue(fakeGraphClient([]) as never);
+
+    const { status, body } = await searchJson('q=test&types=' + encodeURIComponent(' , , '));
+
+    expect(status).toBe(400);
+    expect(JSON.stringify(body)).not.toContain('WHERE');
+  });
+
+  it('a literal empty types value is treated as no filter, not rejected', async () => {
+    // types= (nothing after the equals sign) is different from types=%20:
+    // the route's own truthy check on the query string already treats an
+    // empty string as "no filter given", the same as omitting `types`
+    // entirely, so this never even reaches resolveTypeFilter.
+    mockedGetKnownNodeLabels.mockResolvedValue(KNOWN_LABELS);
+    mockedSearch.mockResolvedValue(threeRawHits());
+    mockedGetGraphClient.mockResolvedValue(fakeGraphClient([]) as never);
+
+    const { status, body } = await searchJson('q=graph+client&limit=3&types=');
+
+    expect(status).toBe(200);
+    expect(body.total).toBe(3);
+  });
+
+  it('a trailing comma with one real label still works (the coordinator-verified passing case)', async () => {
+    mockedGetKnownNodeLabels.mockResolvedValue(KNOWN_LABELS);
+    mockedSearch.mockResolvedValue(threeRawHits());
+    mockedGetGraphClient.mockResolvedValue(fakeGraphClient([]) as never);
+
+    const { status, body } = await searchJson('q=graph+client&limit=3&types=Class,');
+
+    expect(status).toBe(200);
+    expect(body.total).toBe(1);
+  });
+});

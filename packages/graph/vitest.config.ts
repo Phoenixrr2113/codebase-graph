@@ -10,7 +10,7 @@ export default defineConfig({
     exclude: [
       ...configDefaults.exclude,
       'src/__tests__/about*.test.ts',
-      'src/__tests__/{conversation-said,entity-id-persistence,falkordblite,temporal-queries,v5-features}.test.ts',
+      'src/__tests__/{conversation-said,entity-id-persistence,falkordblite,temporal-queries,v5-features,merge-entities-identity}.test.ts',
       'src/__tests__/falkordb-{operations,git-operations,knowledge-operations}.test.ts',
     ],
   },

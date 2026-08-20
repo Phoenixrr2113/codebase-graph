@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { getGraphClient, unifiedSearch, cotSearch } from '@codegraph/core';
+import { safeErrorMessage } from '../safe-error';
 
 export const naturalRoutes = new Hono();
 
@@ -57,6 +58,6 @@ naturalRoutes.post('/api/query/natural', async (c) => {
       durationMs: result.meta.durationMs,
     });
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : 'Natural language query failed' }, 500);
+    return c.json({ error: safeErrorMessage('POST /api/query/natural', error, 'Natural language query failed.') }, 500);
   }
 });

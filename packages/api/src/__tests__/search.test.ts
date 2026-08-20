@@ -137,6 +137,57 @@ describe('resolveTypeFilter', () => {
     expect(resolveTypeFilter('File', oneLabel)).toEqual({ kind: 'labels', labels: ['File'] });
     expect(resolveTypeFilter('Function', oneLabel).kind).toBe('invalid');
   });
+
+  // Third adversarial-review finding: a `types` value that is present but
+  // normalizes to nothing (all commas, all whitespace, or a mix) used to
+  // come back as `{ kind: 'labels', labels: [] }`. An empty array is
+  // truthy in JavaScript, so the route treated it as "yes, filter", the
+  // vector-hit filter discarded every hit (`[].includes(x)` is always
+  // false), and the Cypher fallback built `WHERE () AND (...)` from
+  // `[].map(...).join(' OR ')`, which FalkorDB rejects as invalid syntax.
+  // The route's catch block then forwarded that engine error, Cypher text
+  // included, straight back to the caller as a 500. None of that can
+  // happen if `resolveTypeFilter` never returns an empty `labels` array in
+  // the first place.
+  it('rejects a whitespace-only types value rather than treating it as an empty label list', () => {
+    const result = resolveTypeFilter(' ', KNOWN_LABELS);
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('rejects a comma-only types value the same way', () => {
+    const result = resolveTypeFilter(',', KNOWN_LABELS);
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('rejects a mix of commas and whitespace that normalizes to nothing', () => {
+    const result = resolveTypeFilter(' , , ', KNOWN_LABELS);
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('never returns kind: labels with an empty labels array, for any input', () => {
+    for (const types of [' ', ',', ' , ', ',,,', '  ,  ,  ']) {
+      const result = resolveTypeFilter(types, KNOWN_LABELS);
+      if (result.kind === 'labels') {
+        expect(result.labels.length).toBeGreaterThan(0);
+      } else {
+        expect(result.kind).toBe('invalid');
+      }
+    }
+  });
+
+  it('still treats a literal empty string as no filter at all, not as invalid', () => {
+    // Distinguishing this from the whitespace/comma cases matters: an
+    // empty string means the caller never set `types`, or their client
+    // sent `types=` on purpose to mean "no filter". A stray space or comma
+    // means they tried to say something and it didn't parse.
+    expect(resolveTypeFilter('', KNOWN_LABELS)).toEqual({ kind: 'none' });
+  });
+
+  it('still accepts a trailing comma when a real label is present', () => {
+    // The coordinator's own live check: types=Function, (trailing comma,
+    // one real label) is fine and must stay fine.
+    expect(resolveTypeFilter('Function,', KNOWN_LABELS)).toEqual({ kind: 'labels', labels: ['Function'] });
+  });
 });
 
 describe('typeFilterNotice: vector-search path (reachedFallback = false)', () => {

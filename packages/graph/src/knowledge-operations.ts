@@ -268,15 +268,28 @@ export interface KnowledgeOperations {
    * Merge duplicate entity into canonical: transfer relationships and ABOUT edges,
    * then delete the duplicate.
    *
-   * The duplicate is only deleted when every transfer step succeeds and both
-   * entities are confirmed to exist. If a transfer step throws, or the
-   * canonical entity turns out not to exist (its edges would have nowhere to
-   * go), the duplicate is left in place with `success: false` and `errors`
-   * describing what went wrong, so the merge can be retried. If the duplicate
-   * no longer exists (someone else already merged it), that is treated as a
-   * no-op success: `success: true`, `deleted: false`. Callers must check
-   * `success` rather than assuming the promise resolving means the merge
-   * completed.
+   * Entities are identified by {text, type}, the key every other method on
+   * this interface uses. Nothing about that key requires the caller to
+   * supply node identity, which means this function refuses up front,
+   * before touching the graph, whenever the key does not unambiguously name
+   * exactly two distinct physical nodes:
+   *   - `canonicalText`/`canonicalType` equal `duplicateText`/`duplicateType`
+   *     (a self-merge - also what a caller ends up asking for if two
+   *     physical nodes happen to share a key, since text+type cannot tell
+   *     them apart to name one as canonical and the other as duplicate).
+   *   - either key currently matches more than one physical node.
+   * Both cases return `success: false` with `errors` explaining why, and
+   * touch nothing.
+   *
+   * Past that gate, the duplicate is only deleted when every transfer step
+   * succeeds and both entities are confirmed to exist. If a transfer step
+   * throws, or the canonical entity turns out not to exist (its edges would
+   * have nowhere to go), the duplicate is left in place with `success:
+   * false` and `errors` describing what went wrong, so the merge can be
+   * retried. If the duplicate no longer exists (someone else already merged
+   * it), that is treated as a no-op success: `success: true`, `deleted:
+   * false`. Callers must check `success` rather than assuming the promise
+   * resolving means the merge completed.
    */
   mergeEntities(canonicalText: string, canonicalType: string, duplicateText: string, duplicateType: string): Promise<MergeEntitiesResult>;
 
@@ -1310,6 +1323,70 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
     let transferredAboutEdges = 0;
     const errors: string[] = [];
     const mergeLabel = `"${duplicateText}" (${duplicateType}) -> "${canonicalText}" (${canonicalType})`;
+
+    // 0. Refuse a self-merge: canonical and duplicate name the same key.
+    //
+    // This function identifies entities by {text, type} because every other
+    // read/write path in this file does (UPSERT_ENTITY, touchEntity,
+    // getRelationships, createAboutEdge, ...) - {text, type} is this
+    // subsystem's established identity key, not a shortcut invented here.
+    // The schema is meant to back that key with a uniqueness constraint (see
+    // ensureSchemaImpl), but FalkorDB constraints apply asynchronously and
+    // silently stay unenforced if conflicting data already exists when the
+    // constraint is created, so a graph can still end up with more than one
+    // physical node sharing a key. When that happens, the only way to name
+    // either physical node is the shared key - text+type cannot tell them
+    // apart - so calling mergeEntities with that key on both sides is
+    // indistinguishable from asking to merge an entity into itself: dup and
+    // canon both bind to the same node(s), the transfer steps cross-join
+    // (inflating counts), and DETACH DELETE removes every node carrying that
+    // key, including the one meant to survive. Refusing outright, before any
+    // query runs, is correct for both shapes this can take: one physical
+    // node merged into itself (trivially nothing to do), and several
+    // physical nodes sharing a key (ambiguous - resolving them safely needs
+    // node identity, which this call does not have).
+    if (canonicalText === duplicateText && canonicalType === duplicateType) {
+      const message =
+        'canonical and duplicate resolve to the same key: cannot merge an entity into itself ' +
+        '(if this key currently matches more than one physical node, text+type cannot tell them ' +
+        'apart - they need to be resolved by node identity)';
+      logger.error(`mergeEntities ${mergeLabel}: ${message}`);
+      return { transferredRelationships, transferredAboutEdges, success: false, deleted: false, errors: [message] };
+    }
+
+    // 0.5 Refuse if either key is ambiguous: more than one physical node
+    // currently carries it. This is the general case of the same schema gap
+    // - two distinct keys, but one of them happens to match several nodes.
+    // It runs before any transfer step for the same reason as the self-merge
+    // guard above: letting a transfer query run against an ambiguous key is
+    // what produces the cross-join (every matching dup node paired with
+    // every matching canon node gets a CREATE), not just the eventual
+    // delete. This is intentionally separate from the duplicate/canonical
+    // *absence* check further below (0 matches, not >1) - that check's
+    // no-op-vs-failure distinction is unaffected by this one.
+    const cardinality = await this.client.query<{ dupCount: number; canonCount: number }>(`
+      OPTIONAL MATCH (dup:Entity { text: $dupText, type: $dupType })
+      OPTIONAL MATCH (canon:Entity { text: $canonText, type: $canonType })
+      RETURN count(dup) AS dupCount, count(canon) AS canonCount
+    `, {
+      params: {
+        dupText: duplicateText, dupType: duplicateType,
+        canonText: canonicalText, canonType: canonicalType,
+      },
+    });
+    const dupCardinality = cardinality.data[0]?.dupCount ?? 0;
+    const canonCardinality = cardinality.data[0]?.canonCount ?? 0;
+
+    if (dupCardinality > 1) {
+      const message = `duplicate key matches ${dupCardinality} physical nodes, refusing to merge (ambiguous - needs node-identity cleanup, not a text+type merge)`;
+      logger.error(`mergeEntities ${mergeLabel}: ${message}`);
+      return { transferredRelationships, transferredAboutEdges, success: false, deleted: false, errors: [message] };
+    }
+    if (canonCardinality > 1) {
+      const message = `canonical key matches ${canonCardinality} physical nodes, refusing to merge (ambiguous - needs node-identity cleanup, not a text+type merge)`;
+      logger.error(`mergeEntities ${mergeLabel}: ${message}`);
+      return { transferredRelationships, transferredAboutEdges, success: false, deleted: false, errors: [message] };
+    }
 
     // 1. Transfer outgoing RELATES_TO edges from duplicate to canonical
     //    (duplicate)-[r:RELATES_TO]->(other) -> (canonical)-[r2:RELATES_TO]->(other)
