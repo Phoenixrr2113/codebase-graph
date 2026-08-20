@@ -13,6 +13,13 @@ parseRoutes.post('/api/parse/project', async (c) => {
 
     const result = await indexProject(path);
 
+    // indexProject reports a bad path as success: false with the reason in
+    // errorMessages. Reporting that as 200 with parsed: true told callers the
+    // work had been done, and the dashboard duly showed a green "0 files".
+    if (!result.success) {
+      return c.json({ parsed: false, path, ...result }, 400);
+    }
+
     return c.json({
       parsed: true,
       path,

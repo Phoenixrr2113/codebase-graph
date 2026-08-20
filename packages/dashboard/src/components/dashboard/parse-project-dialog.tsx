@@ -42,8 +42,13 @@ export function ParseProjectDialog({ apiUrl, onProjectParsed }: ParseProjectDial
       })
       const data = await res.json()
 
-      if (!res.ok || data.error) {
-        setResult({ success: false, error: data.error ?? `HTTP ${res.status}` })
+      // A failed index can still arrive as a well-formed body, so the payload's
+      // own verdict matters as much as the status code.
+      if (!res.ok || data.error || data.success === false) {
+        setResult({
+          success: false,
+          error: data.error ?? data.errorMessages?.[0] ?? `HTTP ${res.status}`,
+        })
       } else {
         setResult({ success: true, stats: data.stats, errorMessages: data.errorMessages })
         onProjectParsed?.()
@@ -101,7 +106,7 @@ export function ParseProjectDialog({ apiUrl, onProjectParsed }: ParseProjectDial
       {result && (
         result.success ? (
           <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-400/30">
-            {result.stats?.files} files, {result.stats?.entities} symbols ({(result.stats?.durationMs ?? 0 / 1000).toFixed(1)}s)
+            {result.stats?.files} files, {result.stats?.entities} symbols ({((result.stats?.durationMs ?? 0) / 1000).toFixed(1)}s)
           </Badge>
         ) : (
           <Badge variant="outline" className="text-[10px] text-red-400 border-red-400/30">

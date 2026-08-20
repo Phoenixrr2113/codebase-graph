@@ -5,13 +5,17 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { NODE_COLORS } from '@/lib/cytoscape-config'
 import { API_URL } from '@/lib/api'
+import type { SymbolReference, SymbolReferences } from '@/lib/references'
 
 
 interface EntityDetailProps {
   node: GraphNode | null
+  references?: SymbolReferences | null
+  referencesLoading?: boolean
+  onSelectReference?: (node: GraphNode) => void
 }
 
-export function EntityDetail({ node }: EntityDetailProps) {
+export function EntityDetail({ node, references, referencesLoading, onSelectReference }: EntityDetailProps) {
   const [copied, setCopied] = useState(false)
 
   const handleCopyPath = useCallback(() => {
@@ -145,6 +149,18 @@ export function EntityDetail({ node }: EntityDetailProps) {
         <Section title="Details" icon={<MetricIcon />}>
           <MetricsAndProperties props={props} />
         </Section>
+
+        {/* Where this symbol is used */}
+        {(referencesLoading || references) && (
+          <Section title="References" icon={<ReferencesIcon />}>
+            <ReferenceList
+              references={references ?? null}
+              loading={referencesLoading === true}
+              declaringFile={filePath}
+              onSelect={onSelectReference}
+            />
+          </Section>
+        )}
 
         {/* Code Preview with syntax highlighting */}
         {filePath && startLine != null && (
@@ -471,3 +487,133 @@ function CodePreview({ apiUrl, filePath, startLine, endLine, nodeId }: {
 }
 
 export default EntityDetail
+
+
+function ReferencesIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+    </svg>
+  )
+}
+
+/** Short label per edge kind, so a row reads as a sentence about the symbol. */
+const EDGE_LABELS: Record<SymbolReference['edgeType'], string> = {
+  CALLS: 'calls',
+  USES_TYPE: 'uses type',
+  EXTENDS: 'extends',
+  IMPLEMENTS: 'implements',
+  RENDERS: 'renders',
+}
+
+function shortenPath(filePath: string, declaringFile?: string): string {
+  if (!filePath) return 'unknown file'
+  if (declaringFile) {
+    // Trim the shared prefix so the part that differs is what the reader sees.
+    const a = filePath.split('/')
+    const b = declaringFile.split('/')
+    let i = 0
+    while (i < a.length - 1 && i < b.length - 1 && a[i] === b[i]) i++
+    if (i > 0) return a.slice(i).join('/')
+  }
+  return filePath.split('/').slice(-2).join('/')
+}
+
+function ReferenceList({ references, loading, declaringFile, onSelect }: {
+  references: SymbolReferences | null
+  loading: boolean
+  declaringFile?: string
+  onSelect?: (node: GraphNode) => void
+}) {
+  if (loading) {
+    return <p className="text-xs text-muted-foreground">Looking for usages...</p>
+  }
+  if (!references || references.references.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Nothing in the index uses this symbol.
+      </p>
+    )
+  }
+
+  const elsewhere = references.references.filter((r) => !r.sameFile)
+  const sameFile = references.references.filter((r) => r.sameFile)
+  const fileCount = references.referencingFiles.length
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        {references.references.length} usage{references.references.length === 1 ? '' : 's'}
+        {fileCount > 0 && ` across ${fileCount} other file${fileCount === 1 ? '' : 's'}`}
+        {references.truncated && ' (showing the first page)'}
+      </p>
+
+      {elsewhere.length > 0 && (
+        <ReferenceGroup
+          label="Other files"
+          items={elsewhere}
+          declaringFile={declaringFile}
+          onSelect={onSelect}
+        />
+      )}
+      {sameFile.length > 0 && (
+        <ReferenceGroup
+          label="Same file"
+          items={sameFile}
+          declaringFile={declaringFile}
+          onSelect={onSelect}
+        />
+      )}
+    </div>
+  )
+}
+
+function ReferenceGroup({ label, items, declaringFile, onSelect }: {
+  label: string
+  items: SymbolReference[]
+  declaringFile?: string
+  onSelect?: (node: GraphNode) => void
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+        {label}
+      </p>
+      <ul className="space-y-1">
+        {items.map((ref, index) => (
+          <li key={`${ref.filePath}:${ref.name}:${ref.startLine ?? index}:${ref.edgeType}`}>
+            <button
+              type="button"
+              className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-left transition-colors hover:border-border hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() =>
+                onSelect?.({
+                  id: `${ref.nodeType}:${ref.filePath}:${ref.name}`,
+                  label: ref.name,
+                  type: ref.nodeType,
+                  properties: {
+                    name: ref.name,
+                    nodeType: ref.nodeType,
+                    filePath: ref.filePath,
+                    ...(ref.startLine != null ? { startLine: ref.startLine } : {}),
+                  },
+                })
+              }
+            >
+              <span className="flex items-baseline gap-1.5">
+                <span className="truncate font-mono text-xs text-foreground">{ref.name}</span>
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  {EDGE_LABELS[ref.edgeType]}
+                </span>
+              </span>
+              <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                {shortenPath(ref.filePath, declaringFile)}
+                {ref.startLine != null && `:${ref.startLine}`}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}

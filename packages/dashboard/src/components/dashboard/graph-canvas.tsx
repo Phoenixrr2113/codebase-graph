@@ -14,14 +14,17 @@ interface GraphCanvasProps {
   apiUrl: string
   onNodeSelect: (node: GraphNode | null) => void
   highlightedNames: Set<string>
+  /** `filePath::name` of every symbol that uses the selected one. */
+  referenceKeys?: Set<string>
   hiddenEdgeTypes: Set<string>
   hiddenNodeTypes: Set<string>
   projectId?: string | null
 }
 
-export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdgeTypes, hiddenNodeTypes, projectId }: GraphCanvasProps) {
+export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, referenceKeys, hiddenEdgeTypes, hiddenNodeTypes, projectId }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<cytoscape.Core | null>(null)
+  const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [nodeCount, setNodeCount] = useState(0)
@@ -87,7 +90,11 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdge
           elements: [...nodes, ...edges],
           style: cytoscapeStylesheet,
           layout: LAYOUT_OPTIONS.cose,
-          minZoom: 0.1,
+          // Low enough that Fit can always reach the whole graph. The tree
+          // layout of a few hundred nodes is wide enough that a 0.1 floor
+          // clipped it, and a Fit button that does not fit is worse than a
+          // small graph.
+          minZoom: 0.02,
           maxZoom: 5,
         })
 
@@ -119,11 +126,35 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdge
         instance.on('tap', (evt) => {
           if (evt.target === instance) {
             onNodeSelect(null)
-            instance.elements().removeClass('neighbor dimmed highlighted')
+            instance.elements().removeClass('neighbor dimmed highlighted reference')
           }
         })
 
         cyRef.current = instance
+
+        // The canvas lives inside a resizable panel, so at construction time the
+        // container can still be zero-sized. Cytoscape cannot fit to a viewport
+        // it cannot measure, and silently leaves the graph at zoom 1, which on a
+        // 235-node graph put roughly half of it off screen until the user found
+        // the Fit button. Watch the element instead and fit once it has real
+        // dimensions, then keep the canvas in step as the panel is dragged.
+        if (containerRef.current) {
+          let fitted = false
+          const observer = new ResizeObserver(() => {
+            const target = cyRef.current
+            if (!target || target.destroyed()) return
+            const { clientWidth, clientHeight } = containerRef.current!
+            if (clientWidth === 0 || clientHeight === 0) return
+            target.resize()
+            if (!fitted) {
+              fitted = true
+              target.fit(undefined, 40)
+            }
+          })
+          observer.observe(containerRef.current)
+          resizeObserverRef.current = observer
+        }
+
         setLoading(false)
       } catch (err) {
         if (mounted) {
@@ -137,6 +168,8 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdge
 
     return () => {
       mounted = false
+      resizeObserverRef.current?.disconnect()
+      resizeObserverRef.current = null
       cyRef.current?.destroy()
     }
   }, [apiUrl, onNodeSelect, projectId])
@@ -159,6 +192,24 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, hiddenEdge
       cy.edges().addClass('dimmed')
     }
   }, [highlightedNames])
+
+  // Mark the symbols that use the selected one.
+  //
+  // Only the references that happen to be loaded can be drawn: the canvas holds
+  // a window onto the graph, and a caller in an unloaded file has no node here.
+  // The detail panel lists the full set, so nothing is lost by that.
+  useEffect(() => {
+    const cy = cyRef.current
+    if (!cy) return
+
+    cy.nodes().removeClass('reference')
+    if (!referenceKeys || referenceKeys.size === 0) return
+
+    cy.nodes().forEach((node) => {
+      const key = `${(node.data('filePath') as string | undefined) ?? ''}::${node.data('label') as string}`
+      if (referenceKeys.has(key)) node.addClass('reference')
+    })
+  }, [referenceKeys])
 
   // Handle edge type filter changes
   useEffect(() => {

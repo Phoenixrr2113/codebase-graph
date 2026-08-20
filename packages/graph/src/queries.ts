@@ -193,9 +193,12 @@ function buildCypherTemplates(dialect: CypherDialect) {
       RETURN path
     `,
 
+    // Unfiltered on purpose. Restricting this to the seven code labels meant the
+    // other six entries in nodesByType could never be anything but zero, so a
+    // graph holding 200 commits still reported Commit: 0, and totalNodes counted
+    // only part of the graph while being named for all of it.
     GET_STATS_NODES: `
       MATCH (n)
-      WHERE ${labelOr('n', ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component'])}
       RETURN ${firstLabel('n')} as label, count(n) as count
     `,
 
@@ -219,6 +222,49 @@ function buildCypherTemplates(dialect: CypherDialect) {
       LIMIT 10
     `,
   };
+}
+
+// ============================================================================
+// Symbol references
+// ============================================================================
+
+/** Edge kinds that mean "this code uses that symbol". */
+export const REFERENCE_EDGE_TYPES = [
+  'CALLS',
+  'USES_TYPE',
+  'EXTENDS',
+  'IMPLEMENTS',
+  'RENDERS',
+] as const;
+
+export type ReferenceEdgeType = (typeof REFERENCE_EDGE_TYPES)[number];
+
+/** One place a symbol is used, and how. */
+export interface SymbolReference {
+  /** Name of the referencing symbol. */
+  name: string;
+  nodeType: string;
+  filePath: string;
+  startLine?: number | undefined;
+  edgeType: ReferenceEdgeType;
+  /** True when the reference lives in the same file as the declaration. */
+  sameFile: boolean;
+}
+
+export interface SymbolReferencesResult {
+  references: SymbolReference[];
+  /** Files other than the declaring file that contain at least one reference. */
+  referencingFiles: string[];
+  /** True when the result hit the limit and more references exist. */
+  truncated: boolean;
+}
+
+export interface SymbolReferenceQuery {
+  name: string;
+  /** Declaring file, used to disambiguate symbols that share a name. */
+  filePath?: string | undefined;
+  startLine?: number | undefined;
+  limit?: number | undefined;
 }
 
 // ============================================================================
@@ -250,6 +296,12 @@ export interface GraphQueries {
    * Get graph statistics
    */
   getStats(): Promise<GraphStats>;
+
+  /**
+   * Find where a symbol is used: the callers, type users, subclasses,
+   * implementers and renderers that point at it.
+   */
+  getSymbolReferences(query: SymbolReferenceQuery): Promise<SymbolReferencesResult>;
 }
 
 // ============================================================================
@@ -511,12 +563,15 @@ class GraphQueriesImpl implements GraphQueries {
       Link: 0,
     };
 
+    // totalNodes counts every node. nodesByType breaks down the labels we name,
+    // so the two do not have to agree: a graph can hold nodes of a kind this
+    // list does not enumerate, and hiding those from the total would misreport it.
     let totalNodes = 0;
     for (const row of nodesResult.data ?? []) {
+      totalNodes += row.count;
       const label = row.label as NodeLabel;
       if (label in nodesByType) {
         nodesByType[label] = row.count;
-        totalNodes += row.count;
       }
     }
 
@@ -594,6 +649,63 @@ class GraphQueriesImpl implements GraphQueries {
     };
   }
 
+  @trace()
+  async getSymbolReferences(query: SymbolReferenceQuery): Promise<SymbolReferencesResult> {
+    const limit = Math.min(Math.max(query.limit ?? 200, 1), 1000);
+
+    // The declaration is pinned first so the reference expansion starts from a
+    // single node. Expanding from the edge side instead would scan every
+    // relationship of these types in the graph.
+    const targetFilters = ['target.name = $name'];
+    if (query.filePath !== undefined) targetFilters.push('target.filePath = $filePath');
+    if (query.startLine !== undefined) targetFilters.push('target.startLine = $startLine');
+
+    const cypher = `
+      MATCH (target)
+      WHERE ${targetFilters.join(' AND ')}
+      WITH target LIMIT 1
+      MATCH (source)-[r:${REFERENCE_EDGE_TYPES.join('|')}]->(target)
+      WHERE source.name IS NOT NULL
+      RETURN DISTINCT
+        source.name AS name,
+        labels(source)[0] AS nodeType,
+        source.filePath AS filePath,
+        source.startLine AS startLine,
+        type(r) AS edgeType,
+        target.filePath AS targetFilePath
+      LIMIT ${limit + 1}
+    `;
+
+    const params: Record<string, unknown> = { name: query.name };
+    if (query.filePath !== undefined) params['filePath'] = query.filePath;
+    if (query.startLine !== undefined) params['startLine'] = query.startLine;
+
+    const result = await this.client.roQuery<{
+      name: string;
+      nodeType: string;
+      filePath: string | null;
+      startLine: number | null;
+      edgeType: ReferenceEdgeType;
+      targetFilePath: string | null;
+    }>(cypher, { params: params as never });
+
+    const rows = result.data ?? [];
+    const truncated = rows.length > limit;
+    const references: SymbolReference[] = rows.slice(0, limit).map((row) => ({
+      name: row.name,
+      nodeType: row.nodeType,
+      filePath: row.filePath ?? '',
+      startLine: row.startLine ?? undefined,
+      edgeType: row.edgeType,
+      sameFile: row.filePath != null && row.filePath === row.targetFilePath,
+    }));
+
+    const referencingFiles = Array.from(
+      new Set(references.filter((r) => !r.sameFile && r.filePath !== '').map((r) => r.filePath)),
+    );
+
+    return { references, referencingFiles, truncated };
+  }
 }
 
 // ============================================================================

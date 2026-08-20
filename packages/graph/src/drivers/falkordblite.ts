@@ -11,6 +11,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -114,6 +115,99 @@ function removeAddedSignalListeners(
 }
 
 // ============================================================================
+// Shutdown ownership
+//
+// connect() strips the embedded wrapper's own SIGINT/SIGTERM handlers, because
+// they stop Redis before our client has disconnected. Removing them without a
+// replacement is worse: with no listener on those signals Node takes the default
+// action and terminates at once, and a process killed by a signal never runs its
+// 'exit' handlers. The spawned redis-server is then reparented to init and lives
+// on. Ten such orphans were observed from a single day of local runs, every one
+// of them still holding the same data directory, which also puts their stale
+// snapshots in competition with the live server's.
+//
+// So we take shutdown back deliberately: track open drivers, and on a signal
+// close them in the right order (client first, then server) before re-raising.
+// ============================================================================
+
+const openDrivers = new Set<FalkorDBLiteDriver>();
+let shutdownHandlers: Map<NodeJS.Signals, NodeJS.SignalsListener> | null = null;
+
+function installShutdownHandlers(): void {
+  if (shutdownHandlers) return;
+  const handlers = new Map<NodeJS.Signals, NodeJS.SignalsListener>();
+  for (const signal of shutdownSignals) {
+    const handler = (): void => {
+      void (async (): Promise<void> => {
+        await closeOpenDrivers();
+        // Our listener is gone by now, so this re-raise reaches Node's default
+        // handler and terminates with the conventional signal status.
+        process.kill(process.pid, signal);
+      })();
+    };
+    handlers.set(signal, handler);
+    process.on(signal, handler);
+  }
+  shutdownHandlers = handlers;
+}
+
+function removeShutdownHandlers(): void {
+  if (!shutdownHandlers) return;
+  for (const [signal, handler] of shutdownHandlers) {
+    process.removeListener(signal, handler);
+  }
+  shutdownHandlers = null;
+}
+
+async function closeOpenDrivers(): Promise<void> {
+  const drivers = Array.from(openDrivers);
+  removeShutdownHandlers();
+  await Promise.allSettled(drivers.map((driver) => driver.close()));
+}
+
+/** Test seam: reports whether a shutdown handler is currently installed. */
+export function hasEmbeddedShutdownHandlers(): boolean {
+  return shutdownHandlers !== null;
+}
+
+/**
+ * Startup budget for the embedded server.
+ *
+ * The wrapper defaults to 10s, which is enough for an empty database and not
+ * enough for a real one: a 52MB snapshot took 18.7s to load here, and the
+ * failure surfaced as a connection error suggesting the package was not
+ * installed. Redis has to read the whole snapshot before it answers, so the
+ * budget has to follow the file. Measured cost was roughly 360ms per MB; the
+ * allowance below is about double that, over a floor that covers a cold start.
+ */
+const STARTUP_TIMEOUT_FLOOR_MS = 30_000;
+const STARTUP_TIMEOUT_PER_MB_MS = 400;
+const STARTUP_TIMEOUT_CEILING_MS = 300_000;
+
+export function resolveStartupTimeout(
+  dataPath: string,
+  environment: NodeJS.ProcessEnv = process.env,
+  sizeOf: (path: string) => number | undefined = (path) => {
+    try {
+      return statSync(path).size;
+    } catch {
+      return undefined;
+    }
+  },
+): number {
+  const override = environment['CODEGRAPH_DB_STARTUP_TIMEOUT_MS'];
+  if (override !== undefined) {
+    const parsed = Number.parseInt(override, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+
+  const snapshotBytes = sizeOf(join(dataPath, 'dump.rdb')) ?? 0;
+  const megabytes = snapshotBytes / (1024 * 1024);
+  const budget = STARTUP_TIMEOUT_FLOOR_MS + Math.ceil(megabytes * STARTUP_TIMEOUT_PER_MB_MS);
+  return Math.min(budget, STARTUP_TIMEOUT_CEILING_MS);
+}
+
+// ============================================================================
 // FalkorDBLite Driver
 // ============================================================================
 
@@ -160,10 +254,19 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
     const binaryPaths = resolveEmbeddedBinaryPaths();
     const signalListenersBeforeOpen = captureSignalListeners();
     try {
-      this.db = await FalkorDBLite.open({ path: dataPath, ...(binaryPaths ?? {}) });
+      this.db = await FalkorDBLite.open({
+        path: dataPath,
+        timeout: resolveStartupTimeout(dataPath),
+        ...(binaryPaths ?? {}),
+      });
     } finally {
       removeAddedSignalListeners(signalListenersBeforeOpen);
     }
+
+    // We just took the wrapper's shutdown handlers away, so we owe the process
+    // a replacement before anything can interrupt it.
+    openDrivers.add(this);
+    installShutdownHandlers();
 
     // Select the graph (same API as remote FalkorDB)
     const graphName = config.graphName ?? process.env['FALKORDB_GRAPH'] ?? 'codegraph';
@@ -186,10 +289,14 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
   }
 
   async close(): Promise<void> {
+    openDrivers.delete(this);
+    if (openDrivers.size === 0) removeShutdownHandlers();
     if (this.db) {
-      await this.db.close();
+      const db = this.db;
+      // Clear first so a concurrent signal-driven close cannot stop the server twice.
       this.db = null;
       this.graph = null;
+      await db.close();
     }
   }
 

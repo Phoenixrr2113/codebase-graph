@@ -48,6 +48,41 @@ graphRoutes.get('/api/graph/file', async (c) => {
   }
 });
 
+/**
+ * GET /api/graph/references?name=X&path=Y&startLine=N&limit=M
+ *
+ * Where a symbol is used. `path` and `startLine` are optional and only
+ * disambiguate declarations that share a name; without them the first matching
+ * declaration is used.
+ */
+graphRoutes.get('/api/graph/references', async (c) => {
+  try {
+    const name = c.req.query('name');
+    if (!name) return c.json({ error: 'name parameter is required' }, 400);
+
+    const rawLine = c.req.query('startLine');
+    const parsedLine = rawLine === undefined ? undefined : Number.parseInt(rawLine, 10);
+    const startLine = parsedLine !== undefined && Number.isFinite(parsedLine) ? parsedLine : undefined;
+
+    const rawLimit = c.req.query('limit');
+    const parsedLimit = rawLimit === undefined ? undefined : Number.parseInt(rawLimit, 10);
+    const limit = parsedLimit !== undefined && Number.isFinite(parsedLimit) ? parsedLimit : undefined;
+
+    const data = await codeGraphService.getSymbolReferences({
+      name,
+      filePath: c.req.query('path'),
+      startLine,
+      limit,
+    });
+    return c.json(data);
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Failed to fetch references' },
+      500,
+    );
+  }
+});
+
 /** GET /api/graph/dependencies?path=X&depth=N — returns dependency tree */
 graphRoutes.get('/api/graph/dependencies', async (c) => {
   try {

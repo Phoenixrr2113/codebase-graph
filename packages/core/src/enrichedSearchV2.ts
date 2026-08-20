@@ -195,6 +195,37 @@ export function rrfFuse<T>(
 // Graph enrichment — batch fetch relationship data for top hits
 // ============================================================================
 
+/**
+ * Ceiling for the optional enrichment queries below. None of them is required
+ * for a correct answer; they only decorate hits with relationship signals. A
+ * slow graph should cost the decoration, never the search itself.
+ */
+const ENRICHMENT_TIMEOUT_MS = 5_000;
+
+/**
+ * Shortest dependency chain from an entry point (a File nothing imports) to a
+ * symbol, bounded to six hops.
+ *
+ * The plain MATCH is deliberate and load-bearing. Under OPTIONAL MATCH, proving
+ * that *no* path exists costs a full enumeration of the symbol's six-hop
+ * neighbourhood. On a hub symbol in recursive code that never finishes: zod's
+ * `_parse` resolves to 38 nodes carrying 1406 inbound and 2340 outbound CALLS
+ * edges, and the enumeration ran past 120s while every other symbol in the same
+ * batch answered in under a millisecond. Because FalkorDB serves one query at a
+ * time, that stalled the whole search rather than just this one field.
+ *
+ * A plain MATCH yields no row for unreachable symbols, which is exactly what the
+ * caller already treats as "depth unknown", so the answers are unchanged: across
+ * 400 zod symbols the two forms agreed on all 388 the old query could finish,
+ * and the rewrite dropped the batch from 240s to 0.4s.
+ */
+export const DEPENDENCY_DEPTH_CYPHER = `
+  UNWIND $names AS symbolName
+  MATCH path = (entry:File)-[:CONTAINS|CALLS*1..6]->(n {name: symbolName})
+  WHERE NOT ()-[:IMPORTS]->(entry)
+  RETURN symbolName, min(length(path)) AS minDepth
+`;
+
 interface GraphEnrichment {
   callerCount: number;
   callees: string[];
@@ -234,6 +265,7 @@ async function enrichFromGraph(
   try {
     const result = await client.roQuery<Record<string, unknown>>(cypher, {
       params: { names },
+      timeout: ENRICHMENT_TIMEOUT_MS,
     });
 
     const map = new Map<string, GraphEnrichment>();
@@ -249,19 +281,11 @@ async function enrichFromGraph(
       });
     }
 
-    // Dependency depth: shortest path from any entry point (file with no importers)
-    // Run as a separate bounded query to avoid blowing up the main query
+    // Dependency depth: see DEPENDENCY_DEPTH_CYPHER.
     try {
-      const depthCypher = `
-        UNWIND $names AS symbolName
-        MATCH (n {name: symbolName})
-        OPTIONAL MATCH path = (entry)-[:CONTAINS|CALLS*1..6]->(n)
-          WHERE entry:File AND NOT ()-[:IMPORTS]->(entry)
-        WITH symbolName, CASE WHEN path IS NOT NULL THEN length(path) ELSE NULL END AS d
-        RETURN symbolName, min(d) AS minDepth
-      `;
-      const depthResult = await client.roQuery<Record<string, unknown>>(depthCypher, {
+      const depthResult = await client.roQuery<Record<string, unknown>>(DEPENDENCY_DEPTH_CYPHER, {
         params: { names },
+        timeout: ENRICHMENT_TIMEOUT_MS,
       });
       for (const row of depthResult.data) {
         const name = row['symbolName'] as string;
@@ -287,6 +311,7 @@ async function enrichFromGraph(
         `;
         const gitResult = await client.roQuery<Record<string, unknown>>(gitCypher, {
           params: { filePaths },
+          timeout: ENRICHMENT_TIMEOUT_MS,
         });
         // Build filePath→git data map, then assign to hits by filePath
         const gitByFile = new Map<string, { lastModified: string; commitCount: number }>();
@@ -486,7 +511,7 @@ async function getLinkedKnowledge(
        RETURN targetName, e.text AS entityText, e.type AS entityType,
               r.confidence AS confidence, rel.fact AS fact
        LIMIT 100`,
-      { params: { names } },
+      { params: { names }, timeout: ENRICHMENT_TIMEOUT_MS },
     );
 
     for (const row of rows.data) {
@@ -537,7 +562,10 @@ export async function fetchSiblingSymbols(
   `;
   let data: Array<Record<string, unknown>>;
   try {
-    const res = await client.roQuery<Record<string, unknown>>(cypher, { params: { filePath } });
+    const res = await client.roQuery<Record<string, unknown>>(cypher, {
+      params: { filePath },
+      timeout: ENRICHMENT_TIMEOUT_MS,
+    });
     data = res.data ?? [];
   } catch (err) {
     logger.debug(`fetchSiblingSymbols query failed (non-fatal): ${err}`);
@@ -609,7 +637,10 @@ async function fetchSiblingsForHits(
       `;
       let rows: Array<Record<string, unknown>>;
       try {
-        const res = await client.roQuery<Record<string, unknown>>(cypher, { params: { filePath } });
+        const res = await client.roQuery<Record<string, unknown>>(cypher, {
+          params: { filePath },
+          timeout: ENRICHMENT_TIMEOUT_MS,
+        });
         rows = res.data ?? [];
       } catch (err) {
         logger.debug(`fetchSiblingsForHits query failed for ${filePath} (non-fatal): ${err}`);

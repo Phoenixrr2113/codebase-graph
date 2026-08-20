@@ -5,7 +5,11 @@
 
 import { getGraphClient } from '../graphClient';
 import { createQueries, createOperations, buildFileTree as buildFileTreeFromGraph, getIndexSummary as getIndexSummaryFromGraph } from '@codegraph/graph';
-import type { FileTreeOptions } from '@codegraph/graph';
+import type {
+  FileTreeOptions,
+  SymbolReferenceQuery,
+  SymbolReferencesResult,
+} from '@codegraph/graph';
 import type { GraphStats, GraphData, SubgraphData, GraphNode, GraphEdge, NodeLabel, EdgeLabel } from '@codegraph/types';
 import type { ProjectEntity } from '@codegraph/types';
 import { labelOr, ALL_LABELS, extractNodeProps, getLabelFromLabels, generateNodeId } from './helpers';
@@ -51,6 +55,18 @@ export async function getFileSubgraphImpl(filePath: string): Promise<SubgraphDat
   const client = await getGraphClient();
   const queries = createQueries(client);
   return queries.getFileSubgraph(filePath);
+}
+
+/**
+ * Find where a symbol is used: callers, type users, subclasses, implementers
+ * and renderers that point at the declaration.
+ */
+export async function getSymbolReferencesImpl(
+  query: SymbolReferenceQuery,
+): Promise<SymbolReferencesResult> {
+  const client = await getGraphClient();
+  const queries = createQueries(client);
+  return queries.getSymbolReferences(query);
 }
 
 /**

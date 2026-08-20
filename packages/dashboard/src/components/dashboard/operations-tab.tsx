@@ -86,7 +86,7 @@ export function OperationsTab() {
         <StatCard
           title="Total Nodes"
           value={graphStats?.totalNodes?.toLocaleString() ?? '0'}
-          description="Code symbols indexed"
+          description="Everything in the graph"
         />
         <StatCard
           title="Total Edges"
