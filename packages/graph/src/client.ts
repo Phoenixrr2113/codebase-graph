@@ -67,6 +67,24 @@ export interface QueryResult<T> {
   metadata: string[];
 }
 
+function sanitizeQueryParamValue(value: unknown): unknown {
+  if (value === undefined) return null;
+  if (value === null || typeof value !== 'object') return value;
+
+  if (Array.isArray(value)) {
+    return value.map(sanitizeQueryParamValue);
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, sanitizeQueryParamValue(item)]),
+  );
+}
+
+function sanitizeQueryParams(params: QueryParams | undefined): QueryParams | undefined {
+  if (params === undefined) return undefined;
+  return sanitizeQueryParamValue(params) as QueryParams;
+}
+
 /**
  * Graph client error types
  */
@@ -148,7 +166,7 @@ class GraphClientImpl implements GraphClient {
   @trace()
   async query<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
     try {
-      return await this.driver.query<T>(cypher, options?.params, options?.timeout);
+      return await this.driver.query<T>(cypher, sanitizeQueryParams(options?.params), options?.timeout);
     } catch (error) {
       throw new GraphClientError(
         `Query failed: ${toErrorMessage(error)}`,
@@ -160,7 +178,7 @@ class GraphClientImpl implements GraphClient {
   @trace()
   async roQuery<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
     try {
-      return await this.driver.roQuery<T>(cypher, options?.params, options?.timeout);
+      return await this.driver.roQuery<T>(cypher, sanitizeQueryParams(options?.params), options?.timeout);
     } catch (error) {
       throw new GraphClientError(
         `Read-only query failed: ${toErrorMessage(error)}`,

@@ -3,6 +3,8 @@
  * Cypher-compatible types and mappers for graph operations
  */
 
+import { createHash } from 'node:crypto';
+import { posix } from 'node:path';
 import type {
   FileEntity,
   FunctionEntity,
@@ -231,6 +233,40 @@ export interface LinkNodeProps {
 // Entity to Node Property Mappers
 // ============================================================================
 
+type SourceSymbolLabel = 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component';
+
+interface LegacySymbolIdentityInput {
+  id?: string;
+  scopeKey?: string;
+  disambiguator?: string;
+  name: string;
+  filePath: string;
+}
+
+function resolveSymbolIdentity(
+  label: SourceSymbolLabel,
+  entity: LegacySymbolIdentityInput,
+): { id: string; scopeKey: string; disambiguator: string } {
+  const scopeKey = entity.scopeKey?.normalize('NFC') ?? '';
+  const disambiguator = entity.disambiguator?.normalize('NFC') ?? '';
+  if (entity.id) return { id: entity.id, scopeKey, disambiguator };
+
+  const normalizedSeparators = entity.filePath.replace(/\\/g, '/').normalize('NFC');
+  const normalizedPath = posix.normalize(normalizedSeparators);
+  const filePath = normalizedPath === '.' && normalizedSeparators !== '.' ? '' : normalizedPath;
+  const hash = createHash('sha256');
+
+  for (const field of [label, filePath, scopeKey, entity.name.normalize('NFC'), disambiguator]) {
+    const encoded = Buffer.from(field, 'utf8');
+    const length = Buffer.allocUnsafe(4);
+    length.writeUInt32BE(encoded.byteLength, 0);
+    hash.update(length);
+    hash.update(encoded);
+  }
+
+  return { id: `sym:v1:${hash.digest('hex')}`, scopeKey, disambiguator };
+}
+
 /**
  * Convert FileEntity to Cypher-compatible node properties
  */
@@ -253,10 +289,9 @@ export function fileToNodeProps(entity: FileEntity): FileNodeProps {
  * Convert FunctionEntity to Cypher-compatible node properties
  */
 export function functionToNodeProps(entity: FunctionEntity): FunctionNodeProps {
+  const identity = resolveSymbolIdentity('Function', entity);
   return {
-    id: entity.id,
-    scopeKey: entity.scopeKey ?? '',
-    disambiguator: entity.disambiguator ?? '',
+    ...identity,
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
@@ -281,10 +316,9 @@ export function functionToNodeProps(entity: FunctionEntity): FunctionNodeProps {
  * Convert ClassEntity to Cypher-compatible node properties
  */
 export function classToNodeProps(entity: ClassEntity): ClassNodeProps {
+  const identity = resolveSymbolIdentity('Class', entity);
   return {
-    id: entity.id,
-    scopeKey: entity.scopeKey ?? '',
-    disambiguator: entity.disambiguator ?? '',
+    ...identity,
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
@@ -304,10 +338,9 @@ export function classToNodeProps(entity: ClassEntity): ClassNodeProps {
  * Convert InterfaceEntity to Cypher-compatible node properties
  */
 export function interfaceToNodeProps(entity: InterfaceEntity): InterfaceNodeProps {
+  const identity = resolveSymbolIdentity('Interface', entity);
   return {
-    id: entity.id,
-    scopeKey: entity.scopeKey ?? '',
-    disambiguator: entity.disambiguator ?? '',
+    ...identity,
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
@@ -325,10 +358,9 @@ export function interfaceToNodeProps(entity: InterfaceEntity): InterfaceNodeProp
  * Convert VariableEntity to Cypher-compatible node properties
  */
 export function variableToNodeProps(entity: VariableEntity): VariableNodeProps {
+  const identity = resolveSymbolIdentity('Variable', entity);
   return {
-    id: entity.id,
-    scopeKey: entity.scopeKey ?? '',
-    disambiguator: entity.disambiguator ?? '',
+    ...identity,
     name: entity.name,
     filePath: entity.filePath,
     line: entity.line,
@@ -345,10 +377,9 @@ export function variableToNodeProps(entity: VariableEntity): VariableNodeProps {
  * Convert TypeEntity to Cypher-compatible node properties
  */
 export function typeToNodeProps(entity: TypeEntity): TypeNodeProps {
+  const identity = resolveSymbolIdentity('Type', entity);
   return {
-    id: entity.id,
-    scopeKey: entity.scopeKey ?? '',
-    disambiguator: entity.disambiguator ?? '',
+    ...identity,
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
@@ -366,10 +397,9 @@ export function typeToNodeProps(entity: TypeEntity): TypeNodeProps {
  * Convert ComponentEntity to Cypher-compatible node properties
  */
 export function componentToNodeProps(entity: ComponentEntity): ComponentNodeProps {
+  const identity = resolveSymbolIdentity('Component', entity);
   return {
-    id: entity.id,
-    scopeKey: entity.scopeKey ?? '',
-    disambiguator: entity.disambiguator ?? '',
+    ...identity,
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
