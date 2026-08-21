@@ -859,9 +859,8 @@ func (u User) IsAdult() bool {
     expect(fieldEdges).toHaveLength(2);
 
     // Visibility check on fields
-    const props = result.variables.filter(
-      (v) => typeof v.id === 'string' && v.id.startsWith(`${userStruct!.id}::prop`),
-    );
+    const fieldIds = new Set(fieldEdges.map((edge) => edge.toId));
+    const props = result.variables.filter((variable) => fieldIds.has(variable.id));
     const nameField = props.find((p) => p.name === 'Name');
     const ageField = props.find((p) => p.name === 'age');
     expect(nameField).toBeDefined();
@@ -916,13 +915,13 @@ type Config struct {
       expect(edge.isReadonly).toBe(false);
     }
 
-    const props = result.propertyEntities.filter(
-      (p) => typeof p.id === 'string' && p.id.startsWith(`${config!.id}::prop`),
-    );
+    const propertyIds = new Set(propEdges.map((edge) => edge.toId));
+    const props = result.propertyEntities.filter((property) => propertyIds.has(property.id));
     const hostProp = props.find((p) => p.name === 'Host');
     const portProp = props.find((p) => p.name === 'port');
     expect(hostProp).toBeDefined();
     expect(portProp).toBeDefined();
+    expect(props.every((property) => property.scopeKey === 'Class:Config')).toBe(true);
 
     const hostEdge = propEdges.find((e) => e.toId === hostProp!.id);
     const portEdge = propEdges.find((e) => e.toId === portProp!.id);

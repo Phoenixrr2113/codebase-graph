@@ -25,6 +25,10 @@ import {
   buildParsedFileEntities,
   languageRegistry,
 } from '../pipeline';
+import {
+  buildProjectSymbolCatalog,
+  resolveProjectSymbolEdges,
+} from '../pipeline/pipeline';
 
 describe('buildParsedFileEntities: tier-2 (Ruby) same-file calls unaffected by the context change', () => {
   let dir: string;
@@ -65,9 +69,12 @@ describe('buildParsedFileEntities: tier-2 (Ruby) same-file calls unaffected by t
       { deepAnalysis: true, includeExternals: false },
       dir,
     );
+    resolveProjectSymbolEdges([built], buildProjectSymbolCatalog([built]));
 
-    const call = built.callEdges.find((e) => e.callerId.includes(':caller'));
+    const callerId = built.functions.find((fn) => fn.name === 'caller')?.id;
+    const calleeId = built.functions.find((fn) => fn.name === 'helper')?.id;
+    const call = built.callEdges.find((e) => e.callerId === callerId);
     expect(call).toBeDefined();
-    expect(call!.calleeId).toBe(`Function:${filePath}:helper`);
+    expect(call!.calleeId).toBe(calleeId);
   });
 });

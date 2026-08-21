@@ -16,6 +16,11 @@ import type {
   SyntaxNode,
 } from '@codegraph/types';
 import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
+import {
+  functionDisambiguator,
+  identityForNode,
+  normalizedFunctionSignature,
+} from './symbolIdentity';
 
 // ============================================================================
 // Helpers
@@ -41,6 +46,48 @@ function extractXmlDocComment(node: SyntaxNode): string | undefined {
     current = current.previousSibling;
   }
   return lines.length > 0 ? lines.join('\n') : undefined;
+}
+
+function mergePartialClasses(classes: ClassEntity[]): ClassEntity[] {
+  const merged = new Map<string, ClassEntity>();
+  for (const declaration of classes) {
+    const existing = merged.get(declaration.id);
+    if (!existing) {
+      merged.set(declaration.id, declaration);
+      continue;
+    }
+    existing.startLine = Math.min(existing.startLine, declaration.startLine);
+    existing.endLine = Math.max(existing.endLine, declaration.endLine);
+    existing.isExported ||= declaration.isExported;
+    existing.isAbstract ||= declaration.isAbstract;
+    existing.implements = Array.from(new Set([
+      ...(existing.implements ?? []),
+      ...(declaration.implements ?? []),
+    ]));
+    existing.extends ??= declaration.extends;
+    existing.docstring ??= declaration.docstring;
+  }
+  return Array.from(merged.values());
+}
+
+function mergePartialInterfaces(interfaces: InterfaceEntity[]): InterfaceEntity[] {
+  const merged = new Map<string, InterfaceEntity>();
+  for (const declaration of interfaces) {
+    const existing = merged.get(declaration.id);
+    if (!existing) {
+      merged.set(declaration.id, declaration);
+      continue;
+    }
+    existing.startLine = Math.min(existing.startLine, declaration.startLine);
+    existing.endLine = Math.max(existing.endLine, declaration.endLine);
+    existing.isExported ||= declaration.isExported;
+    existing.extends = Array.from(new Set([
+      ...(existing.extends ?? []),
+      ...(declaration.extends ?? []),
+    ]));
+    existing.docstring ??= declaration.docstring;
+  }
+  return Array.from(merged.values());
 }
 
 // ============================================================================
@@ -79,7 +126,7 @@ function extractClasses(root: SyntaxNode, filePath: string): ClassEntity[] {
     }
 
     const entity: ClassEntity = {
-      id: generateEntityId(filePath, 'class', name, startLine),
+      ...identityForNode({ node, filePath, label: 'Class', declaredName: name }),
       name, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: isExportedFromModifiers(modifiers),
       isAbstract: modifiers.includes('abstract'),
@@ -90,7 +137,7 @@ function extractClasses(root: SyntaxNode, filePath: string): ClassEntity[] {
     if (doc) entity.docstring = doc;
     classes.push(entity);
   }
-  return classes;
+  return mergePartialClasses(classes);
 }
 
 function extractInterfaces(root: SyntaxNode, filePath: string): InterfaceEntity[] {
@@ -117,7 +164,7 @@ function extractInterfaces(root: SyntaxNode, filePath: string): InterfaceEntity[
     }
 
     const entity: InterfaceEntity = {
-      id: generateEntityId(filePath, 'interface', name, startLine),
+      ...identityForNode({ node, filePath, label: 'Interface', declaredName: name }),
       name, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: isExportedFromModifiers(modifiers),
     };
@@ -126,12 +173,13 @@ function extractInterfaces(root: SyntaxNode, filePath: string): InterfaceEntity[
     if (doc) entity.docstring = doc;
     interfaces.push(entity);
   }
-  return interfaces;
+  return mergePartialInterfaces(interfaces);
 }
 
 function extractFunctions(root: SyntaxNode, filePath: string): FunctionEntity[] {
   const functions: FunctionEntity[] = [];
-  for (const node of findNodesOfType(root, ['method_declaration', 'constructor_declaration'])) {
+  const functionNodes = findNodesOfType(root, ['method_declaration', 'constructor_declaration']);
+  for (const node of functionNodes) {
     const nameNode = node.childForFieldName('name');
     if (!nameNode) continue;
     const name = nameNode.text;
@@ -139,36 +187,28 @@ function extractFunctions(root: SyntaxNode, filePath: string): FunctionEntity[] 
     const modifiers = extractModifiers(node);
 
     // Parameters
-    const params: { name: string; type?: string; optional?: boolean }[] = [];
-    const paramList = node.childForFieldName('parameters');
-    if (paramList) {
-      for (const child of paramList.children) {
-        if (child.type === 'parameter') {
-          const n = child.childForFieldName('name');
-          if (n) params.push({
-            name: n.text, type: child.childForFieldName('type')?.text,
-            optional: child.children.some((c: SyntaxNode) => c.type === '='),
-          });
-        }
-      }
-    }
+    const params = extractCsharpParams(node);
 
     // Return type (method_declaration only)
-    let returnType: string | undefined;
-    if (node.type === 'method_declaration') {
-      const nameIdx = node.children.findIndex((c: SyntaxNode) => node.childForFieldName('name') === c);
-      for (const child of node.children) {
-        if (child.type === 'predefined_type' || child.type === 'identifier' ||
-          child.type === 'generic_name' || child.type === 'qualified_name' ||
-          child.type === 'nullable_type' || child.type === 'array_type') {
-          const idx = node.children.findIndex((c: SyntaxNode) => c === child);
-          if (idx !== nameIdx) { returnType = child.text; break; }
-        }
-      }
-    }
+    const returnType = extractCsharpReturnType(node);
+    const disambiguator = functionDisambiguator({
+      node,
+      nodes: functionNodes,
+      name,
+      signatureFor: (candidate) => normalizedFunctionSignature(
+        extractCsharpParams(candidate),
+        extractCsharpReturnType(candidate),
+      ),
+    });
 
     const entity: FunctionEntity = {
-      id: generateEntityId(filePath, 'function', name, startLine),
+      ...identityForNode({
+        node,
+        filePath,
+        label: 'Function',
+        declaredName: name,
+        disambiguator,
+      }),
       name, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: isExportedFromModifiers(modifiers),
       isAsync: modifiers.includes('async'), isArrow: false, params,
@@ -183,6 +223,36 @@ function extractFunctions(root: SyntaxNode, filePath: string): FunctionEntity[] 
     functions.push(entity);
   }
   return functions;
+}
+
+function extractCsharpParams(node: SyntaxNode): Array<{ name: string; type?: string; optional?: boolean }> {
+  const params: Array<{ name: string; type?: string; optional?: boolean }> = [];
+  const paramList = node.childForFieldName('parameters');
+  if (!paramList) return params;
+  for (const child of paramList.children) {
+    if (child.type !== 'parameter') continue;
+    const name = child.childForFieldName('name');
+    if (name) params.push({
+      name: name.text,
+      type: child.childForFieldName('type')?.text,
+      optional: child.children.some((candidate) => candidate.type === '='),
+    });
+  }
+  return params;
+}
+
+function extractCsharpReturnType(node: SyntaxNode): string | undefined {
+  if (node.type !== 'method_declaration') return undefined;
+  const nameNode = node.childForFieldName('name');
+  for (const child of node.children) {
+    if (child.startIndex === nameNode?.startIndex) continue;
+    if (child.type === 'predefined_type' || child.type === 'identifier' ||
+      child.type === 'generic_name' || child.type === 'qualified_name' ||
+      child.type === 'nullable_type' || child.type === 'array_type') {
+      return child.text;
+    }
+  }
+  return undefined;
 }
 
 function extractVariables(root: SyntaxNode, filePath: string): VariableEntity[] {
@@ -201,7 +271,13 @@ function extractVariables(root: SyntaxNode, filePath: string): VariableEntity[] 
       if (!nameNode) continue;
       const line = node.startPosition.row + 1;
       variables.push({
-        id: generateEntityId(filePath, 'variable', nameNode.text, line),
+        ...identityForNode({
+          node: declarator,
+          filePath,
+          label: 'Variable',
+          declaredName: nameNode.text,
+          includeBlockScopes: true,
+        }),
         name: nameNode.text, filePath, line,
         kind: isConst ? 'const' : 'let', isExported, type: typeNode?.text,
       });
@@ -215,7 +291,13 @@ function extractVariables(root: SyntaxNode, filePath: string): VariableEntity[] 
     const modifiers = extractModifiers(node);
     const line = node.startPosition.row + 1;
     variables.push({
-      id: generateEntityId(filePath, 'variable', nameNode.text, line),
+      ...identityForNode({
+        node,
+        filePath,
+        label: 'Variable',
+        declaredName: nameNode.text,
+        includeBlockScopes: true,
+      }),
       name: nameNode.text, filePath, line, kind: 'let',
       isExported: isExportedFromModifiers(modifiers),
       type: node.childForFieldName('type')?.text,
@@ -272,7 +354,7 @@ function extractTypes(root: SyntaxNode, filePath: string): TypeEntity[] {
     const startLine = node.startPosition.row + 1;
     const modifiers = extractModifiers(node);
     const entity: TypeEntity = {
-      id: generateEntityId(filePath, 'type', nameNode.text, startLine),
+      ...identityForNode({ node, filePath, label: 'Type', declaredName: nameNode.text }),
       name: nameNode.text, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: isExportedFromModifiers(modifiers), kind: 'enum',
     };
@@ -286,7 +368,7 @@ function extractTypes(root: SyntaxNode, filePath: string): TypeEntity[] {
     const startLine = node.startPosition.row + 1;
     const modifiers = extractModifiers(node);
     types.push({
-      id: generateEntityId(filePath, 'type', nameNode.text, startLine),
+      ...identityForNode({ node, filePath, label: 'Type', declaredName: nameNode.text }),
       name: nameNode.text, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: isExportedFromModifiers(modifiers), kind: 'type',
     });

@@ -22,7 +22,7 @@ const MOCK_VECTOR_HIT = {
   filePath: 'src/auth.ts',
   startLine: 10,
   distance: 0.1,
-  properties: {},
+  properties: { id: 'sym:v1:parse-token' },
 };
 
 // ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ vi.mock('@codegraph/graph', () => ({
         filePath: 'src/auth.ts',
         startLine: 10,
         distance: 0.1,
-        properties: {},
+        properties: { id: 'sym:v1:parse-token' },
       },
     ]),
   }),
@@ -91,7 +91,7 @@ const { enrichedSearchV2, clearEmbeddedLabelCache } = await import('../enrichedS
 
 type RoQueryResponse = { data: unknown[]; metadata: null };
 type LinkedKnowledgeRow = {
-  targetName: string;
+  targetId: string;
   entityText: string;
   entityType: string;
   confidence: number;
@@ -148,7 +148,7 @@ describe('enrichedSearchV2 — linkedKnowledge enrichment via ABOUT edges', () =
   it('attaches linkedKnowledge to hits that have matching ABOUT edges', async () => {
     const client = makeMockClient([
       {
-        targetName: 'parseToken',
+        targetId: 'sym:v1:parse-token',
         entityText: 'JWT authentication decision',
         entityType: 'Decision',
         confidence: 0.95,
@@ -182,14 +182,14 @@ describe('enrichedSearchV2 — linkedKnowledge enrichment via ABOUT edges', () =
   it('attaches multiple knowledge entries when several ABOUT edges exist', async () => {
     const client = makeMockClient([
       {
-        targetName: 'parseToken',
+        targetId: 'sym:v1:parse-token',
         entityText: 'JWT decision',
         entityType: 'Decision',
         confidence: 0.9,
         fact: null,
       },
       {
-        targetName: 'parseToken',
+        targetId: 'sym:v1:parse-token',
         entityText: 'Token expiry policy',
         entityType: 'Policy',
         confidence: 0.8,
@@ -208,7 +208,7 @@ describe('enrichedSearchV2 — linkedKnowledge enrichment via ABOUT edges', () =
   it('does not include fact field when fact is null', async () => {
     const client = makeMockClient([
       {
-        targetName: 'parseToken',
+        targetId: 'sym:v1:parse-token',
         entityText: 'Auth system',
         entityType: 'System',
         confidence: 0.7,

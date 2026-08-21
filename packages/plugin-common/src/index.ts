@@ -79,6 +79,7 @@ export interface GrammarHelpers {
 // ============================================================================
 
 export * from './types';
+export * from './symbolIdentity';
 
 export function createGrammarHelpers(extensionToGrammar: Record<string, unknown>): GrammarHelpers {
   function getGrammarForExtension(ext: string): unknown | undefined {
@@ -106,4 +107,3 @@ export {
   type EnclosingEntity,
   type EnclosingKind,
 } from './findEnclosingNamedEntity';
-

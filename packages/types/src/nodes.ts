@@ -27,11 +27,33 @@ export interface BaseEntity extends ProvenanceFields {
   filePath: string;
 }
 
+/** Stable identity carried by every source-level symbol entity. */
+export interface SymbolIdentityFields {
+  /** Canonical opaque symbol identifier. */
+  id: string;
+  /** Inspectable lexical owner chain used to build id. */
+  scopeKey: string;
+  /** Inspectable same-scope qualifier used to build id. */
+  disambiguator: string;
+}
+
 /** Common properties for entities with line ranges */
 export interface RangeEntity extends BaseEntity {
   /** Starting line number (1-indexed) */
   startLine: number;
   /** Ending line number (1-indexed) */
+  endLine: number;
+}
+
+/** Common properties for source symbols with stable identity and line ranges. */
+export interface RangeSymbolEntity extends ProvenanceFields, SymbolIdentityFields {
+  /** Name of the symbol. */
+  name: string;
+  /** Absolute path to the file containing this symbol. */
+  filePath: string;
+  /** Starting line number (1-indexed). */
+  startLine: number;
+  /** Ending line number (1-indexed). */
   endLine: number;
 }
 
@@ -66,7 +88,7 @@ export interface FileEntity extends ProvenanceFields {
 // ============================================================================
 
 /** Represents a class declaration */
-export interface ClassEntity extends RangeEntity {
+export interface ClassEntity extends RangeSymbolEntity {
   /** Whether the class is exported */
   isExported: boolean;
   /** Whether the class is abstract */
@@ -88,7 +110,7 @@ export interface ClassEntity extends RangeEntity {
 // ============================================================================
 
 /** Represents an interface declaration */
-export interface InterfaceEntity extends RangeEntity {
+export interface InterfaceEntity extends RangeSymbolEntity {
   /** Whether the interface is exported */
   isExported: boolean;
   /** Extended interfaces */
@@ -120,7 +142,9 @@ export interface FunctionParam {
 }
 
 /** Represents a function or method declaration */
-export interface FunctionEntity extends RangeEntity {
+export interface FunctionEntity extends RangeSymbolEntity {
+  /** Whether this node is an overload declaration without a runtime body. */
+  isOverloadSignature?: boolean;
   /** Whether the function is exported */
   isExported: boolean;
   /** Whether the function is async */
@@ -157,9 +181,8 @@ export interface FunctionEntity extends RangeEntity {
 export type VariableKind = 'const' | 'let' | 'var';
 
 /** Represents a variable declaration */
-export interface VariableEntity extends ProvenanceFields {
+export interface VariableEntity extends ProvenanceFields, SymbolIdentityFields {
   /** Unique identifier */
-  id?: string;
   /** Variable name */
   name: string;
   /** Absolute path to the file containing this variable */
@@ -248,7 +271,7 @@ export interface TypeRefEntity {
 export type TypeKind = 'type' | 'enum';
 
 /** Represents a type alias or enum declaration */
-export interface TypeEntity extends RangeEntity {
+export interface TypeEntity extends RangeSymbolEntity {
   /** Whether the type is exported */
   isExported: boolean;
   /** Type kind (type alias or enum) */
@@ -276,7 +299,7 @@ export interface ComponentProp {
 }
 
 /** Represents a React component */
-export interface ComponentEntity extends RangeEntity {
+export interface ComponentEntity extends RangeSymbolEntity {
   /** Whether the component is exported */
   isExported: boolean;
   /** Component props interface/type */
@@ -361,4 +384,3 @@ export type NodeLabel =
   | 'Section'
   | 'CodeBlock'
   | 'Link';
-

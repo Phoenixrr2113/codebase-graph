@@ -20,7 +20,17 @@ import type {
   Visibility,
   CallExtractionContext,
 } from '@codegraph/types';
-import { findNodesOfType, generateEntityId, calculateComplexity, resolveTypeIdentity } from '@codegraph/plugin-common';
+import {
+  buildLexicalScopeKey,
+  buildSymbolIdentity,
+  calculateComplexity,
+  findNodesOfType,
+  generateEntityId,
+  occurrenceDisambiguator,
+  resolveTypeIdentity,
+  signatureDisambiguator,
+  type SourceSymbolLabel,
+} from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 /** Get the tree-sitter grammar for Python */
@@ -67,10 +77,28 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
     // edge toIds to mismatch the persisted node id after MERGE.
     if (isInsideClass(node)) continue;
 
-    const id = generateEntityId(filePath, 'function', name, startLine);
+    const scopeKey = buildLexicalScopeKey(node);
+    const peers = functionNodes.filter((candidate) =>
+      candidate.childForFieldName('name')?.text === name &&
+      buildLexicalScopeKey(candidate) === scopeKey
+    );
+    const signature = signatureDisambiguator(pythonFunctionSignature(params, returnType));
+    const signaturePeers = peers.filter((candidate) =>
+      signatureDisambiguator(pythonFunctionSignature(
+        extractParameters(candidate),
+        candidate.childForFieldName('return_type')?.text?.replace(/^->\s*/, '').trim(),
+      )) === signature
+    );
+    const occurrence = signaturePeers.findIndex((candidate) => candidate.startIndex === node.startIndex) + 1;
+    const disambiguator = peers.length <= 1
+      ? ''
+      : signaturePeers.length > 1
+        ? `${signature}/${occurrenceDisambiguator(occurrence)}`
+        : signature;
+    const identity = sourceIdentity(node, filePath, 'Function', name, disambiguator);
 
     const entity: FunctionEntity = {
-      id,
+      ...identity,
       name,
       filePath,
       startLine,
@@ -94,6 +122,13 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
   }
 
   return functions;
+}
+
+function pythonFunctionSignature(
+  params: Array<{ name: string; type?: string; optional?: boolean }>,
+  returnType: string | undefined,
+): string {
+  return `(${params.map((param) => `${param.type ?? '_'}${param.optional ? '?' : ''}`).join(',')})=>${returnType ?? '_'}`;
 }
 
 function extractParameters(funcNode: SyntaxNode): { name: string; type?: string; optional?: boolean }[] {
@@ -433,10 +468,10 @@ export function extractClasses(root: SyntaxNode, filePath: string): ClassEntity[
       }
     }
 
-    const id = generateEntityId(filePath, 'class', name, startLine);
+    const identity = sourceIdentity(node, filePath, 'Class', name);
 
     const entity: ClassEntity = {
-      id,
+      ...identity,
       name,
       filePath,
       startLine,
@@ -517,10 +552,11 @@ export function extractClassesWithEdges(root: SyntaxNode, filePath: string): Cla
     // Extract docstring
     const docstring = extractDocstring(node);
 
-    const classId = generateEntityId(filePath, 'class', name, startLine);
+    const classIdentity = sourceIdentity(node, filePath, 'Class', name);
+    const classId = classIdentity.id;
 
     const classEntity: ClassEntity = {
-      id: classId,
+      ...classIdentity,
       name,
       filePath,
       startLine,
@@ -573,17 +609,16 @@ export function extractClassesWithEdges(root: SyntaxNode, filePath: string): Cla
         // Use generateEntityId format so the id matches what extractFunctions
         // would produce for the same source node. HAS_METHOD edge toIds must
         // match the id persisted to the graph after natural-key MERGE.
-        const methodId = generateEntityId(filePath, 'function', methodName, methodStartLine);
-
         const isAsync = funcNode.children.some((c: SyntaxNode) => c.type === 'async');
         const params = extractParameters(funcNode);
         const returnTypeNode = funcNode.childForFieldName('return_type');
         const returnType = returnTypeNode?.text?.replace(/^->\s*/, '').trim();
+        const methodIdentity = sourceIdentity(funcNode, filePath, 'Function', methodName);
         const methodDocstring = extractDocstring(funcNode);
         const metrics = calculateComplexity(funcNode);
 
         const methodEntity: FunctionEntity = {
-          id: methodId,
+          ...methodIdentity,
           name: methodName,
           filePath,
           startLine: methodStartLine,
@@ -602,7 +637,7 @@ export function extractClassesWithEdges(root: SyntaxNode, filePath: string): Cla
         methodEntities.push(methodEntity);
         hasMethodEdges.push({
           fromId: classId,
-          toId: methodId,
+          toId: methodIdentity.id,
           isStatic,
           visibility: pythonVisibility(methodName),
         });
@@ -642,12 +677,17 @@ export function extractClassesWithEdges(root: SyntaxNode, filePath: string): Cla
       if (propName && propStartLine !== undefined && propEndLine !== undefined) {
         const count = propNameCount.get(propName) ?? 0;
         propNameCount.set(propName, count + 1);
-        const suffix = count > 0 ? `:${count}` : '';
-
-        const propId = `${classId}::prop::${propName}${suffix}`;
+        const propDisambiguator = count > 0 ? occurrenceDisambiguator(count + 1) : '';
+        const propIdentity = sourceIdentity(
+          member,
+          filePath,
+          'Variable',
+          propName,
+          propDisambiguator,
+        );
 
         const propEntity: VariableEntity = {
-          id: propId,
+          ...propIdentity,
           name: propName,
           filePath,
           line: propStartLine,
@@ -659,7 +699,7 @@ export function extractClassesWithEdges(root: SyntaxNode, filePath: string): Cla
         propertyEntities.push(propEntity);
         hasPropertyEdges.push({
           fromId: classId,
-          toId: propId,
+          toId: propIdentity.id,
           isStatic: true, // class-body level assignments are class attributes (static in Python's model)
           visibility: pythonVisibility(propName),
           isReadonly: false,
@@ -890,10 +930,10 @@ export function extractVariables(root: SyntaxNode, filePath: string): VariableEn
           // UPPER_CASE = constant, lower_case = variable
           const isConstant = name === name.toUpperCase() && name.includes('_');
 
-          const id = generateEntityId(filePath, 'variable', name, line);
+          const identity = sourceIdentity(child, filePath, 'Variable', name, '', true);
 
           variables.push({
-            id,
+            ...identity,
             name,
             filePath,
             line,
@@ -907,6 +947,23 @@ export function extractVariables(root: SyntaxNode, filePath: string): VariableEn
   }
 
   return variables;
+}
+
+function sourceIdentity(
+  node: SyntaxNode,
+  filePath: string,
+  label: SourceSymbolLabel,
+  declaredName: string,
+  disambiguator = '',
+  includeBlockScopes = false,
+) {
+  return buildSymbolIdentity({
+    label,
+    filePath,
+    scopeKey: buildLexicalScopeKey(node, { includeBlockScopes }),
+    declaredName,
+    disambiguator,
+  });
 }
 
 /** Python builtins to skip when extracting calls */
@@ -1006,10 +1063,9 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
     if (!nameNode) continue;
     const name = nameNode.text;
     const startLine = funcNode.startPosition.row + 1;
-    const entityId = generateEntityId(filePath, 'function', name, startLine);
-
-    // Match to a top-level function entity (class methods are skipped by extractFunctions)
-    const matchedEntity = allFunctions.find(f => f.id === entityId);
+    const matchedEntity = allFunctions.find(
+      (entity) => entity.name === name && entity.startLine === startLine,
+    );
     if (matchedEntity?.id) {
       accumulateTypeRefs(funcNode, matchedEntity.id);
     }

@@ -23,6 +23,10 @@ import type { ResolvedImportMap } from './imports';
  * (Function, Variable, Class, Interface), not just Function.
  */
 export interface CallReference {
+  /** Canonical caller symbol id once resolved. */
+  fromId?: string;
+  /** Canonical callee symbol id once resolved. */
+  toId?: string;
   /** Kind of the named entity containing the call. */
   callerKind: EnclosingKind;
   /** Name of the named entity containing the call. */

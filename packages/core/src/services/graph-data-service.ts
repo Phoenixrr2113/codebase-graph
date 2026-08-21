@@ -212,7 +212,13 @@ export async function getEntityWithConnectionsImpl(
     outLabels: string[] | null;
   }>(`
     MATCH (n)
-    WHERE n.filePath = $id OR (n.name + ':' + n.filePath) = $id
+    WHERE n.id = $id
+       OR ('Commit:' + n.hash) = $id
+       OR ('MarkdownDocument:' + n.path) = $id
+       OR ('Section:' + n.filePath + ':' + toString(n.startLine)) = $id
+       OR ('CodeBlock:' + n.filePath + ':' + toString(n.startLine)) = $id
+       OR ('Link:' + n.filePath + ':' + toString(n.line) + ':' + n.target) = $id
+       OR ('Entity:' + n.type + ':' + n.text) = $id
     OPTIONAL MATCH (inNode)-[inEdge]->(n)
     OPTIONAL MATCH (n)-[outEdge]->(outNode)
     RETURN n, ${dialect.labelsExpr('n')} as labels,
@@ -411,29 +417,19 @@ export async function getNeighborsImpl(
     cypherMatch = '(center)-[r]-(neighbor)';
   }
 
-  // Parse node ID to build center match
-  const parts = id.split(':');
-  const isFileId = parts[0] === 'File';
-  const actualPath = isFileId ? parts.slice(1).join(':') : undefined;
-
-  let centerMatch: string;
+  const centerMatch = `center.id = $id
+    OR ('Commit:' + center.hash) = $id
+    OR ('MarkdownDocument:' + center.path) = $id
+    OR ('Section:' + center.filePath + ':' + toString(center.startLine)) = $id
+    OR ('CodeBlock:' + center.filePath + ':' + toString(center.startLine)) = $id
+    OR ('Link:' + center.filePath + ':' + toString(center.line) + ':' + center.target) = $id
+    OR ('Entity:' + center.type + ':' + center.text) = $id`;
   const queryParams: Record<string, string | number | boolean | null | Array<unknown>> = { limit: depth * 50 };
   if (safeEdgeTypes && safeEdgeTypes.length > 0) {
     queryParams.edgeTypes = safeEdgeTypes;
   }
 
-  if (isFileId && actualPath) {
-    centerMatch = 'center.filePath = $actualPath';
-    queryParams.actualPath = actualPath;
-  } else if (parts.length >= 4) {
-    centerMatch = '(center.filePath = $filePath AND center.name = $name AND (center.startLine = $line OR center.line = $line))';
-    queryParams.filePath = parts[1] ?? '';
-    queryParams.name = parts[2] ?? '';
-    queryParams.line = parseInt(parts[3] ?? '0', 10) || 0;
-  } else {
-    centerMatch = '(center.name = $simpleId OR center.filePath = $simpleId)';
-    queryParams.simpleId = id;
-  }
+  queryParams.id = id;
 
   const result = await client.roQuery<{
     neighbor: Record<string, unknown>;

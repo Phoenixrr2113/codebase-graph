@@ -49,6 +49,14 @@ describe('graph route numeric boundaries', () => {
     },
   );
 
+  it('forwards the persisted symbol id as the references lookup identity', async () => {
+    const id = 'sym:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const response = await graphRoutes.request(`/api/graph/references?id=${encodeURIComponent(id)}`);
+
+    expect(response.status).toBe(200);
+    expect(mockedReferences).toHaveBeenCalledWith({ id, limit: undefined });
+  });
+
   it('accepts the full graph upper limit', async () => {
     const response = await graphRoutes.request('/api/graph/full?limit=1000');
 
@@ -78,16 +86,12 @@ describe('graph route numeric boundaries', () => {
     },
   );
 
-  it.each(['NaN', 'Infinity', '0', '-1', '1.5', '10000001'])(
-    'rejects reference startLine=%s before touching the graph',
-    async (startLine) => {
-      const result = await errorFor(`/api/graph/references?name=run&startLine=${startLine}`);
+  it('rejects the removed name-based references lookup', async () => {
+    const result = await errorFor('/api/graph/references?name=run');
 
-      expect(result.status).toBe(400);
-      expect(result.error).toBe('startLine must be a positive integer between 1 and 10000000');
-      expect(mockedReferences).not.toHaveBeenCalled();
-    },
-  );
+    expect(result).toEqual({ status: 400, error: 'id parameter is required' });
+    expect(mockedReferences).not.toHaveBeenCalled();
+  });
 });
 
 describe('GET /api/graph/file-relationships', () => {

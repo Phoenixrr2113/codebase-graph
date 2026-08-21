@@ -10,6 +10,10 @@ import type { ClassEntity, InterfaceEntity, ImportEntity } from '@codegraph/type
  * Represents a class extends reference
  */
 export interface ExtendsReference {
+  /** Canonical child class id once resolved. */
+  fromId?: string;
+  /** Canonical parent class id once resolved. */
+  toId?: string;
   /** Name of the child class */
   childName: string;
   /** File path of the child class */
@@ -26,6 +30,10 @@ export interface ExtendsReference {
  * Represents a class implements reference
  */
 export interface ImplementsReference {
+  /** Canonical implementing class id once resolved. */
+  fromId?: string;
+  /** Canonical implemented interface id once resolved. */
+  toId?: string;
   /** Name of the implementing class */
   className: string;
   /** File path of the implementing class */

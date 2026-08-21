@@ -44,9 +44,9 @@ const KNOWN_LABELS = new Set(['Class', 'Interface', 'Function', 'Variable']);
 function threeRawHits(): EnrichedV2Result {
   return {
     hits: [
-      { name: 'GraphClient', nodeType: 'Class' },
-      { name: 'ClientOptions', nodeType: 'Interface' },
-      { name: 'createGraphClient', nodeType: 'Function' },
+      { id: 'sym:v1:' + 'a'.repeat(64), name: 'GraphClient', nodeType: 'Class' },
+      { id: 'sym:v1:' + 'b'.repeat(64), name: 'ClientOptions', nodeType: 'Interface' },
+      { id: 'sym:v1:' + 'c'.repeat(64), name: 'createGraphClient', nodeType: 'Function' },
     ],
     meta: { query: 'graph client', vectorHits: 3, durationMs: 5 },
   };
@@ -148,7 +148,7 @@ describe('GET /api/search: types filter emptying the page', () => {
     mockedSearch.mockResolvedValue(threeRawHits());
     mockedGetGraphClient.mockResolvedValue(
       fakeGraphClient([
-        { name: 'clientCache', nodeType: 'Variable', filePath: '/x.ts', startLine: 1, endLine: 1, isExported: true },
+        { id: 'sym:v1:' + 'd'.repeat(64), name: 'clientCache', nodeType: 'Variable', filePath: '/x.ts', startLine: 1, endLine: 1, isExported: true },
       ]) as never,
     );
 
@@ -190,7 +190,7 @@ describe('GET /api/search: types filter emptying the page', () => {
     });
     mockedGetGraphClient.mockResolvedValue(
       fakeGraphClient([
-        { name: 'clientCache', nodeType: 'Variable', filePath: '/x.ts', startLine: 1, endLine: 1, isExported: true },
+        { id: 'sym:v1:' + 'e'.repeat(64), name: 'clientCache', nodeType: 'Variable', filePath: '/x.ts', startLine: 1, endLine: 1, isExported: true },
       ]) as never,
     );
 
@@ -200,6 +200,53 @@ describe('GET /api/search: types filter emptying the page', () => {
     expect(body.fallback).toBe(true);
     expect(body.total).toBe(1);
     expect(body.notice).toBeUndefined();
+  });
+
+  it('returns persisted ids for every row from the text fallback', async () => {
+    const symbolId = 'sym:v1:' + 'd'.repeat(64);
+    mockedSearch.mockResolvedValue({
+      hits: [],
+      meta: { query: 'shared', vectorHits: 0, durationMs: 2 },
+    });
+    const client = fakeGraphClient([
+      {
+        id: symbolId,
+        name: 'shared',
+        nodeType: 'Function',
+        filePath: '/repo/src/shared.ts',
+        startLine: 4,
+        endLine: 6,
+        isExported: true,
+      },
+      {
+        id: 'File:/repo/src/shared.ts',
+        name: 'shared.ts',
+        nodeType: 'File',
+        filePath: '/repo/src/shared.ts',
+        startLine: null,
+        endLine: null,
+        isExported: null,
+      },
+    ]);
+    mockedGetGraphClient.mockResolvedValue(client as never);
+
+    const { status, body } = await searchJson('q=shared&limit=3');
+
+    expect(status).toBe(200);
+    expect(body.fallback).toBe(true);
+    const results = body.results as Array<Record<string, unknown>>;
+    expect(results).toEqual([
+      expect.objectContaining({ id: symbolId, nodeType: 'Function' }),
+      expect.objectContaining({ id: 'File:/repo/src/shared.ts', nodeType: 'File' }),
+    ]);
+    for (const row of results) {
+      expect(row.id).toEqual(expect.stringMatching(/^(?:sym:v1:[a-f0-9]{64}|File:.+)$/));
+    }
+    expect(client.roQuery).toHaveBeenCalledWith(
+      expect.stringContaining('RETURN n.id AS id'),
+      expect.objectContaining({ params: { q: 'shared', limit: 3 } }),
+    );
+    expect(client.roQuery.mock.calls[0]?.[0]).toContain('AND n.id IS NOT NULL');
   });
 });
 

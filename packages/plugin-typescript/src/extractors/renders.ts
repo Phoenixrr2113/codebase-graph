@@ -11,6 +11,10 @@ import { findNodesOfTypes } from './types';
  * Represents a component render reference
  */
 export interface RenderReference {
+  /** Canonical rendering component id once resolved. */
+  fromId?: string;
+  /** Canonical rendered component id once resolved. */
+  toId?: string;
   /** Name of the parent component */
   parentName: string;
   /** File path of the parent component */

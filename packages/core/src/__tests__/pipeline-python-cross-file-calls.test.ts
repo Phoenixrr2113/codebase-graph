@@ -32,6 +32,10 @@ import {
   createFileEntityFromContent,
   buildParsedFileEntities,
 } from '../pipeline';
+import {
+  buildProjectSymbolCatalog,
+  resolveProjectSymbolEdges,
+} from '../pipeline/pipeline';
 
 describe('buildParsedFileEntities: Python cross-file call resolution (end-to-end)', () => {
   let dir: string;
@@ -60,6 +64,17 @@ describe('buildParsedFileEntities: Python cross-file call resolution (end-to-end
     const extracted = extractEntitiesForFile(syntaxTree.rootNode, filePath);
     const fileEntity = createFileEntityFromContent(filePath, content, new Date());
     return { rootNode: syntaxTree.rootNode, extracted, fileEntity };
+  }
+
+  function build(filePath: string) {
+    const parsed = parseAndExtract(filePath);
+    return buildParsedFileEntities(
+      parsed.fileEntity,
+      parsed.extracted,
+      parsed.rootNode,
+      { deepAnalysis: true, includeExternals: false },
+      dir,
+    );
   }
 
   it('(e) resolves the IMPORTS edge to the real file on disk (bug 1: no phantom edge for an existing module)', () => {
@@ -95,37 +110,27 @@ describe('buildParsedFileEntities: Python cross-file call resolution (end-to-end
   });
 
   it('(e) buildCallEdgesFromRefs keys the CALLS edge on the resolved callee file, not the caller file (bugs 2 + 3 together)', () => {
-    const caller = parseAndExtract(join(dir, 'caller.py'));
+    const built = build(join(dir, 'caller.py'));
+    const target = build(join(dir, 'mod.py'));
+    resolveProjectSymbolEdges([built, target], buildProjectSymbolCatalog([built, target]));
 
-    const built = buildParsedFileEntities(
-      caller.fileEntity,
-      caller.extracted,
-      caller.rootNode,
-      { deepAnalysis: true, includeExternals: false },
-      dir,
-    );
-
-    const call = built.callEdges.find((e) => e.callerId.includes(':caller'));
+    const callerId = built.functions.find((fn) => fn.name === 'caller')?.id;
+    const targetId = target.functions.find((fn) => fn.name === 'fn')?.id;
+    const call = built.callEdges.find((e) => e.callerId === callerId);
     expect(call).toBeDefined();
     // Before the fix: this edge either didn't exist (bug 2 dropped it
     // entirely) or, if it had, would have pointed at
     // Function:<dir>/caller.py:fn (bug 3), a Function node that doesn't
     // exist there since fn is defined in mod.py.
-    expect(call!.calleeId).toBe(`Function:${join(dir, 'mod.py')}:fn`);
+    expect(call!.calleeId).toBe(targetId);
   });
 
   it('(e) a call to an unresolvable cross-file name produces no edge at all, not a wrong same-file one', () => {
-    const phantomCaller = parseAndExtract(join(dir, 'phantom_caller.py'));
+    const built = build(join(dir, 'phantom_caller.py'));
+    resolveProjectSymbolEdges([built], buildProjectSymbolCatalog([built]));
 
-    const built = buildParsedFileEntities(
-      phantomCaller.fileEntity,
-      phantomCaller.extracted,
-      phantomCaller.rootNode,
-      { deepAnalysis: true, includeExternals: false },
-      dir,
-    );
-
-    const call = built.callEdges.find((e) => e.callerId.includes(':caller'));
+    const callerId = built.functions.find((fn) => fn.name === 'caller')?.id;
+    const call = built.callEdges.find((e) => e.callerId === callerId);
     expect(call).toBeUndefined();
   });
 });

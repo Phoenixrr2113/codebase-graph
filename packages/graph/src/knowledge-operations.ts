@@ -10,7 +10,7 @@
  * Key design decisions:
  * - Uses codebase-graph's GraphClient interface (driver-agnostic)
  * - Single RELATES_TO table with type property (Graphiti pattern)
- * - UUIDs generated in TypeScript
+ * - Deterministic default Entity ids derived from the Entity merge key
  * - Atomic upserts via MERGE (entities) and NOT EXISTS guard (relationships)
  * - Embedding vectors passed in from caller (inference layer handles generation)
  * - Bi-temporal fields on edges (valid_at, invalid_at, created_at, expired_at)
@@ -20,6 +20,10 @@ import type { GraphClient, QueryParams } from './client';
 import { createLogger, trace, toErrorMessage } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'graph:knowledge-operations' });
+
+export function deriveEntityId(text: string, type: string): string {
+  return `Entity:${type}:${text}`;
+}
 
 // ============================================================================
 // Types
@@ -343,6 +347,7 @@ const KG_CYPHER = {
       n.sampleIds = $sampleIds,
       n.properties = $properties
     ON MATCH SET
+      n.id = coalesce(n.id, $id),
       n.lastAccessedAt = $now,
       n.accessCount = n.accessCount + 1,
       n.relevanceScore = CASE
@@ -592,6 +597,7 @@ const KG_CYPHER = {
       n.sampleIds = [e.sampleId],
       n.properties = e.properties
     ON MATCH SET
+      n.id = coalesce(n.id, e.id),
       n.lastAccessedAt = $now,
       n.accessCount = n.accessCount + 1,
       n.relevanceScore = CASE
@@ -808,7 +814,7 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
   @trace()
   async createEntity(entity: KnowledgeEntity): Promise<string> {
     const now = Date.now();
-    const id = entity.id ?? crypto.randomUUID();
+    const id = entity.id ?? deriveEntityId(entity.text, entity.type);
     const sampleIds = [entity.sampleId ?? 'unknown'];
 
     // Atomic upsert via MERGE (QUAL.2 — eliminates check-then-insert race)
@@ -1003,7 +1009,7 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
       const entityParams = batch.map(e => ({
         text: e.text,
         type: e.type,
-        id: e.id ?? crypto.randomUUID(),
+        id: e.id ?? deriveEntityId(e.text, e.type),
         confidence: e.confidence ?? 1.0,
         sampleId: e.sampleId ?? sampleId,
         properties: e.properties ? JSON.stringify(e.properties) : '{}',

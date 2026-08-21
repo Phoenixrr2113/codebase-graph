@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 
 export interface SearchResult {
+  id?: string
   name: string
   nodeType: string
   filePath?: string
@@ -13,18 +14,22 @@ export interface SearchResult {
   [key: string]: unknown
 }
 
+export interface SearchResponseResult extends SearchResult {
+  id: string
+}
+
 interface SearchPanelProps {
   apiUrl: string
-  onHighlight: (names: string[]) => void
-  onSelectResult: (result: SearchResult) => void
+  onHighlight: (nodeIds: string[]) => void
+  onSelectResult: (result: SearchResponseResult) => void
 }
 
 interface SearchRequestManagerOptions {
   apiUrl: string
   fetchImpl?: typeof fetch
-  onResults: (results: SearchResult[]) => void
+  onResults: (results: SearchResponseResult[]) => void
   onTotal: (total: number) => void
-  onHighlight: (names: string[]) => void
+  onHighlight: (nodeIds: string[]) => void
   onSearching: (searching: boolean) => void
   onError: (error: string | null) => void
 }
@@ -43,7 +48,7 @@ function isAbortError(error: unknown): boolean {
     : error instanceof Error && error.name === 'AbortError'
 }
 
-function parseSearchResponse(value: unknown): { results: SearchResult[]; total: number } {
+function parseSearchResponse(value: unknown): { results: SearchResponseResult[]; total: number } {
   if (typeof value !== 'object' || value === null) {
     throw new Error('Search returned an invalid response')
   }
@@ -56,11 +61,12 @@ function parseSearchResponse(value: unknown): { results: SearchResult[]; total: 
   const validResults = response.results.every((item) => (
     typeof item === 'object'
     && item !== null
+    && typeof (item as Record<string, unknown>).id === 'string'
     && typeof (item as Record<string, unknown>).name === 'string'
     && typeof (item as Record<string, unknown>).nodeType === 'string'
   ))
   if (!validResults) throw new Error('Search returned an invalid response')
-  const results = response.results as SearchResult[]
+  const results = response.results as SearchResponseResult[]
   const total = typeof response.total === 'number' && Number.isFinite(response.total)
     ? response.total
     : results.length
@@ -110,7 +116,7 @@ export function createSearchRequestManager({
 
       onResults(data.results)
       onTotal(data.total)
-      onHighlight(data.results.map((result) => result.name))
+      onHighlight(data.results.map((result) => result.id))
     } catch (error) {
       if (requestGeneration !== generation || isAbortError(error)) return
       onError('Search failed. Please try again.')
@@ -169,7 +175,7 @@ export function createSearchRequestManager({
 
 export function SearchPanel({ apiUrl, onHighlight, onSelectResult }: SearchPanelProps) {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SearchResult[]>([])
+  const [results, setResults] = useState<SearchResponseResult[]>([])
   const [searching, setSearching] = useState(false)
   const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -222,9 +228,9 @@ export function SearchPanel({ apiUrl, onHighlight, onSelectResult }: SearchPanel
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {results.map((r, i) => (
+        {results.map((r) => (
           <button
-            key={`${r.name}-${i}`}
+            key={r.id}
             className="w-full border-b border-border/50 px-3 py-2 text-left transition-colors hover:bg-accent/50"
             onClick={() => onSelectResult(r)}
           >

@@ -110,6 +110,10 @@ export interface CallExtractionContext {
 
 /** Call reference for edge creation */
 export interface CallReference {
+  /** Canonical caller symbol id once resolved. */
+  fromId?: string;
+  /** Canonical callee symbol id once resolved. */
+  toId?: string;
   callerName: string;
   calleeName: string;
   line: number;
@@ -124,6 +128,10 @@ export interface CallReference {
 
 /** Render reference for React component edges */
 export interface RenderReference {
+  /** Canonical rendering component id once resolved. */
+  fromId?: string;
+  /** Canonical rendered component id once resolved. */
+  toId?: string;
   componentName: string;
   renderedComponent: string;
   line: number;
@@ -132,6 +140,10 @@ export interface RenderReference {
 
 /** Inheritance reference for extends/implements edges */
 export interface InheritanceReference {
+  /** Canonical child declaration id once resolved. */
+  fromId?: string;
+  /** Canonical parent declaration id once resolved. */
+  toId?: string;
   childName: string;
   parentName: string;
   type: 'extends' | 'implements';

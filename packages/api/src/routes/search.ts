@@ -249,6 +249,7 @@ searchRoutes.get('/api/search', async (c) => {
       : 'n:Function OR n:Class OR n:Interface OR n:Component OR n:Type OR n:Variable OR n:File';
 
     const rows = await client.roQuery<{
+      id: string;
       name: string;
       nodeType: string;
       filePath: string | null;
@@ -258,8 +259,10 @@ searchRoutes.get('/api/search', async (c) => {
     }>(
       `MATCH (n)
        WHERE (${typeFilter})
+         AND n.id IS NOT NULL
          AND (toLower(n.name) CONTAINS toLower($q) OR toLower(n.filePath) CONTAINS toLower($q))
-       RETURN n.name AS name,
+       RETURN n.id AS id,
+              n.name AS name,
               labels(n)[0] AS nodeType,
               n.filePath AS filePath,
               n.startLine AS startLine,
@@ -278,6 +281,7 @@ searchRoutes.get('/api/search', async (c) => {
 
     return c.json({
       results: rows.data.map(r => ({
+        id: r.id,
         name: r.name,
         nodeType: r.nodeType,
         filePath: r.filePath,

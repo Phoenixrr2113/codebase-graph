@@ -614,13 +614,12 @@ class User:
       const userClass = result.classes.find(c => c.name === 'User');
       expect(userClass).toBeDefined();
 
-      const props = result.variables.filter(
-        v => typeof v.id === 'string' && v.id.startsWith(`${userClass!.id}::prop`)
-      );
-      expect(props.map(p => p.name).sort()).toEqual(['_hidden', 'name']);
-
       const hasPropEdges = (result.hasPropertyEdges ?? []).filter(e => e.fromId === userClass!.id);
       expect(hasPropEdges).toHaveLength(2);
+      const propertyIds = new Set(hasPropEdges.map((edge) => edge.toId));
+      const props = result.variables.filter((variable) => propertyIds.has(variable.id));
+      expect(props.map(p => p.name).sort()).toEqual(['_hidden', 'name']);
+      expect(props.every((property) => property.scopeKey === 'Class:User')).toBe(true);
 
       const nameProp = props.find(p => p.name === 'name')!;
       const nameEdge = hasPropEdges.find(e => e.toId === nameProp.id);

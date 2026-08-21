@@ -5,22 +5,28 @@
 
 import Parser from 'tree-sitter';
 import type { FunctionEntity, FunctionParam } from '@codegraph/types';
-import { findNodesOfTypes, getLocation, generateEntityId } from './types';
-import { calculateComplexity } from '@codegraph/plugin-common';
+import { findNodesOfTypes, getLocation, symbolIdentityForNode } from './types';
+import {
+  buildLexicalScopeKey,
+  calculateComplexity,
+  occurrenceDisambiguator,
+  signatureDisambiguator,
+} from '@codegraph/plugin-common';
 
 /**
  * Node types that represent top-level (non-class-method) function declarations.
- * method_definition is intentionally excluded — class methods are extracted by
- * extractClassesWithEdgesFromNodes, which emits them with generateEntityId-format
- * ids that match this extractor's id format. Including method_definition here would
- * produce duplicate Function entities with the same natural key (name/filePath/startLine),
- * causing HAS_METHOD edge descriptor toIds to silently mismatch the persisted node id.
+ * Runtime class methods are intentionally excluded because
+ * extractClassesWithEdgesFromNodes owns them. Class-body method signatures are
+ * collected here for standalone extraction, then filtered by parseFunctionNodes
+ * so they are not duplicated when class extraction also runs.
  */
 const FUNCTION_TYPES = [
   'function_declaration',
   'function_expression',
   'arrow_function',
   'generator_function_declaration',
+  'function_signature',
+  'method_signature',
 ];
 
 /**
@@ -30,18 +36,8 @@ export function extractFunctions(
   rootNode: Parser.SyntaxNode,
   filePath: string
 ): FunctionEntity[] {
-  const functions: FunctionEntity[] = [];
-  
   const functionNodes = findNodesOfTypes(rootNode, FUNCTION_TYPES);
-  
-  for (const node of functionNodes) {
-    const functionEntity = parseFunctionNode(node, filePath);
-    if (functionEntity) {
-      functions.push(functionEntity);
-    }
-  }
-  
-  return functions;
+  return parseFunctionNodes(functionNodes, filePath).map(({ entity }) => entity);
 }
 
 /**
@@ -51,14 +47,7 @@ export function extractFunctionsFromNodes(
   functionNodes: Parser.SyntaxNode[],
   filePath: string
 ): FunctionEntity[] {
-  const functions: FunctionEntity[] = [];
-  for (const node of functionNodes) {
-    const functionEntity = parseFunctionNode(node, filePath);
-    if (functionEntity) {
-      functions.push(functionEntity);
-    }
-  }
-  return functions;
+  return parseFunctionNodes(functionNodes, filePath).map(({ entity }) => entity);
 }
 
 /**
@@ -71,14 +60,57 @@ export function extractFunctionsWithNodes(
   functionNodes: Parser.SyntaxNode[],
   filePath: string
 ): Array<{ node: Parser.SyntaxNode; entity: FunctionEntity }> {
-  const pairs: Array<{ node: Parser.SyntaxNode; entity: FunctionEntity }> = [];
-  for (const node of functionNodes) {
-    const entity = parseFunctionNode(node, filePath);
-    if (entity) {
-      pairs.push({ node, entity });
+  return parseFunctionNodes(functionNodes, filePath);
+}
+
+function parseFunctionNodes(
+  functionNodes: Parser.SyntaxNode[],
+  filePath: string,
+): Array<{ node: Parser.SyntaxNode; entity: FunctionEntity }> {
+  const namedNodes = functionNodes.flatMap((node) => {
+    if (node.type === 'function_signature' && node.parent?.type === 'ambient_declaration') {
+      return [];
+    }
+    if (node.type === 'method_signature' && node.parent?.type === 'class_body') {
+      return [];
+    }
+    const name = getFunctionName(node);
+    return name ? [{ node, name, scopeKey: buildLexicalScopeKey(node) }] : [];
+  });
+  const groups = new Map<string, typeof namedNodes>();
+
+  for (const item of namedNodes) {
+    const key = `${item.scopeKey}\u0000${item.name}`;
+    const group = groups.get(key) ?? [];
+    group.push(item);
+    groups.set(key, group);
+  }
+
+  const result: Array<{ node: Parser.SyntaxNode; entity: FunctionEntity }> = [];
+  for (const group of groups.values()) {
+    const signatureCounts = new Map<string, number>();
+    const signatureTotals = new Map<string, number>();
+    for (const item of group) {
+      const signatureKey = signatureDisambiguator(declarationSignature(item.node));
+      signatureTotals.set(signatureKey, (signatureTotals.get(signatureKey) ?? 0) + 1);
+    }
+    for (const item of group) {
+      let disambiguator = '';
+      if (group.length > 1) {
+        const signature = declarationSignature(item.node);
+        const signatureKey = signatureDisambiguator(signature);
+        const occurrence = (signatureCounts.get(signatureKey) ?? 0) + 1;
+        signatureCounts.set(signatureKey, occurrence);
+        disambiguator = (signatureTotals.get(signatureKey) ?? 0) > 1
+          ? `${signatureKey}/${occurrenceDisambiguator(occurrence)}`
+          : signatureKey;
+      }
+      const entity = parseFunctionNode(item.node, filePath, disambiguator);
+      if (entity) result.push({ node: item.node, entity });
     }
   }
-  return pairs;
+
+  return result.sort((left, right) => left.node.startIndex - right.node.startIndex);
 }
 
 /**
@@ -86,7 +118,8 @@ export function extractFunctionsWithNodes(
  */
 function parseFunctionNode(
   node: Parser.SyntaxNode,
-  filePath: string
+  filePath: string,
+  disambiguator: string,
 ): FunctionEntity | null {
   // Get function name
   const name = getFunctionName(node);
@@ -103,18 +136,25 @@ function parseFunctionNode(
   const returnType = getReturnType(node);
   const docstring = getDocstring(node);
   
-  const id = generateEntityId(filePath, 'function', name, location.startLine);
+  const identity = symbolIdentityForNode({
+    node,
+    filePath,
+    label: 'Function',
+    declaredName: name,
+    disambiguator,
+  });
   
   // Calculate complexity metrics from the AST node
   const metrics = calculateComplexity(node);
 
   // Build entity with optional properties only when defined
   const entity: FunctionEntity = {
-    id,
+    ...identity,
     name,
     filePath,
     startLine: location.startLine,
     endLine: location.endLine,
+    isOverloadSignature: node.type === 'function_signature' || node.type === 'method_signature',
     isExported,
     isAsync,
     isArrow,
@@ -142,6 +182,19 @@ function parseFunctionNode(
   }
 
   return entity;
+}
+
+function declarationSignature(node: Parser.SyntaxNode): string {
+  const params = extractParameters(node).map((param) => {
+    const rest = param.isRest ? '...' : '';
+    const optional = param.optional ? '?' : '';
+    return `${rest}${param.type ?? '_'}${optional}`;
+  });
+  const typeParameters = node.childForFieldName('type_parameters');
+  const genericArity = typeParameters
+    ? typeParameters.namedChildren.filter((child) => child.type === 'type_parameter').length
+    : 0;
+  return `<${genericArity}>(${params.join(',')})=>${getReturnType(node) ?? '_'}`;
 }
 
 /**

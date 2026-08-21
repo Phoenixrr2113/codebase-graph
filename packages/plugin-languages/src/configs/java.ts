@@ -15,6 +15,11 @@ import type {
   SyntaxNode,
 } from '@codegraph/types';
 import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
+import {
+  functionDisambiguator,
+  identityForNode,
+  normalizedFunctionSignature,
+} from './symbolIdentity';
 
 // ============================================================================
 // Helpers
@@ -100,7 +105,7 @@ function extractClasses(root: SyntaxNode, filePath: string): ClassEntity[] {
     }
 
     const entity: ClassEntity = {
-      id: generateEntityId(filePath, 'class', name, startLine),
+      ...identityForNode({ node, filePath, label: 'Class', declaredName: name }),
       name, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: isExportedFromModifiers(modifiers),
       isAbstract: modifiers.includes('abstract'),
@@ -135,7 +140,7 @@ function extractInterfaces(root: SyntaxNode, filePath: string): InterfaceEntity[
     }
 
     const entity: InterfaceEntity = {
-      id: generateEntityId(filePath, 'interface', name, startLine),
+      ...identityForNode({ node, filePath, label: 'Interface', declaredName: name }),
       name, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: isExportedFromModifiers(modifiers),
     };
@@ -149,7 +154,8 @@ function extractInterfaces(root: SyntaxNode, filePath: string): InterfaceEntity[
 
 function extractFunctions(root: SyntaxNode, filePath: string): FunctionEntity[] {
   const functions: FunctionEntity[] = [];
-  for (const node of findNodesOfType(root, ['method_declaration', 'constructor_declaration'])) {
+  const functionNodes = findNodesOfType(root, ['method_declaration', 'constructor_declaration']);
+  for (const node of functionNodes) {
     const nameNode = node.childForFieldName('name');
     if (!nameNode) continue;
     const name = nameNode.text;
@@ -157,24 +163,26 @@ function extractFunctions(root: SyntaxNode, filePath: string): FunctionEntity[] 
     const modifiers = extractModifiers(node);
 
     // Parameters
-    const params: { name: string; type?: string; optional?: boolean }[] = [];
-    const paramList = node.childForFieldName('parameters');
-    if (paramList) {
-      for (const child of paramList.children) {
-        if (child.type === 'formal_parameter' || child.type === 'spread_parameter') {
-          const n = child.childForFieldName('name');
-          if (n) params.push({ name: n.text, type: child.childForFieldName('type')?.text, optional: false });
-        }
-      }
-    }
-
-    let returnType: string | undefined;
-    if (node.type === 'method_declaration') {
-      returnType = node.childForFieldName('type')?.text;
-    }
+    const params = extractJavaParams(node);
+    const returnType = extractJavaReturnType(node);
+    const disambiguator = functionDisambiguator({
+      node,
+      nodes: functionNodes,
+      name,
+      signatureFor: (candidate) => normalizedFunctionSignature(
+        extractJavaParams(candidate),
+        extractJavaReturnType(candidate),
+      ),
+    });
 
     const entity: FunctionEntity = {
-      id: generateEntityId(filePath, 'function', name, startLine),
+      ...identityForNode({
+        node,
+        filePath,
+        label: 'Function',
+        declaredName: name,
+        disambiguator,
+      }),
       name, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: isExportedFromModifiers(modifiers),
       isAsync: false, isArrow: false, params,
@@ -191,6 +199,28 @@ function extractFunctions(root: SyntaxNode, filePath: string): FunctionEntity[] 
   return functions;
 }
 
+function extractJavaParams(node: SyntaxNode): Array<{ name: string; type?: string; optional?: boolean }> {
+  const params: Array<{ name: string; type?: string; optional?: boolean }> = [];
+  const paramList = node.childForFieldName('parameters');
+  if (!paramList) return params;
+  for (const child of paramList.children) {
+    if (child.type !== 'formal_parameter' && child.type !== 'spread_parameter') continue;
+    const name = child.childForFieldName('name');
+    if (name) params.push({
+      name: name.text,
+      type: child.childForFieldName('type')?.text,
+      optional: false,
+    });
+  }
+  return params;
+}
+
+function extractJavaReturnType(node: SyntaxNode): string | undefined {
+  return node.type === 'method_declaration'
+    ? node.childForFieldName('type')?.text
+    : undefined;
+}
+
 function extractVariables(root: SyntaxNode, filePath: string): VariableEntity[] {
   const variables: VariableEntity[] = [];
   for (const node of findNodesOfType(root, ['field_declaration'])) {
@@ -203,7 +233,13 @@ function extractVariables(root: SyntaxNode, filePath: string): VariableEntity[] 
       if (!nameNode) continue;
       const line = node.startPosition.row + 1;
       variables.push({
-        id: generateEntityId(filePath, 'variable', nameNode.text, line),
+        ...identityForNode({
+          node: declarator,
+          filePath,
+          label: 'Variable',
+          declaredName: nameNode.text,
+          includeBlockScopes: true,
+        }),
         name: nameNode.text, filePath, line,
         kind: isFinal ? 'const' : 'let',
         isExported, type: typeNode?.text,
@@ -254,7 +290,7 @@ function extractTypes(root: SyntaxNode, filePath: string): TypeEntity[] {
     const startLine = node.startPosition.row + 1;
     const modifiers = extractModifiers(node);
     const entity: TypeEntity = {
-      id: generateEntityId(filePath, 'type', nameNode.text, startLine),
+      ...identityForNode({ node, filePath, label: 'Type', declaredName: nameNode.text }),
       name: nameNode.text, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: isExportedFromModifiers(modifiers), kind: 'enum',
     };
@@ -268,7 +304,7 @@ function extractTypes(root: SyntaxNode, filePath: string): TypeEntity[] {
     const startLine = node.startPosition.row + 1;
     const modifiers = extractModifiers(node);
     types.push({
-      id: generateEntityId(filePath, 'type', nameNode.text, startLine),
+      ...identityForNode({ node, filePath, label: 'Type', declaredName: nameNode.text }),
       name: nameNode.text, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: isExportedFromModifiers(modifiers), kind: 'type',
     });

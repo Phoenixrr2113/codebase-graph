@@ -32,6 +32,8 @@ import type { ExtractedEntities, FileEntity, ParsedFileEntities } from '@codegra
 // ---------------------------------------------------------------------------
 
 const opsMocks = vi.hoisted(() => ({
+  getProjectByRoot: vi.fn().mockResolvedValue(null),
+  sweepStaleFileSymbols: vi.fn().mockResolvedValue(undefined),
   removeFileAndCleanup: vi.fn().mockResolvedValue(undefined),
   removeFileContents: vi.fn().mockResolvedValue(undefined),
   removeDocumentContents: vi.fn().mockResolvedValue(undefined),
@@ -118,6 +120,7 @@ beforeEach(() => {
   writeFileSync(filePath, 'export const x = 1;\n');
   opsMocks.removeFileAndCleanup.mockClear();
   opsMocks.removeFileContents.mockClear();
+  opsMocks.sweepStaleFileSymbols.mockClear();
 });
 
 afterEach(() => {
@@ -130,6 +133,7 @@ describe('indexSingleFile: reindexing a changed file must not destroy the File n
 
     expect(result.success).toBe(true);
     expect(opsMocks.removeFileContents).toHaveBeenCalledWith(filePath);
+    expect(opsMocks.sweepStaleFileSymbols).toHaveBeenCalledWith(filePath, []);
     expect(opsMocks.removeFileAndCleanup).not.toHaveBeenCalled();
   });
 });

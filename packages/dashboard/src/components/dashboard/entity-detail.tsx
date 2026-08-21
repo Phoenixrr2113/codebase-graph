@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { NODE_COLORS } from '@/lib/cytoscape-config'
 import { API_URL } from '@/lib/api'
-import { canonicalSymbolNodeId } from '@/lib/references'
 import type {
   FileRelationshipNode,
   FileRelationships,
@@ -613,8 +612,8 @@ function ReferenceGroup({ label, items, declaringFile, onSelect }: {
         {label}
       </p>
       <ul className="space-y-1">
-        {items.map((ref, index) => (
-          <li key={`${ref.filePath}:${ref.name}:${ref.startLine ?? index}:${ref.edgeType}`}>
+        {items.map((ref) => (
+          <li key={`${ref.id}:${ref.edgeType}`}>
             <button
               type="button"
               className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-left transition-colors hover:border-border hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -640,7 +639,7 @@ function ReferenceGroup({ label, items, declaringFile, onSelect }: {
 
 export function symbolReferenceToGraphNode(ref: SymbolReference): GraphNode {
   return {
-    id: canonicalSymbolNodeId(ref.nodeType, ref),
+    id: ref.id,
     label: ref.name,
     type: ref.nodeType,
     properties: {

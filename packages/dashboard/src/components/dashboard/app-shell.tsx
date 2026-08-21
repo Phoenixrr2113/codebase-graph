@@ -7,11 +7,9 @@ import { EntityDetail } from './entity-detail'
 import { QueryPanel } from './query-panel'
 import { API_URL } from '@/lib/api'
 import {
-  canonicalSymbolNodeId,
   fetchFileRelationships,
   fetchReferences,
   isReferenceable,
-  referenceKey,
   type SymbolReferences,
 } from '@/lib/references'
 import type { FileRelationshipsState } from './entity-detail'
@@ -74,12 +72,7 @@ export function deriveBreadcrumbs(
       label: basename(filePath),
       node: selectedNode.type === 'File'
         ? selectedNode
-        : {
-            id: `File:${filePath}`,
-            label: basename(filePath),
-            type: 'File',
-            properties: { name: basename(filePath), filePath },
-          },
+        : null,
     })
   }
   if (selectedNode.type !== 'File') {
@@ -89,13 +82,22 @@ export function deriveBreadcrumbs(
 }
 
 export function searchResultToGraphNode(result: SearchResult): GraphNode {
-  const startLine = typeof result.startLine === 'number' ? result.startLine : null
+  if (typeof result.id === 'string' && result.nodeType === 'File' && /^File:.+/.test(result.id)) {
+    const filePath = typeof result.filePath === 'string' && result.filePath.length > 0
+      ? result.filePath
+      : result.id.slice('File:'.length)
+    return {
+      id: result.id,
+      label: result.name,
+      type: 'File',
+      properties: { ...result, filePath },
+    }
+  }
+  if (typeof result.id !== 'string' || !/^sym:v1:[a-f0-9]{64}$/.test(result.id)) {
+    throw new Error('Search result is missing a persisted id')
+  }
   return {
-    id: canonicalSymbolNodeId(result.nodeType, {
-      name: result.name,
-      filePath: result.filePath,
-      startLine,
-    }),
+    id: result.id,
     label: result.name,
     type: result.nodeType,
     properties: result,
@@ -164,7 +166,7 @@ export function ExplorerNavigation({
 
 export function AppShell({ projectId, projectName }: { projectId?: string | null; projectName?: string }) {
   const [selectionHistory, setSelectionHistory] = useState<SelectionHistory>(EMPTY_SELECTION_HISTORY)
-  const [highlightedNames, setHighlightedNames] = useState<Set<string>>(new Set())
+  const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set())
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(new Set())
   const [hiddenNodeTypes, setHiddenNodeTypes] = useState<Set<string>>(new Set())
   const [showQuery, setShowQuery] = useState(false)
@@ -216,9 +218,7 @@ export function AppShell({ projectId, projectName }: { projectId?: string | null
     const controller = new AbortController()
     setReferencesLoading(true)
     fetchReferences(
-      name,
-      selectedNode.properties?.filePath as string | undefined,
-      selectedNode.properties?.startLine as number | undefined,
+      selectedNode.id,
       controller.signal,
     )
       .then((result) => {
@@ -261,12 +261,12 @@ export function AppShell({ projectId, projectName }: { projectId?: string | null
     return () => controller.abort()
   }, [selectedNode])
 
-  const referenceKeys = new Set(
-    (references?.references ?? []).map((r) => referenceKey(r.filePath, r.name, r.startLine)),
+  const referenceNodeIds = new Set(
+    (references?.references ?? []).map((reference) => reference.id),
   )
 
-  const handleSearchHighlight = useCallback((names: string[]) => {
-    setHighlightedNames(new Set(names))
+  const handleSearchHighlight = useCallback((nodeIds: string[]) => {
+    setHighlightedNodeIds(new Set(nodeIds.filter((id) => id.startsWith('sym:v1:'))))
   }, [])
 
   const handleToggleEdgeType = useCallback((edgeType: string) => {
@@ -295,10 +295,11 @@ export function AppShell({ projectId, projectName }: { projectId?: string | null
           apiUrl={API_URL}
           onHighlight={handleSearchHighlight}
           onSelectResult={(result) => {
-            setHighlightedNames(new Set([result.name]))
+            const node = searchResultToGraphNode(result)
+            setHighlightedNodeIds(new Set([node.id]))
             // Open the detail panel too. The search payload already carries
             // filePath and line numbers, which is everything the panel needs.
-            handleNodeSelect(searchResultToGraphNode(result))
+            handleNodeSelect(node)
           }}
         />
       </ResizablePanel>
@@ -314,11 +315,11 @@ export function AppShell({ projectId, projectName }: { projectId?: string | null
                 apiUrl={API_URL}
                 onNodeSelect={handleNodeSelect}
                 selectedNode={selectedNode}
-                highlightedNames={highlightedNames}
+                highlightedNodeIds={highlightedNodeIds}
                 hiddenEdgeTypes={hiddenEdgeTypes}
                 hiddenNodeTypes={hiddenNodeTypes}
                 projectId={projectId}
-                referenceKeys={referenceKeys}
+                referenceNodeIds={referenceNodeIds}
               />
               {/* Toolbar: Query toggle + Legend */}
               <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'start', gap: 8 }}>

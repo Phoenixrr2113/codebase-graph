@@ -12,7 +12,17 @@ import { API_URL } from './api'
 
 export type ReferenceEdgeType = 'CALLS' | 'USES_TYPE' | 'EXTENDS' | 'IMPLEMENTS' | 'RENDERS'
 
+const REFERENCE_EDGE_TYPES = new Set<ReferenceEdgeType>([
+  'CALLS',
+  'USES_TYPE',
+  'EXTENDS',
+  'IMPLEMENTS',
+  'RENDERS',
+])
+const SYMBOL_ID_PATTERN = /^sym:v1:[a-f0-9]{64}$/
+
 export interface SymbolReference {
+  id: string
   name: string
   nodeType: string
   filePath: string
@@ -25,20 +35,6 @@ export interface SymbolReferences {
   references: SymbolReference[]
   referencingFiles: string[]
   truncated: boolean
-}
-
-interface SymbolNodeIdentity {
-  name?: string | null
-  filePath?: string | null
-  startLine?: number | null
-  line?: number | null
-}
-
-export function canonicalSymbolNodeId(label: string, node: SymbolNodeIdentity): string {
-  const name = node.name ?? ''
-  const filePath = node.filePath ?? ''
-  const line = node.startLine ?? node.line ?? 0
-  return `${label}:${filePath}:${name}:${line}`
 }
 
 export interface FileRelationshipNode {
@@ -71,40 +67,54 @@ export function isReferenceable(nodeType: string): boolean {
   return REFERENCEABLE_TYPES.has(nodeType)
 }
 
-/**
- * Identity used to match a reference against a node on the canvas.
- *
- * The line is part of the identity because a file can hold several symbols of
- * the same name, and only one of them is the end of the relationship. Matching
- * on path and name alone lit up all of them.
- */
-export function referenceKey(
-  filePath: string | undefined,
-  name: string,
-  startLine: number | undefined,
-): string {
-  return `${filePath ?? ''}::${name}::${startLine ?? ''}`
-}
-
 export async function fetchReferences(
-  name: string,
-  filePath: string | undefined,
-  startLine: number | undefined,
+  id: string,
   signal?: AbortSignal,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<SymbolReferences> {
-  const params = new URLSearchParams({ name })
-  if (filePath) params.set('path', filePath)
-  if (startLine != null) params.set('startLine', String(startLine))
+  const params = new URLSearchParams({ id })
 
-  const response = await fetch(`${API_URL}/api/graph/references?${params.toString()}`, { signal })
+  const response = await fetchImpl(`${API_URL}/api/graph/references?${params.toString()}`, { signal })
   if (!response.ok) {
     throw new Error(`References request failed with ${response.status}`)
   }
-  return (await response.json()) as SymbolReferences
+  return parseSymbolReferences(await response.json())
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isSymbolReference(value: unknown): value is SymbolReference {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && SYMBOL_ID_PATTERN.test(value.id)
+    && typeof value.name === 'string'
+    && typeof value.nodeType === 'string'
+    && typeof value.filePath === 'string'
+    && (value.startLine === undefined || typeof value.startLine === 'number')
+    && typeof value.edgeType === 'string'
+    && REFERENCE_EDGE_TYPES.has(value.edgeType as ReferenceEdgeType)
+    && typeof value.sameFile === 'boolean'
+}
+
+function parseSymbolReferences(value: unknown): SymbolReferences {
+  if (
+    !isRecord(value)
+    || !Array.isArray(value.references)
+    || !value.references.every(isSymbolReference)
+    || !Array.isArray(value.referencingFiles)
+    || !value.referencingFiles.every((filePath) => typeof filePath === 'string')
+    || typeof value.truncated !== 'boolean'
+  ) {
+    throw new Error('Invalid references response')
+  }
+
+  return {
+    references: value.references,
+    referencingFiles: value.referencingFiles,
+    truncated: value.truncated,
+  }
 }
 
 function parseRelationshipNode(value: unknown): FileRelationshipNode {

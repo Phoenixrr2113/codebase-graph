@@ -59,6 +59,24 @@ interface ParsedEntityId {
   isExternal: boolean;
 }
 
+interface EdgeEndpoint {
+  id: string | null;
+  filePath: string | null;
+  name: string | null;
+}
+
+function edgeEndpoint(id: string): EdgeEndpoint {
+  if (/^sym:v1:[0-9a-f]{64}$/.test(id)) {
+    return { id, filePath: null, name: null };
+  }
+  const parsed = parseEntityId(id);
+  return {
+    id: null,
+    filePath: resolvedFilePath(parsed) ?? null,
+    name: resolvedName(parsed),
+  };
+}
+
 /**
  * Parse a colon-delimited entity ID into structured parts.
  * Handles both `Type:filePath:name` and `Type:external:name` formats.
@@ -94,7 +112,8 @@ const CYPHER = {
   // File operations
   UPSERT_FILE: `
     MERGE (f:File {filePath: $filePath})
-    SET f.name = $name,
+    SET f.id = $id,
+        f.name = $name,
         f.extension = $extension,
         f.loc = $loc,
         f.lastModified = $lastModified,
@@ -107,9 +126,14 @@ const CYPHER = {
 
   // Function operations - creates CONTAINS edge to File
   UPSERT_FUNCTION: `
-    MERGE (fn:Function {name: $name, filePath: $filePath, startLine: $startLine})
-    SET fn.id = $id,
+    MERGE (fn:Function {id: $id})
+    SET fn.name = $name,
+        fn.filePath = $filePath,
+        fn.startLine = $startLine,
         fn.endLine = $endLine,
+        fn.scopeKey = $scopeKey,
+        fn.disambiguator = $disambiguator,
+        fn._staleForRefresh = false,
         fn.isExported = $isExported,
         fn.isAsync = $isAsync,
         fn.isArrow = $isArrow,
@@ -131,9 +155,14 @@ const CYPHER = {
 
   // Class operations - creates CONTAINS edge to File
   UPSERT_CLASS: `
-    MERGE (c:Class {name: $name, filePath: $filePath, startLine: $startLine})
-    SET c.id = $id,
+    MERGE (c:Class {id: $id})
+    SET c.name = $name,
+        c.filePath = $filePath,
+        c.startLine = $startLine,
         c.endLine = $endLine,
+        c.scopeKey = $scopeKey,
+        c.disambiguator = $disambiguator,
+        c._staleForRefresh = false,
         c.isExported = $isExported,
         c.isAbstract = $isAbstract,
         c.extends = $extends,
@@ -150,9 +179,14 @@ const CYPHER = {
 
   // Interface operations - creates CONTAINS edge to File
   UPSERT_INTERFACE: `
-    MERGE (i:Interface {name: $name, filePath: $filePath, startLine: $startLine})
-    SET i.id = $id,
+    MERGE (i:Interface {id: $id})
+    SET i.name = $name,
+        i.filePath = $filePath,
+        i.startLine = $startLine,
         i.endLine = $endLine,
+        i.scopeKey = $scopeKey,
+        i.disambiguator = $disambiguator,
+        i._staleForRefresh = false,
         i.isExported = $isExported,
         i.extends = $extends,
         i.docstring = $docstring,
@@ -167,8 +201,13 @@ const CYPHER = {
 
   // Variable operations - creates CONTAINS edge to File
   UPSERT_VARIABLE: `
-    MERGE (v:Variable {name: $name, filePath: $filePath, line: $line})
-    SET v.id = $id,
+    MERGE (v:Variable {id: $id})
+    SET v.name = $name,
+        v.filePath = $filePath,
+        v.line = $line,
+        v.scopeKey = $scopeKey,
+        v.disambiguator = $disambiguator,
+        v._staleForRefresh = false,
         v.kind = $kind,
         v.isExported = $isExported,
         v.type = $type,
@@ -183,8 +222,14 @@ const CYPHER = {
 
   // Type operations - creates CONTAINS edge to File
   UPSERT_TYPE: `
-    MERGE (t:Type {name: $name, filePath: $filePath, startLine: $startLine})
-    SET t.endLine = $endLine,
+    MERGE (t:Type {id: $id})
+    SET t.name = $name,
+        t.filePath = $filePath,
+        t.startLine = $startLine,
+        t.endLine = $endLine,
+        t.scopeKey = $scopeKey,
+        t.disambiguator = $disambiguator,
+        t._staleForRefresh = false,
         t.isExported = $isExported,
         t.kind = $kind,
         t.docstring = $docstring,
@@ -199,8 +244,14 @@ const CYPHER = {
 
   // Component operations - creates CONTAINS edge to File
   UPSERT_COMPONENT: `
-    MERGE (comp:Component {name: $name, filePath: $filePath, startLine: $startLine})
-    SET comp.endLine = $endLine,
+    MERGE (comp:Component {id: $id})
+    SET comp.name = $name,
+        comp.filePath = $filePath,
+        comp.startLine = $startLine,
+        comp.endLine = $endLine,
+        comp.scopeKey = $scopeKey,
+        comp.disambiguator = $disambiguator,
+        comp._staleForRefresh = false,
         comp.isExported = $isExported,
         comp.props = $props,
         comp.propsType = $propsType,
@@ -214,16 +265,21 @@ const CYPHER = {
   `,
 
   // Edge operations
-  // CALLS source can be Function | Variable | Class | Interface — relaxed
+  // CALLS source can be Function | Variable | Class | Interface. Canonical
+  // endpoint ids take priority. Name and path remain the documented fallback
+  // for descriptors produced before endpoint resolution.
   // from the original Function-only constraint so calls inside arrow
   // initialisers (e.g., zod's $ZodCheckMultipleOf) are reachable.
   // labels(caller)[0] disambiguates same-name+filePath nodes across labels.
   // ON MATCH deliberately leaves c.via untouched: existing pre-fix edges
   // have c.via IS NULL — consumers read via as coalesce(c.via, 'direct').
   CREATE_CALLS_EDGE: `
-    MATCH (caller {name: $callerName, filePath: $callerFile})
-    WHERE labels(caller)[0] = $callerKind
-    MATCH (callee:Function {name: $calleeName, filePath: $calleeFile})
+    MATCH (caller)
+    WHERE ($callerId IS NOT NULL AND caller.id = $callerId) OR
+      ($callerId IS NULL AND caller.name = $callerName AND caller.filePath = $callerFile AND labels(caller)[0] = $callerKind)
+    MATCH (callee:Function)
+    WHERE ($calleeId IS NOT NULL AND callee.id = $calleeId) OR
+      ($calleeId IS NULL AND callee.name = $calleeName AND callee.filePath = $calleeFile)
     MERGE (caller)-[c:CALLS]->(callee)
     ON CREATE SET c.line = $line, c.count = 1, c.via = $via
     ON MATCH SET c.count = c.count + 1
@@ -262,24 +318,50 @@ const CYPHER = {
   `,
 
   CREATE_EXTENDS_EDGE: `
-    MATCH (child:Class {name: $childName, filePath: $childFile})
+    MATCH (child:Class)
+    WHERE ($childId IS NOT NULL AND child.id = $childId) OR
+      ($childId IS NULL AND child.name = $childName AND child.filePath = $childFile)
     MERGE (parent:Class {name: $parentName, filePath: COALESCE($parentFile, 'external')})
     ON CREATE SET parent:External
     MERGE (child)-[e:EXTENDS]->(parent)
     RETURN e
   `,
 
+  CREATE_EXTENDS_EDGE_BY_ID: `
+    MATCH (child:Class)
+    WHERE ($childId IS NOT NULL AND child.id = $childId) OR
+      ($childId IS NULL AND child.name = $childName AND child.filePath = $childFile)
+    MATCH (parent:Class {id: $parentId})
+    MERGE (child)-[e:EXTENDS]->(parent)
+    RETURN e
+  `,
+
   CREATE_IMPLEMENTS_EDGE: `
-    MATCH (c:Class {name: $className, filePath: $classFile})
+    MATCH (c:Class)
+    WHERE ($classId IS NOT NULL AND c.id = $classId) OR
+      ($classId IS NULL AND c.name = $className AND c.filePath = $classFile)
     MERGE (i:Interface {name: $interfaceName, filePath: COALESCE($interfaceFile, 'external')})
     ON CREATE SET i:External
     MERGE (c)-[impl:IMPLEMENTS]->(i)
     RETURN impl
   `,
 
+  CREATE_IMPLEMENTS_EDGE_BY_ID: `
+    MATCH (c:Class)
+    WHERE ($classId IS NOT NULL AND c.id = $classId) OR
+      ($classId IS NULL AND c.name = $className AND c.filePath = $classFile)
+    MATCH (i:Interface {id: $interfaceId})
+    MERGE (c)-[impl:IMPLEMENTS]->(i)
+    RETURN impl
+  `,
+
   CREATE_RENDERS_EDGE: `
-    MATCH (parent:Component {name: $parentName, filePath: $parentFile})
-    MATCH (child:Component {name: $childName})
+    MATCH (parent:Component)
+    WHERE ($parentId IS NOT NULL AND parent.id = $parentId) OR
+      ($parentId IS NULL AND parent.name = $parentName AND parent.filePath = $parentFile)
+    MATCH (child:Component)
+    WHERE ($childId IS NOT NULL AND child.id = $childId) OR
+      ($childId IS NULL AND child.name = $childName)
     MERGE (parent)-[r:RENDERS]->(child)
     SET r.line = $line
     RETURN r
@@ -376,19 +458,14 @@ const CYPHER = {
     RETURN r
   `,
 
-  // Export edge operations
-  // symbolKind (labels(symbol)[0] predicate) disambiguates declaration
-  // merging: a class and an interface (or two other node types) sharing the
-  // same (name, filePath) but declared at different points, the same
-  // reasoning CREATE_CALLS_EDGE uses callerKind for. WHERE applied directly
-  // after MATCH filters the pattern match itself, so a symbol that exists
-  // but has the wrong label makes this whole MATCH find nothing (zero rows),
-  // not an error: the edge silently isn't created, same as the file-not-found
-  // case, never a stub or a wrongly-labeled edge.
+  // Export edge operations. Canonical endpoint ids take priority. symbolKind
+  // disambiguates declaration merging only on the legacy name/path fallback.
   CREATE_EXPORTS_EDGE: `
-    MATCH (f:File {filePath: $filePath})
-    MATCH (symbol {name: $symbolName, filePath: $filePath})
-    WHERE labels(symbol)[0] = $symbolKind
+    MATCH (f:File)
+    WHERE ($fromId IS NOT NULL AND f.id = $fromId) OR ($fromId IS NULL AND f.filePath = $filePath)
+    MATCH (symbol)
+    WHERE ($toId IS NOT NULL AND symbol.id = $toId) OR
+      ($toId IS NULL AND symbol.name = $symbolName AND symbol.filePath = $filePath AND labels(symbol)[0] = $symbolKind)
     MERGE (f)-[r:EXPORTS]->(symbol)
     SET r.asName = $asName,
         r.isDefault = $isDefault
@@ -400,20 +477,15 @@ const CYPHER = {
     RETURN symbol.name as name, labels(symbol)[0] as type, r.asName as asName, r.isDefault as isDefault
   `,
 
-  // IMPORTS_SYMBOL edge: importing File to the imported symbol node (not the
-  // imported File, that's IMPORTS). Plain MATCH on both sides, mirroring
-  // CREATE_CALLS_EDGE: when the target symbol doesn't exist yet (unparsed
-  // file, or a genuinely external/node_modules source), this MATCH simply
-  // finds nothing and the edge is silently never created, never MERGE'd as a
-  // stub node the way CREATE_EXTENDS_EDGE does for an external parent class.
-  // No label predicate on the target: unlike EXPORTS, the pipeline doesn't
-  // know the target symbol's kind ahead of time (it lives in another file
-  // this pass hasn't necessarily typed), so this matches by (name, filePath)
-  // alone, same as the pre-fix CREATE_EXPORTS_EDGE did before symbolKind was
-  // added above.
+  // IMPORTS_SYMBOL connects an importing File to the imported declaration.
+  // Canonical endpoint ids take priority. The legacy fallback matches by name
+  // and path and never creates a stub when the target is unavailable.
   CREATE_IMPORTS_SYMBOL_EDGE: `
-    MATCH (from:File {filePath: $fromFilePath})
-    MATCH (symbol {name: $symbolName, filePath: $toFilePath})
+    MATCH (from:File)
+    WHERE ($fromId IS NOT NULL AND from.id = $fromId) OR ($fromId IS NULL AND from.filePath = $fromFilePath)
+    MATCH (symbol)
+    WHERE ($toId IS NOT NULL AND symbol.id = $toId) OR
+      ($toId IS NULL AND symbol.name = $symbolName AND symbol.filePath = $toFilePath)
     MERGE (from)-[r:IMPORTS_SYMBOL]->(symbol)
     SET r.alias = $alias,
         r.isDefault = $isDefault
@@ -436,31 +508,59 @@ const CYPHER = {
     RETURN r
   `,
 
-  // Delete operations - cascade delete file and all contained entities
-  DELETE_FILE_ENTITIES: `
-    MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(e)
-    DETACH DELETE e
-    WITH f
+  // Real file removal deletes the source owner and every declaration it owns.
+  REMOVE_FILE_NODE: `
+    MATCH (f:File {filePath: $filePath})
     DETACH DELETE f
   `,
 
-  // Smart file removal (PERF.4) — preserves incoming cross-file edges
-  // Step 1: Remove CONTAINS edges and the File node (non-cascading)
-  REMOVE_FILE_NODE: `
-    MATCH (f:File {filePath: $filePath})
-    OPTIONAL MATCH (f)-[c:CONTAINS]->()
-    DELETE c, f
+  REMOVE_FILE_SYMBOLS: `
+    MATCH (e)
+    WHERE e.filePath = $filePath AND
+      (e:Function OR e:Class OR e:Interface OR e:Variable OR e:Type OR e:Component)
+    DETACH DELETE e
   `,
 
-  // Content-only removal: detach CONTAINS edges to this file's child symbols,
-  // but leave the File node (and every other edge attached to it, e.g.
-  // MODIFIED_IN, HAS_FILE, EXPORTS) untouched. Use this instead of
-  // REMOVE_FILE_NODE when a file's content changed and is about to be
-  // re-parsed: deleting the File node would cascade-delete git-history edges
-  // from commits that were already synced and would never be re-synced.
+  REMOVE_FILE_DOCUMENT: `
+    MATCH (d:MarkdownDocument {path: $filePath})
+    OPTIONAL MATCH (d)-[:CONTAINS]->(content)
+    DETACH DELETE content, d
+  `,
+
+  // Mark the prior declaration set before refresh. Current canonical IDs clear
+  // this marker during upsert, then SWEEP_STALE_FILE_SYMBOLS removes the rest.
   REMOVE_FILE_CONTENTS: `
-    MATCH (f:File {filePath: $filePath})-[c:CONTAINS]->()
-    DELETE c
+    MATCH (e)
+    WHERE e.filePath = $filePath AND
+      (e:Function OR e:Class OR e:Interface OR e:Variable OR e:Type OR e:Component)
+    SET e._staleForRefresh = true
+  `,
+
+  REMOVE_FILE_OUTGOING_EDGES: `
+    MATCH (f:File {filePath: $filePath})-[r:IMPORTS|IMPORTS_SYMBOL|EXPORTS]->()
+    DELETE r
+  `,
+
+  REMOVE_SYMBOL_OUTGOING_EDGES: `
+    MATCH (e)-[r:CALLS|EXTENDS|IMPLEMENTS|RENDERS|HAS_METHOD|HAS_PROPERTY|HAS_PARAM|RETURNS|USES_TYPE]->()
+    WHERE e.filePath = $filePath AND
+      (e:Function OR e:Class OR e:Interface OR e:Variable OR e:Type OR e:Component)
+    DELETE r
+  `,
+
+  SWEEP_STALE_FILE_SYMBOLS: `
+    MATCH (e {_staleForRefresh: true})
+    WHERE e.filePath = $filePath AND
+      (e:Function OR e:Class OR e:Interface OR e:Variable OR e:Type OR e:Component)
+    DETACH DELETE e
+  `,
+
+  SWEEP_STALE_FILE_SYMBOL_IDS: `
+    MATCH (e)
+    WHERE e.filePath = $filePath AND
+      (e:Function OR e:Class OR e:Interface OR e:Variable OR e:Type OR e:Component) AND
+      NOT e.id IN $currentIds
+    DETACH DELETE e
   `,
 
   // Content-only removal for a changed Markdown document. Keep the stable
@@ -470,18 +570,6 @@ const CYPHER = {
     MATCH (:MarkdownDocument {path: $documentPath})-[:CONTAINS]->(content)
     WHERE content:Section OR content:CodeBlock OR content:Link
     DETACH DELETE content
-  `,
-
-  // Step 2: Remove orphaned entities from this file that have no incoming edges
-  // Uses OPTIONAL MATCH to check for ANY incoming relationship from other nodes
-  CLEANUP_FILE_ORPHANS: `
-    MATCH (e)
-    WHERE e.filePath = $filePath
-    OPTIONAL MATCH (other)-[r]->(e)
-    WHERE other.filePath <> $filePath OR other.filePath IS NULL
-    WITH e, r
-    WHERE r IS NULL
-    DETACH DELETE e
   `,
 
   // Count nodes for a file
@@ -499,7 +587,8 @@ const CYPHER = {
   // Project operations
   UPSERT_PROJECT: `
     MERGE (p:Project {id: $id})
-    SET p.name = $name,
+    SET p.projectId = $id,
+        p.name = $name,
         p.rootPath = $rootPath,
         p.createdAt = $createdAt,
         p.lastParsed = $lastParsed,
@@ -522,19 +611,22 @@ const CYPHER = {
   `,
 
   DELETE_PROJECT: `
-    MATCH (p:Project {id: $id})
-    OPTIONAL MATCH (p)-[:HAS_FILE]->(f:File)-[:CONTAINS]->(e)
-    DETACH DELETE e
-    WITH p, f
-    DETACH DELETE f
-    WITH p
-    DETACH DELETE p
+    MATCH (owned)
+    WHERE owned.projectId = $id OR (owned:Project AND owned.id = $id)
+    DETACH DELETE owned
   `,
 
   LINK_PROJECT_FILE: `
     MATCH (p:Project {id: $projectId})
     MATCH (f:File {filePath: $filePath})
+    SET f.projectId = $projectId
     MERGE (p)-[:HAS_FILE]->(f)
+  `,
+
+  STAMP_FILE_SYMBOL_OWNERSHIP: `
+    MATCH (:File {filePath: $filePath})-[:CONTAINS]->(owned)
+    WHERE owned:Function OR owned:Class OR owned:Interface OR owned:Variable OR owned:Type OR owned:Component
+    SET owned.projectId = $projectId
   `,
 
   GET_PROJECT_FILE_HASHES: `
@@ -548,7 +640,8 @@ const CYPHER = {
   BATCH_UPSERT_FILES: `
     UNWIND $items AS item
     MERGE (f:File {filePath: item.filePath})
-    SET f.name = item.name,
+    SET f.id = item.id,
+        f.name = item.name,
         f.extension = item.extension,
         f.loc = item.loc,
         f.lastModified = item.lastModified,
@@ -560,9 +653,14 @@ const CYPHER = {
 
   BATCH_UPSERT_FUNCTIONS: `
     UNWIND $items AS item
-    MERGE (fn:Function {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET fn.id = item.id,
+    MERGE (fn:Function {id: item.id})
+    SET fn.name = item.name,
+        fn.filePath = item.filePath,
+        fn.startLine = item.startLine,
         fn.endLine = item.endLine,
+        fn.scopeKey = item.scopeKey,
+        fn.disambiguator = item.disambiguator,
+        fn._staleForRefresh = false,
         fn.isExported = item.isExported,
         fn.isAsync = item.isAsync,
         fn.isArrow = item.isArrow,
@@ -583,9 +681,14 @@ const CYPHER = {
 
   BATCH_UPSERT_CLASSES: `
     UNWIND $items AS item
-    MERGE (c:Class {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET c.id = item.id,
+    MERGE (c:Class {id: item.id})
+    SET c.name = item.name,
+        c.filePath = item.filePath,
+        c.startLine = item.startLine,
         c.endLine = item.endLine,
+        c.scopeKey = item.scopeKey,
+        c.disambiguator = item.disambiguator,
+        c._staleForRefresh = false,
         c.isExported = item.isExported,
         c.isAbstract = item.isAbstract,
         c.extends = item.extends,
@@ -601,9 +704,14 @@ const CYPHER = {
 
   BATCH_UPSERT_INTERFACES: `
     UNWIND $items AS item
-    MERGE (i:Interface {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET i.id = item.id,
+    MERGE (i:Interface {id: item.id})
+    SET i.name = item.name,
+        i.filePath = item.filePath,
+        i.startLine = item.startLine,
         i.endLine = item.endLine,
+        i.scopeKey = item.scopeKey,
+        i.disambiguator = item.disambiguator,
+        i._staleForRefresh = false,
         i.isExported = item.isExported,
         i.extends = item.extends,
         i.docstring = item.docstring,
@@ -617,8 +725,13 @@ const CYPHER = {
 
   BATCH_UPSERT_VARIABLES: `
     UNWIND $items AS item
-    MERGE (v:Variable {name: item.name, filePath: item.filePath, line: item.line})
-    SET v.id = item.id,
+    MERGE (v:Variable {id: item.id})
+    SET v.name = item.name,
+        v.filePath = item.filePath,
+        v.line = item.line,
+        v.scopeKey = item.scopeKey,
+        v.disambiguator = item.disambiguator,
+        v._staleForRefresh = false,
         v.kind = item.kind,
         v.isExported = item.isExported,
         v.type = item.type,
@@ -632,8 +745,14 @@ const CYPHER = {
 
   BATCH_UPSERT_TYPES: `
     UNWIND $items AS item
-    MERGE (t:Type {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET t.endLine = item.endLine,
+    MERGE (t:Type {id: item.id})
+    SET t.name = item.name,
+        t.filePath = item.filePath,
+        t.startLine = item.startLine,
+        t.endLine = item.endLine,
+        t.scopeKey = item.scopeKey,
+        t.disambiguator = item.disambiguator,
+        t._staleForRefresh = false,
         t.isExported = item.isExported,
         t.kind = item.kind,
         t.docstring = item.docstring,
@@ -647,8 +766,14 @@ const CYPHER = {
 
   BATCH_UPSERT_COMPONENTS: `
     UNWIND $items AS item
-    MERGE (comp:Component {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET comp.endLine = item.endLine,
+    MERGE (comp:Component {id: item.id})
+    SET comp.name = item.name,
+        comp.filePath = item.filePath,
+        comp.startLine = item.startLine,
+        comp.endLine = item.endLine,
+        comp.scopeKey = item.scopeKey,
+        comp.disambiguator = item.disambiguator,
+        comp._staleForRefresh = false,
         comp.isExported = item.isExported,
         comp.props = item.props,
         comp.propsType = item.propsType,
@@ -712,6 +837,18 @@ const CYPHER = {
     MERGE (d)-[:CONTAINS]->(l)
   `,
 
+  STAMP_DOCUMENT_PROJECT_OWNERSHIP: `
+    MATCH (p:Project)
+    WHERE p.rootPath = '/' OR $documentPath STARTS WITH (p.rootPath + '/')
+    WITH p ORDER BY size(p.rootPath) DESC
+    LIMIT 1
+    MATCH (d:MarkdownDocument {path: $documentPath})
+    SET d.projectId = p.id
+    WITH p, d
+    OPTIONAL MATCH (d)-[:CONTAINS]->(content)
+    SET content.projectId = p.id
+  `,
+
   // Batch variant of CREATE_PARENT_SECTION_EDGE, run after BATCH_UPSERT_SECTIONS
   // so every Section node in this batch already exists.
   BATCH_CREATE_PARENT_SECTION_EDGES: `
@@ -722,76 +859,35 @@ const CYPHER = {
     MERGE (parent)-[r:PARENT_SECTION]->(child)
   `,
 
-  // Edge queries use OPTIONAL MATCH + WHERE to avoid FalkorDB crashes on
-  // NULL records (Record_GetType segfault when MATCH finds no node).
-  BATCH_CREATE_CALL_EDGES: `
-    UNWIND $items AS item
-    OPTIONAL MATCH (caller {name: item.callerName, filePath: item.callerFile})
-    WHERE labels(caller)[0] = item.callerKind
-    OPTIONAL MATCH (callee:Function {name: item.calleeName, filePath: item.calleeFile})
-    WITH caller, callee, item WHERE caller IS NOT NULL AND callee IS NOT NULL
-    MERGE (caller)-[c:CALLS]->(callee)
-    ON CREATE SET c.line = item.line, c.count = 1, c.via = item.via
-    ON MATCH SET c.count = c.count + 1
-  `,
-
-  BATCH_CREATE_IMPORT_EDGES: `
-    UNWIND $items AS item
-    OPTIONAL MATCH (from:File {filePath: item.fromPath})
-    WITH from, item WHERE from IS NOT NULL
-    MERGE (to:File {filePath: item.toPath})
-    ON CREATE SET to:External
-    MERGE (from)-[i:IMPORTS]->(to)
-    SET i.specifiers = item.specifiers
-  `,
-
-  BATCH_CREATE_EXTENDS_EDGES: `
-    UNWIND $items AS item
-    OPTIONAL MATCH (child:Class {name: item.childName, filePath: item.childFile})
-    WITH child, item WHERE child IS NOT NULL
-    MERGE (parent:Class {name: item.parentName, filePath: COALESCE(item.parentFile, 'external')})
-    ON CREATE SET parent:External
-    MERGE (child)-[e:EXTENDS]->(parent)
-  `,
-
-  BATCH_CREATE_IMPLEMENTS_EDGES: `
-    UNWIND $items AS item
-    OPTIONAL MATCH (c:Class {name: item.className, filePath: item.classFile})
-    WITH c, item WHERE c IS NOT NULL
-    MERGE (i:Interface {name: item.interfaceName, filePath: COALESCE(item.interfaceFile, 'external')})
-    ON CREATE SET i:External
-    MERGE (c)-[impl:IMPLEMENTS]->(i)
-  `,
-
-  BATCH_CREATE_RENDERS_EDGES: `
-    UNWIND $items AS item
-    OPTIONAL MATCH (parent:Component {name: item.parentName, filePath: item.parentFile})
-    OPTIONAL MATCH (child:Component {name: item.childName})
-    WITH parent, child, item WHERE parent IS NOT NULL AND child IS NOT NULL
-    MERGE (parent)-[r:RENDERS]->(child)
-    SET r.line = item.line
-  `,
-
   BATCH_LINK_PROJECT_FILES: `
     UNWIND $items AS item
     OPTIONAL MATCH (p:Project {id: item.projectId})
     OPTIONAL MATCH (f:File {filePath: item.filePath})
     WITH p, f WHERE p IS NOT NULL AND f IS NOT NULL
+    SET f.projectId = p.id
     MERGE (p)-[:HAS_FILE]->(f)
+  `,
+
+  BATCH_STAMP_FILE_SYMBOL_OWNERSHIP: `
+    UNWIND $items AS item
+    MATCH (:File {filePath: item.filePath})-[:CONTAINS]->(owned)
+    WHERE owned:Function OR owned:Class OR owned:Interface OR owned:Variable OR owned:Type OR owned:Component
+    SET owned.projectId = item.projectId
   `,
 
   // --- Fast CREATE path for full reindex (no MERGE lookups needed) ---
   // Used after clearing old data; CREATE is much faster than MERGE for bulk inserts.
   BATCH_CREATE_FILES: `
     UNWIND $items AS item
-    CREATE (f:File {filePath: item.filePath, name: item.name, extension: item.extension,
+    CREATE (f:File {id: item.id, filePath: item.filePath, name: item.name, extension: item.extension,
       loc: item.loc, lastModified: item.lastModified, hash: item.hash,
       sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
   `,
 
   BATCH_CREATE_FUNCTIONS_FAST: `
     UNWIND $items AS item
-    CREATE (fn:Function {id: item.id, name: item.name, filePath: item.filePath, startLine: item.startLine,
+    CREATE (fn:Function {id: item.id, scopeKey: item.scopeKey, disambiguator: item.disambiguator,
+      name: item.name, filePath: item.filePath, startLine: item.startLine,
       endLine: item.endLine, isExported: item.isExported, isAsync: item.isAsync,
       isArrow: item.isArrow, params: item.params, returnType: item.returnType,
       docstring: item.docstring, bodySnippet: item.bodySnippet, complexity: item.complexity,
@@ -804,7 +900,8 @@ const CYPHER = {
 
   BATCH_CREATE_CLASSES_FAST: `
     UNWIND $items AS item
-    CREATE (c:Class {id: item.id, name: item.name, filePath: item.filePath, startLine: item.startLine,
+    CREATE (c:Class {id: item.id, scopeKey: item.scopeKey, disambiguator: item.disambiguator,
+      name: item.name, filePath: item.filePath, startLine: item.startLine,
       endLine: item.endLine, isExported: item.isExported, isAbstract: item.isAbstract,
       extends: item.extends, implements: item.implements, docstring: item.docstring,
       sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
@@ -815,7 +912,8 @@ const CYPHER = {
 
   BATCH_CREATE_INTERFACES_FAST: `
     UNWIND $items AS item
-    CREATE (i:Interface {id: item.id, name: item.name, filePath: item.filePath, startLine: item.startLine,
+    CREATE (i:Interface {id: item.id, scopeKey: item.scopeKey, disambiguator: item.disambiguator,
+      name: item.name, filePath: item.filePath, startLine: item.startLine,
       endLine: item.endLine, isExported: item.isExported, extends: item.extends,
       docstring: item.docstring,
       sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
@@ -826,7 +924,8 @@ const CYPHER = {
 
   BATCH_CREATE_VARIABLES_FAST: `
     UNWIND $items AS item
-    CREATE (v:Variable {id: item.id, name: item.name, filePath: item.filePath, line: item.line,
+    CREATE (v:Variable {id: item.id, scopeKey: item.scopeKey, disambiguator: item.disambiguator,
+      name: item.name, filePath: item.filePath, line: item.line,
       kind: item.kind, isExported: item.isExported, type: item.type,
       sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
     WITH v
@@ -836,7 +935,8 @@ const CYPHER = {
 
   BATCH_CREATE_TYPES_FAST: `
     UNWIND $items AS item
-    CREATE (t:Type {name: item.name, filePath: item.filePath, startLine: item.startLine,
+    CREATE (t:Type {id: item.id, scopeKey: item.scopeKey, disambiguator: item.disambiguator,
+      name: item.name, filePath: item.filePath, startLine: item.startLine,
       endLine: item.endLine, isExported: item.isExported, kind: item.kind,
       docstring: item.docstring,
       sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
@@ -847,7 +947,8 @@ const CYPHER = {
 
   BATCH_CREATE_COMPONENTS_FAST: `
     UNWIND $items AS item
-    CREATE (comp:Component {name: item.name, filePath: item.filePath, startLine: item.startLine,
+    CREATE (comp:Component {id: item.id, scopeKey: item.scopeKey, disambiguator: item.disambiguator,
+      name: item.name, filePath: item.filePath, startLine: item.startLine,
       endLine: item.endLine, isExported: item.isExported, props: item.props,
       propsType: item.propsType,
       sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
@@ -863,7 +964,8 @@ const CYPHER = {
   COMBINED_UPSERT_ALL: `
     UNWIND $files AS item
     MERGE (f:File {filePath: item.filePath})
-    SET f.name = item.name,
+    SET f.id = item.id,
+        f.name = item.name,
         f.extension = item.extension,
         f.loc = item.loc,
         f.lastModified = item.lastModified,
@@ -873,9 +975,14 @@ const CYPHER = {
         f.processedAt = item.processedAt
     WITH count(*) AS _c1
     UNWIND $functions AS item
-    MERGE (fn:Function {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET fn.id = item.id,
+    MERGE (fn:Function {id: item.id})
+    SET fn.name = item.name,
+        fn.filePath = item.filePath,
+        fn.startLine = item.startLine,
         fn.endLine = item.endLine,
+        fn.scopeKey = item.scopeKey,
+        fn.disambiguator = item.disambiguator,
+        fn._staleForRefresh = false,
         fn.isExported = item.isExported,
         fn.isAsync = item.isAsync,
         fn.isArrow = item.isArrow,
@@ -893,9 +1000,14 @@ const CYPHER = {
     MERGE (f)-[:CONTAINS]->(fn)
     WITH count(*) AS _c2
     UNWIND $classes AS item
-    MERGE (c:Class {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET c.id = item.id,
+    MERGE (c:Class {id: item.id})
+    SET c.name = item.name,
+        c.filePath = item.filePath,
+        c.startLine = item.startLine,
         c.endLine = item.endLine,
+        c.scopeKey = item.scopeKey,
+        c.disambiguator = item.disambiguator,
+        c._staleForRefresh = false,
         c.isExported = item.isExported,
         c.isAbstract = item.isAbstract,
         c.extends = item.extends,
@@ -909,9 +1021,14 @@ const CYPHER = {
     MERGE (f)-[:CONTAINS]->(c)
     WITH count(*) AS _c3
     UNWIND $interfaces AS item
-    MERGE (i:Interface {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET i.id = item.id,
+    MERGE (i:Interface {id: item.id})
+    SET i.name = item.name,
+        i.filePath = item.filePath,
+        i.startLine = item.startLine,
         i.endLine = item.endLine,
+        i.scopeKey = item.scopeKey,
+        i.disambiguator = item.disambiguator,
+        i._staleForRefresh = false,
         i.isExported = item.isExported,
         i.extends = item.extends,
         i.docstring = item.docstring,
@@ -923,8 +1040,13 @@ const CYPHER = {
     MERGE (f)-[:CONTAINS]->(i)
     WITH count(*) AS _c4
     UNWIND $variables AS item
-    MERGE (v:Variable {name: item.name, filePath: item.filePath, line: item.line})
-    SET v.id = item.id,
+    MERGE (v:Variable {id: item.id})
+    SET v.name = item.name,
+        v.filePath = item.filePath,
+        v.line = item.line,
+        v.scopeKey = item.scopeKey,
+        v.disambiguator = item.disambiguator,
+        v._staleForRefresh = false,
         v.kind = item.kind,
         v.isExported = item.isExported,
         v.type = item.type,
@@ -936,8 +1058,14 @@ const CYPHER = {
     MERGE (f)-[:CONTAINS]->(v)
     WITH count(*) AS _c5
     UNWIND $types AS item
-    MERGE (t:Type {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET t.endLine = item.endLine,
+    MERGE (t:Type {id: item.id})
+    SET t.name = item.name,
+        t.filePath = item.filePath,
+        t.startLine = item.startLine,
+        t.endLine = item.endLine,
+        t.scopeKey = item.scopeKey,
+        t.disambiguator = item.disambiguator,
+        t._staleForRefresh = false,
         t.isExported = item.isExported,
         t.kind = item.kind,
         t.docstring = item.docstring,
@@ -949,8 +1077,14 @@ const CYPHER = {
     MERGE (f)-[:CONTAINS]->(t)
     WITH count(*) AS _c6
     UNWIND $components AS item
-    MERGE (comp:Component {name: item.name, filePath: item.filePath, startLine: item.startLine})
-    SET comp.endLine = item.endLine,
+    MERGE (comp:Component {id: item.id})
+    SET comp.name = item.name,
+        comp.filePath = item.filePath,
+        comp.startLine = item.startLine,
+        comp.endLine = item.endLine,
+        comp.scopeKey = item.scopeKey,
+        comp.disambiguator = item.disambiguator,
+        comp._staleForRefresh = false,
         comp.isExported = item.isExported,
         comp.props = item.props,
         comp.propsType = item.propsType,
@@ -963,75 +1097,33 @@ const CYPHER = {
     RETURN count(*) AS done
   `,
 
-  // --- Combined edge creation (reduces 5 round-trips to 1) ---
-  COMBINED_CREATE_EDGES: `
-    UNWIND $callEdges AS item
-    MATCH (caller {name: item.callerName, filePath: item.callerFile})
-    WHERE labels(caller)[0] = item.callerKind
-    MATCH (callee:Function {name: item.calleeName, filePath: item.calleeFile})
-    MERGE (caller)-[c:CALLS]->(callee)
-    ON CREATE SET c.line = item.line, c.count = 1, c.via = item.via
-    ON MATCH SET c.count = c.count + 1
-    WITH count(*) AS _e1
-    UNWIND $importEdges AS item
-    MATCH (from:File {filePath: item.fromPath})
-    MERGE (to:File {filePath: item.toPath})
-    ON CREATE SET to:External
-    MERGE (from)-[i:IMPORTS]->(to)
-    SET i.specifiers = item.specifiers
-    WITH count(*) AS _e2
-    UNWIND $extendsEdges AS item
-    MATCH (child:Class {name: item.childName, filePath: item.childFile})
-    MERGE (parent:Class {name: item.parentName, filePath: COALESCE(item.parentFile, 'external')})
-    ON CREATE SET parent:External
-    MERGE (child)-[e:EXTENDS]->(parent)
-    WITH count(*) AS _e3
-    UNWIND $implementsEdges AS item
-    MATCH (c:Class {name: item.className, filePath: item.classFile})
-    MERGE (i:Interface {name: item.interfaceName, filePath: COALESCE(item.interfaceFile, 'external')})
-    ON CREATE SET i:External
-    MERGE (c)-[impl:IMPLEMENTS]->(i)
-    WITH count(*) AS _e4
-    UNWIND $rendersEdges AS item
-    MATCH (parent:Component {name: item.parentName, filePath: item.parentFile})
-    MATCH (child:Component {name: item.childName})
-    MERGE (parent)-[r:RENDERS]->(child)
-    SET r.line = item.line
-    WITH count(*) AS _e5
-    UNWIND $projectLinks AS item
-    MATCH (p:Project {id: item.projectId})
-    MATCH (f:File {filePath: item.filePath})
-    MERGE (p)-[:HAS_FILE]->(f)
-    RETURN count(*) AS done
-  `,
-
   // Embedding update operations (per-node-type) — uses vecf32() for proper vector storage
   UPDATE_FILE_EMBEDDING: `
     MATCH (f:File {filePath: $filePath})
     SET f.embedding = vecf32($embedding), f.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_FUNCTION_EMBEDDING: `
-    MATCH (fn:Function {name: $name, filePath: $filePath, startLine: $startLine})
+    MATCH (fn:Function {id: $id})
     SET fn.embedding = vecf32($embedding), fn.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_CLASS_EMBEDDING: `
-    MATCH (c:Class {name: $name, filePath: $filePath, startLine: $startLine})
+    MATCH (c:Class {id: $id})
     SET c.embedding = vecf32($embedding), c.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_INTERFACE_EMBEDDING: `
-    MATCH (i:Interface {name: $name, filePath: $filePath, startLine: $startLine})
+    MATCH (i:Interface {id: $id})
     SET i.embedding = vecf32($embedding), i.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_VARIABLE_EMBEDDING: `
-    MATCH (v:Variable {name: $name, filePath: $filePath, line: $line})
+    MATCH (v:Variable {id: $id})
     SET v.embedding = vecf32($embedding), v.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_TYPE_EMBEDDING: `
-    MATCH (t:Type {name: $name, filePath: $filePath, startLine: $startLine})
+    MATCH (t:Type {id: $id})
     SET t.embedding = vecf32($embedding), t.embeddingTextHash = $embeddingTextHash
   `,
   UPDATE_COMPONENT_EMBEDDING: `
-    MATCH (comp:Component {name: $name, filePath: $filePath, startLine: $startLine})
+    MATCH (comp:Component {id: $id})
     SET comp.embedding = vecf32($embedding), comp.embeddingTextHash = $embeddingTextHash
   `,
 
@@ -1043,6 +1135,7 @@ const CYPHER = {
     WHERE e.embeddingTextHash IS NOT NULL
     WITH fp, collect({
       nodeType: labels(e)[0],
+      id: e.id,
       name: CASE WHEN e:Variable THEN e.name ELSE e.name END,
       filePath: e.filePath,
       startLine: CASE WHEN e:Variable THEN e.line ELSE e.startLine END,
@@ -1060,32 +1153,32 @@ const CYPHER = {
   `,
   BATCH_UPDATE_FUNCTION_EMBEDDINGS: `
     UNWIND $items AS item
-    MATCH (fn:Function {name: item.name, filePath: item.filePath, startLine: item.startLine})
+    MATCH (fn:Function {id: item.id})
     SET fn.embedding = vecf32(item.embedding), fn.embeddingTextHash = item.embeddingTextHash
   `,
   BATCH_UPDATE_CLASS_EMBEDDINGS: `
     UNWIND $items AS item
-    MATCH (c:Class {name: item.name, filePath: item.filePath, startLine: item.startLine})
+    MATCH (c:Class {id: item.id})
     SET c.embedding = vecf32(item.embedding), c.embeddingTextHash = item.embeddingTextHash
   `,
   BATCH_UPDATE_INTERFACE_EMBEDDINGS: `
     UNWIND $items AS item
-    MATCH (i:Interface {name: item.name, filePath: item.filePath, startLine: item.startLine})
+    MATCH (i:Interface {id: item.id})
     SET i.embedding = vecf32(item.embedding), i.embeddingTextHash = item.embeddingTextHash
   `,
   BATCH_UPDATE_VARIABLE_EMBEDDINGS: `
     UNWIND $items AS item
-    MATCH (v:Variable {name: item.name, filePath: item.filePath, line: item.line})
+    MATCH (v:Variable {id: item.id})
     SET v.embedding = vecf32(item.embedding), v.embeddingTextHash = item.embeddingTextHash
   `,
   BATCH_UPDATE_TYPE_EMBEDDINGS: `
     UNWIND $items AS item
-    MATCH (t:Type {name: item.name, filePath: item.filePath, startLine: item.startLine})
+    MATCH (t:Type {id: item.id})
     SET t.embedding = vecf32(item.embedding), t.embeddingTextHash = item.embeddingTextHash
   `,
   BATCH_UPDATE_COMPONENT_EMBEDDINGS: `
     UNWIND $items AS item
-    MATCH (comp:Component {name: item.name, filePath: item.filePath, startLine: item.startLine})
+    MATCH (comp:Component {id: item.id})
     SET comp.embedding = vecf32(item.embedding), comp.embeddingTextHash = item.embeddingTextHash
   `,
 };
@@ -1122,7 +1215,8 @@ export interface GraphOperations {
      * same-named methods on different classes in the same file don't both
      * receive the edge. Omitted/undefined keeps today's unqualified behavior.
      */
-    calleeClassName?: string
+    calleeClassName?: string,
+    endpointIds?: { callerId?: string | undefined; calleeId?: string | undefined },
   ): Promise<void>;
 
   createImportsEdge(
@@ -1132,49 +1226,52 @@ export interface GraphOperations {
   ): Promise<void>;
 
   /**
-   * Create a File EXPORTS symbol edge. Matched by (symbolName, filePath,
-   * symbolKind), not id: see CREATE_EXPORTS_EDGE for why. Drops silently
-   * (zero rows, no error) if the File or the symbol doesn't exist.
+   * Create a File EXPORTS symbol edge. Canonical endpoint ids take priority.
+   * Name, path, and kind matching is the fallback for legacy descriptors
+   * without ids and can be removed after all producers resolve endpoints.
    */
   createExportsEdge(
     filePath: string,
     symbolName: string,
     symbolKind: ExportableSymbolKind,
-    props?: { asName?: string | undefined; isDefault?: boolean | undefined }
+    props?: { asName?: string | undefined; isDefault?: boolean | undefined; fromId?: string | undefined; toId?: string | undefined }
   ): Promise<void>;
 
   /**
    * Create an importing File to imported-symbol IMPORTS_SYMBOL edge (not the
-   * imported File, that's createImportsEdge). Mirrors CALLS edge behavior:
-   * a plain MATCH on both sides, so it drops silently, never MERGEs a stub,
-   * when the target file or symbol isn't in the graph (unparsed or external).
+   * imported File, which is handled by createImportsEdge). Canonical endpoint
+   * ids take priority, with name and path retained only for descriptors that
+   * do not carry ids.
    */
   createImportsSymbolEdge(
     fromFilePath: string,
     toFilePath: string,
     symbolName: string,
-    props?: { alias?: string | undefined; isDefault?: boolean | undefined }
+    props?: { alias?: string | undefined; isDefault?: boolean | undefined; fromId?: string | undefined; toId?: string | undefined }
   ): Promise<void>;
 
   createExtendsEdge(
     childName: string,
     childFile: string,
     parentName: string,
-    parentFile?: string
+    parentFile?: string,
+    endpointIds?: { childId?: string | undefined; parentId?: string | undefined },
   ): Promise<void>;
 
   createImplementsEdge(
     className: string,
     classFile: string,
     interfaceName: string,
-    interfaceFile?: string
+    interfaceFile?: string,
+    endpointIds?: { classId?: string | undefined; interfaceId?: string | undefined },
   ): Promise<void>;
 
   createRendersEdge(
     parentName: string,
     parentFile: string,
     childName: string,
-    line: number
+    line: number,
+    endpointIds?: { parentId?: string | undefined; childId?: string | undefined },
   ): Promise<void>;
 
   createHasMethodEdge(
@@ -1215,22 +1312,20 @@ export interface GraphOperations {
 
   deleteFileEntities(filePath: string): Promise<void>;
 
-  /**
-   * Smart file removal (PERF.4) — removes file and its entities while
-   * preserving incoming cross-file edges (CALLS, EXTENDS, IMPLEMENTS).
-   * Entities with incoming edges from other files are kept as external references.
-   */
+  /** Remove a deleted file and detach-delete every source declaration it owned. */
   removeFileAndCleanup(filePath: string): Promise<void>;
 
   /**
    * Content-only removal, for a file whose CONTENT changed and is about to
    * be re-parsed (not a file deleted from disk: use removeFileAndCleanup()
-   * for that). Detaches CONTAINS edges to child symbols and cleans up any
-   * that are now orphaned, the same as removeFileAndCleanup() does, but
-   * leaves the File node itself, and every other edge on it (MODIFIED_IN,
-   * HAS_FILE, EXPORTS, ...), untouched.
+   * for that). Marks its prior source declarations stale and clears
+   * refresh-owned outgoing edges. The following upsert clears the marker
+   * on current IDs, then detach-deletes every remaining stale declaration.
    */
   removeFileContents(filePath: string): Promise<void>;
+
+  /** Detach-delete source declarations not present in the changed file's current ID set. */
+  sweepStaleFileSymbols(filePath: string, currentIds: readonly string[]): Promise<void>;
 
   /**
    * Content-only removal for a changed Markdown document. Deletes its
@@ -1389,16 +1484,19 @@ class GraphOperationsImpl implements GraphOperations {
     line: number,
     callerKind: 'Function' | 'Variable' | 'Class' | 'Interface' = 'Function',
     via: 'direct' | 'closure' = 'direct',
-    calleeClassName?: string
+    calleeClassName?: string,
+    endpointIds: { callerId?: string | undefined; calleeId?: string | undefined } = {},
   ): Promise<void> {
-    if (calleeClassName) {
+    const callerId = endpointIds.callerId ?? null;
+    const calleeId = endpointIds.calleeId ?? null;
+    if (calleeClassName && callerId === null && calleeId === null) {
       await this.client.query(CYPHER.CREATE_CALLS_EDGE_BY_CLASS, {
         params: { callerName, callerFile, calleeName, calleeFile, line, callerKind, via, calleeClassName },
       });
       return;
     }
     await this.client.query(CYPHER.CREATE_CALLS_EDGE, {
-      params: { callerName, callerFile, calleeName, calleeFile, line, callerKind, via },
+      params: { callerId, calleeId, callerName, callerFile, calleeName, calleeFile, line, callerKind, via },
     });
   }
 
@@ -1418,10 +1516,18 @@ class GraphOperationsImpl implements GraphOperations {
     filePath: string,
     symbolName: string,
     symbolKind: ExportableSymbolKind,
-    props: { asName?: string | undefined; isDefault?: boolean | undefined } = {},
+    props: { asName?: string | undefined; isDefault?: boolean | undefined; fromId?: string | undefined; toId?: string | undefined } = {},
   ): Promise<void> {
     await this.client.query(CYPHER.CREATE_EXPORTS_EDGE, {
-      params: { filePath, symbolName, symbolKind, asName: props.asName ?? null, isDefault: props.isDefault ?? null },
+      params: {
+        fromId: props.fromId ?? null,
+        toId: props.toId ?? null,
+        filePath,
+        symbolName,
+        symbolKind,
+        asName: props.asName ?? null,
+        isDefault: props.isDefault ?? null,
+      },
     });
   }
 
@@ -1430,10 +1536,18 @@ class GraphOperationsImpl implements GraphOperations {
     fromFilePath: string,
     toFilePath: string,
     symbolName: string,
-    props: { alias?: string | undefined; isDefault?: boolean | undefined } = {},
+    props: { alias?: string | undefined; isDefault?: boolean | undefined; fromId?: string | undefined; toId?: string | undefined } = {},
   ): Promise<void> {
     await this.client.query(CYPHER.CREATE_IMPORTS_SYMBOL_EDGE, {
-      params: { fromFilePath, toFilePath, symbolName, alias: props.alias ?? null, isDefault: props.isDefault ?? false },
+      params: {
+        fromId: props.fromId ?? null,
+        toId: props.toId ?? null,
+        fromFilePath,
+        toFilePath,
+        symbolName,
+        alias: props.alias ?? null,
+        isDefault: props.isDefault ?? false,
+      },
     });
   }
 
@@ -1442,10 +1556,19 @@ class GraphOperationsImpl implements GraphOperations {
     childName: string,
     childFile: string,
     parentName: string,
-    parentFile?: string
+    parentFile?: string,
+    endpointIds: { childId?: string | undefined; parentId?: string | undefined } = {},
   ): Promise<void> {
-    await this.client.query(CYPHER.CREATE_EXTENDS_EDGE, {
-      params: { childName, childFile, parentName, parentFile: parentFile ?? null },
+    const params = {
+      childId: endpointIds.childId ?? null,
+      parentId: endpointIds.parentId ?? null,
+      childName,
+      childFile,
+      parentName,
+      parentFile: parentFile ?? null,
+    };
+    await this.client.query(endpointIds.parentId ? CYPHER.CREATE_EXTENDS_EDGE_BY_ID : CYPHER.CREATE_EXTENDS_EDGE, {
+      params,
     });
   }
 
@@ -1454,10 +1577,19 @@ class GraphOperationsImpl implements GraphOperations {
     className: string,
     classFile: string,
     interfaceName: string,
-    interfaceFile?: string
+    interfaceFile?: string,
+    endpointIds: { classId?: string | undefined; interfaceId?: string | undefined } = {},
   ): Promise<void> {
-    await this.client.query(CYPHER.CREATE_IMPLEMENTS_EDGE, {
-      params: { className, classFile, interfaceName, interfaceFile: interfaceFile ?? null },
+    const params = {
+      classId: endpointIds.classId ?? null,
+      interfaceId: endpointIds.interfaceId ?? null,
+      className,
+      classFile,
+      interfaceName,
+      interfaceFile: interfaceFile ?? null,
+    };
+    await this.client.query(endpointIds.interfaceId ? CYPHER.CREATE_IMPLEMENTS_EDGE_BY_ID : CYPHER.CREATE_IMPLEMENTS_EDGE, {
+      params,
     });
   }
 
@@ -1466,10 +1598,18 @@ class GraphOperationsImpl implements GraphOperations {
     parentName: string,
     parentFile: string,
     childName: string,
-    line: number
+    line: number,
+    endpointIds: { parentId?: string | undefined; childId?: string | undefined } = {},
   ): Promise<void> {
     await this.client.query(CYPHER.CREATE_RENDERS_EDGE, {
-      params: { parentName, parentFile, childName, line },
+      params: {
+        parentId: endpointIds.parentId ?? null,
+        childId: endpointIds.childId ?? null,
+        parentName,
+        parentFile,
+        childName,
+        line,
+      },
     });
   }
 
@@ -1543,33 +1683,30 @@ class GraphOperationsImpl implements GraphOperations {
 
   @trace()
   async deleteFileEntities(filePath: string): Promise<void> {
-    await this.client.query(CYPHER.DELETE_FILE_ENTITIES, { params: { filePath } });
+    await this.client.query(CYPHER.REMOVE_FILE_SYMBOLS, { params: { filePath } });
+    await this.client.query(CYPHER.REMOVE_FILE_DOCUMENT, { params: { filePath } });
+    await this.client.query(CYPHER.REMOVE_FILE_NODE, { params: { filePath } });
   }
 
   @trace()
   async removeFileAndCleanup(filePath: string): Promise<void> {
-    // Step 1: Remove CONTAINS edges and the File node (without cascading to entities)
+    await this.client.query(CYPHER.REMOVE_FILE_SYMBOLS, { params: { filePath } });
+    await this.client.query(CYPHER.REMOVE_FILE_DOCUMENT, { params: { filePath } });
     await this.client.query(CYPHER.REMOVE_FILE_NODE, { params: { filePath } });
-
-    // Step 2: Remove entities from this file that have NO incoming edges from other files
-    // Entities with incoming cross-file edges (CALLS, EXTENDS, etc.) are preserved
-    await this.client.query(CYPHER.CLEANUP_FILE_ORPHANS, { params: { filePath } });
   }
 
   @trace()
   async removeFileContents(filePath: string): Promise<void> {
-    // Step 1: detach CONTAINS edges to this file's child symbols, but leave
-    // the File node (and every other edge on it) untouched. Use this
-    // instead of removeFileAndCleanup() when re-parsing a file whose
-    // content changed: deleting the File node would cascade-delete
-    // MODIFIED_IN / HAS_FILE / EXPORTS and any other edge attached to it.
     await this.client.query(CYPHER.REMOVE_FILE_CONTENTS, { params: { filePath } });
+    await this.client.query(CYPHER.REMOVE_FILE_OUTGOING_EDGES, { params: { filePath } });
+    await this.client.query(CYPHER.REMOVE_SYMBOL_OUTGOING_EDGES, { params: { filePath } });
+  }
 
-    // Step 2: same orphan cleanup as removeFileAndCleanup(). Entities from
-    // this file that now have no incoming cross-file edge are genuinely
-    // dangling (their CONTAINS edge is gone) and get removed; entities
-    // still referenced from elsewhere are preserved so those edges don't leak.
-    await this.client.query(CYPHER.CLEANUP_FILE_ORPHANS, { params: { filePath } });
+  @trace()
+  async sweepStaleFileSymbols(filePath: string, currentIds: readonly string[]): Promise<void> {
+    await this.client.query(CYPHER.SWEEP_STALE_FILE_SYMBOL_IDS, {
+      params: { filePath, currentIds: [...currentIds] },
+    });
   }
 
   @trace()
@@ -1603,6 +1740,10 @@ class GraphOperationsImpl implements GraphOperations {
       ...entities.components.map((comp) => this.upsertComponent(comp)),
     ]);
 
+    await this.client.query(CYPHER.SWEEP_STALE_FILE_SYMBOLS, {
+      params: { filePath: entities.file.path },
+    });
+
     // Create edges in parallel (after entities exist). Call edges are
     // deliberately NOT in this batch: a class-qualified call edge
     // (calleeClassName set) is matched through Class-HAS_METHOD-Function, so
@@ -1615,21 +1756,39 @@ class GraphOperationsImpl implements GraphOperations {
       ),
       // Extends edges (classes) - extract parent file from ID if present
       ...entities.extendsEdges.map((edge) => {
-        const parent = parseEntityId(edge.parentId);
-        const child = parseEntityId(edge.childId);
-        return this.createExtendsEdge(child.name, child.filePath, resolvedName(parent), resolvedFilePath(parent));
+        const parent = edgeEndpoint(edge.parentId);
+        const child = edgeEndpoint(edge.childId);
+        return this.createExtendsEdge(
+          child.name ?? '',
+          child.filePath ?? '',
+          parent.name ?? '',
+          parent.filePath ?? undefined,
+          { childId: child.id ?? undefined, parentId: parent.id ?? undefined },
+        );
       }),
       // Implements edges (class -> interface) - extract interface file from ID if present
       ...entities.implementsEdges.map((edge) => {
-        const iface = parseEntityId(edge.interfaceId);
-        const cls = parseEntityId(edge.classId);
-        return this.createImplementsEdge(cls.name, cls.filePath, resolvedName(iface), resolvedFilePath(iface));
+        const iface = edgeEndpoint(edge.interfaceId);
+        const cls = edgeEndpoint(edge.classId);
+        return this.createImplementsEdge(
+          cls.name ?? '',
+          cls.filePath ?? '',
+          iface.name ?? '',
+          iface.filePath ?? undefined,
+          { classId: cls.id ?? undefined, interfaceId: iface.id ?? undefined },
+        );
       }),
       // Renders edges (components)
       ...entities.rendersEdges.map((edge) => {
-        const parent = parseEntityId(edge.parentId);
-        const child = parseEntityId(edge.childId);
-        return this.createRendersEdge(parent.name, parent.filePath, child.name, edge.line);
+        const parent = edgeEndpoint(edge.parentId);
+        const child = edgeEndpoint(edge.childId);
+        return this.createRendersEdge(
+          parent.name ?? '',
+          parent.filePath ?? '',
+          child.name ?? '',
+          edge.line,
+          { parentId: parent.id ?? undefined, childId: child.id ?? undefined },
+        );
       }),
       // HAS_METHOD edges (class → method Function node)
       ...entities.hasMethodEdges.map((edge) =>
@@ -1641,11 +1800,21 @@ class GraphOperationsImpl implements GraphOperations {
       ),
       // EXPORTS edges (File → exported symbol)
       ...entities.exportsEdges.map((edge) =>
-        this.createExportsEdge(edge.filePath, edge.symbolName, edge.symbolKind, { asName: edge.asName, isDefault: edge.isDefault })
+        this.createExportsEdge(edge.filePath, edge.symbolName, edge.symbolKind, {
+          asName: edge.asName,
+          isDefault: edge.isDefault,
+          fromId: edge.fromId,
+          toId: edge.toId,
+        })
       ),
       // IMPORTS_SYMBOL edges (importing File → imported symbol node)
       ...entities.importsSymbolEdges.map((edge) =>
-        this.createImportsSymbolEdge(edge.fromFilePath, edge.toFilePath, edge.symbolName, { alias: edge.alias, isDefault: edge.isDefault })
+        this.createImportsSymbolEdge(edge.fromFilePath, edge.toFilePath, edge.symbolName, {
+          alias: edge.alias,
+          isDefault: edge.isDefault,
+          fromId: edge.fromId,
+          toId: edge.toId,
+        })
       ),
     ]);
 
@@ -1655,9 +1824,19 @@ class GraphOperationsImpl implements GraphOperations {
     // silently drops the call.
     await Promise.all(
       entities.callEdges.map((edge) => {
-        const caller = parseEntityId(edge.callerId);
-        const callee = parseEntityId(edge.calleeId);
-        return this.createCallEdge(caller.name, caller.filePath, callee.name, callee.filePath, edge.line, edge.callerKind, edge.via, edge.calleeClassName);
+        const caller = edgeEndpoint(edge.callerId);
+        const callee = edgeEndpoint(edge.calleeId);
+        return this.createCallEdge(
+          caller.name ?? '',
+          caller.filePath ?? '',
+          callee.name ?? '',
+          callee.filePath ?? '',
+          edge.line,
+          edge.callerKind,
+          edge.via,
+          edge.calleeClassName,
+          { callerId: caller.id ?? undefined, calleeId: callee.id ?? undefined },
+        );
       }),
     );
 
@@ -1719,17 +1898,25 @@ class GraphOperationsImpl implements GraphOperations {
     if (types.length > 0) await chunkedQuery(CYPHER.BATCH_UPSERT_TYPES, types);
     if (components.length > 0) await chunkedQuery(CYPHER.BATCH_UPSERT_COMPONENTS, components);
 
+    for (const entities of entitiesList) {
+      await this.client.query(CYPHER.SWEEP_STALE_FILE_SYMBOLS, {
+        params: { filePath: entities.file.path },
+      });
+    }
+
     // Collect and batch all edges
     const callEdges = entitiesList.flatMap(e =>
       e.callEdges.map(edge => {
-        const caller = parseEntityId(edge.callerId);
-        const callee = parseEntityId(edge.calleeId);
+        const caller = edgeEndpoint(edge.callerId);
+        const callee = edgeEndpoint(edge.calleeId);
         return {
-          callerName: caller.name,
-          callerFile: caller.filePath,
+          callerId: caller.id,
+          callerName: caller.name ?? '',
+          callerFile: caller.filePath ?? '',
           callerKind: edge.callerKind,
-          calleeName: callee.name,
-          calleeFile: callee.filePath,
+          calleeId: callee.id,
+          calleeName: callee.name ?? '',
+          calleeFile: callee.filePath ?? '',
           line: edge.line,
           via: edge.via,
           calleeClassName: edge.calleeClassName ?? null,
@@ -1745,29 +1932,54 @@ class GraphOperationsImpl implements GraphOperations {
     );
     const extendsEdges = entitiesList.flatMap(e =>
       e.extendsEdges.map(edge => {
-        const parent = parseEntityId(edge.parentId);
-        const child = parseEntityId(edge.childId);
-        return { childName: child.name, childFile: child.filePath, parentName: resolvedName(parent), parentFile: resolvedFilePath(parent) ?? null };
+        const parent = edgeEndpoint(edge.parentId);
+        const child = edgeEndpoint(edge.childId);
+        return {
+          childId: child.id,
+          childName: child.name ?? '',
+          childFile: child.filePath ?? '',
+          parentId: parent.id,
+          parentName: parent.name ?? '',
+          parentFile: parent.filePath,
+        };
       }),
     );
     const implementsEdges = entitiesList.flatMap(e =>
       e.implementsEdges.map(edge => {
-        const iface = parseEntityId(edge.interfaceId);
-        const cls = parseEntityId(edge.classId);
-        return { className: cls.name, classFile: cls.filePath, interfaceName: resolvedName(iface), interfaceFile: resolvedFilePath(iface) ?? null };
+        const iface = edgeEndpoint(edge.interfaceId);
+        const cls = edgeEndpoint(edge.classId);
+        return {
+          classId: cls.id,
+          className: cls.name ?? '',
+          classFile: cls.filePath ?? '',
+          interfaceId: iface.id,
+          interfaceName: iface.name ?? '',
+          interfaceFile: iface.filePath,
+        };
       }),
     );
     const rendersEdges = entitiesList.flatMap(e =>
       e.rendersEdges.map(edge => {
-        const parent = parseEntityId(edge.parentId);
-        const child = parseEntityId(edge.childId);
-        return { parentName: parent.name, parentFile: parent.filePath, childName: child.name, line: edge.line };
+        const parent = edgeEndpoint(edge.parentId);
+        const child = edgeEndpoint(edge.childId);
+        return {
+          parentId: parent.id,
+          parentName: parent.name ?? '',
+          parentFile: parent.filePath ?? '',
+          childId: child.id,
+          childName: child.name ?? '',
+          line: edge.line,
+        };
       }),
     );
 
     // Create edges individually to avoid FalkorDB UNWIND+MATCH crash (Record_GetType segfault)
     const safeEdge = async (cypher: string, params: Record<string, unknown>): Promise<void> => {
-      try { await this.client.query(cypher, { params: params as QueryParams }); } catch { /* skip missing endpoints */ }
+      try {
+        await this.client.query(cypher, { params: params as QueryParams });
+      } catch (error) {
+        logger.debug('Skipped edge write with missing or unavailable endpoints', error);
+      }
     };
     for (const e of importEdges) {
       await safeEdge(
@@ -1778,28 +1990,13 @@ class GraphOperationsImpl implements GraphOperations {
       );
     }
     for (const e of extendsEdges) {
-      await safeEdge(
-        `MATCH (child:Class {name: $childName, filePath: $childFile})
-         MERGE (parent:Class {name: $parentName, filePath: COALESCE($parentFile, 'external')}) ON CREATE SET parent:External
-         MERGE (child)-[ex:EXTENDS]->(parent)`,
-        e,
-      );
+      await safeEdge(e.parentId ? CYPHER.CREATE_EXTENDS_EDGE_BY_ID : CYPHER.CREATE_EXTENDS_EDGE, e);
     }
     for (const e of implementsEdges) {
-      await safeEdge(
-        `MATCH (c:Class {name: $className, filePath: $classFile})
-         MERGE (i:Interface {name: $interfaceName, filePath: COALESCE($interfaceFile, 'external')}) ON CREATE SET i:External
-         MERGE (c)-[impl:IMPLEMENTS]->(i)`,
-        e,
-      );
+      await safeEdge(e.interfaceId ? CYPHER.CREATE_IMPLEMENTS_EDGE_BY_ID : CYPHER.CREATE_IMPLEMENTS_EDGE, e);
     }
     for (const e of rendersEdges) {
-      await safeEdge(
-        `MATCH (parent:Component {name: $parentName, filePath: $parentFile})
-         MATCH (child:Component {name: $childName})
-         MERGE (parent)-[r:RENDERS]->(child) SET r.line = $line`,
-        e,
-      );
+      await safeEdge(CYPHER.CREATE_RENDERS_EDGE, e);
     }
 
     // HAS_METHOD edges (class → method Function node)
@@ -1823,7 +2020,8 @@ class GraphOperationsImpl implements GraphOperations {
     // today and the qualified path can never drift out of sync with the
     // canonical template.
     for (const e of callEdges) {
-      await safeEdge(e.calleeClassName ? CYPHER.CREATE_CALLS_EDGE_BY_CLASS : CYPHER.CREATE_CALLS_EDGE, e);
+      const usesCanonicalIds = e.callerId !== null || e.calleeId !== null;
+      await safeEdge(e.calleeClassName && !usesCanonicalIds ? CYPHER.CREATE_CALLS_EDGE_BY_CLASS : CYPHER.CREATE_CALLS_EDGE, e);
     }
 
     // HAS_PROPERTY edges (class → property Variable node)
@@ -1889,12 +2087,16 @@ class GraphOperationsImpl implements GraphOperations {
     const exportsEdges: ExportsEdgeDescriptor[] = entitiesList.flatMap(e => e.exportsEdges);
     for (const e of exportsEdges) {
       await safeEdge(
-        `MATCH (f:File {filePath: $filePath})
-         MATCH (symbol {name: $symbolName, filePath: $filePath})
-         WHERE labels(symbol)[0] = $symbolKind
-         MERGE (f)-[r:EXPORTS]->(symbol)
-         SET r.asName = $asName, r.isDefault = $isDefault`,
-        { filePath: e.filePath, symbolName: e.symbolName, symbolKind: e.symbolKind, asName: e.asName ?? null, isDefault: e.isDefault ?? null },
+        CYPHER.CREATE_EXPORTS_EDGE,
+        {
+          fromId: e.fromId ?? null,
+          toId: e.toId ?? null,
+          filePath: e.filePath,
+          symbolName: e.symbolName,
+          symbolKind: e.symbolKind,
+          asName: e.asName ?? null,
+          isDefault: e.isDefault ?? null,
+        },
       );
     }
 
@@ -1905,11 +2107,16 @@ class GraphOperationsImpl implements GraphOperations {
     const importsSymbolEdges: ImportsSymbolEdgeDescriptor[] = entitiesList.flatMap(e => e.importsSymbolEdges);
     for (const e of importsSymbolEdges) {
       await safeEdge(
-        `MATCH (from:File {filePath: $fromFilePath})
-         MATCH (symbol {name: $symbolName, filePath: $toFilePath})
-         MERGE (from)-[r:IMPORTS_SYMBOL]->(symbol)
-         SET r.alias = $alias, r.isDefault = $isDefault`,
-        { fromFilePath: e.fromFilePath, toFilePath: e.toFilePath, symbolName: e.symbolName, alias: e.alias ?? null, isDefault: e.isDefault },
+        CYPHER.CREATE_IMPORTS_SYMBOL_EDGE,
+        {
+          fromId: e.fromId ?? null,
+          toId: e.toId ?? null,
+          fromFilePath: e.fromFilePath,
+          toFilePath: e.toFilePath,
+          symbolName: e.symbolName,
+          alias: e.alias ?? null,
+          isDefault: e.isDefault,
+        },
       );
     }
   }
@@ -1954,14 +2161,16 @@ class GraphOperationsImpl implements GraphOperations {
     // Create edges (same as batchUpsertBulk — edges always use MERGE for idempotency)
     const callEdges = entitiesList.flatMap(e =>
       e.callEdges.map(edge => {
-        const caller = parseEntityId(edge.callerId);
-        const callee = parseEntityId(edge.calleeId);
+        const caller = edgeEndpoint(edge.callerId);
+        const callee = edgeEndpoint(edge.calleeId);
         return {
-          callerName: caller.name,
-          callerFile: caller.filePath,
+          callerId: caller.id,
+          callerName: caller.name ?? '',
+          callerFile: caller.filePath ?? '',
           callerKind: edge.callerKind,
-          calleeName: callee.name,
-          calleeFile: callee.filePath,
+          calleeId: callee.id,
+          calleeName: callee.name ?? '',
+          calleeFile: callee.filePath ?? '',
           line: edge.line,
           via: edge.via,
           calleeClassName: edge.calleeClassName ?? null,
@@ -1977,30 +2186,55 @@ class GraphOperationsImpl implements GraphOperations {
     );
     const extendsEdges = entitiesList.flatMap(e =>
       e.extendsEdges.map(edge => {
-        const parent = parseEntityId(edge.parentId);
-        const child = parseEntityId(edge.childId);
-        return { childName: child.name, childFile: child.filePath, parentName: resolvedName(parent), parentFile: resolvedFilePath(parent) ?? null };
+        const parent = edgeEndpoint(edge.parentId);
+        const child = edgeEndpoint(edge.childId);
+        return {
+          childId: child.id,
+          childName: child.name ?? '',
+          childFile: child.filePath ?? '',
+          parentId: parent.id,
+          parentName: parent.name ?? '',
+          parentFile: parent.filePath,
+        };
       }),
     );
     const implementsEdges = entitiesList.flatMap(e =>
       e.implementsEdges.map(edge => {
-        const iface = parseEntityId(edge.interfaceId);
-        const cls = parseEntityId(edge.classId);
-        return { className: cls.name, classFile: cls.filePath, interfaceName: resolvedName(iface), interfaceFile: resolvedFilePath(iface) ?? null };
+        const iface = edgeEndpoint(edge.interfaceId);
+        const cls = edgeEndpoint(edge.classId);
+        return {
+          classId: cls.id,
+          className: cls.name ?? '',
+          classFile: cls.filePath ?? '',
+          interfaceId: iface.id,
+          interfaceName: iface.name ?? '',
+          interfaceFile: iface.filePath,
+        };
       }),
     );
     const rendersEdges = entitiesList.flatMap(e =>
       e.rendersEdges.map(edge => {
-        const parent = parseEntityId(edge.parentId);
-        const child = parseEntityId(edge.childId);
-        return { parentName: parent.name, parentFile: parent.filePath, childName: child.name, line: edge.line };
+        const parent = edgeEndpoint(edge.parentId);
+        const child = edgeEndpoint(edge.childId);
+        return {
+          parentId: parent.id,
+          parentName: parent.name ?? '',
+          parentFile: parent.filePath ?? '',
+          childId: child.id,
+          childName: child.name ?? '',
+          line: edge.line,
+        };
       }),
     );
 
     // Create edges individually to avoid FalkorDB UNWIND+MATCH crash (Record_GetType segfault).
     // This is slower but stable. FalkorDB crashes on UNWIND+MATCH edge queries on arm64.
     const safeEdge = async (cypher: string, params: Record<string, unknown>): Promise<void> => {
-      try { await this.client.query(cypher, { params: params as QueryParams }); } catch { /* skip missing endpoints */ }
+      try {
+        await this.client.query(cypher, { params: params as QueryParams });
+      } catch (error) {
+        logger.debug('Skipped edge write with missing or unavailable endpoints', error);
+      }
     };
     for (const e of importEdges) {
       await safeEdge(
@@ -2011,28 +2245,13 @@ class GraphOperationsImpl implements GraphOperations {
       );
     }
     for (const e of extendsEdges) {
-      await safeEdge(
-        `MATCH (child:Class {name: $childName, filePath: $childFile})
-         MERGE (parent:Class {name: $parentName, filePath: COALESCE($parentFile, 'external')}) ON CREATE SET parent:External
-         MERGE (child)-[ex:EXTENDS]->(parent)`,
-        e,
-      );
+      await safeEdge(e.parentId ? CYPHER.CREATE_EXTENDS_EDGE_BY_ID : CYPHER.CREATE_EXTENDS_EDGE, e);
     }
     for (const e of implementsEdges) {
-      await safeEdge(
-        `MATCH (c:Class {name: $className, filePath: $classFile})
-         MERGE (i:Interface {name: $interfaceName, filePath: COALESCE($interfaceFile, 'external')}) ON CREATE SET i:External
-         MERGE (c)-[impl:IMPLEMENTS]->(i)`,
-        e,
-      );
+      await safeEdge(e.interfaceId ? CYPHER.CREATE_IMPLEMENTS_EDGE_BY_ID : CYPHER.CREATE_IMPLEMENTS_EDGE, e);
     }
     for (const e of rendersEdges) {
-      await safeEdge(
-        `MATCH (parent:Component {name: $parentName, filePath: $parentFile})
-         MATCH (child:Component {name: $childName})
-         MERGE (parent)-[r:RENDERS]->(child) SET r.line = $line`,
-        e,
-      );
+      await safeEdge(CYPHER.CREATE_RENDERS_EDGE, e);
     }
 
     // HAS_METHOD edges (class → method Function node)
@@ -2056,7 +2275,8 @@ class GraphOperationsImpl implements GraphOperations {
     // today and the qualified path can never drift out of sync with the
     // canonical template.
     for (const e of callEdges) {
-      await safeEdge(e.calleeClassName ? CYPHER.CREATE_CALLS_EDGE_BY_CLASS : CYPHER.CREATE_CALLS_EDGE, e);
+      const usesCanonicalIds = e.callerId !== null || e.calleeId !== null;
+      await safeEdge(e.calleeClassName && !usesCanonicalIds ? CYPHER.CREATE_CALLS_EDGE_BY_CLASS : CYPHER.CREATE_CALLS_EDGE, e);
     }
 
     // HAS_PROPERTY edges (class → property Variable node)
@@ -2122,12 +2342,16 @@ class GraphOperationsImpl implements GraphOperations {
     const exportsEdges: ExportsEdgeDescriptor[] = entitiesList.flatMap(e => e.exportsEdges);
     for (const e of exportsEdges) {
       await safeEdge(
-        `MATCH (f:File {filePath: $filePath})
-         MATCH (symbol {name: $symbolName, filePath: $filePath})
-         WHERE labels(symbol)[0] = $symbolKind
-         MERGE (f)-[r:EXPORTS]->(symbol)
-         SET r.asName = $asName, r.isDefault = $isDefault`,
-        { filePath: e.filePath, symbolName: e.symbolName, symbolKind: e.symbolKind, asName: e.asName ?? null, isDefault: e.isDefault ?? null },
+        CYPHER.CREATE_EXPORTS_EDGE,
+        {
+          fromId: e.fromId ?? null,
+          toId: e.toId ?? null,
+          filePath: e.filePath,
+          symbolName: e.symbolName,
+          symbolKind: e.symbolKind,
+          asName: e.asName ?? null,
+          isDefault: e.isDefault ?? null,
+        },
       );
     }
 
@@ -2138,11 +2362,16 @@ class GraphOperationsImpl implements GraphOperations {
     const importsSymbolEdges: ImportsSymbolEdgeDescriptor[] = entitiesList.flatMap(e => e.importsSymbolEdges);
     for (const e of importsSymbolEdges) {
       await safeEdge(
-        `MATCH (from:File {filePath: $fromFilePath})
-         MATCH (symbol {name: $symbolName, filePath: $toFilePath})
-         MERGE (from)-[r:IMPORTS_SYMBOL]->(symbol)
-         SET r.alias = $alias, r.isDefault = $isDefault`,
-        { fromFilePath: e.fromFilePath, toFilePath: e.toFilePath, symbolName: e.symbolName, alias: e.alias ?? null, isDefault: e.isDefault },
+        CYPHER.CREATE_IMPORTS_SYMBOL_EDGE,
+        {
+          fromId: e.fromId ?? null,
+          toId: e.toId ?? null,
+          fromFilePath: e.fromFilePath,
+          toFilePath: e.toFilePath,
+          symbolName: e.symbolName,
+          alias: e.alias ?? null,
+          isDefault: e.isDefault,
+        },
       );
     }
   }
@@ -2152,6 +2381,7 @@ class GraphOperationsImpl implements GraphOperations {
     if (filePaths.length === 0) return;
     const items = filePaths.map(fp => ({ projectId, filePath: fp }));
     await this.client.query(CYPHER.BATCH_LINK_PROJECT_FILES, { params: { items } });
+    await this.client.query(CYPHER.BATCH_STAMP_FILE_SYMBOL_OWNERSHIP, { params: { items } });
   }
 
   @trace()
@@ -2205,6 +2435,12 @@ class GraphOperationsImpl implements GraphOperations {
     if (sectionHierarchy.length > 0) {
       await this.client.query(CYPHER.BATCH_CREATE_PARENT_SECTION_EDGES, { params: { items: sectionHierarchy } });
     }
+
+    for (const doc of docsList) {
+      await this.client.query(CYPHER.STAMP_DOCUMENT_PROJECT_OWNERSHIP, {
+        params: { documentPath: doc.document.path },
+      });
+    }
   }
 
   @trace()
@@ -2219,6 +2455,12 @@ class GraphOperationsImpl implements GraphOperations {
     // Group items by node type
     const byType = new Map<string, Array<Record<string, unknown>>>();
     for (const item of items) {
+      if (item.nodeType !== 'File') {
+        const id = item.identifier['id'];
+        if (typeof id !== 'string' || id.length === 0) {
+          throw new Error(`Canonical id is required to update a ${item.nodeType} embedding`);
+        }
+      }
       const key = item.nodeType;
       if (!byType.has(key)) byType.set(key, []);
       byType.get(key)!.push({
@@ -2253,7 +2495,7 @@ class GraphOperationsImpl implements GraphOperations {
   async getEmbeddingHashesForFiles(filePaths: string[]): Promise<Map<string, string>> {
     if (filePaths.length === 0) return new Map();
 
-    // Build a map of "nodeType:name:filePath:startLine" → embeddingTextHash
+    // Source embedding hashes use the same opaque persisted identity as writes.
     const hashMap = new Map<string, string>();
 
     // Process in chunks to avoid query size limits
@@ -2266,6 +2508,7 @@ class GraphOperationsImpl implements GraphOperations {
           fileHash: string | null;
           entityHashes: Array<{
             nodeType: string;
+            id: string;
             name: string;
             filePath: string;
             startLine: number;
@@ -2278,8 +2521,8 @@ class GraphOperationsImpl implements GraphOperations {
             hashMap.set(`File::${row.filePath}:0`, row.fileHash);
           }
           for (const entity of row.entityHashes) {
-            if (entity.hash) {
-              hashMap.set(`${entity.nodeType}:${entity.name}:${entity.filePath}:${entity.startLine}`, entity.hash);
+            if (entity.hash && entity.id) {
+              hashMap.set(entity.id, entity.hash);
             }
           }
         }
@@ -2346,6 +2589,9 @@ class GraphOperationsImpl implements GraphOperations {
   @trace()
   async linkProjectFile(projectId: string, filePath: string): Promise<void> {
     await this.client.query(CYPHER.LINK_PROJECT_FILE, {
+      params: { projectId, filePath },
+    });
+    await this.client.query(CYPHER.STAMP_FILE_SYMBOL_OWNERSHIP, {
       params: { projectId, filePath },
     });
   }
@@ -2436,6 +2682,11 @@ class GraphOperationsImpl implements GraphOperations {
       return;
     }
 
+    const id = identifier['id'];
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new Error(`Canonical id is required to update a ${nodeType} embedding`);
+    }
+
     // FalkorDB uses natural keys (name + filePath + startLine/line)
     const templates: Record<string, string> = {
       Function: CYPHER.UPDATE_FUNCTION_EMBEDDING,
@@ -2445,7 +2696,7 @@ class GraphOperationsImpl implements GraphOperations {
       Type: CYPHER.UPDATE_TYPE_EMBEDDING,
       Component: CYPHER.UPDATE_COMPONENT_EMBEDDING,
     };
-    await this.client.query(templates[nodeType]!, { params: { ...baseParams, ...identifier } });
+    await this.client.query(templates[nodeType]!, { params: { ...baseParams, ...identifier, id } });
   }
 
   // --- Vector Search ---

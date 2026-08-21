@@ -8,8 +8,8 @@ export const graphRoutes = new Hono();
 const FULL_GRAPH_LIMIT_MAX = 1000;
 const FILE_RELATIONSHIP_LIMIT_MAX = 500;
 const REFERENCE_LIMIT_MAX = 1000;
-const REFERENCE_START_LINE_MAX = 10_000_000;
 const DEPENDENCY_DEPTH_MAX = 10;
+const SYMBOL_ID_PATTERN = /^sym:v1:[a-f0-9]{64}$/;
 
 type BoundedIntegerResult =
   | { valid: true; value?: number }
@@ -108,34 +108,24 @@ graphRoutes.get('/api/graph/file', async (c) => {
 });
 
 /**
- * GET /api/graph/references?name=X&path=Y&startLine=N&limit=M
+ * GET /api/graph/references?id=X&limit=M
  *
- * Where a symbol is used. Matches every node with this name, not just one, so
- * references that land on a type-reference proxy node are included alongside
- * ones that land on the declaration itself. `path` and `startLine` are
- * optional and disambiguate between distinct declarations that share a name;
- * a matched node with no location of its own (a proxy node) is never excluded
- * by them.
+ * Where a symbol is used. The persisted symbol id is the sole declaration
+ * identity accepted by this endpoint.
  */
 graphRoutes.get('/api/graph/references', async (c) => {
   try {
-    const name = c.req.query('name');
-    if (!name) return c.json({ error: 'name parameter is required' }, 400);
-
-    const parsedLine = boundedPositiveInteger(
-      c.req.query('startLine'),
-      'startLine',
-      REFERENCE_START_LINE_MAX,
-    );
-    if (!parsedLine.valid) return c.json({ error: parsedLine.error }, 400);
-
     const parsedLimit = boundedPositiveInteger(c.req.query('limit'), 'limit', REFERENCE_LIMIT_MAX);
     if (!parsedLimit.valid) return c.json({ error: parsedLimit.error }, 400);
 
+    const id = c.req.query('id');
+    if (!id) return c.json({ error: 'id parameter is required' }, 400);
+    if (!SYMBOL_ID_PATTERN.test(id)) {
+      return c.json({ error: 'id must be a persisted sym:v1 identifier' }, 400);
+    }
+
     const data = await codeGraphService.getSymbolReferences({
-      name,
-      filePath: c.req.query('path'),
-      startLine: parsedLine.value,
+      id,
       limit: parsedLimit.value,
     });
     return c.json(data);

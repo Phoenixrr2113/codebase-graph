@@ -5,7 +5,8 @@
 
 import Parser from 'tree-sitter';
 import type { TypeEntity, InterfaceEntity } from '@codegraph/types';
-import { findNodesOfType, getLocation, generateEntityId } from './types';
+import { findNodesOfType, getLocation, symbolIdentityForNode } from './types';
+import { buildLexicalScopeKey, occurrenceDisambiguator } from '@codegraph/plugin-common';
 
 /**
  * Extract all type entities from a syntax tree
@@ -14,27 +15,9 @@ export function extractTypes(
   rootNode: Parser.SyntaxNode,
   filePath: string
 ): TypeEntity[] {
-  const types: TypeEntity[] = [];
-  
-  // Type aliases
   const typeAliasNodes = findNodesOfType(rootNode, 'type_alias_declaration');
-  for (const node of typeAliasNodes) {
-    const typeEntity = parseTypeAlias(node, filePath);
-    if (typeEntity) {
-      types.push(typeEntity);
-    }
-  }
-  
-  // Enums
   const enumNodes = findNodesOfType(rootNode, 'enum_declaration');
-  for (const node of enumNodes) {
-    const enumEntity = parseEnum(node, filePath);
-    if (enumEntity) {
-      types.push(enumEntity);
-    }
-  }
-  
-  return types;
+  return extractTypeDeclarationsFromNodes(typeAliasNodes, enumNodes, filePath);
 }
 
 /**
@@ -55,7 +38,7 @@ export function extractInterfaces(
     }
   }
   
-  return interfaces;
+  return mergeInterfaceDeclarations(interfaces);
 }
 
 /**
@@ -66,16 +49,45 @@ export function extractTypesFromNodes(
   enumNodes: Parser.SyntaxNode[],
   filePath: string
 ): TypeEntity[] {
+  return extractTypeDeclarationsFromNodes(typeAliasNodes, enumNodes, filePath);
+}
+
+function extractTypeDeclarationsFromNodes(
+  typeAliasNodes: Parser.SyntaxNode[],
+  enumNodes: Parser.SyntaxNode[],
+  filePath: string,
+): TypeEntity[] {
+  const candidates = [
+    ...typeAliasNodes.map((node) => ({ node, kind: 'type' as const })),
+    ...enumNodes.map((node) => ({ node, kind: 'enum' as const })),
+  ].flatMap((candidate) => {
+    const name = candidate.node.childForFieldName('name')?.text;
+    return name ? [{ ...candidate, name, scopeKey: buildLexicalScopeKey(candidate.node) }] : [];
+  }).sort((left, right) => left.node.startIndex - right.node.startIndex);
+
+  const groups = new Map<string, typeof candidates>();
+  for (const candidate of candidates) {
+    const key = `${candidate.scopeKey}\u0000${candidate.name}`;
+    const group = groups.get(key) ?? [];
+    group.push(candidate);
+    groups.set(key, group);
+  }
+
   const types: TypeEntity[] = [];
-  for (const node of typeAliasNodes) {
-    const typeEntity = parseTypeAlias(node, filePath);
-    if (typeEntity) types.push(typeEntity);
+  for (const group of groups.values()) {
+    const declarationsMerge = group.every((candidate) => candidate.kind === 'enum');
+    for (let index = 0; index < group.length; index++) {
+      const candidate = group[index]!;
+      const disambiguator = group.length > 1 && !declarationsMerge
+        ? occurrenceDisambiguator(index + 1)
+        : '';
+      const entity = candidate.kind === 'enum'
+        ? parseEnum(candidate.node, filePath, disambiguator)
+        : parseTypeAlias(candidate.node, filePath, disambiguator);
+      if (entity) types.push(entity);
+    }
   }
-  for (const node of enumNodes) {
-    const enumEntity = parseEnum(node, filePath);
-    if (enumEntity) types.push(enumEntity);
-  }
-  return types;
+  return mergeTypeDeclarations(types);
 }
 
 /**
@@ -90,7 +102,7 @@ export function extractInterfacesFromNodes(
     const interfaceEntity = parseInterface(node, filePath);
     if (interfaceEntity) interfaces.push(interfaceEntity);
   }
-  return interfaces;
+  return mergeInterfaceDeclarations(interfaces);
 }
 
 /**
@@ -98,7 +110,8 @@ export function extractInterfacesFromNodes(
  */
 function parseTypeAlias(
   node: Parser.SyntaxNode,
-  filePath: string
+  filePath: string,
+  disambiguator: string,
 ): TypeEntity | null {
   const nameNode = node.childForFieldName('name');
   const name = nameNode?.text;
@@ -108,11 +121,17 @@ function parseTypeAlias(
   const isExported = checkIsExported(node);
   const docstring = getDocstring(node);
   
-  const id = generateEntityId(filePath, 'type', name, location.startLine);
+  const identity = symbolIdentityForNode({
+    node,
+    filePath,
+    label: 'Type',
+    declaredName: name,
+    disambiguator,
+  });
   
   // Build entity with optional properties only when defined
   const entity: TypeEntity = {
-    id,
+    ...identity,
     name,
     filePath,
     startLine: location.startLine,
@@ -131,7 +150,8 @@ function parseTypeAlias(
  */
 function parseEnum(
   node: Parser.SyntaxNode,
-  filePath: string
+  filePath: string,
+  disambiguator: string,
 ): TypeEntity | null {
   const nameNode = node.childForFieldName('name');
   const name = nameNode?.text;
@@ -141,11 +161,17 @@ function parseEnum(
   const isExported = checkIsExported(node);
   const docstring = getDocstring(node);
   
-  const id = generateEntityId(filePath, 'enum', name, location.startLine);
+  const identity = symbolIdentityForNode({
+    node,
+    filePath,
+    label: 'Type',
+    declaredName: name,
+    disambiguator,
+  });
   
   // Build entity with optional properties only when defined
   const entity: TypeEntity = {
-    id,
+    ...identity,
     name,
     filePath,
     startLine: location.startLine,
@@ -175,11 +201,16 @@ function parseInterface(
   const extendsList = getExtendsList(node);
   const docstring = getDocstring(node);
   
-  const id = generateEntityId(filePath, 'interface', name, location.startLine);
+  const identity = symbolIdentityForNode({
+    node,
+    filePath,
+    label: 'Interface',
+    declaredName: name,
+  });
   
   // Build entity with optional properties only when defined
   const entity: InterfaceEntity = {
-    id,
+    ...identity,
     name,
     filePath,
     startLine: location.startLine,
@@ -191,6 +222,39 @@ function parseInterface(
   if (docstring) entity.docstring = docstring;
   
   return entity;
+}
+
+function mergeInterfaceDeclarations(interfaces: InterfaceEntity[]): InterfaceEntity[] {
+  const merged = new Map<string, InterfaceEntity>();
+  for (const declaration of interfaces) {
+    const existing = merged.get(declaration.id);
+    if (!existing) {
+      merged.set(declaration.id, declaration);
+      continue;
+    }
+    existing.startLine = Math.min(existing.startLine, declaration.startLine);
+    existing.endLine = Math.max(existing.endLine, declaration.endLine);
+    existing.isExported ||= declaration.isExported;
+    existing.extends = Array.from(new Set([...(existing.extends ?? []), ...(declaration.extends ?? [])]));
+    if (!existing.docstring && declaration.docstring) existing.docstring = declaration.docstring;
+  }
+  return Array.from(merged.values());
+}
+
+function mergeTypeDeclarations(types: TypeEntity[]): TypeEntity[] {
+  const merged = new Map<string, TypeEntity>();
+  for (const declaration of types) {
+    const existing = merged.get(declaration.id);
+    if (!existing) {
+      merged.set(declaration.id, declaration);
+      continue;
+    }
+    existing.startLine = Math.min(existing.startLine, declaration.startLine);
+    existing.endLine = Math.max(existing.endLine, declaration.endLine);
+    existing.isExported ||= declaration.isExported;
+    if (!existing.docstring && declaration.docstring) existing.docstring = declaration.docstring;
+  }
+  return Array.from(merged.values());
 }
 
 /**

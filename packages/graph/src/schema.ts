@@ -43,6 +43,7 @@ export interface ProvenanceNodeProps {
  * File node properties for Cypher operations
  */
 export interface FileNodeProps extends ProvenanceNodeProps {
+  id: string;
   filePath: string;
   name: string;
   extension: string;
@@ -57,7 +58,9 @@ export interface FileNodeProps extends ProvenanceNodeProps {
  * Function node properties for Cypher operations
  */
 export interface FunctionNodeProps extends ProvenanceNodeProps {
-  id: string | null;
+  id: string;
+  scopeKey: string;
+  disambiguator: string;
   name: string;
   filePath: string;
   startLine: number;
@@ -80,7 +83,9 @@ export interface FunctionNodeProps extends ProvenanceNodeProps {
  * Class node properties for Cypher operations
  */
 export interface ClassNodeProps extends ProvenanceNodeProps {
-  id: string | null;
+  id: string;
+  scopeKey: string;
+  disambiguator: string;
   name: string;
   filePath: string;
   startLine: number;
@@ -98,7 +103,9 @@ export interface ClassNodeProps extends ProvenanceNodeProps {
  * Interface node properties for Cypher operations
  */
 export interface InterfaceNodeProps extends ProvenanceNodeProps {
-  id: string | null;
+  id: string;
+  scopeKey: string;
+  disambiguator: string;
   name: string;
   filePath: string;
   startLine: number;
@@ -114,7 +121,9 @@ export interface InterfaceNodeProps extends ProvenanceNodeProps {
  * Variable node properties for Cypher operations
  */
 export interface VariableNodeProps extends ProvenanceNodeProps {
-  id: string | null;
+  id: string;
+  scopeKey: string;
+  disambiguator: string;
   name: string;
   filePath: string;
   line: number;
@@ -129,6 +138,9 @@ export interface VariableNodeProps extends ProvenanceNodeProps {
  * Type node properties for Cypher operations
  */
 export interface TypeNodeProps extends ProvenanceNodeProps {
+  id: string;
+  scopeKey: string;
+  disambiguator: string;
   name: string;
   filePath: string;
   startLine: number;
@@ -144,6 +156,9 @@ export interface TypeNodeProps extends ProvenanceNodeProps {
  * Component node properties for Cypher operations
  */
 export interface ComponentNodeProps extends ProvenanceNodeProps {
+  id: string;
+  scopeKey: string;
+  disambiguator: string;
   name: string;
   filePath: string;
   startLine: number;
@@ -221,6 +236,7 @@ export interface LinkNodeProps {
  */
 export function fileToNodeProps(entity: FileEntity): FileNodeProps {
   return {
+    id: entity.id ?? generateFileNodeId(entity.path),
     filePath: entity.path,
     name: entity.name,
     extension: entity.extension,
@@ -238,7 +254,9 @@ export function fileToNodeProps(entity: FileEntity): FileNodeProps {
  */
 export function functionToNodeProps(entity: FunctionEntity): FunctionNodeProps {
   return {
-    id: entity.id ?? null,
+    id: entity.id,
+    scopeKey: entity.scopeKey ?? '',
+    disambiguator: entity.disambiguator ?? '',
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
@@ -264,7 +282,9 @@ export function functionToNodeProps(entity: FunctionEntity): FunctionNodeProps {
  */
 export function classToNodeProps(entity: ClassEntity): ClassNodeProps {
   return {
-    id: entity.id ?? null,
+    id: entity.id,
+    scopeKey: entity.scopeKey ?? '',
+    disambiguator: entity.disambiguator ?? '',
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
@@ -285,7 +305,9 @@ export function classToNodeProps(entity: ClassEntity): ClassNodeProps {
  */
 export function interfaceToNodeProps(entity: InterfaceEntity): InterfaceNodeProps {
   return {
-    id: entity.id ?? null,
+    id: entity.id,
+    scopeKey: entity.scopeKey ?? '',
+    disambiguator: entity.disambiguator ?? '',
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
@@ -304,7 +326,9 @@ export function interfaceToNodeProps(entity: InterfaceEntity): InterfaceNodeProp
  */
 export function variableToNodeProps(entity: VariableEntity): VariableNodeProps {
   return {
-    id: entity.id ?? null,
+    id: entity.id,
+    scopeKey: entity.scopeKey ?? '',
+    disambiguator: entity.disambiguator ?? '',
     name: entity.name,
     filePath: entity.filePath,
     line: entity.line,
@@ -322,6 +346,9 @@ export function variableToNodeProps(entity: VariableEntity): VariableNodeProps {
  */
 export function typeToNodeProps(entity: TypeEntity): TypeNodeProps {
   return {
+    id: entity.id,
+    scopeKey: entity.scopeKey ?? '',
+    disambiguator: entity.disambiguator ?? '',
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
@@ -340,6 +367,9 @@ export function typeToNodeProps(entity: TypeEntity): TypeNodeProps {
  */
 export function componentToNodeProps(entity: ComponentEntity): ComponentNodeProps {
   return {
+    id: entity.id,
+    scopeKey: entity.scopeKey ?? '',
+    disambiguator: entity.disambiguator ?? '',
     name: entity.name,
     filePath: entity.filePath,
     startLine: entity.startLine,
