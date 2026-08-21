@@ -20,6 +20,8 @@
  */
 
 import Rust from 'tree-sitter-rust';
+import { existsSync } from 'node:fs';
+import { dirname, join, basename } from 'node:path';
 import type {
   FunctionEntity,
   ClassEntity,
@@ -29,6 +31,7 @@ import type {
   TypeEntity,
   InheritanceReference,
   CallReference,
+  CallExtractionContext,
   SyntaxNode,
   HasMethodEdgeDescriptor,
   HasPropertyEdgeDescriptor,
@@ -709,16 +712,293 @@ const RUST_BUILTINS = new Set([
   'drop', 'swap', 'replace',
 ]);
 
+// ----------------------------------------------------------------------------
+// Cross-file call resolution (mod / use path resolution)
+//
+// Rust's module system is directory-convention-based, so a `mod foo;` or
+// `use crate::a::b::item;` path's target FILE is derivable from the
+// importing file's own path plus the filesystem, with no project-wide index
+// needed. Every resolution below is verified with existsSync before being
+// trusted: an unresolved hop returns undefined rather than a guess, so a
+// call that can't be honestly resolved is simply left unresolved (same-file
+// gated, exactly like before this file's cross-file support existed).
+//
+// What stays UNRESOLVED, deliberately: any `use` path not anchored at
+// `crate`, `self`, or `super` (an external crate name, or a bare name that
+// relies on Cargo's crate registry, e.g. `use serde::Serialize;`) has no
+// file derivable from directory convention alone, and per-file extraction
+// has no access to Cargo.toml's `[dependencies]` table to look it up.
+// ----------------------------------------------------------------------------
+
+/**
+ * Directory that holds the DIRECT SUBMODULES of `filePath`, per Rust's file
+ * module convention:
+ *  - mod.rs / lib.rs / main.rs declare submodules in their OWN directory
+ *    (e.g. `src/lib.rs` + `mod foo;` resolves to `src/foo.rs`).
+ *  - any other `name.rs` file declares submodules in a sibling directory
+ *    named after itself (e.g. `src/foo.rs` + `mod bar;` resolves to
+ *    `src/foo/bar.rs`).
+ */
+function rustSubmoduleDir(filePath: string): string {
+  const dir = dirname(filePath);
+  const stem = basename(filePath, '.rs');
+  return stem === 'mod' || stem === 'lib' || stem === 'main' ? dir : join(dir, stem);
+}
+
+/**
+ * Resolve a single module-path segment to its declaring file, relative to
+ * `fromDir` (the directory holding that segment's siblings). Tries both file
+ * module conventions Rust supports for a submodule named `segment`:
+ * `<fromDir>/<segment>.rs` and `<fromDir>/<segment>/mod.rs`.
+ */
+function resolveRustModuleSegment(segment: string, fromDir: string): string | undefined {
+  const asFile = join(fromDir, `${segment}.rs`);
+  if (existsSync(asFile)) return asFile;
+  const asModDir = join(fromDir, segment, 'mod.rs');
+  if (existsSync(asModDir)) return asModDir;
+  return undefined;
+}
+
+/**
+ * Walk a list of module-path segments down from `startDir`, resolving each
+ * hop's file and re-deriving the next hop's submodule directory from it.
+ * Returns the final segment's file, or undefined the moment any hop fails
+ * (no partial or guessed results).
+ */
+function descendRustModulePath(segments: string[], startDir: string): string | undefined {
+  let dir = startDir;
+  let file: string | undefined;
+  for (const segment of segments) {
+    file = resolveRustModuleSegment(segment, dir);
+    if (!file) return undefined;
+    dir = rustSubmoduleDir(file);
+  }
+  return file;
+}
+
+/** Try each crate-root filename in `dir`, in Rust's usual precedence order. */
+function findRustCrateRootFile(dir: string): string | undefined {
+  for (const candidate of ['lib.rs', 'main.rs', 'mod.rs']) {
+    const p = join(dir, candidate);
+    if (existsSync(p)) return p;
+  }
+  return undefined;
+}
+
+/**
+ * Find this file's crate source directory by walking up for the nearest
+ * ancestor containing Cargo.toml. Returns undefined, never a guess, when no
+ * Cargo.toml is found or the crate has no `src` directory.
+ */
+function findRustCrateSrcDir(filePath: string): string | undefined {
+  let dir = dirname(filePath);
+  for (;;) {
+    if (existsSync(join(dir, 'Cargo.toml'))) {
+      const src = join(dir, 'src');
+      return existsSync(src) ? src : undefined;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return undefined; // reached filesystem root
+    dir = parent;
+  }
+}
+
+/**
+ * Resolve the file that declares THIS file as a submodule, i.e. the file
+ * containing `mod <this>;` for `filePath`. Used for `super::` paths. The
+ * crate root (lib.rs / main.rs) has no parent module.
+ */
+function findRustParentModuleFile(filePath: string): string | undefined {
+  const dir = dirname(filePath);
+  const stem = basename(filePath, '.rs');
+
+  if (stem === 'lib' || stem === 'main') return undefined;
+
+  if (stem === 'mod') {
+    // filePath is <parentDir>/<name>/mod.rs: the `mod <name>;` declaration
+    // lives one level up, named after this directory.
+    return resolveRustModuleSegment(basename(dir), dirname(dir));
+  }
+
+  // filePath is a leaf module file `<dir>/<stem>.rs`: its `mod <stem>;`
+  // declaration lives in whichever file owns `dir` as its submodule directory.
+  return findRustCrateRootFile(dir);
+}
+
+/**
+ * Resolve a Rust `use` path (e.g. "crate::utils::helper", "self::inner::thing",
+ * "super::sibmod::deep_item") to its callee-relevant target file(s), given the
+ * importing file's own path. Only paths anchored at `crate`, `self`, or
+ * `super` are resolvable per-file; anything else returns `{}`.
+ *
+ * Returns both interpretations of the path's last segment, since a `use`
+ * statement doesn't say on its own whether the imported name is an item or a
+ * module:
+ *  - `itemFile`: the file expected to declare the LAST segment as an item
+ *    (function, struct, ...). Used to resolve a bare call `name()` after
+ *    `use path::name;`.
+ *  - `moduleFile`: the file for the module the LAST segment itself names.
+ *    Used to resolve a qualified call `name::other()` after `use path::name;`
+ *    actually imports a module rather than a single item.
+ * Either may be undefined if that interpretation doesn't resolve to a real file.
+ */
+function resolveRustUsePath(
+  pathText: string,
+  importingFilePath: string,
+): { itemFile?: string; moduleFile?: string } {
+  const parts = pathText.split('::').filter((p) => p.length > 0);
+  const anchor = parts[0];
+  if (!anchor) return {};
+
+  let startDir: string | undefined;
+  if (anchor === 'crate') {
+    startDir = findRustCrateSrcDir(importingFilePath);
+  } else if (anchor === 'self') {
+    startDir = rustSubmoduleDir(importingFilePath);
+  } else if (anchor === 'super') {
+    const parentFile = findRustParentModuleFile(importingFilePath);
+    startDir = parentFile ? rustSubmoduleDir(parentFile) : undefined;
+  } else {
+    return {}; // external crate or a bare name relying on Cargo's registry
+  }
+  if (!startDir) return {};
+  const resolvedStartDir = startDir;
+
+  const segments = parts.slice(1);
+  if (segments.length === 0) {
+    // e.g. `use crate::item;`: nothing between the anchor and the item, so
+    // the item is expected to live directly in the anchor's own root file.
+    const rootFile = findRustCrateRootFile(resolvedStartDir);
+    return rootFile ? { itemFile: rootFile } : {};
+  }
+
+  const result: { itemFile?: string; moduleFile?: string } = {};
+
+  // Interpretation A: every segment (including the last) is a module hop,
+  // i.e. the last segment names a MODULE. Supports qualified calls `last::fn()`.
+  const asModule = descendRustModulePath(segments, resolvedStartDir);
+  if (asModule) result.moduleFile = asModule;
+
+  // Interpretation B: all but the last segment are module hops, and the last
+  // segment is an ITEM declared inside the resulting file. Supports bare
+  // calls to that item's name.
+  const moduleSegments = segments.slice(0, -1);
+  const itemModuleFile =
+    moduleSegments.length === 0
+      ? findRustCrateRootFile(resolvedStartDir)
+      : descendRustModulePath(moduleSegments, resolvedStartDir);
+  if (itemModuleFile) result.itemFile = itemModuleFile;
+
+  return result;
+}
+
+/**
+ * Collect bare `mod foo;` declarations in this file (a module declared in a
+ * SEPARATE file, as opposed to an inline `mod foo { ... }` block) and
+ * resolve each to its declaring file via Rust's file module directory
+ * convention. Used to resolve qualified calls `foo::bar()` where `foo`
+ * names a sibling module declared in this same file.
+ */
+function collectRustModDeclarations(root: SyntaxNode, filePath: string): Map<string, string> {
+  const modFileByName = new Map<string, string>();
+  const submoduleDir = rustSubmoduleDir(filePath);
+
+  for (const node of findNodesOfType(root, ['mod_item'])) {
+    if (node.childForFieldName('body')) continue; // inline module, not a separate file
+    const nameNode = node.childForFieldName('name');
+    if (!nameNode) continue;
+    const resolved = resolveRustModuleSegment(nameNode.text, submoduleDir);
+    if (resolved) modFileByName.set(nameNode.text, resolved);
+  }
+
+  return modFileByName;
+}
+
+/** A `use`-imported item's resolved target: the file it's declared in, and
+ * the name it's declared under THERE (which may differ from the local
+ * alias a call site uses to reach it). */
+interface RustUseItemTarget {
+  file: string;
+  declaredName: string;
+}
+
+/**
+ * Resolve this file's `use` imports to cross-file call targets, split into
+ * two maps by how a resolved local name can be used at a call site:
+ *  - `itemByName`: the local name resolves to an ITEM declared in the
+ *    target file, under `declaredName` (equal to the local name unless the
+ *    `use` aliased it with `as`). Supports bare calls `name()`: the callee
+ *    at the target file is the DECLARED name, not the call-site alias, since
+ *    edge creation matches Function nodes by (filePath, name) and no node is
+ *    ever declared under the local alias.
+ *  - `moduleFileByName`: the local name resolves to a MODULE itself. Supports
+ *    qualified calls `name::other()`, where `other` is read verbatim from the
+ *    call site and is already the real declared name (Rust has no syntax to
+ *    rename an item accessed through a qualified path, only the module
+ *    segment itself can be aliased), so no name substitution is needed here.
+ *
+ * Reconstructs each specifier's full `use` path from ImportEntity's `source`
+ * and `specifiers` fields (rather than re-walking the AST): for a simple,
+ * non-grouped `use` (`source` is already the full path, ending in the one
+ * specifier's name) the source is used as-is; for a grouped `use` (`source`
+ * is the shared prefix, e.g. "std::io" for `use std::io::{Read, Write};`)
+ * each specifier's name is appended to it.
+ */
+function resolveRustUseImports(
+  imports: ImportEntity[],
+  filePath: string,
+): { itemByName: Map<string, RustUseItemTarget>; moduleFileByName: Map<string, string> } {
+  const itemByName = new Map<string, RustUseItemTarget>();
+  const moduleFileByName = new Map<string, string>();
+
+  for (const imp of imports) {
+    for (const spec of imp.specifiers) {
+      const pathText =
+        imp.source === spec.name || imp.source.endsWith(`::${spec.name}`)
+          ? imp.source
+          : `${imp.source}::${spec.name}`;
+      const localName = spec.alias ?? spec.name;
+      const { itemFile, moduleFile } = resolveRustUsePath(pathText, filePath);
+      if (itemFile) itemByName.set(localName, { file: itemFile, declaredName: spec.name });
+      if (moduleFile) moduleFileByName.set(localName, moduleFile);
+    }
+  }
+
+  return { itemByName, moduleFileByName };
+}
+
 /**
  * Extract function/method calls from Rust AST.
- * Only tracks calls to functions defined in the same file.
+ *
+ * Same-file calls (the callee is declared in this same file) always resolve
+ * without a `calleeFilePath` (absent means same-file, see CallReference).
+ * Cross-file calls resolve a `calleeFilePath` only through directory
+ * conventions that are honestly derivable from this file's own path: a bare
+ * `mod foo;` declaration (sibling file), or a `use` path anchored at
+ * `crate::`, `self::`, or `super::`. Everything else stays unresolved rather
+ * than guessed, see the resolver comments above.
+ *
+ * @param context Optional extraction context carrying this file's already-
+ *   extracted imports (`context.imports`), so the pipeline doesn't pay for
+ *   re-running extractImports per call-extraction pass. Falls back to
+ *   extracting them here when absent, so direct callers (including this
+ *   package's own tests, and any pipeline not yet passing context) keep
+ *   working unchanged.
  */
-export function extractCalls(root: SyntaxNode, filePath: string): CallReference[] {
+export function extractCalls(
+  root: SyntaxNode,
+  filePath: string,
+  context?: CallExtractionContext,
+): CallReference[] {
   const calls: CallReference[] = [];
 
   // Get all functions in the file for local lookup
   const functions = extractFunctions(root, filePath);
   const localFunctionNames = new Set(functions.map((f) => f.name));
+
+  const modFileByName = collectRustModDeclarations(root, filePath);
+  const imports = context?.imports ?? extractImports(root, filePath);
+  const { itemByName, moduleFileByName } = resolveRustUseImports(imports, filePath);
 
   // Find all function_item nodes (including in impl blocks) and search for calls in their bodies
   const allFuncNodes = findNodesOfType(root, ['function_item']);
@@ -739,32 +1019,69 @@ export function extractCalls(root: SyntaxNode, filePath: string): CallReference[
       if (!fnNode) continue;
 
       let calleeName: string | undefined;
+      let qualifier: string | undefined;
+      let isBareIdentifier = false;
 
       if (fnNode.type === 'identifier') {
         // Direct function call: helper()
         calleeName = fnNode.text;
+        isBareIdentifier = true;
       } else if (fnNode.type === 'field_expression') {
         // Method call: self.method() or obj.method()
         const fieldNode = fnNode.childForFieldName('field');
         calleeName = fieldNode?.text;
       } else if (fnNode.type === 'scoped_identifier') {
         // Qualified call: Type::method() or module::func()
-        // Get the last component
+        // Get the last component, and the segment right before it (the
+        // immediate qualifier) for cross-file resolution.
         const parts = fnNode.text.split('::');
         calleeName = parts[parts.length - 1];
+        if (parts.length >= 2) qualifier = parts[parts.length - 2];
       }
 
       if (!calleeName) continue;
       if (RUST_BUILTINS.has(calleeName)) continue;
 
-      // Only create edges for local function calls
+      const line = callNode.startPosition.row + 1;
+
+      // Same-file calls always win, and never carry calleeFilePath (absent
+      // means same-file per the CallReference contract).
       if (localFunctionNames.has(calleeName)) {
-        calls.push({
-          callerName,
-          calleeName,
-          line: callNode.startPosition.row + 1,
-          filePath,
-        });
+        calls.push({ callerName, calleeName, line, filePath });
+        continue;
+      }
+
+      if (qualifier) {
+        // Qualified call: resolve the qualifier through a locally-declared
+        // `mod` first, then through a `use`-imported module.
+        const calleeFilePath = modFileByName.get(qualifier) ?? moduleFileByName.get(qualifier);
+        if (calleeFilePath) {
+          calls.push({ callerName, calleeName, line, filePath, calleeFilePath });
+        }
+        continue;
+      }
+
+      if (isBareIdentifier) {
+        // Bare call: resolve through a `use`-imported item. Method calls
+        // (field_expression) deliberately don't fall through here, since a
+        // method name matching an unrelated free function import would be a
+        // wrong edge, not a resolved one.
+        const target = itemByName.get(calleeName);
+        if (target) {
+          // Emit the DECLARED name at the target file, not the call-site
+          // identifier. When the `use` aliased the import (`... as h;`),
+          // calleeName here is the alias ("h"), but no Function node is ever
+          // declared "h": edge creation matches nodes by (filePath, name),
+          // so the pair pushed here must be the pair the real node was
+          // extracted with, i.e. target.declaredName in target.file.
+          calls.push({
+            callerName,
+            calleeName: target.declaredName,
+            line,
+            filePath,
+            calleeFilePath: target.file,
+          });
+        }
       }
     }
   }
