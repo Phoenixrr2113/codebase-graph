@@ -25,32 +25,60 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createClient, resolveEmbeddedBinaryPaths, type GraphClient } from '@codegraph/graph';
 import { registerPlugins } from '../pipeline';
-import { indexProject, REEXPORT_HINT_PATTERN, buildBarrelResolutionIndexes } from '../indexer';
+import { indexProject, hasReExportHint, buildBarrelResolutionIndexes } from '../indexer';
 
 // The embedded driver ships binaries for darwin-arm64 and linux-x64 only.
 const describeIfAvailable = resolveEmbeddedBinaryPaths() ? describe : describe.skip;
 
-describe('REEXPORT_HINT_PATTERN', () => {
+describe('hasReExportHint', () => {
   it('matches a re-export with a block comment between export and the star', () => {
-    expect(REEXPORT_HINT_PATTERN.test("export /* comment */ * from './x';")).toBe(true);
+    expect(hasReExportHint("export /* comment */ * from './x';")).toBe(true);
   });
 
   it('matches a re-export with a block comment between export and the brace', () => {
-    expect(REEXPORT_HINT_PATTERN.test("export /* comment */ { x } from './x';")).toBe(true);
+    expect(hasReExportHint("export /* comment */ { x } from './x';")).toBe(true);
   });
 
   it('matches a re-export with a line comment between export and the star', () => {
-    expect(REEXPORT_HINT_PATTERN.test("export // why star\n * from './x';")).toBe(true);
+    expect(hasReExportHint("export // why star\n * from './x';")).toBe(true);
+  });
+
+  it('matches a re-export with mixed whitespace, line, and block comments between export and the star', () => {
+    expect(hasReExportHint("export  // leading note\n  /* trailing note */  * from './x';")).toBe(true);
   });
 
   it('still matches the plain, uncommented forms', () => {
-    expect(REEXPORT_HINT_PATTERN.test("export * from './x';")).toBe(true);
-    expect(REEXPORT_HINT_PATTERN.test("export { x } from './x';")).toBe(true);
-    expect(REEXPORT_HINT_PATTERN.test("export { x as y } from './x';")).toBe(true);
+    expect(hasReExportHint("export * from './x';")).toBe(true);
+    expect(hasReExportHint("export { x } from './x';")).toBe(true);
+    expect(hasReExportHint("export { x as y } from './x';")).toBe(true);
   });
 
   it('does not match code with no export statement at all', () => {
-    expect(REEXPORT_HINT_PATTERN.test('const x = 1;\nfunction foo() {}\n')).toBe(false);
+    expect(hasReExportHint('const x = 1;\nfunction foo() {}\n')).toBe(false);
+  });
+
+  // CodeQL flagged the old regex (`/export(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*(\*|\{)/`)
+  // as exponential-time ReDoS: the alternation nested under an unbounded `*`
+  // quantifier lets the engine backtrack over exponentially many ways of
+  // partitioning a long run of `//` or `/*` repeats. These two shapes are
+  // the reported attack inputs. hasReExportHint() replaces the regex with a
+  // single forward scan per `export` occurrence (no backtracking possible),
+  // so both should resolve in microseconds; the 2-second bound here is
+  // deliberately coarse to avoid flakiness, not a tight performance target.
+  describe('ReDoS regression: CodeQL attack shapes', () => {
+    it('evaluates "export" followed by 50000 repeats of "//" in under 2 seconds', () => {
+      const attack = 'export' + '//'.repeat(50_000);
+      const start = performance.now();
+      hasReExportHint(attack);
+      expect(performance.now() - start).toBeLessThan(2000);
+    });
+
+    it('evaluates "export" followed by 25000 repeats of "/*" in under 2 seconds', () => {
+      const attack = 'export' + '/*'.repeat(25_000);
+      const start = performance.now();
+      hasReExportHint(attack);
+      expect(performance.now() - start).toBeLessThan(2000);
+    });
   });
 });
 

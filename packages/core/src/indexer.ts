@@ -176,6 +176,9 @@ async function discoverFilesGit(
 // Barrel re-export index (best-effort, batch-index only)
 // ============================================================================
 
+/** Matches a single JS/TS whitespace character (mirrors regex `\s`). */
+const WHITESPACE_RE = /\s/;
+
 /**
  * Cheap heuristic for "this file might contain a barrel re-export"
  * (`export * from '...'`, `export { x } from '...'`, `export { x as y } from
@@ -183,17 +186,76 @@ async function discoverFilesGit(
  * matches plain local exports like `export { x }` (no `from` clause), which
  * extractReExports() itself filters out (it looks for a `from` source), so a
  * false positive here just costs one wasted parse. A false negative would
- * silently break barrel resolution for that file, so the pattern must never
- * be tightened to the point of missing a real `export ... from` statement.
+ * silently break barrel resolution for that file, so this must never be
+ * tightened to the point of missing a real `export ... from` statement.
  *
  * Whitespace is not the only thing that can legally sit between `export` and
  * the `*`/`{` it introduces: a line comment or a block comment can too
  * (e.g. `export` followed by a block comment, then `* from './x'`), which a
- * plain `\s+` gap missed entirely. The `(?:...)*` group here explicitly
- * allows any interleaving of whitespace, line comments, and block comments,
- * so nothing that can syntactically appear in that position causes a miss.
+ * plain whitespace-only gap would miss entirely. For every occurrence of the
+ * literal substring `export`, this walks forward past any interleaving of
+ * whitespace, line comments, and block comments, so nothing that can
+ * syntactically appear in that position causes a miss.
+ *
+ * This used to be a single regex: `/export(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*(\*|\{)/`.
+ * CodeQL flagged it as exponential-time ReDoS: the alternation nested under
+ * an unbounded `*` quantifier lets the engine backtrack over exponentially
+ * many ways of partitioning a long run of `//` or `/*` repeats, and this
+ * pattern runs against the full content of arbitrary indexed repositories.
+ * This scanner does the same job in a single forward pass per `export`
+ * occurrence, with no backtracking possible.
  */
-export const REEXPORT_HINT_PATTERN = /export(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*(\*|\{)/;
+export function hasReExportHint(content: string): boolean {
+  const length = content.length;
+  let searchFrom = 0;
+
+  for (;;) {
+    const exportIndex = content.indexOf('export', searchFrom);
+    if (exportIndex === -1) return false;
+
+    let cursor: number | -1 = exportIndex + 'export'.length;
+    let advancing = true;
+    while (advancing) {
+      advancing = false;
+
+      // Run of whitespace.
+      while (cursor >= 0 && cursor < length && WHITESPACE_RE.test(content[cursor]!)) {
+        cursor++;
+        advancing = true;
+      }
+
+      // Line comment: skip to the next newline, or to the end of the
+      // content if the comment runs off the end (a dangling line comment
+      // legally ends at EOF, so this never abandons the occurrence).
+      if (cursor >= 0 && content[cursor] === '/' && content[cursor + 1] === '/') {
+        const newlineIndex = content.indexOf('\n', cursor + 2);
+        cursor = newlineIndex === -1 ? length : newlineIndex;
+        advancing = true;
+        continue;
+      }
+
+      // Block comment: skip past its closing `*/`. An unterminated block
+      // comment abandons only THIS `export` occurrence (conservative: no
+      // match here); it never aborts the whole scan, so a later occurrence
+      // can still qualify.
+      if (cursor >= 0 && content[cursor] === '/' && content[cursor + 1] === '*') {
+        const closeIndex = content.indexOf('*/', cursor + 2);
+        if (closeIndex === -1) {
+          cursor = -1;
+          break;
+        }
+        cursor = closeIndex + 2;
+        advancing = true;
+      }
+    }
+
+    if (cursor >= 0 && cursor < length && (content[cursor] === '*' || content[cursor] === '{')) {
+      return true;
+    }
+
+    searchFrom = exportIndex + 'export'.length;
+  }
+}
 
 /**
  * The two cross-file lookups the barrel-chain resolver needs, built once per
@@ -220,7 +282,7 @@ export interface BarrelResolutionIndexes {
  *
  * The two indexes deliberately use DIFFERENT candidate scopes:
  *  - Re-exports are only extracted from files that look like they contain
- *    `export ... from` syntax (REEXPORT_HINT_PATTERN), since that is the
+ *    `export ... from` syntax (hasReExportHint()), since that is the
  *    only syntax extractReExports() looks for; most files in a real project
  *    never match, so this saves a wasted AST walk for them.
  *  - Local exports are collected for EVERY TypeScript file, not just
@@ -228,7 +290,7 @@ export interface BarrelResolutionIndexes {
  *    plain origin file with no re-export syntax at all (an aliased
  *    re-export chain, for instance: consumer -> barrel -> origin, where
  *    origin has no `export ... from` and so never matches
- *    REEXPORT_HINT_PATTERN). There is no way to know in advance which files
+ *    hasReExportHint()). There is no way to know in advance which files
  *    a chain will land on without already knowing the full barrel graph, so
  *    the only correct scope for local exports is every TypeScript file.
  *    (A regex-only heuristic for enumerating exported NAMES, as opposed to
@@ -261,7 +323,7 @@ export async function buildBarrelResolutionIndexes(
         const content = await readFile(filePath, 'utf-8');
         const syntaxTree = parseCode(content, 'typescript', extname(filePath));
         const localNames = extractLocalExportedNames(syntaxTree.rootNode, filePath);
-        const reExports = REEXPORT_HINT_PATTERN.test(content)
+        const reExports = hasReExportHint(content)
           ? extractReExports(syntaxTree.rootNode, filePath)
           : [];
         return { filePath, localNames, reExports };
