@@ -23,6 +23,7 @@
     "@codegraph/core": "workspace:*",
     "@codegraph/graph": "workspace:*",
     "@codegraph/logger": "workspace:*",
+    "@codegraph/types": "workspace:*",
     "@hono/node-server": "^1.19.14",
     "hono": "^4.12.23"
   },

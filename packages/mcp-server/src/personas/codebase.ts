@@ -4,6 +4,7 @@
  * Consolidates: configure_projects, trigger_reindex, get_stats, get_source, ping
  */
 
+import { isAbsolute } from 'node:path';
 import type { ToolDefinition } from '../tools/router';
 import { configureProjects, type ConfigureProjectsInput } from '../tools/configureProjects';
 import { triggerReindex, type ReindexInput } from '../tools/reindex';
@@ -12,6 +13,84 @@ import { validateFilePath } from './validation';
 import { createLogger } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'MCP:Persona:Index' });
+
+// ============================================================================
+// Extension -> language display name (profile action)
+// ============================================================================
+
+/**
+ * File nodes only carry an `extension` property (see fileToNodeProps in
+ * packages/graph/src/schema.ts) - there is no `language` property in the
+ * graph. This maps common bare extensions (no leading dot) to a
+ * human-readable language name for display; anything not listed falls back
+ * to the bare extension itself.
+ */
+const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
+  ts: 'TypeScript',
+  tsx: 'TypeScript',
+  js: 'JavaScript',
+  jsx: 'JavaScript',
+  mjs: 'JavaScript',
+  cjs: 'JavaScript',
+  py: 'Python',
+  go: 'Go',
+  rs: 'Rust',
+  java: 'Java',
+  rb: 'Ruby',
+  php: 'PHP',
+  c: 'C',
+  h: 'C',
+  cpp: 'C++',
+  cc: 'C++',
+  cxx: 'C++',
+  hpp: 'C++',
+  cs: 'C#',
+  swift: 'Swift',
+  kt: 'Kotlin',
+  kts: 'Kotlin',
+  scala: 'Scala',
+  sh: 'Shell',
+  bash: 'Shell',
+  md: 'Markdown',
+  json: 'JSON',
+  yaml: 'YAML',
+  yml: 'YAML',
+  html: 'HTML',
+  css: 'CSS',
+  scss: 'SCSS',
+  sql: 'SQL',
+  vue: 'Vue',
+  svelte: 'Svelte',
+};
+
+/** Maps a bare file extension to a display language name, falling back to the extension itself. */
+function languageNameForExtension(extension: string | null | undefined): string {
+  if (!extension) return 'Unknown';
+  return EXTENSION_LANGUAGE_MAP[extension] ?? extension;
+}
+
+// ============================================================================
+// projectPath validation (profile action)
+// ============================================================================
+
+/**
+ * Reject a projectPath that isn't absolute instead of letting it silently
+ * build a filter that matches nothing. A relative path never matches an
+ * indexed File's filePath (those are always absolute), so the old behavior
+ * was a quiet empty profile with no sign anything was wrong.
+ */
+function validateProjectPath(
+  projectPath: string | undefined,
+): { valid: true } | { valid: false; error: string } {
+  if (!projectPath) return { valid: true };
+  if (!isAbsolute(projectPath)) {
+    return {
+      valid: false,
+      error: 'projectPath must be an absolute path: a relative path would not match any indexed file',
+    };
+  }
+  return { valid: true };
+}
 
 export const indexPersonaDefinition: ToolDefinition = {
   name: 'codebase',
@@ -204,13 +283,36 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
     }
 
     case 'profile': {
+      const projectPath = typeof args.projectPath === 'string' ? args.projectPath : undefined;
+
+      // Validate before touching the graph: a relative path can never match
+      // an indexed File's filePath, so fail loudly instead of returning a
+      // silently empty profile.
+      const pathCheck = validateProjectPath(projectPath);
+      if (!pathCheck.valid) return { error: pathCheck.error };
+
       try {
-        const projectPath = typeof args.projectPath === 'string' ? args.projectPath : undefined;
         const limit = typeof args.limit === 'number' ? args.limit : 10;
-        const filter = projectPath ? 'WHERE n.filePath STARTS WITH $projectPath' : '';
-        const fileFilter = projectPath ? 'WHERE f.path STARTS WITH $projectPath' : '';
+
+        // Strip a trailing slash so the prefix match below is boundary-safe:
+        // without this, a filter built from "/proj/" would look for the
+        // literal (and never-occurring) prefix "/proj//".
+        const normalizedProjectPath = projectPath ? projectPath.replace(/\/+$/, '') : undefined;
+        const projectPathPrefix = normalizedProjectPath ? `${normalizedProjectPath}/` : undefined;
+
+        // A plain `STARTS WITH $projectPath` also matches a sibling
+        // directory that merely shares the prefix (projectPath "/x/project"
+        // would match "/x/project-extra/file.ts" too), so require either an
+        // exact match on the root itself or containment under "root/".
+        const filter = normalizedProjectPath
+          ? 'WHERE (n.filePath = $projectPath OR n.filePath STARTS WITH $projectPathPrefix)'
+          : '';
+        const fileFilter = normalizedProjectPath
+          ? 'WHERE (f.filePath = $projectPath OR f.filePath STARTS WITH $projectPathPrefix)'
+          : '';
         const params: Record<string, string | number | boolean | null | Array<unknown>> = {
-          projectPath: projectPath ?? null,
+          projectPath: normalizedProjectPath ?? null,
+          projectPathPrefix: projectPathPrefix ?? null,
           limit,
         };
 
@@ -231,18 +333,18 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
                ORDER BY callCount DESC LIMIT $limit`,
               { params },
             ).catch(() => ({ data: [] as Array<{ name: string; callCount: number }> })),
-            client.roQuery<{ name: string; fileCount: number }>(
+            client.roQuery<{ extension: string; fileCount: number }>(
               `MATCH (f:File) ${fileFilter}
-               RETURN f.language AS name, count(f) AS fileCount
+               RETURN f.extension AS extension, count(f) AS fileCount
                ORDER BY fileCount DESC LIMIT $limit`,
               { params },
-            ).catch(() => ({ data: [] as Array<{ name: string; fileCount: number }> })),
-            client.roQuery<{ filePath: string; lastModified: number }>(
+            ).catch(() => ({ data: [] as Array<{ extension: string; fileCount: number }> })),
+            client.roQuery<{ filePath: string; lastModified: string }>(
               `MATCH (f:File) ${fileFilter}
-               RETURN f.path AS filePath, f.lastModified AS lastModified
+               RETURN f.filePath AS filePath, f.lastModified AS lastModified
                ORDER BY f.lastModified DESC LIMIT $limit`,
               { params },
-            ).catch(() => ({ data: [] as Array<{ filePath: string; lastModified: number }> })),
+            ).catch(() => ({ data: [] as Array<{ filePath: string; lastModified: string }> })),
             client.roQuery<{ text: string; type: string; createdAt: number }>(
               `MATCH (e:Entity)
                RETURN e.text AS text, e.type AS type, e.createdAt AS createdAt
@@ -260,7 +362,10 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
           static: {
             topImports: topImportsRes.data,
             topCallers: topCallersRes.data,
-            languages: langsRes.data,
+            languages: langsRes.data.map((row) => ({
+              name: languageNameForExtension(row.extension),
+              fileCount: row.fileCount,
+            })),
           },
           dynamic: {
             recentFiles: recentFilesRes.data,

@@ -20,6 +20,7 @@ import {
   extractEntitiesForFile,
   buildParsedFileEntities,
   registerPlugins,
+  registerTier2Languages,
   countEntities,
   countEdges,
   isMarkdownFile,
@@ -227,9 +228,14 @@ export async function indexProject(
       };
     }
 
-    // Register language plugins + initialize parser
+    // Register language plugins + initialize parser. Tier-2 languages (Ruby,
+    // Kotlin, Swift, C, C++, ...) must be registered before file discovery
+    // below: getSupportedExtensions() only returns extensions for languages
+    // already in the registry, so skipping this call means tier-2 source
+    // files are never even discovered, let alone parsed.
     registerPlugins();
     await initParser();
+    await registerTier2Languages();
 
     // Discover source files (git ls-files when available, glob fallback)
     const gitignorePatterns = await loadGitignorePatterns(rootPath);
@@ -289,6 +295,13 @@ export async function indexProject(
       lastParsed: now,
       fileCount: 0,
     };
+    // Persist the Project node now, before any file processing.
+    // linkProjectFiles() MATCHes the Project by id, so if the node doesn't
+    // exist yet (brand-new project, or right after deleteProject() clears it
+    // below) the MATCH silently finds nothing and no HAS_FILE edges get
+    // created. The final upsertProject() call further down still runs, to
+    // persist fileCount/lastParsed once those are known.
+    await ops.upsertProject(project);
 
     // ----------------------------------------------------------------
     // Incremental: build hash map of previously indexed files
@@ -401,9 +414,12 @@ export async function indexProject(
       logger.info('Full reindex: clearing existing project data for fast CREATE path');
       await ops.deleteProject(existingProject.id);
     }
-    // Re-create the project node after clear
+    // Re-create the project node after clear. deleteProject() above DETACH
+    // DELETEs it, so it must exist again before the chunk loop below calls
+    // linkProjectFiles(), or every HAS_FILE edge silently fails to attach.
     if (useCreatePath) {
       project.createdAt = now;
+      await ops.upsertProject(project);
     }
 
     // Pipelined parse + upsert for code files
@@ -417,10 +433,15 @@ export async function indexProject(
           await ops.batchCreateBulk(chunk.map(r => r.built));
         } else {
           // Incremental: clean up old entities before re-upserting.
-          // removeFileAndCleanup removes the File node + CONTAINS edges, then
-          // deletes orphaned entities that have no incoming cross-file edges.
-          // This prevents stale nodes when functions move lines or get deleted.
-          await Promise.all(chunk.map(r => ops.removeFileAndCleanup(r.file)));
+          // removeFileContents() detaches CONTAINS edges and deletes orphaned
+          // entities that have no incoming cross-file edges, preventing stale
+          // nodes when functions move lines or get deleted. Unlike
+          // removeFileAndCleanup(), it leaves the File node itself (and its
+          // MODIFIED_IN / HAS_FILE / EXPORTS edges) untouched, since this
+          // file's content changed, it was not deleted from disk. The
+          // upsertBulk call below then updates that same File node in place
+          // (MERGE), instead of a fresh node replacing a deleted one.
+          await Promise.all(chunk.map(r => ops.removeFileContents(r.file)));
           await ops.batchUpsertBulk(chunk.map(r => r.built));
         }
         await ops.linkProjectFiles(project.id, chunk.map(r => r.file));
@@ -692,9 +713,11 @@ export async function indexSingleFile(
       return { success: true, entities: entityCount, edges: edgeCount };
     }
 
-    // Register language plugins + initialize parser
+    // Register language plugins + initialize parser (tier-2 too, so a
+    // single-file re-index of e.g. a .rb or .kt file resolves correctly)
     registerPlugins();
     await initParser();
+    await registerTier2Languages();
 
     // Read file once, reuse for parsing and entity creation
     const [fileStat, content] = await Promise.all([
@@ -720,8 +743,14 @@ export async function indexSingleFile(
     // Skip non-exported variables
     parsed.variables = parsed.variables.filter(v => v.isExported);
 
-    // Clean up old entities before re-upserting (prevents stale nodes when code moves/deletes)
-    await ops.removeFileAndCleanup(filePath);
+    // Clean up old entities before re-upserting (prevents stale nodes when
+    // code moves/deletes). This path re-indexes a file whose content
+    // changed (see onFileChanged in the watcher integrations) -- it was not
+    // deleted from disk, so use removeFileContents() rather than
+    // removeFileAndCleanup(), which would destroy this File node's
+    // MODIFIED_IN / HAS_FILE / EXPORTS edges along with it. True deletions
+    // go through removeFileAndCleanup() directly, from onFileRemoved.
+    await ops.removeFileContents(filePath);
     await ops.batchUpsert(parsed);
 
     // Embedding pass — deferred (background) or blocking

@@ -20,13 +20,18 @@
 
 import { describe, it, expect } from 'vitest';
 import { resolveTypeFilter, typeFilterNotice } from '../routes/search';
+import { SYMBOL_LABELS } from '@codegraph/types';
 
 // Mirrors what /api/embeddings/status reports for this repository's own
-// indexed graph: the seven embeddable code-symbol types, plus Commit,
+// indexed graph: the seven embeddable code-symbol types (SYMBOL_LABELS,
+// the shared source of truth in packages/types/src/labels.ts), plus Commit,
 // TypeRef, Project and Metadata, which the vector-search allowlist never
-// covered but the Cypher fallback path has always been able to match.
-const KNOWN_LABELS = new Set([
-  'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component',
+// covered but the Cypher fallback path has always been able to match. The
+// extra four are graph-structure labels specific to this fixture, not a
+// canonical subset, so they stay spelled out here rather than living in
+// @codegraph/types.
+const KNOWN_LABELS = new Set<string>([
+  ...SYMBOL_LABELS,
   'Commit', 'TypeRef', 'Project', 'Metadata',
 ]);
 
@@ -74,7 +79,7 @@ describe('resolveTypeFilter', () => {
   });
 
   it('accepts every label the fallback query defaults to', () => {
-    for (const label of ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component']) {
+    for (const label of SYMBOL_LABELS) {
       expect(resolveTypeFilter(label, KNOWN_LABELS)).toEqual({ kind: 'labels', labels: [label] });
     }
   });

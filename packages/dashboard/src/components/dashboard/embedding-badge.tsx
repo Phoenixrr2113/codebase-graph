@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { API_URL } from '@/lib/api'
+import { EMBEDDABLE_LABELS } from '@codegraph/types'
 
 
 interface EmbeddingLabel {
@@ -22,8 +23,9 @@ export function EmbeddingBadge() {
       if (!res.ok) return
       const data = await res.json()
       const labels = (data.labels ?? []) as EmbeddingLabel[]
-      // Only count embeddable node types (code symbols, not git/markdown structure)
-      const embeddable = new Set(['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Entity'])
+      // Only count embeddable node types (code symbols, not git/markdown structure).
+      // EMBEDDABLE_LABELS is the shared source of truth (packages/types/src/labels.ts).
+      const embeddable = new Set<string>(EMBEDDABLE_LABELS)
       const relevant = labels.filter(l => embeddable.has(l.label))
       const total = relevant.reduce((s, l) => s + l.total, 0)
       const embedded = relevant.reduce((s, l) => s + l.withEmbedding, 0)

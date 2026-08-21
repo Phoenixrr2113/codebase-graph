@@ -24,6 +24,9 @@ import { languageRegistry } from './registry';
 import { stat, readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { createLogger } from '@codegraph/logger';
+
+const logger = createLogger({ namespace: 'Core:Pipeline' });
 
 // ============================================================================
 // Plugin Registration
@@ -80,9 +83,23 @@ export async function registerTier2Languages(): Promise<{
     const registerAllLanguages = mod.registerAllLanguages as (
       registry: { register(plugin: any): void }
     ) => Promise<{ registered: string[]; skipped: string[] }>;
-    return await registerAllLanguages(languageRegistry);
-  } catch {
-    // @codegraph/plugin-languages not installed — tier-2 unavailable
+    const result = await registerAllLanguages(languageRegistry);
+    // registerAllLanguages() already isolates a per-language grammar load
+    // failure (it just lands the language in `skipped`, see
+    // packages/plugin-languages/src/grammar-loader.ts), so one bad grammar
+    // never aborts registration of the rest. Log the outcome instead of
+    // swallowing it, so a missing or broken grammar is visible somewhere.
+    if (result.skipped.length > 0) {
+      logger.warn(`Tier-2 languages unavailable (grammar not installed or failed to load): ${result.skipped.join(', ')}`);
+    }
+    if (result.registered.length > 0) {
+      logger.info(`Tier-2 languages registered: ${result.registered.join(', ')}`);
+    }
+    return result;
+  } catch (err) {
+    // @codegraph/plugin-languages not installed, or registration itself
+    // crashed. Tier-2 is unavailable, but tier-1 indexing must continue.
+    logger.warn(`Tier-2 language registration failed, continuing with tier-1 languages only: ${err instanceof Error ? err.message : String(err)}`);
     return { registered: [], skipped: [] };
   }
 }

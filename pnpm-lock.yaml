@@ -282,6 +282,9 @@ importers:
       '@codegraph/logger':
         specifier: workspace:*
         version: link:../logger
+      '@codegraph/types':
+        specifier: workspace:*
+        version: link:../types
       '@hono/node-server':
         specifier: 1.19.15
         version: 1.19.15(hono@4.12.34)
@@ -425,6 +428,9 @@ importers:
 
   packages/dashboard:
     dependencies:
+      '@codegraph/types':
+        specifier: workspace:*
+        version: link:../types
       '@radix-ui/react-separator':
         specifier: 1.1.8
         version: 1.1.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -952,6 +958,9 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.3)
 
 packages:
 

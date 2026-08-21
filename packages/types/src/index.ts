@@ -10,3 +10,4 @@ export * from './graph';
 export * from './plugin';
 export * from './document';
 export * from './nlp';
+export * from './labels';

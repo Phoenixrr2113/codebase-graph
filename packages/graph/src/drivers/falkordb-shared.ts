@@ -10,6 +10,7 @@ import { ConstraintType, EntityType } from 'falkordb';
 import type { QueryOptions as FalkorQueryOptions } from 'falkordb/dist/src/commands';
 import type { QueryParams } from '../client';
 import { createLogger } from '@codegraph/logger';
+import { ALL_GRAPH_LABELS, EMBEDDABLE_LABELS } from '@codegraph/types';
 
 const logger = createLogger({ namespace: 'graph:schema' });
 
@@ -88,12 +89,9 @@ export async function ensureSchemaImpl(
   // labels can crash the engine (signal 11). Creating dummy nodes ensures all
   // labels exist before concurrent indexing starts. The dummy nodes are
   // immediately deleted.
-  const allLabels = [
-    'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'TypeRef',
-    'Component', 'Entity', 'Project', 'Commit', 'Metadata',
-    'MarkdownDocument', 'Section', 'CodeBlock', 'Link',
-  ];
-  const createDummies = allLabels.map(l => `CREATE (:${l} {__dummy: true})`).join(' ');
+  // ALL_GRAPH_LABELS is the shared source of truth (packages/types/src/labels.ts)
+  // for every label FalkorDB may ever see written to it.
+  const createDummies = ALL_GRAPH_LABELS.map(l => `CREATE (:${l} {__dummy: true})`).join(' ');
   try {
     await graph.query(createDummies);
     // Delete the dummy nodes
@@ -110,10 +108,9 @@ export async function ensureSchemaImpl(
   await safeIndex(`CREATE INDEX FOR (m:Metadata) ON (m.key)`);
 
   // --- Provenance range indexes (query by pipeline/task) ---
-  const provenanceLabels = [
-    'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Entity',
-  ];
-  for (const label of provenanceLabels) {
+  // EMBEDDABLE_LABELS is the shared source of truth (packages/types/src/labels.ts):
+  // SYMBOL_LABELS plus 'Entity', the labels that carry ProvenanceFields.
+  for (const label of EMBEDDABLE_LABELS) {
     await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.sourcePipeline)`);
     await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.processedAt)`);
   }
@@ -191,9 +188,10 @@ export async function ensureSchemaImpl(
   // If existing indexes have a different dimension (e.g. user switched from
   // local/768 to voyage/1024), drop and recreate them + clear stale embeddings.
   const embDim = resolveEmbeddingDimension(opts?.embeddingDim);
-  const vectorTargets = [
-    'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'Entity',
-  ];
+  // EMBEDDABLE_LABELS is the shared source of truth (packages/types/src/labels.ts):
+  // the same SYMBOL_LABELS-plus-'Entity' set the provenance indexes above use,
+  // since every label that carries ProvenanceFields also carries an embedding.
+  const vectorTargets = EMBEDDABLE_LABELS;
 
   if (embDim === 0) {
     // No embedding provider configured — skip vector indexes entirely.

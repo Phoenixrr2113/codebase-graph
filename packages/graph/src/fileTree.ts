@@ -4,6 +4,7 @@
  */
 
 import type { GraphClient } from './client';
+import { SUMMARY_LABELS } from '@codegraph/types';
 
 // ============================================================================
 // Types
@@ -176,7 +177,9 @@ export async function buildFileTree(
 export async function getIndexSummary(client: GraphClient): Promise<string> {
   const firstLabelExpr = client.dialect.firstLabelExpr('n');
   const lc = client.dialect.labelCheckExpr.bind(client.dialect);
-  const labelFilter = ['File', 'Function', 'Class', 'Interface', 'Component']
+  // SUMMARY_LABELS is the shared source of truth (packages/types/src/labels.ts):
+  // the subset of SYMBOL_LABELS worth surfacing in a compact index summary.
+  const labelFilter = SUMMARY_LABELS
     .map(l => lc('n', l)).join(' OR ');
   const statsQuery = `
     MATCH (n)
