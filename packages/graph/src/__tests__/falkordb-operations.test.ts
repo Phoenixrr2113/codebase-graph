@@ -427,6 +427,8 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
         hasParamEdges: [],
         returnsEdges: [],
         usesTypeEdges: [],
+        exportsEdges: [],
+        importsSymbolEdges: [],
       };
     }
 
@@ -521,6 +523,8 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
         hasParamEdges: [],
         returnsEdges: [],
         usesTypeEdges: [],
+        exportsEdges: [],
+        importsSymbolEdges: [],
       };
 
       await ops.batchUpsert(entities);

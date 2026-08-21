@@ -19,7 +19,7 @@ import type {
 } from '@codegraph/types';
 
 import { parseMarkdown, type ParsedMarkdown } from './parser';
-import { extractSections } from './extractors/sections';
+import { extractSections, buildSectionHierarchy } from './extractors/sections';
 import { extractCodeBlocks } from './extractors/codeBlocks';
 import { extractLinks } from './extractors/links';
 import { createHash } from 'crypto';
@@ -168,6 +168,7 @@ export async function parseMarkdownFile(
     sections,
     codeBlocks,
     links,
+    sectionHierarchy: buildSectionHierarchy(sections),
   };
 }
 
@@ -215,6 +216,7 @@ export async function parseMarkdownContent(
     sections,
     codeBlocks,
     links,
+    sectionHierarchy: buildSectionHierarchy(sections),
   };
 }
 
@@ -223,6 +225,6 @@ export async function parseMarkdownContent(
 // ============================================================================
 
 export { parseMarkdown, type ParsedMarkdown } from './parser';
-export { extractSections } from './extractors/sections';
+export { extractSections, buildSectionHierarchy } from './extractors/sections';
 export { extractCodeBlocks } from './extractors/codeBlocks';
 export { extractLinks } from './extractors/links';

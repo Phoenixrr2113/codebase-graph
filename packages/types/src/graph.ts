@@ -23,6 +23,8 @@ import type {
   HasParamEdgeDescriptor,
   ReturnsEdgeDescriptor,
   UsesTypeEdgeDescriptor,
+  ExportsEdgeDescriptor,
+  ImportsSymbolEdgeDescriptor,
 } from './edges';
 
 // ============================================================================
@@ -258,6 +260,10 @@ export interface ParsedFileEntities {
   hasParamEdges: HasParamEdgeDescriptor[];
   returnsEdges: ReturnsEdgeDescriptor[];
   usesTypeEdges: UsesTypeEdgeDescriptor[];
+  /** EXPORTS edges (File to exported symbol), built from isExported flags. */
+  exportsEdges: ExportsEdgeDescriptor[];
+  /** IMPORTS_SYMBOL edges (importing File to the imported symbol node). */
+  importsSymbolEdges: ImportsSymbolEdgeDescriptor[];
 }
 
 // ============================================================================
@@ -303,6 +309,9 @@ export type {
   HasParamEdgeDescriptor,
   ReturnsEdgeDescriptor,
   UsesTypeEdgeDescriptor,
+  ExportsEdgeDescriptor,
+  ImportsSymbolEdgeDescriptor,
+  ExportableSymbolKind,
   RendersEdge,
   Visibility,
 } from './edges';

@@ -769,11 +769,16 @@ export async function indexProject(
     // Upsert document entities (markdown)
     if (allDocuments.length > 0) {
       try {
+        if (!useCreatePath) {
+          await Promise.all(
+            allDocuments.map((doc) => ops.removeDocumentContents(doc.document.path)),
+          );
+        }
         await ops.batchUpsertDocuments(allDocuments);
         totalFiles += allDocuments.length;
         for (const doc of allDocuments) {
           totalEntities += 1 + doc.sections.length + doc.codeBlocks.length + doc.links.length;
-          totalEdges += doc.sections.length + doc.codeBlocks.length + doc.links.length;
+          totalEdges += doc.sections.length + doc.codeBlocks.length + doc.links.length + doc.sectionHierarchy.length;
         }
       } catch (err) {
         logger.warn(`Document bulk write failed: ${err instanceof Error ? err.message : err}`);
@@ -899,10 +904,11 @@ export async function indexSingleFile(
     if (isMarkdownFile(filePath)) {
       const content = await readFile(filePath, 'utf-8');
       const docEntities = await parseMarkdownContent(content, filePath);
+      await ops.removeDocumentContents(filePath);
       await ops.batchUpsertDocuments([docEntities]);
 
       const entityCount = 1 + docEntities.sections.length + docEntities.codeBlocks.length + docEntities.links.length;
-      const edgeCount = docEntities.sections.length + docEntities.codeBlocks.length + docEntities.links.length;
+      const edgeCount = docEntities.sections.length + docEntities.codeBlocks.length + docEntities.links.length + docEntities.sectionHierarchy.length;
       return { success: true, entities: entityCount, edges: edgeCount };
     }
 

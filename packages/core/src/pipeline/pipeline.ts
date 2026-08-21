@@ -551,6 +551,75 @@ function buildInheritanceEdgesFromRefs(
 }
 
 /**
+ * Build EXPORTS edge descriptors (File to exported top-level symbol) from
+ * every language's `isExported` flag. Class members can inherit that flag
+ * from their owning class, so the plugin-provided HAS_METHOD/HAS_PROPERTY
+ * descriptors are the authoritative signal for excluding member entities.
+ */
+function collectExportsEdges(file: FileEntity, extracted: ExtractedEntities): ParsedFileEntities['exportsEdges'] {
+  const edges: ParsedFileEntities['exportsEdges'] = [];
+  const memberIds = new Set([
+    ...(extracted.hasMethodEdges ?? []).map((edge) => edge.toId),
+    ...(extracted.hasPropertyEdges ?? []).map((edge) => edge.toId),
+  ]);
+  const push = (
+    id: string | undefined,
+    name: string,
+    isExported: boolean,
+    symbolKind: ParsedFileEntities['exportsEdges'][number]['symbolKind'],
+  ): void => {
+    if (isExported && (!id || !memberIds.has(id))) {
+      edges.push({ filePath: file.path, symbolName: name, symbolKind });
+    }
+  };
+  for (const fn of extracted.functions) push(fn.id, fn.name, fn.isExported, 'Function');
+  for (const cls of extracted.classes) push(cls.id, cls.name, cls.isExported, 'Class');
+  for (const iface of extracted.interfaces) push(iface.id, iface.name, iface.isExported, 'Interface');
+  for (const v of extracted.variables) push(v.id, v.name, v.isExported, 'Variable');
+  for (const t of extracted.types) push(t.id, t.name, t.isExported, 'Type');
+  for (const comp of extracted.components) push(comp.id, comp.name, comp.isExported, 'Component');
+  return edges;
+}
+
+/**
+ * Build IMPORTS_SYMBOL edge descriptors (importing File to the imported
+ * symbol node, not the imported File) from every resolved import's named
+ * specifiers. `resolvedImportMap`, when supplied, has already chased a local
+ * name through a barrel chain to its true origin (see buildResolvedImportMap
+ * above); otherwise the specifier's own declared name plus the import's
+ * resolvedPath stand in, which is already correct for a plain, non-barrel
+ * import (resolves in one hop either way).
+ *
+ * Namespace imports (`import * as NS from '...'`) are excluded, same
+ * reasoning as buildResolvedImportMap: they bind a whole module, not one
+ * exported name, so there's no single declared symbol to point at.
+ */
+function collectImportsSymbolEdges(
+  file: FileEntity,
+  extracted: ExtractedEntities,
+  resolvedImportMap: ResolvedImportMap | undefined,
+): ParsedFileEntities['importsSymbolEdges'] {
+  const edges: ParsedFileEntities['importsSymbolEdges'] = [];
+  for (const imp of extracted.imports) {
+    if (!imp.resolvedPath) continue; // unresolved/external import: no target file to point at
+    const resolvedPath = imp.resolvedPath;
+    for (const spec of imp.specifiers) {
+      const localName = spec.alias ?? spec.name;
+      const resolved = resolvedImportMap?.get(localName);
+      const edge: ParsedFileEntities['importsSymbolEdges'][number] = {
+        fromFilePath: file.path,
+        toFilePath: resolved?.filePath ?? resolvedPath,
+        symbolName: resolved?.exportedName ?? spec.name,
+        isDefault: false,
+      };
+      if (spec.alias) edge.alias = spec.alias;
+      edges.push(edge);
+    }
+  }
+  return edges;
+}
+
+/**
  * Build call edges from CallReference[] (non-TS languages).
  */
 function buildCallEdgesFromRefs(refs: CallReference[]): ParsedFileEntities['callEdges'] {
@@ -697,6 +766,12 @@ export function buildParsedFileEntities(
       ? buildResolvedImportMap(extracted.imports, barrelIndex, localExportsIndex ?? EMPTY_LOCAL_EXPORTS)
       : undefined;
 
+  // --- EXPORTS edges (File → exported symbol) ---
+  const exportsEdges = collectExportsEdges(file, extracted);
+
+  // --- IMPORTS_SYMBOL edges (importing File → the imported symbol node) ---
+  const importsSymbolEdges = collectImportsSymbolEdges(file, extracted, resolvedImportMap);
+
   // --- Call edges (deep analysis only) ---
   // TypeScript uses a richer call extractor that resolves callee identities
   // across files via import analysis. Other languages use the generic
@@ -809,6 +884,8 @@ export function buildParsedFileEntities(
     hasParamEdges,
     returnsEdges,
     usesTypeEdges,
+    exportsEdges,
+    importsSymbolEdges,
   };
 }
 
@@ -841,6 +918,8 @@ export function countEdges(parsed: ParsedFileEntities): number {
     parsed.hasPropertyEdges.length +
     parsed.hasParamEdges.length +
     parsed.returnsEdges.length +
-    parsed.usesTypeEdges.length
+    parsed.usesTypeEdges.length +
+    parsed.exportsEdges.length +
+    parsed.importsSymbolEdges.length
   );
 }

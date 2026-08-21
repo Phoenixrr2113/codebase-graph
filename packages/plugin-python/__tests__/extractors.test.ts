@@ -135,6 +135,20 @@ def __dunder_func__():
       expect(functions[2].isExported).toBe(false);
     });
 
+    it('should not export nested_local from a public top-level function', () => {
+      const code = `
+def public_py():
+    def nested_local():
+        return "nested"
+    return nested_local()
+      `;
+      const rootNode = parseCode(code);
+      const functions = extractFunctions(rootNode as any, TEST_FILE);
+
+      expect(functions.find((fn) => fn.name === 'public_py')?.isExported).toBe(true);
+      expect(functions.find((fn) => fn.name === 'nested_local')?.isExported).toBe(false);
+    });
+
     it('should not extract methods inside classes (class methods are owned by extractClassesWithEdges)', () => {
       const code = `
 class Dog:

@@ -17,12 +17,26 @@ Markdown document plugin for CodeGraph. Parses `.md`, `.mdc`, and `.mdx` files i
 
 ## Graph Relationships
 
+Document structure (a document attaching its sections, code blocks, and
+links) is written with the generic `CONTAINS` edge, the same one File nodes
+use for their functions and classes, not a set of markdown-specific edge
+types. `PARENT_SECTION` is the one relationship this plugin's output is
+actually used to build beyond `CONTAINS`: section-to-section heading nesting
+within a single document, computed by `buildSectionHierarchy` (exported from
+this package) and returned as `sectionHierarchy` alongside the entities
+below.
+
 | Relationship | From | To | Description |
 |-------------|------|----|-------------|
-| `HAS_SECTION` | MarkdownDocument | Section | Document contains a section |
-| `PARENT_SECTION` | Section | Section | Section nesting hierarchy |
-| `CONTAINS_CODE` | Section | CodeBlock | Section contains a code block |
-| `LINKS_TO` | MarkdownDocument | MarkdownDocument | Document links to another document |
+| `CONTAINS` | MarkdownDocument | Section | Document contains a section |
+| `CONTAINS` | MarkdownDocument | CodeBlock | Document contains a code block |
+| `CONTAINS` | MarkdownDocument | Link | Document contains a link |
+| `PARENT_SECTION` | Section | Section | Section nesting hierarchy (parent is the nearest preceding section with a smaller heading level) |
+
+A `Link` entity's `target`/`isInternal`/`anchor` fields describe what it
+points at, but no edge is currently drawn from the link to the document or
+file it targets: only the `CONTAINS` edge from the containing document to
+the `Link` node itself is written.
 
 ## Features
 
@@ -47,7 +61,7 @@ import { parseMarkdownFile, parseMarkdownContent, isSupported } from '@codegraph
 
 // Parse a file from disk
 const entities = await parseMarkdownFile('/path/to/doc.md');
-// => { document, sections, codeBlocks, links }
+// => { document, sections, codeBlocks, links, sectionHierarchy }
 
 // Parse content directly (no file I/O)
 const entities = await parseMarkdownContent('# Hello\nWorld', 'virtual.md');
