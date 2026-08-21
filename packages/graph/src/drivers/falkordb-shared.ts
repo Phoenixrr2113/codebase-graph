@@ -148,19 +148,28 @@ export async function ensureSchemaImpl(
   //
   // A FalkorDB UNIQUE constraint needs a prerequisite exact-match index on
   // the same properties, and applies asynchronously. Verified empirically
-  // (a throwaway vitest probe against an embedded graph, since this is not
-  // documented in enough detail to trust) that if the label already has
-  // data violating the constraint when it is created, the command still
-  // returns without throwing, and the constraint silently settles into a
-  // FAILED (not enforced) status instead of raising an error here. Status
-  // is only visible via `CALL db.constraints()`, which this setup does not
-  // poll. So this is best-effort forward protection: it stops new
-  // duplicate-keyed nodes once it takes effect, but a graph that already
-  // has duplicate-keyed Entity nodes needs those cleaned up first, by node
-  // identity, which is outside what mergeEntities' {text, type} API can do,
-  // before the constraint can actually become OPERATIONAL. mergeEntities'
-  // own cardinality guard, not this constraint, is what keeps merges safe
-  // regardless of whether the constraint ever takes effect on a given graph.
+  // against a real embedded graph, since this is not documented in enough
+  // detail to trust untested (both a throwaway probe here and, separately,
+  // an adversarial review that built its own populated graph): if the label
+  // already has data violating the constraint when it is created, the
+  // command still returns without throwing, and the constraint settles into
+  // a FAILED (not enforced) status instead of raising an error here, with
+  // writes continuing to work throughout - status is only visible via
+  // `CALL db.constraints()`, which this setup does not poll. That FAILED
+  // state is not permanent, though: this setup runs on every connect (see
+  // the "expected on restart" comment on safeIndex above), and once the
+  // violating data is gone, a later call is not rejected as "already
+  // exists" the way it would be for an already-OPERATIONAL constraint - it
+  // retries and transitions to OPERATIONAL on its own, confirmed by
+  // creating a constraint over conflicting data, deleting the conflict, and
+  // calling constraintCreate again with no other intervention. So this is
+  // best-effort forward protection that self-heals once the underlying data
+  // problem is fixed (by node identity, cleaning up duplicate-keyed Entity
+  // nodes - outside what mergeEntities' {text, type} API can do on its own),
+  // rather than something that needs a manual migration step to recover.
+  // mergeEntities' own cardinality guard, not this constraint, is what keeps
+  // merges safe in the meantime, on any graph where the constraint has not
+  // yet reached OPERATIONAL.
   await safeIndex(`CREATE INDEX FOR (n:Entity) ON (n.text, n.type)`);
   try {
     await graph.constraintCreate(ConstraintType.UNIQUE, EntityType.NODE, 'Entity', 'text', 'type');

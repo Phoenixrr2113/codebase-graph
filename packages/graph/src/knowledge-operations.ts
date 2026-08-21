@@ -1364,10 +1364,24 @@ class KnowledgeOperationsImpl implements KnowledgeOperations {
     // delete. This is intentionally separate from the duplicate/canonical
     // *absence* check further below (0 matches, not >1) - that check's
     // no-op-vs-failure distinction is unaffected by this one.
+    //
+    // MUST count(DISTINCT ...), not count(...): the two OPTIONAL MATCH
+    // clauses share no variable, so FalkorDB cross-joins them (every dup row
+    // paired with every canon row). A plain count(dup) or count(canon) then
+    // reports dupCardinality * canonCardinality on BOTH sides, not each
+    // side's own cardinality - e.g. dup matching exactly 1 node and canon
+    // matching 3 reports count(dup)=3 (wrong, dup only matches 1) and
+    // count(canon)=3 (correct by coincidence). Since the dupCardinality > 1
+    // check below runs first, that wrong count(dup) trips it and blames the
+    // duplicate key as ambiguous when the canonical key is the one that
+    // actually has more than one physical node. DISTINCT dedupes each side
+    // before counting, independent of the other side's cardinality, so it
+    // reports the true cardinality of each and the message names the
+    // correct side.
     const cardinality = await this.client.query<{ dupCount: number; canonCount: number }>(`
       OPTIONAL MATCH (dup:Entity { text: $dupText, type: $dupType })
       OPTIONAL MATCH (canon:Entity { text: $canonText, type: $canonType })
-      RETURN count(dup) AS dupCount, count(canon) AS canonCount
+      RETURN count(DISTINCT dup) AS dupCount, count(DISTINCT canon) AS canonCount
     `, {
       params: {
         dupText: duplicateText, dupType: duplicateType,

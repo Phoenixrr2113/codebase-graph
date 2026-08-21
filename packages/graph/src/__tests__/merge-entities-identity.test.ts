@@ -156,4 +156,57 @@ describeIfAvailable('mergeEntities - identity (FalkorDBLite)', () => {
     );
     expect(totalRelatesTo.data[0]?.n).toBe(2);
   });
+
+  // ==========================================================================
+  // Asymmetric cardinality: two DIFFERENT keys, only one of them ambiguous.
+  //
+  // The self-merge cases above use the same key on both sides, so an
+  // inflated count lands on both sides equally and cannot expose a
+  // mismatch between "which side is ambiguous" and "which side the error
+  // message blames". These two tests use distinct canonical/duplicate keys
+  // with different cardinalities specifically to catch that: the cross-join
+  // bug in the cardinality query (fixed by count(DISTINCT ...)) reported
+  // dupCardinality * canonCardinality on BOTH sides, so whichever side's
+  // check ran first (duplicate) always looked ambiguous whenever EITHER
+  // side actually was - including runs where the canonical side was the
+  // real problem and the duplicate side was fine.
+  // ==========================================================================
+
+  it('blames the canonical key, not the duplicate, when only the canonical key is ambiguous', async () => {
+    await client.query(`
+      CREATE (:Entity {text: 'Sarah', type: 'Person', id: 'sarah-1', confidence: 0.9})
+      CREATE (:Entity {text: 'Sarah', type: 'Person', id: 'sarah-2', confidence: 0.9})
+      CREATE (:Entity {text: 'Sarah', type: 'Person', id: 'sarah-3', confidence: 0.9})
+      CREATE (:Entity {text: 'Sarah Chen', type: 'Person', id: 'sarahchen-1', confidence: 0.9})
+    `, { params: {} });
+
+    // canonical = 'Sarah' (3 physical nodes, ambiguous)
+    // duplicate = 'Sarah Chen' (1 physical node, fine)
+    const result = await kgOps.mergeEntities('Sarah', 'Person', 'Sarah Chen', 'Person');
+
+    expect(result.success).toBe(false);
+    expect(result.deleted).toBe(false);
+    const message = result.errors.join(' ');
+    expect(message).toContain('canonical key matches 3 physical nodes');
+    expect(message).not.toContain('duplicate key matches');
+  });
+
+  it('blames the duplicate key, not the canonical, when only the duplicate key is ambiguous', async () => {
+    await client.query(`
+      CREATE (:Entity {text: 'Sarah', type: 'Person', id: 'sarah-1', confidence: 0.9})
+      CREATE (:Entity {text: 'Sarah', type: 'Person', id: 'sarah-2', confidence: 0.9})
+      CREATE (:Entity {text: 'Sarah', type: 'Person', id: 'sarah-3', confidence: 0.9})
+      CREATE (:Entity {text: 'Sarah Chen', type: 'Person', id: 'sarahchen-1', confidence: 0.9})
+    `, { params: {} });
+
+    // canonical = 'Sarah Chen' (1 physical node, fine)
+    // duplicate = 'Sarah' (3 physical nodes, ambiguous)
+    const result = await kgOps.mergeEntities('Sarah Chen', 'Person', 'Sarah', 'Person');
+
+    expect(result.success).toBe(false);
+    expect(result.deleted).toBe(false);
+    const message = result.errors.join(' ');
+    expect(message).toContain('duplicate key matches 3 physical nodes');
+    expect(message).not.toContain('canonical key matches');
+  });
 });

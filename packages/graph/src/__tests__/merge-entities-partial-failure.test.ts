@@ -45,7 +45,10 @@ type TransferStep = 'outgoing' | 'incoming' | 'about' | 'existence' | 'delete' |
  */
 function classifyMergeCypher(cypher: string): TransferStep {
   if (cypher.includes('DETACH DELETE e')) return 'delete';
-  if (cypher.includes('RETURN count(dup) AS dupCount, count(canon) AS canonCount')) return 'existence';
+  // Matches both the upfront cardinality pre-check (count(DISTINCT dup)...)
+  // and the pre-delete absence check (count(dup)...) - same RETURN shape,
+  // whether or not DISTINCT is present.
+  if (cypher.includes('AS dupCount') && cypher.includes('AS canonCount')) return 'existence';
   if (cypher.includes('(dup:Entity { text: $dupText, type: $dupType })-[r:RELATES_TO]->(other:Entity)')) {
     return 'outgoing';
   }
