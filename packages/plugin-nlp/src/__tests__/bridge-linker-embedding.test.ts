@@ -36,8 +36,14 @@ vi.mock('../embeddings', async (importOriginal) => {
   };
 });
 
-import { createClient, createOperations, createKnowledgeOperations } from '@codegraph/graph';
+import {
+  createClient,
+  createOperations,
+  createKnowledgeOperations,
+  functionToNodeProps,
+} from '@codegraph/graph';
 import type { GraphClient, GraphOperations, KnowledgeOperations } from '@codegraph/graph';
+import type { FunctionEntity } from '@codegraph/types';
 import { linkByEmbedding } from '../bridge-linker';
 import { isEmbeddingAvailable, generateEmbedding } from '../embeddings';
 
@@ -67,6 +73,18 @@ function mixedVec(dim1: number, w1: number, dim2: number, w2: number): number[] 
   vec[dim1] = w1;
   vec[dim2] = w2;
   return vec;
+}
+
+type LegacyFunctionFixture = Omit<FunctionEntity, 'id' | 'scopeKey' | 'disambiguator'>;
+
+function canonicalFunction(entity: LegacyFunctionFixture): FunctionEntity {
+  const identity = functionToNodeProps(entity as FunctionEntity);
+  return {
+    ...entity,
+    id: identity.id,
+    scopeKey: identity.scopeKey,
+    disambiguator: identity.disambiguator,
+  };
 }
 
 // ============================================================================
@@ -110,23 +128,26 @@ describe('Bridge-Linker Embedding Similarity', () => {
     });
 
     // Payment cluster: dim 0
-    await ops.upsertFunction({
+    const processPayment = canonicalFunction({
       name: 'processPayment', filePath: '/src/payments.ts',
       startLine: 1, endLine: 20,
       isExported: true, isAsync: true, isArrow: false, params: [],
     });
-    await ops.upsertFunction({
+    const validatePayment = canonicalFunction({
       name: 'validatePayment', filePath: '/src/payments.ts',
       startLine: 22, endLine: 40,
       isExported: true, isAsync: false, isArrow: false, params: [],
     });
 
     // Chart cluster: dim 1
-    await ops.upsertFunction({
+    const renderChart = canonicalFunction({
       name: 'renderChart', filePath: '/src/payments.ts',
       startLine: 42, endLine: 60,
       isExported: true, isAsync: false, isArrow: false, params: [],
     });
+    await ops.upsertFunction(processPayment);
+    await ops.upsertFunction(validatePayment);
+    await ops.upsertFunction(renderChart);
 
     // Set embeddings on code nodes
     const PAY_VEC_1 = makeVec(0, 0.95);
@@ -135,17 +156,17 @@ describe('Bridge-Linker Embedding Similarity', () => {
 
     await ops.updateEmbedding(
       'Function',
-      { name: 'processPayment', filePath: '/src/payments.ts', startLine: 1 },
+      { id: processPayment.id },
       PAY_VEC_1, 'h1',
     );
     await ops.updateEmbedding(
       'Function',
-      { name: 'validatePayment', filePath: '/src/payments.ts', startLine: 22 },
+      { id: validatePayment.id },
       PAY_VEC_2, 'h2',
     );
     await ops.updateEmbedding(
       'Function',
-      { name: 'renderChart', filePath: '/src/payments.ts', startLine: 42 },
+      { id: renderChart.id },
       CHART_VEC, 'h3',
     );
   }, 30_000);

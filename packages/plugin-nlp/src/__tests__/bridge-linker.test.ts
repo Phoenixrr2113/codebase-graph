@@ -12,7 +12,12 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 // These tests use local embeddings
 vi.stubEnv('CODEGRAPH_EMBEDDING_PROVIDER', 'local');
 
-import { createClient, createOperations, createKnowledgeOperations } from '@codegraph/graph';
+import {
+  createClient,
+  createOperations,
+  createKnowledgeOperations,
+  functionToNodeProps,
+} from '@codegraph/graph';
 import type { GraphClient, GraphOperations, KnowledgeOperations } from '@codegraph/graph';
 import type { FileEntity, FunctionEntity, ClassEntity, InterfaceEntity } from '@codegraph/types';
 import { linkEntitiesToCode, linkByEmbedding, type BridgeLinkerInput } from '../bridge-linker';
@@ -36,7 +41,7 @@ function makeFile(overrides?: Partial<FileEntity>): FileEntity {
 }
 
 function makeFunction(overrides?: Partial<FunctionEntity>): FunctionEntity {
-  return {
+  const entity = {
     name: 'processPayment',
     filePath: '/src/payment.ts',
     startLine: 10,
@@ -46,6 +51,13 @@ function makeFunction(overrides?: Partial<FunctionEntity>): FunctionEntity {
     isArrow: false,
     params: ['amount', 'currency'],
     ...overrides,
+  };
+  const identity = functionToNodeProps(entity as FunctionEntity);
+  return {
+    ...entity,
+    id: identity.id,
+    scopeKey: identity.scopeKey,
+    disambiguator: identity.disambiguator,
   };
 }
 
@@ -374,27 +386,30 @@ describe('Bridge Linker (embedding similarity)', () => {
       loc: 100, lastModified: '2025-01-01', hash: 'abc',
     });
 
-    await ops.upsertFunction({
+    const retryWithBackoff = makeFunction({
       name: 'retryWithBackoff', filePath: '/src/payments.ts',
       startLine: 1, endLine: 10, isExported: true, isAsync: true, isArrow: false, params: [],
     });
-    await ops.upsertFunction({
+    const processPayment = makeFunction({
       name: 'processPayment', filePath: '/src/payments.ts',
       startLine: 20, endLine: 30, isExported: true, isAsync: true, isArrow: false, params: [],
     });
-    await ops.upsertFunction({
+    const renderChart = makeFunction({
       name: 'renderChart', filePath: '/src/payments.ts',
       startLine: 40, endLine: 50, isExported: true, isAsync: false, isArrow: false, params: [],
     });
+    await ops.upsertFunction(retryWithBackoff);
+    await ops.upsertFunction(processPayment);
+    await ops.upsertFunction(renderChart);
 
     // Set embeddings on code nodes: "payment" cluster near dim 0, "chart" near dim 1
     const RETRY_VEC = makeVec({ 0: 0.85, 1: 0.05, 2: 0.1 });
     const PAYMENT_VEC = makeVec({ 0: 0.95, 1: 0.0, 2: 0.05 });
     const CHART_VEC = makeVec({ 0: 0.05, 1: 0.95, 2: 0.0 });
 
-    await ops.updateEmbedding('Function', { name: 'retryWithBackoff', filePath: '/src/payments.ts', startLine: 1 }, RETRY_VEC, 'h1');
-    await ops.updateEmbedding('Function', { name: 'processPayment', filePath: '/src/payments.ts', startLine: 20 }, PAYMENT_VEC, 'h2');
-    await ops.updateEmbedding('Function', { name: 'renderChart', filePath: '/src/payments.ts', startLine: 40 }, CHART_VEC, 'h3');
+    await ops.updateEmbedding('Function', { id: retryWithBackoff.id }, RETRY_VEC, 'h1');
+    await ops.updateEmbedding('Function', { id: processPayment.id }, PAYMENT_VEC, 'h2');
+    await ops.updateEmbedding('Function', { id: renderChart.id }, CHART_VEC, 'h3');
 
     // Seed knowledge entities (no ABOUT edges yet)
     await kg.createEntity({ text: 'payment retry bug', type: 'Bug', confidence: 0.9 });
