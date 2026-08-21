@@ -49,6 +49,7 @@ const opsMocks = vi.hoisted(() => {
     }),
     removeFileAndCleanup: vi.fn().mockResolvedValue(undefined),
     removeFileContents: vi.fn().mockResolvedValue(undefined),
+    removeDocumentContents: vi.fn().mockResolvedValue(undefined),
     batchUpsertBulk: vi.fn().mockResolvedValue(undefined),
     batchCreateBulk: vi.fn().mockResolvedValue(undefined),
     linkProjectFiles: vi.fn().mockImplementation(async (projectId: string) => {
@@ -107,6 +108,8 @@ vi.mock('../pipeline', () => ({
     hasParamEdges: [],
     returnsEdges: [],
     usesTypeEdges: [],
+    exportsEdges: [],
+    importsSymbolEdges: [],
   })),
   registerPlugins: vi.fn(),
   registerTier2Languages: vi.fn().mockResolvedValue({ registered: [], skipped: [] }),

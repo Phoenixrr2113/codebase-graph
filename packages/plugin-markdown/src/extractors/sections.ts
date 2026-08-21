@@ -95,32 +95,44 @@ export function extractSections(ast: Root, filePath: string): SectionEntity[] {
 }
 
 /**
- * Build section hierarchy edges.
- * Returns pairs of [parentId, childId] for PARENT_SECTION edges.
- * 
- * @param sections - Extracted sections with IDs
- * @returns Array of [parentId, childId] tuples
+ * Build PARENT_SECTION edges from a document's flat, document-order section
+ * list. Each section's parent is the nearest PRECEDING section with a
+ * smaller heading level: an H2 nests under the closest earlier H1, an H3
+ * under the closest earlier H2 or H1, and so on. A section with nothing
+ * shallower before it (typically the document's first H1, or any heading
+ * that never dips back to a smaller level) is root-level and gets no edge.
+ *
+ * Returns (parentStartLine, childStartLine) pairs, not section ids: Section
+ * nodes are identified in the graph by (filePath, startLine), see
+ * BATCH_UPSERT_SECTIONS in @codegraph/graph's operations.ts, not by this
+ * package's synthetic `section:<hash>` id, which is never written to the
+ * graph. Matching on startLine also means this function works on sections
+ * before ids are even assigned (see parseMarkdownFile / parseMarkdownContent
+ * in ../index.ts).
+ *
+ * @param sections - Extracted sections, in document order (as extractSections returns them)
+ * @returns Array of {parentStartLine, childStartLine} pairs, one per non-root section
  */
 export function buildSectionHierarchy(
   sections: SectionEntity[]
-): Array<[string, string]> {
-  const edges: Array<[string, string]> = [];
+): Array<{ parentStartLine: number; childStartLine: number }> {
+  const edges: Array<{ parentStartLine: number; childStartLine: number }> = [];
   const stack: SectionEntity[] = [];
-  
+
   for (const section of sections) {
     // Pop sections from stack that are not parents of this section
-    while (stack.length > 0 && stack[stack.length - 1].level >= section.level) {
+    while (stack.length > 0 && stack[stack.length - 1]!.level >= section.level) {
       stack.pop();
     }
-    
+
     // If there's a parent on the stack, create an edge
-    if (stack.length > 0 && section.id && stack[stack.length - 1].id) {
-      edges.push([stack[stack.length - 1].id!, section.id]);
+    if (stack.length > 0) {
+      edges.push({ parentStartLine: stack[stack.length - 1]!.startLine, childStartLine: section.startLine });
     }
-    
+
     // Push this section onto the stack
     stack.push(section);
   }
-  
+
   return edges;
 }

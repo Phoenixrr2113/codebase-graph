@@ -595,11 +595,7 @@ class GraphQueriesImpl implements GraphQueries {
       MODIFIED_IN: 0,
       DELETED_IN: 0,
       EXPORTS: 0,
-      INSTANTIATES: 0,
-      HAS_SECTION: 0,
       PARENT_SECTION: 0,
-      CONTAINS_CODE: 0,
-      LINKS_TO: 0,
       ABOUT: 0,
     };
 

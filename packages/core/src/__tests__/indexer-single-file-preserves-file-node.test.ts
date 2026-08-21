@@ -34,6 +34,7 @@ import type { ExtractedEntities, FileEntity, ParsedFileEntities } from '@codegra
 const opsMocks = vi.hoisted(() => ({
   removeFileAndCleanup: vi.fn().mockResolvedValue(undefined),
   removeFileContents: vi.fn().mockResolvedValue(undefined),
+  removeDocumentContents: vi.fn().mockResolvedValue(undefined),
   batchUpsert: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -83,6 +84,8 @@ vi.mock('../pipeline', () => ({
     hasParamEdges: [],
     returnsEdges: [],
     usesTypeEdges: [],
+    exportsEdges: [],
+    importsSymbolEdges: [],
   })),
   registerPlugins: vi.fn(),
   registerTier2Languages: vi.fn().mockResolvedValue({ registered: [], skipped: [] }),

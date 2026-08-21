@@ -76,6 +76,8 @@ function emptyParsed(file: FileEntity): ParsedFileEntities {
     hasParamEdges: [],
     returnsEdges: [],
     usesTypeEdges: [],
+    exportsEdges: [],
+    importsSymbolEdges: [],
   };
 }
 

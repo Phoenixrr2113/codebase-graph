@@ -39,6 +39,9 @@ import type {
   HasParamEdgeDescriptor,
   ReturnsEdgeDescriptor,
   UsesTypeEdgeDescriptor,
+  ExportsEdgeDescriptor,
+  ImportsSymbolEdgeDescriptor,
+  ExportableSymbolKind,
   SymbolLabel,
 } from '@codegraph/types';
 
@@ -374,9 +377,18 @@ const CYPHER = {
   `,
 
   // Export edge operations
+  // symbolKind (labels(symbol)[0] predicate) disambiguates declaration
+  // merging: a class and an interface (or two other node types) sharing the
+  // same (name, filePath) but declared at different points, the same
+  // reasoning CREATE_CALLS_EDGE uses callerKind for. WHERE applied directly
+  // after MATCH filters the pattern match itself, so a symbol that exists
+  // but has the wrong label makes this whole MATCH find nothing (zero rows),
+  // not an error: the edge silently isn't created, same as the file-not-found
+  // case, never a stub or a wrongly-labeled edge.
   CREATE_EXPORTS_EDGE: `
     MATCH (f:File {filePath: $filePath})
     MATCH (symbol {name: $symbolName, filePath: $filePath})
+    WHERE labels(symbol)[0] = $symbolKind
     MERGE (f)-[r:EXPORTS]->(symbol)
     SET r.asName = $asName,
         r.isDefault = $isDefault
@@ -388,19 +400,40 @@ const CYPHER = {
     RETURN symbol.name as name, labels(symbol)[0] as type, r.asName as asName, r.isDefault as isDefault
   `,
 
-  // Instantiation edge operations
-  CREATE_INSTANTIATES_EDGE: `
-    MATCH (fn:Function {name: $functionName, filePath: $functionFile})
-    MERGE (c:Class {name: $className, filePath: COALESCE($classFile, 'external')})
-    ON CREATE SET c:External
-    MERGE (fn)-[r:INSTANTIATES]->(c)
-    SET r.line = $line
+  // IMPORTS_SYMBOL edge: importing File to the imported symbol node (not the
+  // imported File, that's IMPORTS). Plain MATCH on both sides, mirroring
+  // CREATE_CALLS_EDGE: when the target symbol doesn't exist yet (unparsed
+  // file, or a genuinely external/node_modules source), this MATCH simply
+  // finds nothing and the edge is silently never created, never MERGE'd as a
+  // stub node the way CREATE_EXTENDS_EDGE does for an external parent class.
+  // No label predicate on the target: unlike EXPORTS, the pipeline doesn't
+  // know the target symbol's kind ahead of time (it lives in another file
+  // this pass hasn't necessarily typed), so this matches by (name, filePath)
+  // alone, same as the pre-fix CREATE_EXPORTS_EDGE did before symbolKind was
+  // added above.
+  CREATE_IMPORTS_SYMBOL_EDGE: `
+    MATCH (from:File {filePath: $fromFilePath})
+    MATCH (symbol {name: $symbolName, filePath: $toFilePath})
+    MERGE (from)-[r:IMPORTS_SYMBOL]->(symbol)
+    SET r.alias = $alias,
+        r.isDefault = $isDefault
     RETURN r
   `,
 
-  GET_CLASS_INSTANTIATIONS: `
-    MATCH (fn:Function)-[r:INSTANTIATES]->(c:Class {name: $className})
-    RETURN fn.name as functionName, fn.filePath as functionFile, r.line as line
+  // PARENT_SECTION edge: Section to Section nesting within one document,
+  // derived from heading levels by buildSectionHierarchy in
+  // @codegraph/plugin-markdown (each section's parent is the nearest
+  // preceding section with a smaller level). Matches on (filePath,
+  // startLine), the same key BATCH_UPSERT_SECTIONS below MERGEs Section
+  // nodes on, not on this package's synthetic section id. OPTIONAL MATCH +
+  // WHERE ... IS NOT NULL so a section that failed to upsert for any reason
+  // drops this edge instead of erroring the whole batch.
+  CREATE_PARENT_SECTION_EDGE: `
+    OPTIONAL MATCH (parent:Section {filePath: $filePath, startLine: $parentStartLine})
+    OPTIONAL MATCH (child:Section {filePath: $filePath, startLine: $childStartLine})
+    WITH parent, child WHERE parent IS NOT NULL AND child IS NOT NULL
+    MERGE (parent)-[r:PARENT_SECTION]->(child)
+    RETURN r
   `,
 
   // Delete operations - cascade delete file and all contained entities
@@ -428,6 +461,15 @@ const CYPHER = {
   REMOVE_FILE_CONTENTS: `
     MATCH (f:File {filePath: $filePath})-[c:CONTAINS]->()
     DELETE c
+  `,
+
+  // Content-only removal for a changed Markdown document. Keep the stable
+  // MarkdownDocument node, but delete every contained content node and all
+  // of their relationships so re-upsert cannot retain obsolete hierarchy.
+  REMOVE_DOCUMENT_CONTENTS: `
+    MATCH (:MarkdownDocument {path: $documentPath})-[:CONTAINS]->(content)
+    WHERE content:Section OR content:CodeBlock OR content:Link
+    DETACH DELETE content
   `,
 
   // Step 2: Remove orphaned entities from this file that have no incoming edges
@@ -619,6 +661,13 @@ const CYPHER = {
   `,
 
   // --- Document entities (markdown) ---
+  // Sections, code blocks, and links all attach to their MarkdownDocument
+  // with the generic CONTAINS edge below, not a dedicated HAS_SECTION /
+  // CONTAINS_CODE / LINKS_TO edge type: those three were declared in
+  // @codegraph/types at one point but never actually written here, so they
+  // were removed rather than left promising a relationship that doesn't
+  // exist. PARENT_SECTION (CREATE_PARENT_SECTION_EDGE above) is the one real
+  // document edge beyond CONTAINS.
 
   BATCH_UPSERT_DOCUMENTS: `
     UNWIND $items AS item
@@ -661,6 +710,16 @@ const CYPHER = {
     WITH l, item
     MATCH (d:MarkdownDocument {path: item.filePath})
     MERGE (d)-[:CONTAINS]->(l)
+  `,
+
+  // Batch variant of CREATE_PARENT_SECTION_EDGE, run after BATCH_UPSERT_SECTIONS
+  // so every Section node in this batch already exists.
+  BATCH_CREATE_PARENT_SECTION_EDGES: `
+    UNWIND $items AS item
+    OPTIONAL MATCH (parent:Section {filePath: item.filePath, startLine: item.parentStartLine})
+    OPTIONAL MATCH (child:Section {filePath: item.filePath, startLine: item.childStartLine})
+    WITH parent, child WHERE parent IS NOT NULL AND child IS NOT NULL
+    MERGE (parent)-[r:PARENT_SECTION]->(child)
   `,
 
   // Edge queries use OPTIONAL MATCH + WHERE to avoid FalkorDB crashes on
@@ -1072,6 +1131,31 @@ export interface GraphOperations {
     specifiers?: string[]
   ): Promise<void>;
 
+  /**
+   * Create a File EXPORTS symbol edge. Matched by (symbolName, filePath,
+   * symbolKind), not id: see CREATE_EXPORTS_EDGE for why. Drops silently
+   * (zero rows, no error) if the File or the symbol doesn't exist.
+   */
+  createExportsEdge(
+    filePath: string,
+    symbolName: string,
+    symbolKind: ExportableSymbolKind,
+    props?: { asName?: string | undefined; isDefault?: boolean | undefined }
+  ): Promise<void>;
+
+  /**
+   * Create an importing File to imported-symbol IMPORTS_SYMBOL edge (not the
+   * imported File, that's createImportsEdge). Mirrors CALLS edge behavior:
+   * a plain MATCH on both sides, so it drops silently, never MERGEs a stub,
+   * when the target file or symbol isn't in the graph (unparsed or external).
+   */
+  createImportsSymbolEdge(
+    fromFilePath: string,
+    toFilePath: string,
+    symbolName: string,
+    props?: { alias?: string | undefined; isDefault?: boolean | undefined }
+  ): Promise<void>;
+
   createExtendsEdge(
     childName: string,
     childFile: string,
@@ -1147,6 +1231,13 @@ export interface GraphOperations {
    * HAS_FILE, EXPORTS, ...), untouched.
    */
   removeFileContents(filePath: string): Promise<void>;
+
+  /**
+   * Content-only removal for a changed Markdown document. Deletes its
+   * contained Section, CodeBlock, and Link nodes and their edges while
+   * preserving the MarkdownDocument node itself.
+   */
+  removeDocumentContents(documentPath: string): Promise<void>;
 
   clearAll(): Promise<void>;
 
@@ -1323,6 +1414,30 @@ class GraphOperationsImpl implements GraphOperations {
   }
 
   @trace()
+  async createExportsEdge(
+    filePath: string,
+    symbolName: string,
+    symbolKind: ExportableSymbolKind,
+    props: { asName?: string | undefined; isDefault?: boolean | undefined } = {},
+  ): Promise<void> {
+    await this.client.query(CYPHER.CREATE_EXPORTS_EDGE, {
+      params: { filePath, symbolName, symbolKind, asName: props.asName ?? null, isDefault: props.isDefault ?? null },
+    });
+  }
+
+  @trace()
+  async createImportsSymbolEdge(
+    fromFilePath: string,
+    toFilePath: string,
+    symbolName: string,
+    props: { alias?: string | undefined; isDefault?: boolean | undefined } = {},
+  ): Promise<void> {
+    await this.client.query(CYPHER.CREATE_IMPORTS_SYMBOL_EDGE, {
+      params: { fromFilePath, toFilePath, symbolName, alias: props.alias ?? null, isDefault: props.isDefault ?? false },
+    });
+  }
+
+  @trace()
   async createExtendsEdge(
     childName: string,
     childFile: string,
@@ -1458,6 +1573,11 @@ class GraphOperationsImpl implements GraphOperations {
   }
 
   @trace()
+  async removeDocumentContents(documentPath: string): Promise<void> {
+    await this.client.query(CYPHER.REMOVE_DOCUMENT_CONTENTS, { params: { documentPath } });
+  }
+
+  @trace()
   async clearAll(): Promise<void> {
     await this.client.query(CYPHER.CLEAR_ALL, { params: {} });
   }
@@ -1518,6 +1638,14 @@ class GraphOperationsImpl implements GraphOperations {
       // HAS_PROPERTY edges (class → property Variable node)
       ...entities.hasPropertyEdges.map((edge) =>
         this.createHasPropertyEdge(edge.fromId, edge.toId, { isStatic: edge.isStatic, visibility: edge.visibility, isReadonly: edge.isReadonly })
+      ),
+      // EXPORTS edges (File → exported symbol)
+      ...entities.exportsEdges.map((edge) =>
+        this.createExportsEdge(edge.filePath, edge.symbolName, edge.symbolKind, { asName: edge.asName, isDefault: edge.isDefault })
+      ),
+      // IMPORTS_SYMBOL edges (importing File → imported symbol node)
+      ...entities.importsSymbolEdges.map((edge) =>
+        this.createImportsSymbolEdge(edge.fromFilePath, edge.toFilePath, edge.symbolName, { alias: edge.alias, isDefault: edge.isDefault })
       ),
     ]);
 
@@ -1754,6 +1882,36 @@ class GraphOperationsImpl implements GraphOperations {
         { fromId: e.fromId, toId: e.toId, kind: e.kind },
       );
     }
+
+    // EXPORTS edges (File → exported symbol). Same MATCH + label-predicate
+    // shape as CYPHER.CREATE_EXPORTS_EDGE, see that template for why
+    // symbolKind is required.
+    const exportsEdges: ExportsEdgeDescriptor[] = entitiesList.flatMap(e => e.exportsEdges);
+    for (const e of exportsEdges) {
+      await safeEdge(
+        `MATCH (f:File {filePath: $filePath})
+         MATCH (symbol {name: $symbolName, filePath: $filePath})
+         WHERE labels(symbol)[0] = $symbolKind
+         MERGE (f)-[r:EXPORTS]->(symbol)
+         SET r.asName = $asName, r.isDefault = $isDefault`,
+        { filePath: e.filePath, symbolName: e.symbolName, symbolKind: e.symbolKind, asName: e.asName ?? null, isDefault: e.isDefault ?? null },
+      );
+    }
+
+    // IMPORTS_SYMBOL edges (importing File → imported symbol node, not the
+    // imported File). Same plain-MATCH-on-both-sides shape as
+    // CYPHER.CREATE_IMPORTS_SYMBOL_EDGE: drops silently when the target
+    // symbol isn't in the graph, never MERGEs a stub.
+    const importsSymbolEdges: ImportsSymbolEdgeDescriptor[] = entitiesList.flatMap(e => e.importsSymbolEdges);
+    for (const e of importsSymbolEdges) {
+      await safeEdge(
+        `MATCH (from:File {filePath: $fromFilePath})
+         MATCH (symbol {name: $symbolName, filePath: $toFilePath})
+         MERGE (from)-[r:IMPORTS_SYMBOL]->(symbol)
+         SET r.alias = $alias, r.isDefault = $isDefault`,
+        { fromFilePath: e.fromFilePath, toFilePath: e.toFilePath, symbolName: e.symbolName, alias: e.alias ?? null, isDefault: e.isDefault },
+      );
+    }
   }
 
   @trace()
@@ -1957,6 +2115,36 @@ class GraphOperationsImpl implements GraphOperations {
         { fromId: e.fromId, toId: e.toId, kind: e.kind },
       );
     }
+
+    // EXPORTS edges (File → exported symbol). Same MATCH + label-predicate
+    // shape as CYPHER.CREATE_EXPORTS_EDGE, see that template for why
+    // symbolKind is required.
+    const exportsEdges: ExportsEdgeDescriptor[] = entitiesList.flatMap(e => e.exportsEdges);
+    for (const e of exportsEdges) {
+      await safeEdge(
+        `MATCH (f:File {filePath: $filePath})
+         MATCH (symbol {name: $symbolName, filePath: $filePath})
+         WHERE labels(symbol)[0] = $symbolKind
+         MERGE (f)-[r:EXPORTS]->(symbol)
+         SET r.asName = $asName, r.isDefault = $isDefault`,
+        { filePath: e.filePath, symbolName: e.symbolName, symbolKind: e.symbolKind, asName: e.asName ?? null, isDefault: e.isDefault ?? null },
+      );
+    }
+
+    // IMPORTS_SYMBOL edges (importing File → imported symbol node, not the
+    // imported File). Same plain-MATCH-on-both-sides shape as
+    // CYPHER.CREATE_IMPORTS_SYMBOL_EDGE: drops silently when the target
+    // symbol isn't in the graph, never MERGEs a stub.
+    const importsSymbolEdges: ImportsSymbolEdgeDescriptor[] = entitiesList.flatMap(e => e.importsSymbolEdges);
+    for (const e of importsSymbolEdges) {
+      await safeEdge(
+        `MATCH (from:File {filePath: $fromFilePath})
+         MATCH (symbol {name: $symbolName, filePath: $toFilePath})
+         MERGE (from)-[r:IMPORTS_SYMBOL]->(symbol)
+         SET r.alias = $alias, r.isDefault = $isDefault`,
+        { fromFilePath: e.fromFilePath, toFilePath: e.toFilePath, symbolName: e.symbolName, alias: e.alias ?? null, isDefault: e.isDefault },
+      );
+    }
   }
 
   @trace()
@@ -1975,6 +2163,17 @@ class GraphOperationsImpl implements GraphOperations {
     const sections = docsList.flatMap(d => d.sections.map(s => sectionToNodeProps(s)));
     const codeBlocks = docsList.flatMap(d => d.codeBlocks.map(cb => codeBlockToNodeProps(cb)));
     const links = docsList.flatMap(d => d.links.map(l => linkToNodeProps(l)));
+    // PARENT_SECTION pairs, tagged with each document's own filePath so the
+    // batch query can match sections within the right document (see
+    // buildSectionHierarchy in @codegraph/plugin-markdown for how these are
+    // computed).
+    const sectionHierarchy = docsList.flatMap(d =>
+      d.sectionHierarchy.map(h => ({
+        filePath: d.document.path,
+        parentStartLine: h.parentStartLine,
+        childStartLine: h.childStartLine,
+      })),
+    );
 
     // Upsert documents first (parent nodes for CONTAINS edges)
     if (documents.length > 0) {
@@ -1999,6 +2198,13 @@ class GraphOperationsImpl implements GraphOperations {
       );
     }
     await Promise.all(childOps);
+
+    // PARENT_SECTION edges, after every Section node above exists: this
+    // query MATCHes both endpoints by (filePath, startLine), so it must run
+    // after BATCH_UPSERT_SECTIONS, not concurrently with it.
+    if (sectionHierarchy.length > 0) {
+      await this.client.query(CYPHER.BATCH_CREATE_PARENT_SECTION_EDGES, { params: { items: sectionHierarchy } });
+    }
   }
 
   @trace()

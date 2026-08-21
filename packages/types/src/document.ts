@@ -100,6 +100,26 @@ export interface LinkEntity {
 }
 
 // ============================================================================
+// Section Hierarchy Edge (PARENT_SECTION)
+// ============================================================================
+
+/**
+ * A PARENT_SECTION pair within one document: the parent is the nearest
+ * PRECEDING section with a smaller heading level (an H2 nests under the
+ * closest earlier H1, an H3 under the closest earlier H2 or H1, and so on).
+ * Identified by startLine, not section id: Section nodes are matched in the
+ * graph by (filePath, startLine), see BATCH_UPSERT_SECTIONS in
+ * @codegraph/graph's operations.ts, and this document's own filePath already
+ * disambiguates every pair here, so startLine alone is enough.
+ */
+export interface SectionHierarchyEdge {
+  /** Starting line of the parent section. */
+  parentStartLine: number;
+  /** Starting line of the child section. */
+  childStartLine: number;
+}
+
+// ============================================================================
 // Extracted Document Entities
 // ============================================================================
 
@@ -115,4 +135,6 @@ export interface ExtractedDocumentEntities {
   codeBlocks: CodeBlockEntity[];
   /** All links */
   links: LinkEntity[];
+  /** PARENT_SECTION edges derived from the heading hierarchy. */
+  sectionHierarchy: SectionHierarchyEdge[];
 }

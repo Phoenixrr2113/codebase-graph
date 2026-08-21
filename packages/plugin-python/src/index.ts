@@ -75,7 +75,7 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
       filePath,
       startLine,
       endLine,
-      isExported: !name.startsWith('_'), // Python convention: _ prefix means private
+      isExported: isModuleLevelFunction(node) && !name.startsWith('_'),
       isAsync,
       isArrow: false, // Python doesn't have arrow functions
       params,
@@ -165,6 +165,13 @@ function isInsideClass(node: SyntaxNode): boolean {
     parent = parent.parent;
   }
   return false;
+}
+
+function isModuleLevelFunction(node: SyntaxNode): boolean {
+  const parent = node.parent?.type === 'decorated_definition'
+    ? node.parent.parent
+    : node.parent;
+  return parent?.type === 'module';
 }
 
 // ============================================================================

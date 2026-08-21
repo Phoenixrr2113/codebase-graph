@@ -176,6 +176,8 @@ function makeEntities(): ParsedFileEntities {
     usesTypeEdges: [
       { fromId: fnId, toId: typeRefId, kind: 'annotation' },
     ],
+    exportsEdges: [],
+    importsSymbolEdges: [],
   };
 }
 

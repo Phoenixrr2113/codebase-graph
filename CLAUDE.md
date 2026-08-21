@@ -95,7 +95,7 @@ knowledge({ action: "resolve_entities" })
 
 Execute read-only Cypher against the code graph.
 
-**Schema:** Nodes: File, Function, Class, Interface, Variable, Type, Component, Entity. Edges: CONTAINS, CALLS, IMPORTS, EXTENDS, IMPLEMENTS, ABOUT, RELATES_TO, SAID.
+**Schema:** Nodes: File, Function, Class, Interface, Variable, Type, Component, Entity. Edges: CONTAINS, CALLS, IMPORTS, IMPORTS_SYMBOL, EXTENDS, IMPLEMENTS, EXPORTS, PARENT_SECTION, ABOUT, RELATES_TO. SAID is not a separate edge label: it's a RELATES_TO edge with a `type` property set to "SAID" (deliberate design, same as every other relationship kind RELATES_TO carries via its `type` property).
 
 ```
 query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f.filePath LIMIT 20", params: { name: "parse" } })

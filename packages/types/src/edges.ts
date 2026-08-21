@@ -3,6 +3,15 @@
  * Based on CodeGraph MVP Specification Section 3.2
  */
 
+import type { SymbolLabel } from './labels';
+
+/**
+ * The node labels an EXPORTS or IMPORTS_SYMBOL edge can point at: every
+ * SYMBOL_LABELS entry except 'File' itself (a file can't export or be
+ * imported as a symbol of itself).
+ */
+export type ExportableSymbolKind = Exclude<SymbolLabel, 'File'>;
+
 // ============================================================================
 // Base Edge Types
 // ============================================================================
@@ -44,6 +53,37 @@ export interface ImportsSymbolEdge extends BaseEdge {
   isDefault: boolean;
 }
 
+/**
+ * Pipeline transport descriptor for IMPORTS_SYMBOL edges: the importing
+ * File node to the imported symbol node (not the imported File, that's what
+ * IMPORTS is for). Produced in @codegraph/core's pipeline from each
+ * ImportEntity's named specifiers that carry a resolvedPath.
+ *
+ * `symbolName`/`toFilePath` are the DECLARED name and file, not necessarily
+ * the local specifier's own name/path: when the barrel-aware
+ * ResolvedImportMap (built from wave 3a/3b's re-export chain resolution) has
+ * already chased the local name to its true origin, that origin is used;
+ * otherwise the specifier's own name plus the import's resolvedPath stand in
+ * unchanged, which is already correct for a plain, non-barrel import.
+ *
+ * Cardinality is one edge per (named specifier, merged declaration). When a
+ * language merges declarations under one name, such as a TypeScript Class
+ * and Interface named `Joined`, importing that name intentionally targets
+ * both declaration nodes.
+ */
+export interface ImportsSymbolEdgeDescriptor {
+  /** Importing file's path (File node). */
+  fromFilePath: string;
+  /** File path where the imported symbol is actually declared. */
+  toFilePath: string;
+  /** The symbol's name as declared at toFilePath, not the local alias. */
+  symbolName: string;
+  /** Local alias, when the import renamed it (`import { x as y }`). */
+  alias?: string;
+  /** Whether this is a default import. */
+  isDefault: boolean;
+}
+
 // ============================================================================
 // Export Edges
 // ============================================================================
@@ -54,6 +94,33 @@ export interface ExportsEdge extends BaseEdge {
   /** Export alias (for `export { foo as bar }`) */
   asName?: string;
   /** Whether this is the default export */
+  isDefault?: boolean;
+}
+
+/**
+ * Pipeline transport descriptor for EXPORTS edges (File to exported symbol).
+ * Produced in @codegraph/core's pipeline from the `isExported` flag every
+ * language plugin already stamps on functions, classes, interfaces,
+ * variables, types, and components: see buildParsedFileEntities's
+ * exportsEdges collection.
+ *
+ * Matched by name/filePath/kind (not `id`) when written: `id` on a symbol
+ * node is populated by the TypeScript extractor but isn't guaranteed for
+ * every language plugin, and `symbolKind` is needed anyway to disambiguate
+ * declaration-merged names sharing (name, filePath), the same reasoning
+ * CALLS edges use `callerKind` for (see CREATE_CALLS_EDGE in
+ * @codegraph/graph's operations.ts).
+ */
+export interface ExportsEdgeDescriptor {
+  /** Exporting file's path (File node). */
+  filePath: string;
+  /** Exported symbol's name. */
+  symbolName: string;
+  /** Node label of the exported symbol (disambiguates declaration merging). */
+  symbolKind: ExportableSymbolKind;
+  /** Export alias (`export { foo as bar }`), when known. */
+  asName?: string;
+  /** Whether this is the default export, when known. */
   isDefault?: boolean;
 }
 
@@ -68,13 +135,6 @@ export interface CallsEdge extends BaseEdge {
   line: number;
   /** Number of times this call occurs (for aggregation) */
   count?: number;
-}
-
-/** Function instantiates a class (new ClassName()) */
-export interface InstantiatesEdge extends BaseEdge {
-  type: 'INSTANTIATES';
-  /** Line number where instantiation occurs */
-  line: number;
 }
 
 // ============================================================================
@@ -257,34 +317,26 @@ export interface DeletedInEdge extends BaseEdge {
 // Document Edges (Markdown)
 // ============================================================================
 
-/** Document has a section (heading) */
-export interface HasSectionEdge extends BaseEdge {
-  type: 'HAS_SECTION';
-}
+// A document attaching its sections, code blocks, and links was originally
+// meant to use three dedicated edge types (HAS_SECTION, CONTAINS_CODE,
+// LINKS_TO), but the write layer has only ever used the generic CONTAINS
+// edge for all three (see BATCH_UPSERT_SECTIONS / BATCH_UPSERT_CODEBLOCKS /
+// BATCH_UPSERT_LINKS in @codegraph/graph's operations.ts), so those three
+// types were removed here rather than left declared and never written.
+// PARENT_SECTION is real: it's the one document edge actually created, for
+// section-to-section heading nesting within one document.
 
 /** Section is a parent of another section (heading hierarchy) */
 export interface ParentSectionEdge extends BaseEdge {
   type: 'PARENT_SECTION';
 }
 
-/** Section or document contains a code block */
-export interface ContainsCodeEdge extends BaseEdge {
-  type: 'CONTAINS_CODE';
-}
-
-/** Document links to another document, file, or URL */
-export interface LinksToEdge extends BaseEdge {
-  type: 'LINKS_TO';
-  /** Anchor/fragment if present (e.g., #section-id) */
-  anchor?: string;
-}
-
 // ============================================================================
-// Bridge Edges (Knowledge Graph ↔ Code Graph)
+// Bridge Edges (Knowledge Graph to Code Graph)
 // ============================================================================
 
 /**
- * ABOUT — connects a knowledge entity to a code graph node.
+ * ABOUT: connects a knowledge entity to a code graph node.
  * Bridges the knowledge graph layer (entities from conversations, decisions,
  * bug reports) to the code graph layer (functions, classes, files, etc.).
  *
@@ -325,11 +377,7 @@ export type Edge =
   | ModifiedInEdge
   | DeletedInEdge
   | ExportsEdge
-  | InstantiatesEdge
-  | HasSectionEdge
   | ParentSectionEdge
-  | ContainsCodeEdge
-  | LinksToEdge
   | AboutEdge;
 
 /** Edge label types matching FalkorDB schema */
@@ -350,9 +398,5 @@ export type EdgeLabel =
   | 'MODIFIED_IN'
   | 'DELETED_IN'
   | 'EXPORTS'
-  | 'INSTANTIATES'
-  | 'HAS_SECTION'
   | 'PARENT_SECTION'
-  | 'CONTAINS_CODE'
-  | 'LINKS_TO'
   | 'ABOUT';
