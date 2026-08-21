@@ -7,7 +7,7 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 30_000,
     include: [
-      'src/__tests__/{conversation-said,entity-id-persistence,falkordblite,temporal-queries,v5-features}.test.ts',
+      'src/__tests__/{conversation-said,entity-id-persistence,falkordblite,temporal-queries,v5-features,merge-entities-identity}.test.ts',
     ],
     env: {
       CODEGRAPH_EMBEDDING_PROVIDER: 'local',

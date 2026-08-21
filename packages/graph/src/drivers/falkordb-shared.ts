@@ -6,8 +6,12 @@
  */
 
 import type { Graph } from 'falkordb';
+import { ConstraintType, EntityType } from 'falkordb';
 import type { QueryOptions as FalkorQueryOptions } from 'falkordb/dist/src/commands';
 import type { QueryParams } from '../client';
+import { createLogger } from '@codegraph/logger';
+
+const logger = createLogger({ namespace: 'graph:schema' });
 
 // ============================================================================
 // Shared query execution
@@ -128,6 +132,57 @@ export async function ensureSchemaImpl(
   }
   // Entity uses both 'name' and 'text'
   await safeIndex(`CALL db.idx.fulltext.createNodeIndex('Entity', 'name', 'text')`);
+
+  // --- Entity(text, type) uniqueness ---
+  // Every Entity read/write path in knowledge-operations.ts (UPSERT_ENTITY,
+  // BATCH_UPSERT_ENTITIES, touchEntity, getRelationships, mergeEntities, ...)
+  // treats {text, type} as the entity's identity key, upserting via MERGE.
+  // MERGE only behaves atomically under concurrent writes when a real
+  // constraint backs the pattern. Without one, two concurrent MERGEs that
+  // each observe "no matching node yet" can each create a node, leaving two
+  // physical nodes that share a key. mergeEntities detects and refuses that
+  // case rather than corrupting data, but it cannot resolve it (text+type
+  // cannot tell the two nodes apart): the constraint is what is supposed to
+  // stop it from happening in the first place, so its absence until now was
+  // itself a bug, not just a missing optimization.
+  //
+  // A FalkorDB UNIQUE constraint needs a prerequisite exact-match index on
+  // the same properties, and applies asynchronously. Verified empirically
+  // against a real embedded graph, since this is not documented in enough
+  // detail to trust untested (both a throwaway probe here and, separately,
+  // an adversarial review that built its own populated graph): if the label
+  // already has data violating the constraint when it is created, the
+  // command still returns without throwing, and the constraint settles into
+  // a FAILED (not enforced) status instead of raising an error here, with
+  // writes continuing to work throughout - status is only visible via
+  // `CALL db.constraints()`, which this setup does not poll. That FAILED
+  // state is not permanent, though: this setup runs on every connect (see
+  // the "expected on restart" comment on safeIndex above), and once the
+  // violating data is gone, a later call is not rejected as "already
+  // exists" the way it would be for an already-OPERATIONAL constraint - it
+  // retries and transitions to OPERATIONAL on its own, confirmed by
+  // creating a constraint over conflicting data, deleting the conflict, and
+  // calling constraintCreate again with no other intervention. So this is
+  // best-effort forward protection that self-heals once the underlying data
+  // problem is fixed (by node identity, cleaning up duplicate-keyed Entity
+  // nodes - outside what mergeEntities' {text, type} API can do on its own),
+  // rather than something that needs a manual migration step to recover.
+  // mergeEntities' own cardinality guard, not this constraint, is what keeps
+  // merges safe in the meantime, on any graph where the constraint has not
+  // yet reached OPERATIONAL.
+  await safeIndex(`CREATE INDEX FOR (n:Entity) ON (n.text, n.type)`);
+  try {
+    await graph.constraintCreate(ConstraintType.UNIQUE, EntityType.NODE, 'Entity', 'text', 'type');
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // Swallow "already exists" (expected on restart; empirically confirmed
+    // wording: "Constraint already exists"). Anything else is unexpected
+    // enough, unlike plain index setup, to be worth a log line, since a
+    // silent failure here would otherwise be undetectable.
+    if (!msg.includes('already exists')) {
+      logger.warn(`Entity(text, type) uniqueness constraint setup failed: ${msg}`);
+    }
+  }
 
   // --- Vector indexes (HNSW for embedding similarity search) ---
   // Dimension is auto-detected from API keys (VOYAGE_API_KEY, OPENROUTER_API_KEY)

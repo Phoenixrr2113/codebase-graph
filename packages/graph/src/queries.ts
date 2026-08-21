@@ -653,17 +653,60 @@ class GraphQueriesImpl implements GraphQueries {
   async getSymbolReferences(query: SymbolReferenceQuery): Promise<SymbolReferencesResult> {
     const limit = Math.min(Math.max(query.limit ?? 200, 1), 1000);
 
-    // The declaration is pinned first so the reference expansion starts from a
-    // single node. Expanding from the edge side instead would scan every
-    // relationship of these types in the graph.
-    const targetFilters = ['target.name = $name'];
-    if (query.filePath !== undefined) targetFilters.push('target.filePath = $filePath');
-    if (query.startLine !== undefined) targetFilters.push('target.startLine = $startLine');
+    // An empty `?path=` query string arrives as '', not undefined. Treated as
+    // a real value it becomes `filePath = ''`, which no real node ever
+    // matches, so normalize it to "not supplied" up front.
+    const filePath = query.filePath === '' ? undefined : query.filePath;
 
+    // A symbol can be represented by more than one node: a declaration
+    // (Interface/Class/Type/Function/...) with a real filePath, and a TypeRef
+    // proxy node with filePath = null that USES_TYPE/HAS_PARAM/RETURNS edges
+    // actually land on. Matching every node with this name, rather than
+    // pinning to a single one, means references landing on either kind of
+    // node are found. The expansion still starts from named nodes, not the
+    // edge side, so it does not scan every relationship of these types in
+    // the graph.
+    //
+    // A node with no filePath has nothing for filePath/startLine to
+    // disambiguate against, so those filters only ever exclude a node that
+    // carries a location that disagrees with the request. That keeps this
+    // correct today (TypeRef's filePath is always null) and later, once
+    // TypeRef nodes carry a real filePath, when the plain equality check
+    // starts doing the disambiguation on its own.
+
+    const targetFilters = ['target.name = $name'];
+    if (filePath !== undefined) {
+      targetFilters.push('(target.filePath IS NULL OR target.filePath = $filePath)');
+    }
+    if (query.startLine !== undefined) {
+      targetFilters.push('(target.filePath IS NULL OR target.startLine = $startLine)');
+    }
+
+    // "Same file" is a property of the edge, not of the query. Two genuine
+    // declarations can share this name in different files, each with its own
+    // same-file caller, so the file to compare against must come from the
+    // specific target that row's own edge points at (target.filePath), never
+    // from a single value chosen once for the whole batch.
+    //
+    // A TypeRef proxy node breaks that plan: its filePath is always null, so
+    // a reference landing there carries no location of its own. matchedFilePath
+    // is the fallback for exactly that row shape, computed once up front. It
+    // is only safe to use when the matched target set implies exactly one
+    // real declaring file: with two or more distinct non-null filePaths among
+    // the matched targets (two genuine declarations sharing this name in
+    // different files), picking "whichever one Cypher returned first" is the
+    // same batch-wide misattribution this whole rewrite exists to remove, so
+    // matchedFilePath comes back null instead and the proxy row's sameFile
+    // honestly reports "cannot tell" rather than guessing. filePath, when the
+    // caller supplied it, is preferred over that inference since it is the
+    // caller's own assertion of which declaration it means.
     const cypher = `
       MATCH (target)
       WHERE ${targetFilters.join(' AND ')}
-      WITH target LIMIT 1
+      WITH collect(DISTINCT target) AS targets, collect(DISTINCT target.filePath) AS filePaths
+      WITH targets, [fp IN filePaths WHERE fp IS NOT NULL] AS realFilePaths
+      WITH targets, CASE WHEN size(realFilePaths) = 1 THEN realFilePaths[0] ELSE null END AS matchedFilePath
+      UNWIND targets AS target
       MATCH (source)-[r:${REFERENCE_EDGE_TYPES.join('|')}]->(target)
       WHERE source.name IS NOT NULL
       RETURN DISTINCT
@@ -672,12 +715,13 @@ class GraphQueriesImpl implements GraphQueries {
         source.filePath AS filePath,
         source.startLine AS startLine,
         type(r) AS edgeType,
-        target.filePath AS targetFilePath
+        target.filePath AS targetFilePath,
+        matchedFilePath
       LIMIT ${limit + 1}
     `;
 
     const params: Record<string, unknown> = { name: query.name };
-    if (query.filePath !== undefined) params['filePath'] = query.filePath;
+    if (filePath !== undefined) params['filePath'] = filePath;
     if (query.startLine !== undefined) params['startLine'] = query.startLine;
 
     const result = await this.client.roQuery<{
@@ -687,18 +731,23 @@ class GraphQueriesImpl implements GraphQueries {
       startLine: number | null;
       edgeType: ReferenceEdgeType;
       targetFilePath: string | null;
+      matchedFilePath: string | null;
     }>(cypher, { params: params as never });
 
     const rows = result.data ?? [];
     const truncated = rows.length > limit;
-    const references: SymbolReference[] = rows.slice(0, limit).map((row) => ({
-      name: row.name,
-      nodeType: row.nodeType,
-      filePath: row.filePath ?? '',
-      startLine: row.startLine ?? undefined,
-      edgeType: row.edgeType,
-      sameFile: row.filePath != null && row.filePath === row.targetFilePath,
-    }));
+    const fallbackFilePath = filePath ?? rows[0]?.matchedFilePath ?? undefined;
+    const references: SymbolReference[] = rows.slice(0, limit).map((row) => {
+      const declaringFilePath = row.targetFilePath ?? fallbackFilePath;
+      return {
+        name: row.name,
+        nodeType: row.nodeType,
+        filePath: row.filePath ?? '',
+        startLine: row.startLine ?? undefined,
+        edgeType: row.edgeType,
+        sameFile: row.filePath != null && declaringFilePath != null && row.filePath === declaringFilePath,
+      };
+    });
 
     const referencingFiles = Array.from(
       new Set(references.filter((r) => !r.sameFile && r.filePath !== '').map((r) => r.filePath)),

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { codeGraphService, getGraphClient } from '@codegraph/core';
+import { safeErrorMessage } from '../safe-error';
 
 export const graphRoutes = new Hono();
 
@@ -32,7 +33,7 @@ graphRoutes.get('/api/graph/full', async (c) => {
     const data = await codeGraphService.getFullGraph(limit, rootPath);
     return c.json({ nodes: data.nodes, edges: data.edges });
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : 'Failed to fetch graph' }, 500);
+    return c.json({ error: safeErrorMessage('GET /api/graph/full', error, 'Failed to fetch graph.') }, 500);
   }
 });
 
@@ -44,16 +45,19 @@ graphRoutes.get('/api/graph/file', async (c) => {
     const data = await codeGraphService.getFileSubgraph(filePath);
     return c.json(data);
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : 'Failed to fetch subgraph' }, 500);
+    return c.json({ error: safeErrorMessage('GET /api/graph/file', error, 'Failed to fetch subgraph.') }, 500);
   }
 });
 
 /**
  * GET /api/graph/references?name=X&path=Y&startLine=N&limit=M
  *
- * Where a symbol is used. `path` and `startLine` are optional and only
- * disambiguate declarations that share a name; without them the first matching
- * declaration is used.
+ * Where a symbol is used. Matches every node with this name, not just one, so
+ * references that land on a type-reference proxy node are included alongside
+ * ones that land on the declaration itself. `path` and `startLine` are
+ * optional and disambiguate between distinct declarations that share a name;
+ * a matched node with no location of its own (a proxy node) is never excluded
+ * by them.
  */
 graphRoutes.get('/api/graph/references', async (c) => {
   try {
@@ -77,7 +81,7 @@ graphRoutes.get('/api/graph/references', async (c) => {
     return c.json(data);
   } catch (error) {
     return c.json(
-      { error: error instanceof Error ? error.message : 'Failed to fetch references' },
+      { error: safeErrorMessage('GET /api/graph/references', error, 'Failed to fetch references.') },
       500,
     );
   }
@@ -92,6 +96,6 @@ graphRoutes.get('/api/graph/dependencies', async (c) => {
     const data = await codeGraphService.getDependencyTree(filePath, depth);
     return c.json(data);
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : 'Failed to fetch dependency tree' }, 500);
+    return c.json({ error: safeErrorMessage('GET /api/graph/dependencies', error, 'Failed to fetch dependency tree.') }, 500);
   }
 });

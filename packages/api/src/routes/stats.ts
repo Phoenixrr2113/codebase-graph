@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { codeGraphService, knowledgeService, getGraphClient, embedAllNodes } from '@codegraph/core';
+import { safeErrorMessage } from '../safe-error';
 
 export const statsRoutes = new Hono();
 
@@ -33,7 +34,7 @@ statsRoutes.get('/api/projects', async (c) => {
     return c.json({ projects });
   } catch (error) {
     return c.json(
-      { projects: [], error: error instanceof Error ? error.message : 'Failed to list projects' },
+      { projects: [], error: safeErrorMessage('GET /api/projects', error, 'Failed to list projects.') },
       500,
     );
   }
@@ -45,7 +46,7 @@ statsRoutes.get('/api/stats', async (c) => {
     const stats = await codeGraphService.getGraphStats();
     return c.json(stats);
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : 'Failed to fetch stats' }, 500);
+    return c.json({ error: safeErrorMessage('GET /api/stats', error, 'Failed to fetch stats.') }, 500);
   }
 });
 
@@ -55,7 +56,7 @@ statsRoutes.get('/api/knowledge/stats', async (c) => {
     const stats = await knowledgeService.getKnowledgeStats();
     return c.json(stats);
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : 'Failed to fetch knowledge stats' }, 500);
+    return c.json({ error: safeErrorMessage('GET /api/knowledge/stats', error, 'Failed to fetch knowledge stats.') }, 500);
   }
 });
 
@@ -88,7 +89,7 @@ statsRoutes.get('/api/embeddings/status', async (c) => {
 
     return c.json({ labels });
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : 'Failed to fetch embedding status' }, 500);
+    return c.json({ error: safeErrorMessage('GET /api/embeddings/status', error, 'Failed to fetch embedding status.') }, 500);
   }
 });
 
@@ -105,13 +106,24 @@ statsRoutes.post('/api/embeddings/generate', async (c) => {
       message: `Embedded ${result.embedded} nodes in ${(result.durationMs / 1000).toFixed(1)}s (${result.skipped} skipped, ${result.errors} errors)`,
     });
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Failed to generate embeddings';
-    if (msg.includes('not configured') || msg.includes('not available')) {
-      return c.json({
-        error: msg,
-        hint: 'Set CODEGRAPH_EMBEDDING_PROVIDER=local for free local embeddings, or set VOYAGE_API_KEY for cloud embeddings.',
-      }, 400);
-    }
-    return c.json({ error: msg }, 500);
+    // There used to be a branch here that special-cased any error whose
+    // message contained "not configured" or "not available", on the theory
+    // that embedAllNodes() throws a controlled, known string for that case
+    // and it was safe to echo verbatim. It does not: the availability check
+    // inside embedAllNodes() (packages/core/src/embed-nodes.ts) logs a
+    // warning and returns a benign zero-result instead of throwing, and
+    // every per-batch and per-node failure inside it is caught internally
+    // and folded into the returned counters. Nothing embedAllNodes() itself
+    // does can reach this catch block. The only way to land here is an
+    // exception from setup code outside its own try blocks (getGraphClient()
+    // failing to connect, for instance), which is exactly the raw,
+    // unstructured error text safeErrorMessage exists to keep out of a
+    // response, not a string this route authored. A substring match against
+    // that text was never a reliable way to tell "embeddings are not
+    // configured" from "something unrelated broke", so it is removed rather
+    // than kept with a corrected comment: keeping it, accurately described
+    // or not, would still forward whatever an unrelated exception says,
+    // unsanitized, whenever it happens to contain those words.
+    return c.json({ error: safeErrorMessage('POST /api/embeddings/generate', error, 'Failed to generate embeddings.') }, 500);
   }
 });

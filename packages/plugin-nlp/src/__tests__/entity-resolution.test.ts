@@ -31,6 +31,7 @@ import {
   createKnowledgeOperations,
   type GraphClient,
   type KnowledgeOperations,
+  type EntitySearchResult,
 } from '@codegraph/graph';
 import { resolveEntities } from '../entity-resolution';
 
@@ -384,5 +385,124 @@ describe('Entity Resolution (FalkorDB)', () => {
     // Should have tier1 and tier2 progress calls
     expect(progressCalls.some(([phase]) => phase === 'tier1')).toBe(true);
     expect(progressCalls.some(([phase]) => phase === 'tier2')).toBe(true);
+  });
+});
+
+// ============================================================================
+// Merge accounting for no-op merges
+// ============================================================================
+//
+// mergeEntities can succeed without deleting anything: if the duplicate is
+// already gone by the time it runs (e.g. an earlier merge in this same run
+// already consumed it, or a concurrent process did), it returns
+// `{ success: true, deleted: false }` rather than throwing. The three call
+// sites in resolveEntities used to increment their merge counters on
+// `success` alone, so a run that did no work for that pair still reported a
+// merge - the exact class of defect ("report work that did not happen")
+// this whole fix exists to close. The fix checks `deleted` too, so only
+// merges that actually removed a duplicate get counted.
+//
+// This uses a fake KnowledgeOperations (no FalkorDB, no server) with full
+// control over what mergeEntities reports, so both outcomes - a real merge
+// and a no-op - can be produced deterministically in the same run.
+// ============================================================================
+
+describe('Entity Resolution - merge accounting for no-op merges', () => {
+  function makeEntity(text: string, type: string): EntitySearchResult {
+    return {
+      id: `${type}:${text}`,
+      text,
+      type,
+      confidence: 0.9,
+      relevanceScore: 1,
+      createdAt: Date.now(),
+      lastAccessedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Exposes two Tier 1 (exact text match) duplicate pairs, of different
+   * entity types so Tier 2's embedding comparison never pairs them with each
+   * other and stays a no-op:
+   *   - "Acme Corp" / "acme corp" (Organization): mergeEntities reports a
+   *     real merge, `deleted: true`.
+   *   - "Ghost Project" / "ghost project" (Project): mergeEntities reports a
+   *     no-op success, `deleted: false` - standing in for a duplicate that
+   *     turned out to already be gone.
+   */
+  function makeFakeKgOps(): {
+    kgOps: KnowledgeOperations;
+    mergeCalls: Array<{ canonicalText: string; duplicateText: string }>;
+  } {
+    const mergeCalls: Array<{ canonicalText: string; duplicateText: string }> = [];
+    const notUsed = (): never => {
+      throw new Error('not used in this test');
+    };
+
+    const kgOps: KnowledgeOperations = {
+      async searchEntities() {
+        return [
+          makeEntity('Acme Corp', 'Organization'),
+          makeEntity('acme corp', 'Organization'),
+          makeEntity('Ghost Project', 'Project'),
+          makeEntity('ghost project', 'Project'),
+        ];
+      },
+      async mergeEntities(canonicalText, canonicalType, duplicateText, duplicateType) {
+        mergeCalls.push({ canonicalText, duplicateText });
+        if (duplicateText === 'acme corp') {
+          return { transferredRelationships: 0, transferredAboutEdges: 0, success: true, deleted: true, errors: [] };
+        }
+        if (duplicateText === 'ghost project') {
+          return { transferredRelationships: 0, transferredAboutEdges: 0, success: true, deleted: false, errors: [] };
+        }
+        throw new Error(
+          `unexpected mergeEntities call in test: "${duplicateText}" (${duplicateType}) -> "${canonicalText}" (${canonicalType})`,
+        );
+      },
+      createEntity: notUsed,
+      createRelationship: notUsed,
+      getRelationships: notUsed,
+      invalidateRelationship: notUsed,
+      importEntitiesAndRelationships: notUsed,
+      touchEntity: notUsed,
+      decayRelevance: notUsed,
+      pruneOldEntities: notUsed,
+      getMemoryStats: notUsed,
+      searchEntitiesByVector: notUsed,
+      createAboutEdge: notUsed,
+      getAboutEdgesForEntity: notUsed,
+      getEntitiesBySpeaker: notUsed,
+      searchFactsByVector: notUsed,
+      searchEntitiesBySource: notUsed,
+      queryAtPointInTime: notUsed,
+      queryChangesInRange: notUsed,
+      getEntityTimeline: notUsed,
+      searchByRelevance: notUsed,
+    };
+
+    return { kgOps, mergeCalls };
+  }
+
+  it('counts only the merge that actually deleted a duplicate, not the no-op', async () => {
+    const { kgOps, mergeCalls } = makeFakeKgOps();
+
+    const result = await resolveEntities(kgOps);
+
+    // Both duplicate pairs were attempted...
+    expect(mergeCalls).toEqual([
+      { canonicalText: 'Acme Corp', duplicateText: 'acme corp' },
+      { canonicalText: 'Ghost Project', duplicateText: 'ghost project' },
+    ]);
+
+    // ...but a run with one real merge and one already-gone duplicate must
+    // report exactly one merge, not two.
+    expect(result.total).toBe(4);
+    expect(result.tier1Merges).toBe(1);
+    expect(result.merged).toBe(1);
+    expect(result.kept).toBe(3);
+    expect(result.merges).toEqual([
+      { canonical: 'Acme Corp', duplicate: 'acme corp', tier: 1 },
+    ]);
   });
 });

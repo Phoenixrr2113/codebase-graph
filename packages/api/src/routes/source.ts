@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { readFile } from 'node:fs/promises';
 import { codeGraphService } from '@codegraph/core';
 import { authorizeSourcePath } from '../source-access';
+import { safeErrorMessage } from '../safe-error';
 
 export const sourceRoutes = new Hono();
 
@@ -62,6 +63,6 @@ sourceRoutes.get('/api/source', async (c) => {
       lines,
     });
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : 'Failed to read source' }, 500);
+    return c.json({ error: safeErrorMessage('GET /api/source', error, 'Failed to read source.') }, 500);
   }
 });

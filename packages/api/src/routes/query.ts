@@ -25,6 +25,10 @@ queryRoutes.post('/api/query/cypher', async (c) => {
 
     return c.json({ results: result.data });
   } catch (error) {
+    // Deliberately not sanitized like the other routes' catch blocks: the
+    // caller wrote this Cypher themselves, so the engine's error describes
+    // their own input, not an internal detail. Hiding it here would make
+    // the raw-query tool unusable for debugging the query the caller sent.
     return c.json({ error: error instanceof Error ? error.message : 'Query failed' }, 500);
   }
 });
