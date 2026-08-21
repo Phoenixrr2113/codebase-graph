@@ -47,46 +47,32 @@ function labelTokens(alias: string, labels: readonly string[]): string[] {
 }
 
 describe('queries.ts label sets (GET_FULL_GRAPH_NODES / GET_FULL_GRAPH_EDGES)', () => {
-  it('GET_FULL_GRAPH_NODES filters on exactly REFERENCEABLE_LABELS (SYMBOL_LABELS + External)', async () => {
+  it('GET_FULL_GRAPH_NODES includes Entity with the referenceable code labels', async () => {
     const client = makeFakeClient();
     await createQueries(client).getFullGraph();
 
     const nodesQuery = client.calls.find((c) => c.includes('RETURN n,'));
     expect(nodesQuery).toBeDefined();
 
-    for (const token of labelTokens('n', REFERENCEABLE_LABELS)) {
+    const expectedLabels = [...REFERENCEABLE_LABELS, 'Entity'];
+    for (const token of labelTokens('n', expectedLabels)) {
       expect(nodesQuery).toContain(token);
     }
-    // Nothing beyond REFERENCEABLE_LABELS should show up as an n:<Label> check.
+    // Nothing beyond the dashboard-visible labels should show up as an n:<Label> check.
     const matches = [...(nodesQuery ?? '').matchAll(/n:([A-Za-z]+)/g)].map((m) => m[1]);
-    expect(new Set(matches)).toEqual(new Set(REFERENCEABLE_LABELS));
+    expect(new Set(matches)).toEqual(new Set(expectedLabels));
   });
 
-  it("GET_FULL_GRAPH_EDGES filters the source ('a') on SYMBOL_LABELS only, no External", async () => {
+  it('GET_FULL_GRAPH_EDGES scopes both endpoints to the fetched node identities', async () => {
     const client = makeFakeClient();
     await createQueries(client).getFullGraph();
 
     const edgesQuery = client.calls.find((c) => c.includes('RETURN a, r, b,'));
     expect(edgesQuery).toBeDefined();
 
-    for (const token of labelTokens('a', SYMBOL_LABELS)) {
-      expect(edgesQuery).toContain(token);
-    }
-    expect(edgesQuery).not.toContain('a:External');
-
-    const aMatches = [...(edgesQuery ?? '').matchAll(/a:([A-Za-z]+)/g)].map((m) => m[1]);
-    expect(new Set(aMatches)).toEqual(new Set(SYMBOL_LABELS));
-  });
-
-  it("GET_FULL_GRAPH_EDGES filters the target ('b') on REFERENCEABLE_LABELS (SYMBOL_LABELS + External)", async () => {
-    const client = makeFakeClient();
-    await createQueries(client).getFullGraph();
-
-    const edgesQuery = client.calls.find((c) => c.includes('RETURN a, r, b,'));
-    expect(edgesQuery).toBeDefined();
-
-    const bMatches = [...(edgesQuery ?? '').matchAll(/b:([A-Za-z]+)/g)].map((m) => m[1]);
-    expect(new Set(bMatches)).toEqual(new Set(REFERENCEABLE_LABELS));
+    expect(edgesQuery).toContain('id(a) IN $nodeIdentities');
+    expect(edgesQuery).toContain('id(b) IN $nodeIdentities');
+    expect(edgesQuery).not.toContain('LIMIT $limit');
   });
 });
 

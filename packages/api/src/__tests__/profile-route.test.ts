@@ -24,7 +24,7 @@ import { profileRoutes } from '../routes/profile';
 const mockedGetGraphStats = vi.mocked(codeGraphService.getGraphStats);
 const mockedGetGraphClient = vi.mocked(getGraphClient);
 
-describe('GET /api/profile: projectPath validation', () => {
+describe('GET /api/profile: boundary validation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -53,4 +53,15 @@ describe('GET /api/profile: projectPath validation', () => {
     const res = await profileRoutes.request('/api/profile?projectPath=/abs/path');
     expect(res.status).toBe(200);
   });
+
+  it.each(['0', '-1', '1.5', 'Infinity', '1001'])(
+    'returns 400 for invalid limit %s and never touches the graph',
+    async (limit) => {
+      const res = await profileRoutes.request(`/api/profile?limit=${encodeURIComponent(limit)}`);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('limit must be an integer between 1 and 1000');
+      expect(mockedGetGraphClient).not.toHaveBeenCalled();
+    },
+  );
 });

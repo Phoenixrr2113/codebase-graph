@@ -1,0 +1,143 @@
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  EMPTY_SELECTION_HISTORY,
+  ExplorerNavigation,
+  deriveBreadcrumbs,
+  moveSelectionHistory,
+  pushSelectionHistory,
+  searchResultToGraphNode,
+} from './app-shell'
+import { symbolReferenceToGraphNode } from './entity-detail'
+import type { GraphNode } from './graph-canvas'
+import type { SymbolReference } from '@/lib/references'
+
+const fileNode: GraphNode = {
+  id: 'File:/repo/src/main.ts',
+  label: 'main.ts',
+  type: 'File',
+  properties: { filePath: '/repo/src/main.ts', name: 'main.ts' },
+}
+
+const symbolNode: GraphNode = {
+  id: 'Function:/repo/src/main.ts:run:5',
+  label: 'run',
+  type: 'Function',
+  properties: { filePath: '/repo/src/main.ts', name: 'run', startLine: 5 },
+}
+
+describe('explorer selection history', () => {
+  it('uses canonical graph identity for real search and reference payloads', () => {
+    const canonicalNode: GraphNode = {
+      id: 'Function:/repo/src/main.ts:run:5',
+      label: 'run',
+      type: 'Function',
+      properties: {
+        name: 'run',
+        filePath: '/repo/src/main.ts',
+        startLine: 5,
+      },
+    }
+    const searchResult = {
+      name: 'run',
+      nodeType: 'Function',
+      filePath: '/repo/src/main.ts',
+      startLine: 5,
+      endLine: 8,
+      isExported: true,
+    }
+    const referenceRow: SymbolReference = {
+      name: 'run',
+      nodeType: 'Function',
+      filePath: '/repo/src/main.ts',
+      startLine: 5,
+      edgeType: 'CALLS',
+      sameFile: false,
+    }
+
+    expect(searchResultToGraphNode(searchResult).id).toBe(canonicalNode.id)
+    expect(symbolReferenceToGraphNode(referenceRow).id).toBe(canonicalNode.id)
+
+    expect(searchResultToGraphNode({
+      name: 'run',
+      nodeType: 'Function',
+      filePath: '/repo/src/main.ts',
+      startLine: null,
+      endLine: null,
+      isExported: null,
+    }).id).toBe('Function:/repo/src/main.ts:run:0')
+    expect(symbolReferenceToGraphNode({
+      name: 'run',
+      nodeType: 'Function',
+      filePath: '/repo/src/main.ts',
+      edgeType: 'CALLS',
+      sameFile: false,
+    }).id).toBe('Function:/repo/src/main.ts:run:0')
+  })
+
+  it('deduplicates consecutive selections and truncates Forward after a new branch', () => {
+    let history = pushSelectionHistory(EMPTY_SELECTION_HISTORY, fileNode)
+    history = pushSelectionHistory(history, fileNode)
+    history = pushSelectionHistory(history, symbolNode)
+
+    expect(history.entries.map((node) => node?.id ?? null)).toEqual([
+      'File:/repo/src/main.ts',
+      'Function:/repo/src/main.ts:run:5',
+    ])
+    expect(history.index).toBe(1)
+
+    history = moveSelectionHistory(history, -1)
+    history = pushSelectionHistory(history, null)
+
+    expect(history.entries.map((node) => node?.id ?? null)).toEqual([
+      'File:/repo/src/main.ts',
+      null,
+    ])
+    expect(history.index).toBe(1)
+  })
+
+  it('moves backward and forward without pushing duplicate entries', () => {
+    let history = pushSelectionHistory(EMPTY_SELECTION_HISTORY, fileNode)
+    history = pushSelectionHistory(history, symbolNode)
+
+    history = moveSelectionHistory(history, -1)
+    expect(history.entries[history.index]?.id).toBe(fileNode.id)
+
+    history = moveSelectionHistory(history, 1)
+    expect(history.entries[history.index]?.id).toBe(symbolNode.id)
+  })
+})
+
+describe('explorer breadcrumbs', () => {
+  it('derives project, file, and symbol levels from the current selection', () => {
+    const crumbs = deriveBreadcrumbs('CodeGraph', symbolNode)
+
+    expect(crumbs.map((crumb) => [crumb.level, crumb.label, crumb.node?.id ?? null])).toEqual([
+      ['project', 'CodeGraph', null],
+      ['file', 'main.ts', 'File:/repo/src/main.ts'],
+      ['symbol', 'run', symbolNode.id],
+    ])
+  })
+
+  it('renders Back and Forward disabled states and clickable breadcrumb levels', () => {
+    const html = renderToStaticMarkup(
+      <ExplorerNavigation
+        projectName="CodeGraph"
+        selectedNode={symbolNode}
+        canGoBack={false}
+        canGoForward={true}
+        onBack={vi.fn()}
+        onForward={vi.fn()}
+        onSelect={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('aria-label="Explorer navigation"')
+    expect(html).toContain('aria-label="Back"')
+    expect(html).toContain('aria-label="Forward"')
+    expect(html).toContain('disabled=""')
+    expect(html).toContain('CodeGraph')
+    expect(html).toContain('main.ts')
+    expect(html).toContain('run')
+  })
+})

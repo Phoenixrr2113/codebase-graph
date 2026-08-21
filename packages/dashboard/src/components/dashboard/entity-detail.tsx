@@ -1,11 +1,23 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useId, useRef } from 'react'
 import type { GraphNode } from './graph-canvas'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { NODE_COLORS } from '@/lib/cytoscape-config'
 import { API_URL } from '@/lib/api'
-import type { SymbolReference, SymbolReferences } from '@/lib/references'
+import { canonicalSymbolNodeId } from '@/lib/references'
+import type {
+  FileRelationshipNode,
+  FileRelationships,
+  SymbolReference,
+  SymbolReferences,
+} from '@/lib/references'
+
+export type FileRelationshipsState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: FileRelationships }
+  | { status: 'error'; message: string }
 
 
 interface EntityDetailProps {
@@ -13,9 +25,16 @@ interface EntityDetailProps {
   references?: SymbolReferences | null
   referencesLoading?: boolean
   onSelectReference?: (node: GraphNode) => void
+  fileRelationshipsState?: FileRelationshipsState
 }
 
-export function EntityDetail({ node, references, referencesLoading, onSelectReference }: EntityDetailProps) {
+export function EntityDetail({
+  node,
+  references,
+  referencesLoading,
+  onSelectReference,
+  fileRelationshipsState,
+}: EntityDetailProps) {
   const [copied, setCopied] = useState(false)
 
   const handleCopyPath = useCallback(() => {
@@ -100,7 +119,7 @@ export function EntityDetail({ node, references, referencesLoading, onSelectRefe
                   <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                     L{startLine}–{endLine}
                   </span>
-                  <span className="text-[10px] text-muted-foreground/50">{endLine - startLine + 1} lines</span>
+                  <span className="text-[10px] text-subtle">{endLine - startLine + 1} lines</span>
                 </div>
               )}
             </div>
@@ -162,6 +181,15 @@ export function EntityDetail({ node, references, referencesLoading, onSelectRefe
           </Section>
         )}
 
+        {node.type === 'File' && fileRelationshipsState && fileRelationshipsState.status !== 'idle' && (
+          <Section title="File relationships" icon={<ReferencesIcon />}>
+            <FileRelationshipsContent
+              state={fileRelationshipsState}
+              onSelect={onSelectReference}
+            />
+          </Section>
+        )}
+
         {/* Code Preview with syntax highlighting */}
         {filePath && startLine != null && (
           <Section title="Code Preview">
@@ -213,16 +241,20 @@ export function EntityDetail({ node, references, referencesLoading, onSelectRefe
 
 function Section({ title, children, defaultCollapsed = false, icon }: { title: string; children: React.ReactNode; defaultCollapsed?: boolean; icon?: React.ReactNode }) {
   const [open, setOpen] = useState(!defaultCollapsed)
+  const contentId = useId()
 
   return (
     <div>
       <button
+        type="button"
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls={contentId}
         className="flex items-center justify-between w-full group py-0.5"
       >
         <div className="flex items-center gap-1.5">
           {icon && <span className="text-muted-foreground/40">{icon}</span>}
-          <h3 className="text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider">{title}</h3>
+          <h3 className="text-[11px] font-medium text-subtle uppercase tracking-wider">{title}</h3>
         </div>
         <svg
           className={`w-3.5 h-3.5 text-muted-foreground/30 transition-transform ${open ? 'rotate-180' : ''}`}
@@ -231,7 +263,7 @@ function Section({ title, children, defaultCollapsed = false, icon }: { title: s
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
-      {open && <div className="mt-2">{children}</div>}
+      {open && <div id={contentId} className="mt-2">{children}</div>}
     </div>
   )
 }
@@ -300,7 +332,7 @@ function MetricsAndProperties({ props }: { props: Record<string, unknown> }) {
               className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium"
               style={{ color: m.style.color, backgroundColor: m.style.background, borderColor: m.style.borderColor }}
             >
-              <span style={{ opacity: 0.7 }}>{m.label}</span>
+              <span>{m.label}</span>
               <span className="font-bold">{m.value}</span>
             </span>
           ))}
@@ -310,7 +342,7 @@ function MetricsAndProperties({ props }: { props: Record<string, unknown> }) {
       {/* Parameters */}
       {parsedParams.length > 0 && (
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground/50 mb-1.5">Parameters</div>
+          <div className="text-[10px] uppercase tracking-wider text-subtle mb-1.5">Parameters</div>
           <div className="space-y-1 pl-0.5">
             {parsedParams.map((p, i) => (
               <div key={i} className="flex items-baseline gap-1.5 text-xs">
@@ -332,10 +364,10 @@ function MetricsAndProperties({ props }: { props: Record<string, unknown> }) {
         <div className="space-y-1">
           {otherProps.map(([key, value]) => (
             <div key={key} className="flex items-baseline justify-between gap-2 text-xs">
-              <span className="text-muted-foreground/50">{key}</span>
+              <span className="text-subtle">{key}</span>
               <span className="text-muted-foreground font-mono text-[11px] text-right truncate max-w-[60%]">
                 {typeof value === 'boolean'
-                  ? <span className={value ? 'text-emerald-400' : 'text-muted-foreground/40'}>{String(value)}</span>
+                  ? <span className={value ? 'text-emerald-400' : 'text-subtle'}>{String(value)}</span>
                   : String(value)}
               </span>
             </div>
@@ -344,7 +376,7 @@ function MetricsAndProperties({ props }: { props: Record<string, unknown> }) {
       )}
 
       {metrics.length === 0 && parsedParams.length === 0 && otherProps.length === 0 && (
-        <div className="text-xs text-muted-foreground/40 italic">No additional properties</div>
+        <div className="text-xs text-subtle italic">No additional properties</div>
       )}
     </div>
   )
@@ -438,11 +470,11 @@ function CodePreview({ apiUrl, filePath, startLine, endLine, nodeId }: {
   }, [highlightedHtml, nodeId])
 
   if (loading) {
-    return <div className="text-xs text-muted-foreground/50 animate-pulse p-3">Loading code...</div>
+    return <div className="text-xs text-subtle animate-pulse p-3">Loading code...</div>
   }
 
   if (!lines || lines.length === 0) {
-    return <div className="text-xs text-muted-foreground/50 italic p-3">No source code available</div>
+    return <div className="text-xs text-subtle italic p-3">No source code available</div>
   }
 
   const useHighlighting = highlightedHtml != null && highlightedHtml.length === lines.length
@@ -463,7 +495,7 @@ function CodePreview({ apiUrl, filePath, startLine, endLine, nodeId }: {
                   className={`flex ${isEntity ? '' : 'hover:bg-accent/30'}`}
                 >
                   <span
-                    style={isEntity ? { color: '#818cf8', fontWeight: 600 } : { color: 'rgba(161,161,170,0.3)' }}
+                    style={isEntity ? { color: '#818cf8', fontWeight: 600 } : { color: '#a1a1aa' }}
                     className="w-10 shrink-0 text-right pr-3 select-none border-r border-border"
                   >
                     {line.number}
@@ -577,7 +609,7 @@ function ReferenceGroup({ label, items, declaringFile, onSelect }: {
 }) {
   return (
     <div className="space-y-1">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-subtle">
         {label}
       </p>
       <ul className="space-y-1">
@@ -586,19 +618,7 @@ function ReferenceGroup({ label, items, declaringFile, onSelect }: {
             <button
               type="button"
               className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-left transition-colors hover:border-border hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() =>
-                onSelect?.({
-                  id: `${ref.nodeType}:${ref.filePath}:${ref.name}`,
-                  label: ref.name,
-                  type: ref.nodeType,
-                  properties: {
-                    name: ref.name,
-                    nodeType: ref.nodeType,
-                    filePath: ref.filePath,
-                    ...(ref.startLine != null ? { startLine: ref.startLine } : {}),
-                  },
-                })
-              }
+              onClick={() => onSelect?.(symbolReferenceToGraphNode(ref))}
             >
               <span className="flex items-baseline gap-1.5">
                 <span className="truncate font-mono text-xs text-foreground">{ref.name}</span>
@@ -614,6 +634,96 @@ function ReferenceGroup({ label, items, declaringFile, onSelect }: {
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+export function symbolReferenceToGraphNode(ref: SymbolReference): GraphNode {
+  return {
+    id: canonicalSymbolNodeId(ref.nodeType, ref),
+    label: ref.name,
+    type: ref.nodeType,
+    properties: {
+      name: ref.name,
+      nodeType: ref.nodeType,
+      filePath: ref.filePath,
+      ...(ref.startLine != null ? { startLine: ref.startLine } : {}),
+    },
+  }
+}
+
+export function relationshipNodeToGraphNode(node: FileRelationshipNode): GraphNode {
+  return {
+    id: node.id,
+    label: node.displayName,
+    type: node.label,
+    properties: {
+      ...node.data,
+      ...(node.filePath !== undefined ? { filePath: node.filePath } : {}),
+    },
+  }
+}
+
+const FILE_RELATIONSHIP_GROUPS: ReadonlyArray<{
+  key: keyof Pick<FileRelationships, 'containedSymbols' | 'imports' | 'importers' | 'knowledgeEntities'>
+  label: string
+}> = [
+  { key: 'containedSymbols', label: 'Contained symbols' },
+  { key: 'imports', label: 'Imports' },
+  { key: 'importers', label: 'Importers' },
+  { key: 'knowledgeEntities', label: 'Knowledge entities' },
+]
+
+export function FileRelationshipsContent({
+  state,
+  onSelect,
+}: {
+  state: FileRelationshipsState
+  onSelect?: (node: GraphNode) => void
+}) {
+  if (state.status === 'idle') return null
+  if (state.status === 'loading') {
+    return <p role="status" className="text-xs text-muted-foreground">Loading file relationships...</p>
+  }
+  if (state.status === 'error') {
+    return <p role="alert" className="text-xs text-red-400">{state.message}</p>
+  }
+
+  return (
+    <div className="space-y-3">
+      {FILE_RELATIONSHIP_GROUPS.map((group) => {
+        const items = state.data[group.key]
+        return (
+          <div key={group.key} className="space-y-1">
+            <h4 className="text-[10px] font-medium uppercase tracking-wide text-subtle">
+              {group.label}
+            </h4>
+            {items.length === 0 ? (
+              <p className="text-xs text-subtle">Nothing found</p>
+            ) : (
+              <ul className="space-y-1">
+                {items.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-left transition-colors hover:border-border hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => onSelect?.(relationshipNodeToGraphNode(item))}
+                    >
+                      <span className="block truncate font-mono text-xs text-foreground">
+                        {item.displayName}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[10px] text-subtle">
+                        {item.label}
+                        {item.filePath ? ` in ${shortenPath(item.filePath, state.data.filePath)}` : ''}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

@@ -27,6 +27,36 @@ export interface SymbolReferences {
   truncated: boolean
 }
 
+interface SymbolNodeIdentity {
+  name?: string | null
+  filePath?: string | null
+  startLine?: number | null
+  line?: number | null
+}
+
+export function canonicalSymbolNodeId(label: string, node: SymbolNodeIdentity): string {
+  const name = node.name ?? ''
+  const filePath = node.filePath ?? ''
+  const line = node.startLine ?? node.line ?? 0
+  return `${label}:${filePath}:${name}:${line}`
+}
+
+export interface FileRelationshipNode {
+  id: string
+  label: string
+  displayName: string
+  filePath?: string
+  data: Record<string, unknown>
+}
+
+export interface FileRelationships {
+  filePath: string
+  containedSymbols: FileRelationshipNode[]
+  imports: FileRelationshipNode[]
+  importers: FileRelationshipNode[]
+  knowledgeEntities: FileRelationshipNode[]
+}
+
 /** Node labels that declare something another file can use. */
 const REFERENCEABLE_TYPES = new Set([
   'Function',
@@ -71,4 +101,66 @@ export async function fetchReferences(
     throw new Error(`References request failed with ${response.status}`)
   }
   return (await response.json()) as SymbolReferences
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parseRelationshipNode(value: unknown): FileRelationshipNode {
+  if (
+    !isRecord(value)
+    || typeof value.id !== 'string'
+    || typeof value.label !== 'string'
+    || typeof value.displayName !== 'string'
+    || (value.filePath !== undefined && typeof value.filePath !== 'string')
+    || !isRecord(value.data)
+  ) {
+    throw new Error('Invalid file relationships response')
+  }
+
+  return {
+    id: value.id,
+    label: value.label,
+    displayName: value.displayName,
+    ...(value.filePath !== undefined ? { filePath: value.filePath } : {}),
+    data: value.data,
+  }
+}
+
+export function parseFileRelationships(value: unknown): FileRelationships {
+  if (
+    !isRecord(value)
+    || typeof value.filePath !== 'string'
+    || !Array.isArray(value.containedSymbols)
+    || !Array.isArray(value.imports)
+    || !Array.isArray(value.importers)
+    || !Array.isArray(value.knowledgeEntities)
+  ) {
+    throw new Error('Invalid file relationships response')
+  }
+
+  return {
+    filePath: value.filePath,
+    containedSymbols: value.containedSymbols.map(parseRelationshipNode),
+    imports: value.imports.map(parseRelationshipNode),
+    importers: value.importers.map(parseRelationshipNode),
+    knowledgeEntities: value.knowledgeEntities.map(parseRelationshipNode),
+  }
+}
+
+export async function fetchFileRelationships(
+  filePath: string,
+  signal?: AbortSignal,
+  fetchImpl: typeof fetch = fetch,
+): Promise<FileRelationships> {
+  const params = new URLSearchParams({ path: filePath })
+  const response = await fetchImpl(
+    `${API_URL}/api/graph/file-relationships?${params.toString()}`,
+    { signal },
+  )
+  if (!response.ok) {
+    throw new Error(`File relationships request failed with ${response.status}`)
+  }
+  return parseFileRelationships(await response.json())
 }

@@ -17,6 +17,141 @@ interface ResultItem {
   [key: string]: unknown
 }
 
+interface QueryRequestManagerOptions {
+  apiUrl: string
+  fetchImpl?: typeof fetch
+  onLoading: (loading: boolean) => void
+  onError: (error: string | null) => void
+  onResults: (results: unknown[] | null) => void
+  onMeta: (meta: Record<string, unknown> | null) => void
+  onDuration: (durationMs: number | null) => void
+}
+
+export interface QueryRequestManager {
+  execute: (mode: QueryMode, query: string) => Promise<void>
+  cancel: () => void
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException
+    ? error.name === 'AbortError'
+    : error instanceof Error && error.name === 'AbortError'
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('Query returned an invalid response')
+  }
+  return value as Record<string, unknown>
+}
+
+function resultArray(value: unknown): unknown[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new Error('Query returned an invalid response')
+  return value
+}
+
+function responseError(data: Record<string, unknown>, status: number): string | null {
+  if (typeof data.error === 'string') return data.error
+  return status >= 200 && status < 300 ? null : `HTTP ${status}`
+}
+
+export function createQueryRequestManager({
+  apiUrl,
+  fetchImpl = fetch,
+  onLoading,
+  onError,
+  onResults,
+  onMeta,
+  onDuration,
+}: QueryRequestManagerOptions): QueryRequestManager {
+  let generation = 0
+  let activeController: AbortController | null = null
+
+  const cancel = (): void => {
+    generation += 1
+    activeController?.abort()
+    activeController = null
+    onLoading(false)
+  }
+
+  return {
+    async execute(mode: QueryMode, query: string): Promise<void> {
+      const trimmed = query.trim()
+      if (!trimmed) return
+
+      generation += 1
+      const requestGeneration = generation
+      activeController?.abort()
+      const controller = new AbortController()
+      activeController = controller
+      onLoading(true)
+      onError(null)
+      onResults(null)
+      onMeta(null)
+      onDuration(null)
+
+      const start = Date.now()
+      try {
+        let response: Response
+        if (mode === 'cypher') {
+          response = await fetchImpl(`${apiUrl}/api/query/cypher`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: trimmed, params: {} }),
+            signal: controller.signal,
+          })
+        } else if (mode === 'search') {
+          response = await fetchImpl(
+            `${apiUrl}/api/search?q=${encodeURIComponent(trimmed)}&limit=20`,
+            { signal: controller.signal },
+          )
+        } else {
+          response = await fetchImpl(`${apiUrl}/api/query/natural`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: trimmed }),
+            signal: controller.signal,
+          })
+        }
+
+        const data = asRecord(await response.json())
+        if (requestGeneration !== generation) return
+
+        const error = responseError(data, response.status)
+        const reportedDuration = asFiniteNumber(data.durationMs)
+        onDuration(reportedDuration ?? Date.now() - start)
+        if (error) {
+          onError(error)
+          return
+        }
+
+        onResults(resultArray(data.results))
+        if (mode === 'search') {
+          onMeta({ total: data.total })
+        } else if (mode === 'natural') {
+          onMeta({
+            routedTo: data.routedTo,
+            iterations: data.iterations,
+            queries: data.queries,
+            total: data.total,
+          })
+        }
+      } catch (error) {
+        if (requestGeneration !== generation || isAbortError(error)) return
+        onDuration(Date.now() - start)
+        onError(error instanceof Error ? error.message : 'Query failed')
+      } finally {
+        if (requestGeneration === generation) {
+          onLoading(false)
+          if (activeController === controller) activeController = null
+        }
+      }
+    },
+    cancel,
+  }
+}
+
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
@@ -41,77 +176,33 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
   const [durationMs, setDurationMs] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const requestManagerRef = useRef<QueryRequestManager | null>(null)
 
   useEffect(() => {
     textareaRef.current?.focus()
   }, [mode])
 
+  useEffect(() => {
+    const manager = createQueryRequestManager({
+      apiUrl,
+      onLoading: setLoading,
+      onError: setError,
+      onResults: setResults,
+      onMeta: setMeta,
+      onDuration: setDurationMs,
+    })
+    requestManagerRef.current = manager
+    return () => {
+      manager.cancel()
+      if (requestManagerRef.current === manager) requestManagerRef.current = null
+    }
+  }, [apiUrl])
+
   const handleExecute = useCallback(async () => {
     const trimmed = query.trim()
     if (!trimmed) return
-
-    setLoading(true)
-    setError(null)
-    setResults(null)
-    setMeta(null)
-    setDurationMs(null)
-
-    const start = Date.now()
-    try {
-      let res: Response
-      let data: Record<string, unknown>
-
-      if (mode === 'cypher') {
-        res = await fetch(`${apiUrl}/api/query/cypher`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: trimmed, params: {} }),
-        })
-        data = await res.json()
-        setDurationMs(Date.now() - start)
-        if (!res.ok || data.error) {
-          setError(data.error as string ?? `HTTP ${res.status}`)
-        } else {
-          setResults(data.results as unknown[] ?? [])
-        }
-      } else if (mode === 'search') {
-        res = await fetch(`${apiUrl}/api/search?q=${encodeURIComponent(trimmed)}&limit=20`)
-        data = await res.json()
-        setDurationMs(data.durationMs as number ?? Date.now() - start)
-        if (!res.ok || data.error) {
-          setError(data.error as string ?? `HTTP ${res.status}`)
-        } else {
-          setResults(data.results as unknown[] ?? [])
-          setMeta({ total: data.total })
-        }
-      } else {
-        // Natural language
-        res = await fetch(`${apiUrl}/api/query/natural`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question: trimmed }),
-        })
-        data = await res.json()
-        setDurationMs(data.durationMs as number ?? Date.now() - start)
-        if (!res.ok || data.error) {
-          setError(data.error as string ?? `HTTP ${res.status}`)
-        } else {
-          setResults(data.results as unknown[] ?? [])
-          setMeta({
-            routedTo: data.routedTo,
-            iterations: data.iterations,
-            queries: data.queries,
-            total: data.total,
-          })
-        }
-      }
-    } catch (err) {
-      setDurationMs(Date.now() - start)
-      setError(err instanceof Error ? err.message : 'Query failed')
-    } finally {
-      setLoading(false)
-    }
-  }, [query, mode, apiUrl])
+    await requestManagerRef.current?.execute(mode, trimmed)
+  }, [query, mode])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -154,7 +245,13 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
           ]).map((m) => (
             <button
               key={m.value}
-              onClick={() => { setMode(m.value); setResults(null); setError(null); setMeta(null) }}
+              onClick={() => {
+                requestManagerRef.current?.cancel()
+                setMode(m.value)
+                setResults(null)
+                setError(null)
+                setMeta(null)
+              }}
               className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                 mode === m.value
                   ? 'bg-primary/20 text-primary font-medium'
@@ -174,6 +271,7 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
 
         <textarea
           ref={textareaRef}
+          aria-label="Query"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -187,7 +285,7 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
           </span>
           <Button
             onClick={handleExecute}
-            disabled={!query.trim() || loading}
+            disabled={!query.trim()}
             size="sm"
             className="h-7 text-xs"
           >
@@ -197,11 +295,12 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
       </div>
 
       {/* Error */}
-      {error && (
-        <div className="shrink-0 border-b border-border bg-red-500/10 p-3">
-          <div className="text-sm text-red-400">{error}</div>
-        </div>
-      )}
+      <div
+        role="alert"
+        className={error ? 'shrink-0 border-b border-border bg-red-500/10 p-3' : 'sr-only'}
+      >
+        <div className="text-sm text-red-400">{error ?? ''}</div>
+      </div>
 
       {/* Results */}
       <div className="flex-1 overflow-auto p-3">

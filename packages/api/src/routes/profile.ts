@@ -1,5 +1,5 @@
 /**
- * GET /api/profile — codebase wake-up endpoint
+ * GET /api/profile: codebase wake-up endpoint
  *
  * Returns a static + dynamic snapshot of the project in <200ms.
  * Lets agents hydrate their understanding before tool loops kick in.
@@ -117,6 +117,21 @@ export function validateProjectPath(
   return { valid: true };
 }
 
+function validateLimit(
+  rawLimit: string | undefined,
+): { valid: true; value?: number } | { valid: false; error: string } {
+  if (rawLimit === undefined) return { valid: true };
+
+  const limit = Number(rawLimit);
+  if (!/^\d+$/.test(rawLimit) || !Number.isFinite(limit) || !Number.isSafeInteger(limit)) {
+    return { valid: false, error: 'limit must be an integer between 1 and 1000' };
+  }
+  if (limit < 1 || limit > 1_000) {
+    return { valid: false, error: 'limit must be an integer between 1 and 1000' };
+  }
+  return { valid: true, value: limit };
+}
+
 // ============================================================================
 // Core function (also used by MCP codebase.profile action)
 // ============================================================================
@@ -124,7 +139,7 @@ export function validateProjectPath(
 /**
  * Build a codebase profile from a ProfileService.
  *
- * Runs all queries in parallel — targets <200ms against a warm FalkorDB.
+ * Runs all queries in parallel and targets <200ms against a warm FalkorDB.
  */
 export async function getProfile(
   service: ProfileService,
@@ -251,8 +266,13 @@ profileRoutes.get('/api/profile', async (c) => {
       return c.json({ error: pathCheck.error }, 400);
     }
 
-    const limitStr = c.req.query('limit');
-    const limit = limitStr ? parseInt(limitStr, 10) : undefined;
+    // Profile sections share one bounded result limit. Validate before graph
+    // access so malformed requests cannot reach query construction.
+    const limitCheck = validateLimit(c.req.query('limit'));
+    if (!limitCheck.valid) {
+      return c.json({ error: limitCheck.error }, 400);
+    }
+    const limit = limitCheck.value;
 
     // Dynamic import keeps @codegraph/core out of the test-time module graph
     const { codeGraphService, getGraphClient } = await import('@codegraph/core');

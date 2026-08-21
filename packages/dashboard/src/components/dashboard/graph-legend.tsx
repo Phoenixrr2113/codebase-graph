@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { NODE_COLORS, NODE_SHAPES, EDGE_COLORS } from '@/lib/cytoscape-config'
+import { EMBEDDABLE_LABELS, type EmbeddableLabel } from '@codegraph/types'
+import { EDGE_COLORS } from '@/lib/cytoscape-config'
 
 interface GraphLegendProps {
   hiddenEdgeTypes: Set<string>
@@ -8,16 +9,35 @@ interface GraphLegendProps {
   onToggleNodeType: (nodeType: string) => void
 }
 
-const NODE_LEGEND = [
-  { label: 'File', color: NODE_COLORS.File!, shape: NODE_SHAPES.File! },
-  { label: 'Function', color: NODE_COLORS.Function!, shape: NODE_SHAPES.Function! },
-  { label: 'Class', color: NODE_COLORS.Class!, shape: NODE_SHAPES.Class! },
-  { label: 'Interface', color: NODE_COLORS.Interface!, shape: NODE_SHAPES.Interface!, dashed: true },
-  { label: 'Component', color: NODE_COLORS.Component!, shape: NODE_SHAPES.Component! },
-  { label: 'Variable', color: NODE_COLORS.Variable!, shape: NODE_SHAPES.Variable! },
-  { label: 'Type', color: NODE_COLORS.Type!, shape: NODE_SHAPES.Type! },
-  { label: 'Entity', color: NODE_COLORS.Entity!, shape: NODE_SHAPES.Entity! },
-]
+type LegendShape = 'ellipse' | 'diamond' | 'round-rectangle' | 'hexagon'
+
+interface NodeLegendItem {
+  label: string
+  color: string
+  shape: LegendShape
+  dashed?: boolean
+}
+
+const LEGEND_NODE_STYLES = {
+  File: { color: '#6366f1', shape: 'round-rectangle' },
+  Function: { color: '#10b981', shape: 'ellipse' },
+  Class: { color: '#f59e0b', shape: 'diamond' },
+  Interface: { color: '#f59e0b', shape: 'diamond', dashed: true },
+  Component: { color: '#06b6d4', shape: 'round-rectangle' },
+  Variable: { color: '#8b5cf6', shape: 'ellipse' },
+  Type: { color: '#ec4899', shape: 'hexagon' },
+  Entity: { color: '#f97316', shape: 'round-rectangle' },
+} satisfies Record<EmbeddableLabel, Omit<NodeLegendItem, 'label'>>
+
+export function buildNodeLegend(labels: readonly string[]): NodeLegendItem[] {
+  return labels.map((label) => {
+    const style = LEGEND_NODE_STYLES[label as EmbeddableLabel]
+    if (!style) throw new Error(`Missing graph legend style for ${label}`)
+    return { label, ...style }
+  })
+}
+
+const NODE_LEGEND = buildNodeLegend(EMBEDDABLE_LABELS)
 
 const EDGE_LEGEND = [
   { label: 'Calls', type: 'CALLS' },
@@ -33,7 +53,7 @@ function shapeClass(shape: string) {
     case 'ellipse': return 'rounded-full'
     case 'diamond': return 'rotate-45 scale-75'
     case 'round-rectangle': return 'rounded-sm'
-    case 'rectangle': return 'rounded-none'
+    case 'hexagon': return '[clip-path:polygon(25%_0,75%_0,100%_50%,75%_100%,25%_100%,0_50%)]'
     default: return 'rounded-full'
   }
 }
@@ -44,7 +64,10 @@ export function GraphLegend({ hiddenEdgeTypes, onToggleEdgeType, hiddenNodeTypes
   return (
     <div className="rounded-lg border border-border bg-card/90 backdrop-blur-sm overflow-hidden" style={{ maxWidth: 200 }}>
       <button
+        type="button"
         onClick={() => setCollapsed(!collapsed)}
+        aria-expanded={!collapsed}
+        aria-controls="graph-legend-content"
         className="w-full px-3 py-1.5 flex items-center justify-between text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
       >
         <span>Legend</span>
@@ -55,10 +78,10 @@ export function GraphLegend({ hiddenEdgeTypes, onToggleEdgeType, hiddenNodeTypes
       </button>
 
       {!collapsed && (
-        <div className="px-3 pb-2 space-y-2">
+        <div id="graph-legend-content" className="px-3 pb-2 space-y-2">
           {/* Nodes (clickable to filter) */}
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">
+            <div className="text-[10px] uppercase tracking-wider text-subtle mb-1">
               Nodes <span className="normal-case">(click to filter)</span>
             </div>
             <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
@@ -66,8 +89,11 @@ export function GraphLegend({ hiddenEdgeTypes, onToggleEdgeType, hiddenNodeTypes
                 const hidden = hiddenNodeTypes.has(item.label)
                 return (
                   <button
+                    type="button"
                     key={item.label}
                     onClick={() => onToggleNodeType(item.label)}
+                    aria-pressed={!hidden}
+                    aria-label={`${hidden ? 'Show' : 'Hide'} ${item.label} nodes`}
                     className={`flex items-center gap-1.5 transition-opacity ${hidden ? 'opacity-30' : ''}`}
                   >
                     <div
@@ -87,7 +113,7 @@ export function GraphLegend({ hiddenEdgeTypes, onToggleEdgeType, hiddenNodeTypes
 
           {/* Edges (clickable to filter) */}
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">
+            <div className="text-[10px] uppercase tracking-wider text-subtle mb-1">
               Edges <span className="normal-case">(click to filter)</span>
             </div>
             <div className="space-y-0.5">
@@ -96,8 +122,11 @@ export function GraphLegend({ hiddenEdgeTypes, onToggleEdgeType, hiddenNodeTypes
                 const hidden = hiddenEdgeTypes.has(item.type)
                 return (
                   <button
+                    type="button"
                     key={item.type}
                     onClick={() => onToggleEdgeType(item.type)}
+                    aria-pressed={!hidden}
+                    aria-label={`${hidden ? 'Show' : 'Hide'} ${item.label} edges`}
                     className={`flex items-center gap-1.5 w-full text-left transition-opacity ${hidden ? 'opacity-30' : ''}`}
                   >
                     <div className="w-4 h-0.5 shrink-0 relative">
