@@ -65,6 +65,26 @@ async function searchJson(query: string): Promise<{ status: number; body: Record
   return { status: res.status, body };
 }
 
+describe('GET /api/search: limit validation', () => {
+  beforeEach(() => {
+    mockedSearch.mockReset();
+    mockedGetGraphClient.mockReset();
+    mockedGetKnownNodeLabels.mockReset();
+  });
+
+  it.each(['0', '-1', '1.5', '101', 'not-a-number'])(
+    'rejects limit=%s with 400 before calling the search service',
+    async (limit) => {
+      const { status, body } = await searchJson(`q=test&limit=${encodeURIComponent(limit)}`);
+
+      expect(status).toBe(400);
+      expect(body).toEqual({ error: 'limit parameter must be an integer between 1 and 100' });
+      expect(mockedSearch).not.toHaveBeenCalled();
+      expect(mockedGetGraphClient).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe('GET /api/search: types filter emptying the page', () => {
   beforeEach(() => {
     mockedSearch.mockReset();

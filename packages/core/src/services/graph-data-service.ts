@@ -22,6 +22,22 @@ import type {
   CypherResult,
 } from './types';
 
+function projectDashboardValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(projectDashboardValue);
+  if (value === null || typeof value !== 'object') return value;
+
+  const projected: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'embedding' || key === 'embeddingTextHash') continue;
+    projected[key] = projectDashboardValue(child);
+  }
+  return projected;
+}
+
+function projectDashboardProperties(props: Record<string, unknown>): Record<string, unknown> {
+  return projectDashboardValue(props) as Record<string, unknown>;
+}
+
 // ============================================================================
 // Graph Stats
 // ============================================================================
@@ -215,7 +231,7 @@ export async function getEntityWithConnectionsImpl(
     label: (firstRow.labels[0] ?? 'Unknown') as GraphNode['label'],
     displayName: (firstRow.n['name'] as string) ?? (firstRow.n['path'] as string) ?? 'unknown',
     filePath: (firstRow.n['filePath'] as string) ?? (firstRow.n['path'] as string),
-    data: firstRow.n as unknown as GraphNode['data'],
+    data: projectDashboardProperties(firstRow.n) as unknown as GraphNode['data'],
   };
 
   const incomingEdges: GraphEdge[] = [];
@@ -232,7 +248,7 @@ export async function getEntityWithConnectionsImpl(
           source: (row.inNode['name'] as string) ?? (row.inNode['path'] as string) ?? 'unknown',
           target: id,
           label: row.inType as GraphEdge['label'],
-          data: row.inEdge as unknown as GraphEdge['data'],
+          data: projectDashboardProperties(row.inEdge) as unknown as GraphEdge['data'],
         });
       }
     }
@@ -246,7 +262,7 @@ export async function getEntityWithConnectionsImpl(
           source: id,
           target: (row.outNode['name'] as string) ?? (row.outNode['path'] as string) ?? 'unknown',
           label: row.outType as GraphEdge['label'],
-          data: row.outEdge as unknown as GraphEdge['data'],
+          data: projectDashboardProperties(row.outEdge) as unknown as GraphEdge['data'],
         });
       }
     }
@@ -340,7 +356,7 @@ export async function getNodesPaginatedImpl(options: NodesQueryOptions = {}): Pr
       label: nodeLabel,
       displayName: (props['name'] as string) ?? (props['filePath'] as string) ?? 'unknown',
       filePath: (props['filePath'] as string),
-      data: props as unknown as GraphNode['data'],
+      data: projectDashboardProperties(props) as unknown as GraphNode['data'],
     } as GraphNode;
   });
 
@@ -428,7 +444,7 @@ export async function getNeighborsImpl(
     MATCH (center)
     WHERE ${centerMatch}
     MATCH ${cypherMatch}
-    WHERE neighbor.filePath IS NOT NULL OR neighbor.name IS NOT NULL ${edgeTypeFilter}
+    WHERE neighbor.filePath IS NOT NULL OR neighbor.name IS NOT NULL OR neighbor.text IS NOT NULL ${edgeTypeFilter}
     RETURN DISTINCT neighbor, ${dialect.labelsExpr('neighbor')} as neighborLabels, r, ${dialect.typeExpr('r')} as rType
     LIMIT $limit
   `, { params: queryParams });
@@ -440,7 +456,7 @@ export async function getNeighborsImpl(
 
   for (const row of result.data ?? []) {
     const neighborProps = extractNodeProps(row.neighbor as Record<string, unknown>);
-    const nodeLabel = (row.neighborLabels[0] ?? 'File') as NodeLabel;
+    const nodeLabel = (row.neighborLabels[0] ?? 'File') as NodeLabel | 'Entity';
     const nodeId = generateNodeId(nodeLabel, neighborProps);
 
     if (nodeId && !seenNodes.has(nodeId)) {
@@ -448,9 +464,9 @@ export async function getNeighborsImpl(
       nodes.push({
         id: nodeId,
         label: nodeLabel,
-        displayName: (neighborProps['name'] as string) ?? (neighborProps['path'] as string) ?? 'unknown',
+        displayName: (neighborProps['name'] as string) ?? (neighborProps['path'] as string) ?? (neighborProps['text'] as string) ?? 'unknown',
         filePath: (neighborProps['filePath'] as string) ?? (neighborProps['path'] as string),
-        data: neighborProps as unknown as GraphNode['data'],
+        data: projectDashboardProperties(neighborProps) as unknown as GraphNode['data'],
       } as GraphNode);
     }
 
@@ -462,7 +478,7 @@ export async function getNeighborsImpl(
         source: direction === 'in' ? nodeId : id,
         target: direction === 'in' ? id : nodeId,
         label: row.rType as EdgeLabel,
-        data: row.r as unknown as GraphEdge['data'],
+        data: projectDashboardProperties(row.r) as unknown as GraphEdge['data'],
       } as GraphEdge);
     }
   }

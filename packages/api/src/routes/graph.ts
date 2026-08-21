@@ -1,13 +1,39 @@
 import { Hono } from 'hono';
 import { codeGraphService, getGraphClient } from '@codegraph/core';
+import { createQueries } from '@codegraph/graph';
 import { safeErrorMessage } from '../safe-error';
 
 export const graphRoutes = new Hono();
 
+const FULL_GRAPH_LIMIT_MAX = 1000;
+const FILE_RELATIONSHIP_LIMIT_MAX = 500;
+const REFERENCE_LIMIT_MAX = 1000;
+const REFERENCE_START_LINE_MAX = 10_000_000;
+const DEPENDENCY_DEPTH_MAX = 10;
+
+type BoundedIntegerResult =
+  | { valid: true; value?: number }
+  | { valid: false; error: string };
+
+function boundedPositiveInteger(
+  raw: string | undefined,
+  name: string,
+  max: number,
+): BoundedIntegerResult {
+  if (raw === undefined) return { valid: true };
+  const value = Number(raw);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1 || value > max) {
+    return { valid: false, error: `${name} must be a positive integer between 1 and ${max}` };
+  }
+  return { valid: true, value };
+}
+
 /** GET /api/graph/full?limit=N&projectId=X — returns { nodes, edges } optionally filtered by project */
 graphRoutes.get('/api/graph/full', async (c) => {
   try {
-    const limit = Number(c.req.query('limit') ?? 100);
+    const parsedLimit = boundedPositiveInteger(c.req.query('limit'), 'limit', FULL_GRAPH_LIMIT_MAX);
+    if (!parsedLimit.valid) return c.json({ error: parsedLimit.error }, 400);
+    const limit = parsedLimit.value ?? 100;
     const projectId = c.req.query('projectId');
 
     // If projectId given, resolve rootPath and filter
@@ -34,6 +60,38 @@ graphRoutes.get('/api/graph/full', async (c) => {
     return c.json({ nodes: data.nodes, edges: data.edges });
   } catch (error) {
     return c.json({ error: safeErrorMessage('GET /api/graph/full', error, 'Failed to fetch graph.') }, 500);
+  }
+});
+
+/**
+ * GET /api/graph/file-relationships?path=X&limit=N
+ *
+ * Returns the four relationship collections consumed by the File detail panel.
+ * Each collection is independently bounded to 1..500 items; the default is 100.
+ */
+graphRoutes.get('/api/graph/file-relationships', async (c) => {
+  try {
+    const filePath = c.req.query('path');
+    if (!filePath) return c.json({ error: 'path parameter is required' }, 400);
+
+    const parsedLimit = boundedPositiveInteger(
+      c.req.query('limit'),
+      'limit',
+      FILE_RELATIONSHIP_LIMIT_MAX,
+    );
+    if (!parsedLimit.valid) return c.json({ error: parsedLimit.error }, 400);
+
+    const client = await getGraphClient();
+    const data = await createQueries(client).getFileRelationships(filePath, parsedLimit.value ?? 100);
+    return c.json(data);
+  } catch (error) {
+    return c.json({
+      error: safeErrorMessage(
+        'GET /api/graph/file-relationships',
+        error,
+        'Failed to fetch file relationships.',
+      ),
+    }, 500);
   }
 });
 
@@ -64,19 +122,21 @@ graphRoutes.get('/api/graph/references', async (c) => {
     const name = c.req.query('name');
     if (!name) return c.json({ error: 'name parameter is required' }, 400);
 
-    const rawLine = c.req.query('startLine');
-    const parsedLine = rawLine === undefined ? undefined : Number.parseInt(rawLine, 10);
-    const startLine = parsedLine !== undefined && Number.isFinite(parsedLine) ? parsedLine : undefined;
+    const parsedLine = boundedPositiveInteger(
+      c.req.query('startLine'),
+      'startLine',
+      REFERENCE_START_LINE_MAX,
+    );
+    if (!parsedLine.valid) return c.json({ error: parsedLine.error }, 400);
 
-    const rawLimit = c.req.query('limit');
-    const parsedLimit = rawLimit === undefined ? undefined : Number.parseInt(rawLimit, 10);
-    const limit = parsedLimit !== undefined && Number.isFinite(parsedLimit) ? parsedLimit : undefined;
+    const parsedLimit = boundedPositiveInteger(c.req.query('limit'), 'limit', REFERENCE_LIMIT_MAX);
+    if (!parsedLimit.valid) return c.json({ error: parsedLimit.error }, 400);
 
     const data = await codeGraphService.getSymbolReferences({
       name,
       filePath: c.req.query('path'),
-      startLine,
-      limit,
+      startLine: parsedLine.value,
+      limit: parsedLimit.value,
     });
     return c.json(data);
   } catch (error) {
@@ -92,7 +152,9 @@ graphRoutes.get('/api/graph/dependencies', async (c) => {
   try {
     const filePath = c.req.query('path');
     if (!filePath) return c.json({ error: 'path parameter is required' }, 400);
-    const depth = Number(c.req.query('depth') ?? 3);
+    const parsedDepth = boundedPositiveInteger(c.req.query('depth'), 'depth', DEPENDENCY_DEPTH_MAX);
+    if (!parsedDepth.valid) return c.json({ error: parsedDepth.error }, 400);
+    const depth = parsedDepth.value ?? 3;
     const data = await codeGraphService.getDependencyTree(filePath, depth);
     return c.json(data);
   } catch (error) {

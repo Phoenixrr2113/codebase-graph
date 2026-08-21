@@ -10,9 +10,81 @@ export interface GraphNode {
   properties: Record<string, unknown>
 }
 
+interface GraphWireEdge {
+  id: string
+  source: string
+  target: string
+  label: string
+}
+
+interface CanvasNodeElement {
+  data: {
+    id: string
+    label: string
+    type: string
+    filePath?: string
+    [key: string]: unknown
+  }
+}
+
+interface CanvasEdgeElement {
+  data: GraphWireEdge
+}
+
+export interface CanvasSelectionPlan {
+  nodeId: string
+  nodeToAdd: CanvasNodeElement | null
+}
+
+function graphNodeIdentityMatches(candidate: GraphNode, requested: GraphNode): boolean {
+  if (candidate.id === requested.id) return true
+  if (candidate.type !== requested.type) return false
+
+  const candidatePath = candidate.properties.filePath
+  const requestedPath = requested.properties.filePath
+  if (typeof candidatePath !== 'string' || candidatePath !== requestedPath) return false
+
+  const candidateName = candidate.properties.name ?? candidate.label
+  const requestedName = requested.properties.name ?? requested.label
+  if (candidateName !== requestedName) return false
+
+  const candidateLine = candidate.properties.startLine
+  const requestedLine = requested.properties.startLine
+  return candidateLine === undefined || requestedLine === undefined || candidateLine === requestedLine
+}
+
+function graphNodeToCanvasElement(node: GraphNode): CanvasNodeElement {
+  const filePath = typeof node.properties.filePath === 'string'
+    ? node.properties.filePath
+    : undefined
+  return {
+    data: {
+      ...node.properties,
+      id: node.id,
+      label: node.label,
+      type: node.type,
+      ...(filePath !== undefined ? { filePath } : {}),
+    },
+  }
+}
+
+export function planCanvasSelection(
+  loadedNodes: readonly GraphNode[],
+  requestedNode: GraphNode,
+): CanvasSelectionPlan {
+  const existingNode = loadedNodes.find((node) => graphNodeIdentityMatches(node, requestedNode))
+  const nodeId = existingNode?.id ?? requestedNode.id
+
+  return {
+    nodeId,
+    nodeToAdd: existingNode ? null : graphNodeToCanvasElement(requestedNode),
+  }
+}
+
 interface GraphCanvasProps {
   apiUrl: string
   onNodeSelect: (node: GraphNode | null) => void
+  selectedNode?: GraphNode | null
   highlightedNames: Set<string>
   /** `filePath::name` of every symbol that uses the selected one. */
   referenceKeys?: Set<string>
@@ -21,13 +93,14 @@ interface GraphCanvasProps {
   projectId?: string | null
 }
 
-export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, referenceKeys, hiddenEdgeTypes, hiddenNodeTypes, projectId }: GraphCanvasProps) {
+export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNames, referenceKeys, hiddenEdgeTypes, hiddenNodeTypes, projectId }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<cytoscape.Core | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [nodeCount, setNodeCount] = useState(0)
+  const [canvasNodes, setCanvasNodes] = useState<GraphNode[]>([])
   const [layout, setLayout] = useState<LayoutName>('cose')
 
   // Initialize Cytoscape and load data
@@ -49,7 +122,7 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, referenceK
 
         if (!mounted) return
 
-        const nodes = (data.nodes ?? []).map((n: Record<string, unknown>) => {
+        const nodes: CanvasNodeElement[] = (data.nodes ?? []).map((n: Record<string, unknown>) => {
           const nodeData = (typeof n.data === 'object' && n.data != null ? n.data : {}) as Record<string, unknown>
           const displayName = (n.displayName ?? nodeData.name ?? n.id) as string
           const nodeType = (n.label ?? nodeData.type ?? 'Unknown') as string
@@ -69,21 +142,32 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, referenceK
           }
         })
 
+        const graphNodes: GraphNode[] = nodes.map((node) => ({
+          id: node.data.id,
+          label: node.data.label,
+          type: node.data.type,
+          properties: node.data,
+        }))
+
         // Build valid node ID set to filter orphan edges
         const nodeIds = new Set(nodes.map((n: { data: { id: string } }) => n.data.id))
 
-        const edges = (data.edges ?? [])
-          .filter((e: Record<string, unknown>) => nodeIds.has(e.source as string) && nodeIds.has(e.target as string))
-          .map((e: Record<string, unknown>, i: number) => ({
-            data: {
-              id: (e.id ?? `edge-${i}`) as string,
-              source: e.source as string,
-              target: e.target as string,
-              label: (e.label ?? '') as string,
-            },
-          }))
+        const loadedEdges: GraphWireEdge[] = (data.edges ?? [])
+          .flatMap((edge: Record<string, unknown>, index: number) => {
+            if (typeof edge.source !== 'string' || typeof edge.target !== 'string') return []
+            return [{
+              id: typeof edge.id === 'string' ? edge.id : `edge-${index}`,
+              source: edge.source,
+              target: edge.target,
+              label: typeof edge.label === 'string' ? edge.label : '',
+            }]
+          })
+        const edges: CanvasEdgeElement[] = loadedEdges
+          .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
+          .map((edge) => ({ data: edge }))
 
         setNodeCount(nodes.length)
+        setCanvasNodes(graphNodes)
 
         const instance = cy({
           container: containerRef.current,
@@ -173,6 +257,28 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, referenceK
       cyRef.current?.destroy()
     }
   }, [apiUrl, onNodeSelect, projectId])
+
+  // Search, breadcrumb, reference, and File relationship selections can point
+  // outside the initial graph window. Add that node before centering it. Direct
+  // relationship and reference responses do not carry edge records, so there
+  // is no honest way for the dashboard to invent missing connections.
+  useEffect(() => {
+    const cy = cyRef.current
+    if (!cy || !selectedNode) return
+
+    const plan = planCanvasSelection(canvasNodes, selectedNode)
+    if (plan.nodeToAdd) {
+      cy.add(plan.nodeToAdd)
+      setCanvasNodes((current) => [...current, selectedNode])
+      setNodeCount((current) => current + 1)
+    }
+
+    const target = cy.getElementById(plan.nodeId)
+    if (target.length === 0) return
+    cy.nodes().unselect()
+    target.select()
+    cy.animate({ center: { eles: target }, duration: 250 })
+  }, [selectedNode, loading])
 
   // Handle search highlight changes
   useEffect(() => {
@@ -285,6 +391,17 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, referenceK
     cyRef.current?.layout(LAYOUT_OPTIONS[l]).run()
   }, [layout])
 
+  const handleNodeListSelect = useCallback((node: GraphNode) => {
+    const cy = cyRef.current
+    const target = cy?.getElementById(node.id)
+    if (cy && target && target.length > 0) {
+      cy.nodes().unselect()
+      target.select()
+      cy.animate({ center: { eles: target }, duration: 250 })
+    }
+    onNodeSelect(node)
+  }, [onNodeSelect])
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }} data-testid="graph-canvas" data-loading={loading ? 'true' : 'false'}>
       {loading && (
@@ -308,10 +425,37 @@ export function GraphCanvas({ apiUrl, onNodeSelect, highlightedNames, referenceK
       {!loading && !error && nodeCount === 0 && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <div className="text-sm text-muted-foreground">Empty graph</div>
-          <div className="text-xs text-muted-foreground/70">Index a codebase to see nodes and edges here.</div>
+          <div className="text-xs text-subtle">Index a codebase to see nodes and edges here.</div>
         </div>
       )}
-      <div ref={containerRef} id="cy" className="cytoscape-container" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+      <div
+        ref={containerRef}
+        id="cy"
+        role="region"
+        aria-label="Code graph visualization"
+        className="cytoscape-container"
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+      />
+      <details className="absolute bottom-4 left-4 z-10 max-h-56 w-56 overflow-hidden rounded-lg border border-border bg-card/95 text-xs shadow-lg backdrop-blur-sm">
+        <summary className="cursor-pointer px-3 py-2 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+          Nodes ({nodeCount})
+        </summary>
+        <div aria-label="Graph nodes" className="max-h-44 overflow-y-auto border-t border-border p-1">
+          {canvasNodes.length === 0 ? (
+            <p className="px-2 py-1.5 text-subtle">No nodes loaded</p>
+          ) : canvasNodes.map((node) => (
+            <button
+              key={node.id}
+              type="button"
+              className="block w-full truncate rounded px-2 py-1.5 text-left text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => handleNodeListSelect(node)}
+            >
+              {node.label}
+              <span className="ml-1 text-subtle">{node.type}</span>
+            </button>
+          ))}
+        </div>
+      </details>
       <GraphControls
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}

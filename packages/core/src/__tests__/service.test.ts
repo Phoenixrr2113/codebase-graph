@@ -470,6 +470,43 @@ describe('CodeGraphService', () => {
       expect(result.edges[0]!.label).toBe('CALLS');
     });
 
+    it('returns knowledge Entity neighbors with stable identity and no embeddings', async () => {
+      mockClient.roQuery.mockResolvedValueOnce({
+        data: [
+          {
+            neighbor: {
+              text: 'Retry policy',
+              type: 'Decision',
+              embedding: [0.1, 0.2],
+              embeddingTextHash: 'secret-payload-hash',
+            },
+            neighborLabels: ['Entity'],
+            r: {
+              confidence: 0.9,
+              embedding: [0.3, 0.4],
+              embeddingTextHash: 'secret-edge-hash',
+            },
+            rType: 'ABOUT',
+          },
+        ],
+        metadata: null,
+      });
+
+      const result = await codeGraphService.getNeighbors('Function:/src/app.ts:retry:10', 'in');
+      const cypher: string = mockClient.roQuery.mock.calls[0][0];
+
+      expect(cypher).toContain('neighbor.text IS NOT NULL');
+      expect(result.nodes[0]).toMatchObject({
+        id: 'Entity:Decision:Retry policy',
+        label: 'Entity',
+        displayName: 'Retry policy',
+      });
+      expect(result.nodes[0]?.data).not.toHaveProperty('embedding');
+      expect(result.nodes[0]?.data).not.toHaveProperty('embeddingTextHash');
+      expect(result.edges[0]?.data).not.toHaveProperty('embedding');
+      expect(result.edges[0]?.data).not.toHaveProperty('embeddingTextHash');
+    });
+
     it('deduplicates nodes and edges', async () => {
       const sameNeighbor = { name: 'helper', filePath: '/src/util.ts', startLine: 5 };
       mockClient.roQuery.mockResolvedValueOnce({

@@ -35,6 +35,8 @@ export function GraphControls({ onZoomIn, onZoomOut, onFit, onRelayout, nodeCoun
           variant={layout === l.value ? 'secondary' : 'ghost'}
           size="sm"
           onClick={() => onRelayout(l.value)}
+          aria-pressed={layout === l.value}
+          aria-label={`Use ${l.label} layout`}
           className="h-7 px-2 text-xs"
         >
           {l.label}

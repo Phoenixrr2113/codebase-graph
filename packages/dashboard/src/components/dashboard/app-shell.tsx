@@ -2,30 +2,206 @@ import { useState, useCallback, useEffect } from 'react'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { GraphCanvas, type GraphNode } from './graph-canvas'
 import { GraphLegend } from './graph-legend'
-import { SearchPanel } from './search-panel'
+import { SearchPanel, type SearchResult } from './search-panel'
 import { EntityDetail } from './entity-detail'
 import { QueryPanel } from './query-panel'
 import { API_URL } from '@/lib/api'
 import {
+  canonicalSymbolNodeId,
+  fetchFileRelationships,
   fetchReferences,
   isReferenceable,
   referenceKey,
   type SymbolReferences,
 } from '@/lib/references'
+import type { FileRelationshipsState } from './entity-detail'
 
+export interface SelectionHistory {
+  entries: Array<GraphNode | null>
+  index: number
+}
 
-export function AppShell({ projectId }: { projectId?: string | null }) {
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
+export const EMPTY_SELECTION_HISTORY: SelectionHistory = { entries: [], index: -1 }
+
+function selectionIdentity(node: GraphNode | null): string | null {
+  return node?.id ?? null
+}
+
+export function pushSelectionHistory(
+  history: SelectionHistory,
+  node: GraphNode | null,
+): SelectionHistory {
+  const current = history.index >= 0 ? history.entries[history.index] : undefined
+  if (current !== undefined && selectionIdentity(current) === selectionIdentity(node)) return history
+
+  const entries = [...history.entries.slice(0, history.index + 1), node]
+  return { entries, index: entries.length - 1 }
+}
+
+export function moveSelectionHistory(
+  history: SelectionHistory,
+  offset: -1 | 1,
+): SelectionHistory {
+  if (history.entries.length === 0) return history
+  const index = Math.max(0, Math.min(history.entries.length - 1, history.index + offset))
+  return index === history.index ? history : { ...history, index }
+}
+
+interface ExplorerBreadcrumb {
+  level: 'project' | 'file' | 'symbol'
+  label: string
+  node: GraphNode | null
+}
+
+function basename(filePath: string): string {
+  return filePath.split('/').filter(Boolean).at(-1) ?? filePath
+}
+
+export function deriveBreadcrumbs(
+  projectName: string | undefined,
+  selectedNode: GraphNode | null,
+): ExplorerBreadcrumb[] {
+  const crumbs: ExplorerBreadcrumb[] = []
+  if (projectName) crumbs.push({ level: 'project', label: projectName, node: null })
+  if (!selectedNode) return crumbs
+
+  const filePath = typeof selectedNode.properties.filePath === 'string'
+    ? selectedNode.properties.filePath
+    : undefined
+  if (filePath) {
+    crumbs.push({
+      level: 'file',
+      label: basename(filePath),
+      node: selectedNode.type === 'File'
+        ? selectedNode
+        : {
+            id: `File:${filePath}`,
+            label: basename(filePath),
+            type: 'File',
+            properties: { name: basename(filePath), filePath },
+          },
+    })
+  }
+  if (selectedNode.type !== 'File') {
+    crumbs.push({ level: 'symbol', label: selectedNode.label, node: selectedNode })
+  }
+  return crumbs
+}
+
+export function searchResultToGraphNode(result: SearchResult): GraphNode {
+  const startLine = typeof result.startLine === 'number' ? result.startLine : null
+  return {
+    id: canonicalSymbolNodeId(result.nodeType, {
+      name: result.name,
+      filePath: result.filePath,
+      startLine,
+    }),
+    label: result.name,
+    type: result.nodeType,
+    properties: result,
+  }
+}
+
+export function ExplorerNavigation({
+  projectName,
+  selectedNode,
+  canGoBack,
+  canGoForward,
+  onBack,
+  onForward,
+  onSelect,
+}: {
+  projectName?: string
+  selectedNode: GraphNode | null
+  canGoBack: boolean
+  canGoForward: boolean
+  onBack: () => void
+  onForward: () => void
+  onSelect: (node: GraphNode | null) => void
+}) {
+  const breadcrumbs = deriveBreadcrumbs(projectName, selectedNode)
+
+  return (
+    <nav aria-label="Explorer navigation" className="flex max-w-[min(70vw,720px)] items-center gap-1 rounded-lg border border-border bg-card/90 p-1 text-xs backdrop-blur-sm">
+      <button
+        type="button"
+        aria-label="Back"
+        title="Back (Alt+Left Arrow)"
+        disabled={!canGoBack}
+        onClick={onBack}
+        className="h-7 rounded px-2 text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        ←
+      </button>
+      <button
+        type="button"
+        aria-label="Forward"
+        title="Forward (Alt+Right Arrow)"
+        disabled={!canGoForward}
+        onClick={onForward}
+        className="h-7 rounded px-2 text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        →
+      </button>
+      {breadcrumbs.length > 0 && <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />}
+      <ol className="flex min-w-0 items-center gap-1 overflow-hidden">
+        {breadcrumbs.map((crumb, index) => (
+          <li key={`${crumb.level}:${crumb.node?.id ?? crumb.label}`} className="flex min-w-0 items-center gap-1">
+            {index > 0 && <span aria-hidden="true" className="text-subtle">/</span>}
+            <button
+              type="button"
+              onClick={() => onSelect(crumb.node)}
+              className="max-w-48 truncate rounded px-1.5 py-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {crumb.label}
+            </button>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  )
+}
+
+export function AppShell({ projectId, projectName }: { projectId?: string | null; projectName?: string }) {
+  const [selectionHistory, setSelectionHistory] = useState<SelectionHistory>(EMPTY_SELECTION_HISTORY)
   const [highlightedNames, setHighlightedNames] = useState<Set<string>>(new Set())
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(new Set())
   const [hiddenNodeTypes, setHiddenNodeTypes] = useState<Set<string>>(new Set())
   const [showQuery, setShowQuery] = useState(false)
   const [references, setReferences] = useState<SymbolReferences | null>(null)
   const [referencesLoading, setReferencesLoading] = useState(false)
+  const [fileRelationshipsState, setFileRelationshipsState] = useState<FileRelationshipsState>({ status: 'idle' })
+
+  const selectedNode = selectionHistory.index >= 0
+    ? selectionHistory.entries[selectionHistory.index] ?? null
+    : null
 
   const handleNodeSelect = useCallback((node: GraphNode | null) => {
-    setSelectedNode(node)
+    setSelectionHistory((history) => pushSelectionHistory(history, node))
   }, [])
+
+  const handleBack = useCallback(() => {
+    setSelectionHistory((history) => moveSelectionHistory(history, -1))
+  }, [])
+
+  const handleForward = useCallback(() => {
+    setSelectionHistory((history) => moveSelectionHistory(history, 1))
+  }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        handleBack()
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        handleForward()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleBack, handleForward])
 
   // One lookup serves both surfaces: the panel lists every reference, the canvas
   // highlights the ones it happens to have loaded.
@@ -54,6 +230,32 @@ export function AppShell({ projectId }: { projectId?: string | null }) {
         console.error('Failed to load references', error)
         setReferences(null)
         setReferencesLoading(false)
+      })
+
+    return () => controller.abort()
+  }, [selectedNode])
+
+  useEffect(() => {
+    const filePath = selectedNode?.type === 'File'
+      && typeof selectedNode.properties.filePath === 'string'
+      ? selectedNode.properties.filePath
+      : undefined
+    if (!filePath) {
+      setFileRelationshipsState({ status: 'idle' })
+      return
+    }
+
+    const controller = new AbortController()
+    setFileRelationshipsState({ status: 'loading' })
+    fetchFileRelationships(filePath, controller.signal)
+      .then((data) => setFileRelationshipsState({ status: 'success', data }))
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        console.error('Failed to load file relationships', error)
+        setFileRelationshipsState({
+          status: 'error',
+          message: error instanceof Error ? error.message : 'Failed to load file relationships',
+        })
       })
 
     return () => controller.abort()
@@ -96,12 +298,7 @@ export function AppShell({ projectId }: { projectId?: string | null }) {
             setHighlightedNames(new Set([result.name]))
             // Open the detail panel too. The search payload already carries
             // filePath and line numbers, which is everything the panel needs.
-            setSelectedNode({
-              id: `${result.nodeType}:${result.filePath ?? ''}:${result.name}`,
-              label: result.name,
-              type: result.nodeType,
-              properties: result,
-            })
+            handleNodeSelect(searchResultToGraphNode(result))
           }}
         />
       </ResizablePanel>
@@ -116,6 +313,7 @@ export function AppShell({ projectId }: { projectId?: string | null }) {
               <GraphCanvas
                 apiUrl={API_URL}
                 onNodeSelect={handleNodeSelect}
+                selectedNode={selectedNode}
                 highlightedNames={highlightedNames}
                 hiddenEdgeTypes={hiddenEdgeTypes}
                 hiddenNodeTypes={hiddenNodeTypes}
@@ -123,21 +321,35 @@ export function AppShell({ projectId }: { projectId?: string | null }) {
                 referenceKeys={referenceKeys}
               />
               {/* Toolbar: Query toggle + Legend */}
-              <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', alignItems: 'start', gap: 8 }}>
-                <button
-                  onClick={() => setShowQuery(!showQuery)}
-                  className={`rounded-lg border border-border px-3 py-1.5 text-xs font-medium backdrop-blur-sm transition-colors ${
-                    showQuery ? 'bg-primary/20 text-primary border-primary/40' : 'bg-card/90 text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Query
-                </button>
-                <GraphLegend
-                  hiddenEdgeTypes={hiddenEdgeTypes}
-                  onToggleEdgeType={handleToggleEdgeType}
-                  hiddenNodeTypes={hiddenNodeTypes}
-                  onToggleNodeType={handleToggleNodeType}
+              <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'start', gap: 8 }}>
+                <ExplorerNavigation
+                  projectName={projectName}
+                  selectedNode={selectedNode}
+                  canGoBack={selectionHistory.index > 0}
+                  canGoForward={selectionHistory.index >= 0 && selectionHistory.index < selectionHistory.entries.length - 1}
+                  onBack={handleBack}
+                  onForward={handleForward}
+                  onSelect={handleNodeSelect}
                 />
+                <div className="flex items-start gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowQuery(!showQuery)}
+                    aria-expanded={showQuery}
+                    aria-controls="query-panel"
+                    className={`rounded-lg border border-border px-3 py-1.5 text-xs font-medium backdrop-blur-sm transition-colors ${
+                      showQuery ? 'bg-primary/20 text-primary border-primary/40' : 'bg-card/90 text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Query
+                  </button>
+                  <GraphLegend
+                    hiddenEdgeTypes={hiddenEdgeTypes}
+                    onToggleEdgeType={handleToggleEdgeType}
+                    hiddenNodeTypes={hiddenNodeTypes}
+                    onToggleNodeType={handleToggleNodeType}
+                  />
+                </div>
               </div>
             </div>
           </ResizablePanel>
@@ -146,7 +358,9 @@ export function AppShell({ projectId }: { projectId?: string | null }) {
             <>
               <ResizableHandle withHandle />
               <ResizablePanel defaultSize={35} minSize={20} maxSize={60}>
-                <QueryPanel apiUrl={API_URL} />
+                <div id="query-panel" className="h-full">
+                  <QueryPanel apiUrl={API_URL} />
+                </div>
               </ResizablePanel>
             </>
           )}
@@ -162,6 +376,7 @@ export function AppShell({ projectId }: { projectId?: string | null }) {
           references={references}
           referencesLoading={referencesLoading}
           onSelectReference={handleNodeSelect}
+          fileRelationshipsState={fileRelationshipsState}
         />
       </ResizablePanel>
     </ResizablePanelGroup>

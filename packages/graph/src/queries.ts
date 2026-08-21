@@ -7,7 +7,7 @@
 import type { GraphClient } from './client';
 import type { CypherDialect } from './driver';
 import { trace } from '@codegraph/logger';
-import { SYMBOL_LABELS, REFERENCEABLE_LABELS, resolveNodeLabel } from '@codegraph/types';
+import { REFERENCEABLE_LABELS, SYMBOL_LABELS, resolveNodeLabel } from '@codegraph/types';
 import type {
   GraphData,
   GraphNode,
@@ -22,7 +22,13 @@ import type {
 // Type Guards and Helpers
 // ============================================================================
 
-function getLabelFromLabels(labels: string[]): NodeLabel {
+type DashboardNodeLabel = NodeLabel | 'Entity';
+
+function getLabelFromLabels(labels: string[]): DashboardNodeLabel {
+  if (labels.includes('Entity')) {
+    return 'Entity';
+  }
+
   // resolveNodeLabel is the shared classifier (packages/types/src/labels.ts):
   // it walks `labels` in DB order and returns the first recognized
   // NodeLabel value. This is also what lets the External check below win
@@ -73,24 +79,44 @@ function extractLabels(node: Record<string, unknown>, providedLabels: string[], 
   return providedLabels;
 }
 
+function projectDashboardValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(projectDashboardValue);
+  if (value === null || typeof value !== 'object') return value;
+
+  const projected: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'embedding' || key === 'embeddingTextHash') continue;
+    projected[key] = projectDashboardValue(child);
+  }
+  return projected;
+}
+
+function projectDashboardProperties(props: Record<string, unknown>): Record<string, unknown> {
+  return projectDashboardValue(props) as Record<string, unknown>;
+}
+
 function nodeToGraphNode(node: Record<string, unknown>, labels: string[], dialect?: CypherDialect): GraphNode {
   const actualLabels = extractLabels(node, labels, dialect);
   const props = extractNodeProps(node, dialect);
   const label = getLabelFromLabels(actualLabels);
   const id = generateNodeIdFromProps(label, props);
+  const dashboardProps = projectDashboardProperties(props);
 
   return {
     id,
     label,
-    displayName: (props['name'] as string) ?? (props['filePath'] as string) ?? 'unknown',
+    displayName: (props['name'] as string) ?? (props['filePath'] as string) ?? (props['text'] as string) ?? 'unknown',
     filePath: (props['filePath'] as string),
-    data: props,
+    data: dashboardProps,
   } as unknown as GraphNode;
 }
 
-function generateNodeIdFromProps(label: NodeLabel, node: Record<string, unknown>): string {
+function generateNodeIdFromProps(label: DashboardNodeLabel, node: Record<string, unknown>): string {
   if (label === 'File') {
     return `File:${node['filePath'] ?? ''}`;
+  }
+  if (label === 'Entity') {
+    return `Entity:${node['type'] ?? ''}:${node['text'] ?? ''}`;
   }
   const name = node['name'] ?? '';
   const filePath = node['filePath'] ?? '';
@@ -109,6 +135,7 @@ function edgeToGraphEdge(
 ): GraphEdge {
   const fromId = generateNodeIdFromProps(getLabelFromLabels(fromLabels), fromNode);
   const toId = generateNodeIdFromProps(getLabelFromLabels(toLabels), toNode);
+  const dashboardProps = projectDashboardProperties(edgeProps);
 
   return {
     id: `${edgeType}:${fromId}->${toId}`,
@@ -119,7 +146,7 @@ function edgeToGraphEdge(
       type: edgeType,
       from: fromId,
       to: toId,
-      ...edgeProps,
+      ...dashboardProps,
     },
   } as GraphEdge;
 }
@@ -141,48 +168,74 @@ function buildCypherTemplates(dialect: CypherDialect) {
 
   return {
     GET_FULL_GRAPH_NODES: (rootPath?: string) => {
-      const pathFilter = rootPath
-        ? `AND n.filePath STARTS WITH $rootPath`
-        : '';
+      const dashboardLabels = [...REFERENCEABLE_LABELS, 'Entity'];
+      if (rootPath) {
+        const withinRoot = (alias: string) =>
+          `(${alias}.filePath = $rootPath OR ${alias}.filePath STARTS WITH $rootPathPrefix)`;
 
-      // REFERENCEABLE_LABELS = SYMBOL_LABELS plus the synthetic 'External'
-      // marker (packages/types/src/labels.ts): a node in the full graph can
-      // be any indexed code symbol, or a stand-in for a symbol outside the
-      // indexed project.
+        return `
+          MATCH (n)
+          WHERE (${labelOr('n', dashboardLabels)})
+          OPTIONAL MATCH (n)-[:ABOUT]->(aboutTarget)
+          OPTIONAL MATCH (n)-[:RELATES_TO]-(related:Entity)-[:ABOUT]->(relatedTarget)
+          WITH n, aboutTarget, relatedTarget
+          WHERE (
+            (NOT (${lc('n', 'Entity')}) AND ${withinRoot('n')})
+            OR (${lc('n', 'Entity')} AND (
+              ${withinRoot('aboutTarget')} OR ${withinRoot('relatedTarget')}
+            ))
+          )
+          RETURN DISTINCT n, ${labelsExpr('n')} as labels, id(n) as nodeIdentity
+          LIMIT $limit
+        `;
+      }
+
       return `
         MATCH (n)
-        WHERE (${labelOr('n', [...REFERENCEABLE_LABELS])})
-          ${pathFilter}
-        RETURN n, ${labelsExpr('n')} as labels
+        WHERE (${labelOr('n', dashboardLabels)})
+        RETURN n, ${labelsExpr('n')} as labels, id(n) as nodeIdentity
         LIMIT $limit
       `;
     },
 
-    GET_FULL_GRAPH_EDGES: (rootPath?: string) => {
-      const edgesPathFilter = rootPath
-        ? `AND a.filePath STARTS WITH $rootPath
-           AND (b.filePath STARTS WITH $rootPath
-                OR b.filePath STARTS WITH 'external:')`
-        : '';
-
-      // The edge source ('a') is always an in-repo symbol (SYMBOL_LABELS);
-      // the edge target ('b') may additionally be an External stand-in
-      // (REFERENCEABLE_LABELS), since edges can point at symbols outside
-      // the indexed project.
-      return `
+    GET_FULL_GRAPH_EDGES: `
         MATCH (a)-[r]->(b)
-        WHERE (${labelOr('a', [...SYMBOL_LABELS])})
-          AND (${labelOr('b', [...REFERENCEABLE_LABELS])})
-          ${edgesPathFilter}
-        RETURN a, r, b, ${typeExpr('r')} as edgeType, ${labelsExpr('b')} as toLabels
-        LIMIT $limit
-      `;
-    },
+        WHERE id(a) IN $nodeIdentities
+          AND id(b) IN $nodeIdentities
+        RETURN a, r, b, ${typeExpr('r')} as edgeType,
+               ${labelsExpr('a')} as fromLabels, ${labelsExpr('b')} as toLabels
+      `,
 
     GET_FILE_SUBGRAPH: `
       MATCH (f:File {filePath: $filePath})-[:CONTAINS]->(e)
       OPTIONAL MATCH (e)-[r]-(related)
       RETURN f, e, r, related, ${labelsExpr('e')} as labels, ${labelsExpr('related')} as relatedLabels, ${typeExpr('r')} as edgeType
+    `,
+
+    GET_FILE_CONTAINED_SYMBOLS: `
+      MATCH (:File {filePath: $filePath})-[:CONTAINS]->(n)
+      WHERE (${labelOr('n', [...SYMBOL_LABELS])})
+      RETURN DISTINCT n, ${labelsExpr('n')} as labels
+      LIMIT $limit
+    `,
+
+    GET_FILE_IMPORTS: `
+      MATCH (:File {filePath: $filePath})-[:IMPORTS]->(n:File)
+      RETURN DISTINCT n, ${labelsExpr('n')} as labels
+      LIMIT $limit
+    `,
+
+    GET_FILE_IMPORTERS: `
+      MATCH (n:File)-[:IMPORTS]->(:File {filePath: $filePath})
+      RETURN DISTINCT n, ${labelsExpr('n')} as labels
+      LIMIT $limit
+    `,
+
+    GET_FILE_KNOWLEDGE_ENTITIES: `
+      MATCH (n:Entity)-[:ABOUT]->(target)
+      WHERE target.filePath = $filePath
+      RETURN DISTINCT n, ${labelsExpr('n')} as labels
+      LIMIT $limit
     `,
 
     GET_DEPENDENCY_TREE: `
@@ -264,6 +317,14 @@ export interface SymbolReferenceQuery {
   limit?: number | undefined;
 }
 
+export interface FileRelationshipsResult {
+  filePath: string;
+  containedSymbols: GraphNode[];
+  imports: GraphNode[];
+  importers: GraphNode[];
+  knowledgeEntities: GraphNode[];
+}
+
 // ============================================================================
 // Query Operations Interface
 // ============================================================================
@@ -283,6 +344,9 @@ export interface GraphQueries {
    * Get subgraph for a specific file
    */
   getFileSubgraph(filePath: string): Promise<SubgraphData>;
+
+  /** Get the categorized relationships shown for a File node. */
+  getFileRelationships(filePath: string, limit?: number): Promise<FileRelationshipsResult>;
 
   /**
    * Get import dependency tree from a file
@@ -305,25 +369,16 @@ export interface GraphQueries {
 // Query Operations Implementation
 // ============================================================================
 
-/**
- * Find the graph node an edge endpoint refers to.
- *
- * Prefers name plus path, which identifies a specific declaration. Falls back to
- * the file itself only when the endpoint carries no name, since matching on path
- * alone cannot distinguish declarations that share a file.
- */
-function findEndpoint(
-  nodes: GraphNode[],
-  props: Record<string, unknown>,
-): GraphNode | undefined {
-  const name = props['name'];
-  const filePath = props['filePath'];
-
-  if (typeof name === 'string' && name.length > 0) {
-    const exact = nodes.find((n) => n.displayName === name && n.filePath === filePath);
-    if (exact) return exact;
+function rowsToGraphNodes(
+  rows: Array<{ n: Record<string, unknown>; labels: string[] }>,
+  dialect: CypherDialect,
+): GraphNode[] {
+  const nodes = new Map<string, GraphNode>();
+  for (const row of rows) {
+    const node = nodeToGraphNode(row.n, row.labels, dialect);
+    nodes.set(node.id, node);
   }
-  return nodes.find((n) => n.filePath === filePath && n.label === 'File');
+  return [...nodes.values()];
 }
 
 class GraphQueriesImpl implements GraphQueries {
@@ -340,18 +395,34 @@ class GraphQueriesImpl implements GraphQueries {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
     const nodeIds = new Set<string>();
+    let normalizedRootPath = rootPath || undefined;
+    while (normalizedRootPath && normalizedRootPath.endsWith('/')) {
+      normalizedRootPath = normalizedRootPath.slice(0, -1) || undefined;
+    }
+    const rootPathPrefix = normalizedRootPath ? `${normalizedRootPath}/` : undefined;
 
     // Get nodes
     const nodesResult = await this.client.roQuery<{
       n: Record<string, unknown>;
       labels: string[];
-    }>(this.templates.GET_FULL_GRAPH_NODES(rootPath), { params: { limit, ...(rootPath && { rootPath }) } });
+      nodeIdentity: number;
+    }>(this.templates.GET_FULL_GRAPH_NODES(normalizedRootPath), {
+      params: {
+        limit,
+        ...(normalizedRootPath && rootPathPrefix
+          ? { rootPath: normalizedRootPath, rootPathPrefix }
+          : {}),
+      },
+    });
+
+    const nodeIdentities: number[] = [];
 
     for (const row of nodesResult.data ?? []) {
       const node = nodeToGraphNode(row.n, row.labels, this.dialect);
       if (!nodeIds.has(node.id)) {
         nodes.push(node);
         nodeIds.add(node.id);
+        nodeIdentities.push(row.nodeIdentity);
       }
     }
 
@@ -361,48 +432,25 @@ class GraphQueriesImpl implements GraphQueries {
       r: Record<string, unknown>;
       b: Record<string, unknown>;
       edgeType: string;
+      fromLabels: string[];
       toLabels: string[];
-    }>(this.templates.GET_FULL_GRAPH_EDGES(rootPath), { params: { limit, ...(rootPath && { rootPath }) } });
+    }>(this.templates.GET_FULL_GRAPH_EDGES, { params: { nodeIdentities } });
 
     for (const row of edgesResult.data ?? []) {
       const fromProps = extractNodeProps(row.a, this.dialect);
       const toProps = extractNodeProps(row.b, this.dialect);
-      const fromLabels = extractLabels(row.a, [], this.dialect);
+      const fromLabels = row.fromLabels ?? extractLabels(row.a, [], this.dialect);
       const toLabels = row.toLabels ?? extractLabels(row.b, [], this.dialect);
 
-      // Resolve each endpoint by identity.
-      //
-      // This previously tested filePath on its own first, and every function,
-      // class and interface declared in a file shares that path. The lookup
-      // therefore returned whichever node for the file happened to come first,
-      // usually the File node, so real endpoints ended up with no edges at all
-      // and rendered as a disconnected grid. The name check that followed could
-      // never run because the || had already short-circuited.
-      const fromNode = findEndpoint(nodes, fromProps);
-      let toNode = findEndpoint(nodes, toProps);
-
-      // If target is External and not in nodes, add it
-      const isExternalTarget = toLabels.includes('External') ||
-        (typeof toProps['filePath'] === 'string' && (toProps['filePath'] as string).startsWith('external:'));
-
-      if (!toNode && isExternalTarget) {
-        const externalNode = nodeToGraphNode(row.b, toLabels, this.dialect);
-        if (!nodeIds.has(externalNode.id)) {
-          nodes.push(externalNode);
-          nodeIds.add(externalNode.id);
-        }
-        toNode = externalNode;
-      }
-
-      if (fromNode && toNode) {
-        const edge = edgeToGraphEdge(
-          fromProps,
-          toProps,
-          row.edgeType,
-          row.r,
-          fromLabels.length > 0 ? fromLabels : [fromNode.label],
-          toLabels.length > 0 ? toLabels : [toNode.label]
-        );
+      const edge = edgeToGraphEdge(
+        fromProps,
+        toProps,
+        row.edgeType,
+        row.r,
+        fromLabels,
+        toLabels,
+      );
+      if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
         edges.push(edge);
       }
     }
@@ -485,6 +533,26 @@ class GraphQueriesImpl implements GraphQueries {
       return { nodes, edges, centerId };
     }
     return { nodes, edges };
+  }
+
+  @trace()
+  async getFileRelationships(filePath: string, limit = 100): Promise<FileRelationshipsResult> {
+    type NodeRow = { n: Record<string, unknown>; labels: string[] };
+    const options = { params: { filePath, limit } };
+    const [containedResult, importsResult, importersResult, knowledgeResult] = await Promise.all([
+      this.client.roQuery<NodeRow>(this.templates.GET_FILE_CONTAINED_SYMBOLS, options),
+      this.client.roQuery<NodeRow>(this.templates.GET_FILE_IMPORTS, options),
+      this.client.roQuery<NodeRow>(this.templates.GET_FILE_IMPORTERS, options),
+      this.client.roQuery<NodeRow>(this.templates.GET_FILE_KNOWLEDGE_ENTITIES, options),
+    ]);
+
+    return {
+      filePath,
+      containedSymbols: rowsToGraphNodes(containedResult.data ?? [], this.dialect),
+      imports: rowsToGraphNodes(importsResult.data ?? [], this.dialect),
+      importers: rowsToGraphNodes(importersResult.data ?? [], this.dialect),
+      knowledgeEntities: rowsToGraphNodes(knowledgeResult.data ?? [], this.dialect),
+    };
   }
 
   @trace()

@@ -25,6 +25,7 @@
   --border: oklch(0.88 0 0);
   --input: oklch(0.88 0 0);
   --ring: oklch(0.55 0.15 145);
+  --subtle-foreground: #52525b;
   --radius: 0.5rem;
   
   /* Code syntax colors */
@@ -56,6 +57,7 @@
   --border: oklch(0.22 0 0);
   --input: oklch(0.18 0 0);
   --ring: oklch(0.65 0.18 145);
+  --subtle-foreground: #a1a1aa;
   
   /* Code syntax colors - dark mode */
   --syntax-keyword: oklch(0.75 0.18 310);
@@ -103,6 +105,16 @@
   html {
     scroll-behavior: smooth;
   }
+}
+
+/* Small supporting text must remain readable on both forced theme surfaces. */
+.text-subtle,
+.text-muted-foreground\/30,
+.text-muted-foreground\/40,
+.text-muted-foreground\/50,
+.text-muted-foreground\/60,
+.text-muted-foreground\/70 {
+  color: var(--subtle-foreground);
 }
 
 /* Shiki-rendered code blocks. Default = soft-wrap so narrow cards

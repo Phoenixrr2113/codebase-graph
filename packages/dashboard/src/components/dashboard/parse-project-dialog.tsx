@@ -21,6 +21,70 @@ interface ParseResult {
   error?: string
 }
 
+interface ParseProjectFormProps {
+  path: string
+  loading: boolean
+  result: ParseResult | null
+  onPathChange: (path: string) => void
+  onParse: () => void
+  onCancel: () => void
+}
+
+export function ParseProjectForm({
+  path,
+  loading,
+  result,
+  onPathChange,
+  onParse,
+  onCancel,
+}: ParseProjectFormProps) {
+  return (
+    <div className="flex items-center gap-2">
+      <label htmlFor="index-project-path" className="sr-only">Project path</label>
+      <Input
+        id="index-project-path"
+        type="text"
+        placeholder="/path/to/project"
+        value={path}
+        onChange={(event) => onPathChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') onParse()
+          if (event.key === 'Escape') onCancel()
+        }}
+        className="h-7 w-64 text-xs"
+        autoFocus
+      />
+      <Button
+        size="sm"
+        onClick={onParse}
+        disabled={!path.trim() || loading}
+        className="h-7 text-xs"
+      >
+        {loading ? 'Indexing...' : 'Index'}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onCancel}
+        className="h-7 text-xs"
+      >
+        Cancel
+      </Button>
+      {result && (
+        result.success ? (
+          <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-400/30">
+            {result.stats?.files} files, {result.stats?.entities} symbols ({((result.stats?.durationMs ?? 0) / 1000).toFixed(1)}s)
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-[10px] text-red-400 border-red-400/30">
+            {result.error}
+          </Badge>
+        )
+      )}
+    </div>
+  )
+}
+
 export function ParseProjectDialog({ apiUrl, onProjectParsed }: ParseProjectDialogProps) {
   const [open, setOpen] = useState(false)
   const [path, setPath] = useState('')
@@ -73,47 +137,19 @@ export function ParseProjectDialog({ apiUrl, onProjectParsed }: ParseProjectDial
     )
   }
 
+  const closeForm = () => {
+    setOpen(false)
+    setResult(null)
+  }
+
   return (
-    <div className="flex items-center gap-2">
-      <Input
-        type="text"
-        placeholder="/path/to/project"
-        value={path}
-        onChange={(e) => setPath(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') handleParse()
-          if (e.key === 'Escape') { setOpen(false); setResult(null) }
-        }}
-        className="h-7 w-64 text-xs"
-        autoFocus
-      />
-      <Button
-        size="sm"
-        onClick={handleParse}
-        disabled={!path.trim() || loading}
-        className="h-7 text-xs"
-      >
-        {loading ? 'Indexing...' : 'Index'}
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => { setOpen(false); setResult(null) }}
-        className="h-7 text-xs"
-      >
-        Cancel
-      </Button>
-      {result && (
-        result.success ? (
-          <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-400/30">
-            {result.stats?.files} files, {result.stats?.entities} symbols ({((result.stats?.durationMs ?? 0) / 1000).toFixed(1)}s)
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-[10px] text-red-400 border-red-400/30">
-            {result.error}
-          </Badge>
-        )
-      )}
-    </div>
+    <ParseProjectForm
+      path={path}
+      loading={loading}
+      result={result}
+      onPathChange={setPath}
+      onParse={() => void handleParse()}
+      onCancel={closeForm}
+    />
   )
 }

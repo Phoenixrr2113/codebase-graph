@@ -5,6 +5,13 @@ import { safeErrorMessage } from '../safe-error';
 
 export const searchRoutes = new Hono();
 
+const DEFAULT_SEARCH_LIMIT = 20;
+const MIN_SEARCH_LIMIT = 1;
+// Keep one request from asking the vector ranker or Cypher fallback for an
+// unbounded result window. Dashboard callers currently request 20 or 30.
+const MAX_SEARCH_LIMIT = 100;
+const SEARCH_LIMIT_ERROR = `limit parameter must be an integer between ${MIN_SEARCH_LIMIT} and ${MAX_SEARCH_LIMIT}`;
+
 /**
  * What to do about a caller-supplied `types` filter, decided once against
  * the live label allowlist so the route only has to act on the answer.
@@ -154,7 +161,11 @@ searchRoutes.get('/api/search', async (c) => {
     const query = c.req.query('q');
     if (!query) return c.json({ error: 'q parameter is required' }, 400);
 
-    const limit = Number(c.req.query('limit') ?? 20);
+    const rawLimit = c.req.query('limit');
+    const limit = rawLimit === undefined ? DEFAULT_SEARCH_LIMIT : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < MIN_SEARCH_LIMIT || limit > MAX_SEARCH_LIMIT) {
+      return c.json({ error: SEARCH_LIMIT_ERROR }, 400);
+    }
     const scope = c.req.query('scope');
     const types = c.req.query('types');
 

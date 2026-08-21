@@ -9,7 +9,7 @@ import { API_URL } from '@/lib/api'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('explorer')
-  const [projectId, setProjectId] = useState<string | null>(null)
+  const [project, setProject] = useState<{ id: string; name: string } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   const handleProjectParsed = useCallback(() => {
@@ -17,7 +17,7 @@ export default function App() {
   }, [])
 
   const handleProjectChange = useCallback((project: { id: string; name: string } | null) => {
-    setProjectId(project?.id ?? null)
+    setProject(project)
   }, [])
 
   return (
@@ -41,7 +41,13 @@ export default function App() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === 'explorer' && <AppShell key={`${projectId}-${refreshKey}`} projectId={projectId} />}
+        {activeTab === 'explorer' && (
+          <AppShell
+            key={`${project?.id ?? 'all'}-${refreshKey}`}
+            projectId={project?.id ?? null}
+            projectName={project?.name ?? 'All projects'}
+          />
+        )}
         {activeTab === 'operations' && <OperationsTab />}
       </main>
     </div>
