@@ -9,6 +9,8 @@ import simpleGit, { type SimpleGit, type LogResult, type DefaultLogFields } from
 import { createOperations, type GraphClient } from '@codegraph/graph';
 import type { CommitEntity } from '@codegraph/types';
 import { createLogger } from '@codegraph/logger';
+import { relative, resolve, join } from 'node:path';
+import { realpath } from 'node:fs/promises';
 
 const logger = createLogger({ namespace: 'core:gitSync' });
 
@@ -70,6 +72,34 @@ async function setMetadata(client: GraphClient, key: string, value: string): Pro
 // ============================================================================
 // Git Sync Implementation
 // ============================================================================
+
+/**
+ * Git's well-known empty tree object hash (SHA-1 of an empty tree). Used as
+ * the "before" state when diffing a repository's root commit, which has no
+ * parent and so cannot be diffed with the usual `<hash>^` syntax.
+ */
+const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+/**
+ * Resolve the revision to diff a commit against: its parent (`<hash>^`) for
+ * a normal commit, or the empty tree for a root commit. A root commit has
+ * no parent, so `<hash>^` is not a valid revision and `git diff` exits 128 -
+ * that failure used to be silently swallowed by a blanket .catch(), which
+ * meant a repo's first commit never got MODIFIED_IN/INTRODUCED_IN edges for
+ * its files.
+ */
+async function resolveDiffBase(git: SimpleGit, commitHash: string): Promise<string> {
+  try {
+    const revList = await git.raw(['rev-list', '--parents', '-n', '1', commitHash]);
+    // Output is "<commit> [<parent> ...]" - a root commit has no parent, so
+    // there is exactly one token.
+    const tokens = revList.trim().split(/\s+/).filter(Boolean);
+    return tokens.length > 1 ? `${commitHash}^` : EMPTY_TREE_HASH;
+  } catch (err) {
+    logger.warn(`Could not determine parent commit for ${commitHash}, assuming it has one: ${err instanceof Error ? err.message : String(err)}`);
+    return `${commitHash}^`;
+  }
+}
 
 /**
  * Sync git history for a repository into the graph.
@@ -144,6 +174,35 @@ export async function syncGitHistory(
 
     const ops = createOperations(client);
 
+    // git reports file paths (via `git diff` / `--name-status`) relative to
+    // the REPOSITORY root, not relative to repoPath, which may be a
+    // subdirectory of the repo (e.g. one package in a monorepo checkout).
+    // Resolve the real repo root once so every commit's paths can be turned
+    // into the same absolute path the indexer used when it created File
+    // nodes, instead of naively joining repoPath with git's relative path.
+    const repoRoot = (await git.revparse(['--show-toplevel'])).trim();
+    const indexedRoot = resolve(repoPath);
+
+    // `git rev-parse --show-toplevel` resolves symlinks. On macOS,
+    // os.tmpdir() lives under /var/folders, itself a symlink to
+    // /private/var/folders, so a repo created under it reports repoRoot as
+    // /private/var/folders/... while indexedRoot (built from whatever the
+    // caller passed in, unresolved) stays /var/folders/... . Comparing those
+    // two directly makes every file look "outside" the indexed root, since
+    // relative() sees two different-looking paths even though they name the
+    // same directory. Resolve indexedRoot's real path once, purely for that
+    // boundary comparison - never for the filePath written onto edges,
+    // which must stay in the caller's original (possibly symlinked)
+    // namespace to match File.filePath (see indexer.ts, which never calls
+    // realpath either).
+    let realIndexedRoot: string;
+    try {
+      realIndexedRoot = await realpath(indexedRoot);
+    } catch (err) {
+      logger.warn(`Could not resolve real path for indexed root ${indexedRoot}, using it as-is: ${err instanceof Error ? err.message : String(err)}`);
+      realIndexedRoot = indexedRoot;
+    }
+
     // Determine starting point for incremental sync
     let fromCommit = sinceCommit;
     if (!fromCommit) {
@@ -196,15 +255,25 @@ export async function syncGitHistory(
         await ops.upsertCommit(commitEntity);
         commitsProcessed++;
 
-        // Get files changed in this commit with status (A=added, M=modified, D=deleted)
+        // Get files changed in this commit with status (A=added, M=modified, D=deleted).
+        // diffBase is the commit's parent, or the empty tree for a root commit
+        // (see resolveDiffBase) - a root commit has no parent to diff against.
+        const diffBase = await resolveDiffBase(git, commit.hash);
+
         const diffSummary = await git
-          .diffSummary([`${commit.hash}^`, commit.hash])
-          .catch(() => null);
+          .diffSummary([diffBase, commit.hash])
+          .catch((err: unknown) => {
+            logger.warn(`Could not compute diff stats for commit ${commit.hash}: ${err instanceof Error ? err.message : String(err)}`);
+            return null;
+          });
 
         // Get name-status for INTRODUCED_IN / DELETED_IN detection
         const nameStatus = await git
-          .raw(['diff', '--name-status', `${commit.hash}^`, commit.hash])
-          .catch(() => '');
+          .raw(['diff', '--name-status', diffBase, commit.hash])
+          .catch((err: unknown) => {
+            logger.warn(`Could not compute name-status for commit ${commit.hash}: ${err instanceof Error ? err.message : String(err)}`);
+            return '';
+          });
 
         // Parse name-status into a map: filePath → status
         const statusMap = new Map<string, string>();
@@ -217,7 +286,29 @@ export async function syncGitHistory(
 
         if (diffSummary) {
           for (const file of diffSummary.files) {
-            const absolutePath = `${repoPath}/${file.file}`;
+            // file.file is relative to repoRoot (git's convention), not to
+            // repoPath. Resolve it against repoRoot to get the file's real
+            // (symlink-resolved) absolute path, since repoRoot itself came
+            // from `git rev-parse --show-toplevel`, which resolves symlinks.
+            const resolvedAbsolutePath = resolve(repoRoot, file.file);
+
+            // Boundary check against the equally-resolved indexed root, so
+            // a symlink difference between the two (e.g. macOS os.tmpdir())
+            // can't make every file look like it's outside the project.
+            const relativeToIndexedRoot = relative(realIndexedRoot, resolvedAbsolutePath);
+            if (relativeToIndexedRoot.startsWith('..')) {
+              // Genuinely outside the indexed root: belongs to a different
+              // part of the repo (e.g. a sibling package) and can't
+              // correspond to a File node here.
+              continue;
+            }
+
+            // Map back into the caller's ORIGINAL (possibly unresolved)
+            // path namespace for the edge itself, so it byte-matches
+            // File.filePath, which indexer.ts builds from the unresolved
+            // root it was given (see createFileEntityFromContent()).
+            const filePath = join(indexedRoot, relativeToIndexedRoot);
+
             const linesAdded = includeStats
               ? (file as { insertions?: number }).insertions
               : undefined;
@@ -226,7 +317,7 @@ export async function syncGitHistory(
               : undefined;
 
             try {
-              await ops.createModifiedInEdge(absolutePath, commit.hash, linesAdded, linesRemoved);
+              await ops.createModifiedInEdge(filePath, commit.hash, linesAdded, linesRemoved);
               edgesCreated++;
             } catch {
               // File may not be in the graph (not indexed) — expected
@@ -236,7 +327,7 @@ export async function syncGitHistory(
             const status = statusMap.get(file.file);
             if (status === 'A') {
               try {
-                await ops.createIntroducedInEdgesForFile(absolutePath, commit.hash);
+                await ops.createIntroducedInEdgesForFile(filePath, commit.hash);
               } catch {
                 // Entities may not exist yet
               }
@@ -245,7 +336,7 @@ export async function syncGitHistory(
             // DELETED_IN: file was deleted in this commit
             if (status === 'D') {
               try {
-                await ops.createDeletedInEdgesForFile(absolutePath, commit.hash);
+                await ops.createDeletedInEdgesForFile(filePath, commit.hash);
               } catch {
                 // Entities may already be gone
               }

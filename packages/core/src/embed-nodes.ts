@@ -9,6 +9,7 @@
 
 import { createLogger } from '@codegraph/logger';
 import { createOperations, type GraphClient } from '@codegraph/graph';
+import { SYMBOL_LABELS } from '@codegraph/types';
 import type { FunctionParam } from '@codegraph/types';
 import {
   buildFunctionEmbeddingText,
@@ -307,9 +308,13 @@ const textBuilders: Record<EmbeddableNodeType, (entity: Record<string, unknown>)
 // Public API
 // ============================================================================
 
-const ALL_NODE_TYPES: EmbeddableNodeType[] = [
-  'File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component',
-];
+// SYMBOL_LABELS is the shared source of truth (packages/types/src/labels.ts)
+// and matches EmbeddableNodeType exactly (7 code-symbol labels). Not
+// EMBEDDABLE_LABELS (which adds 'Entity'): knowledge-graph Entity nodes are
+// embedded through a separate path, not this file, so there is no
+// query/mapper/builder for them anywhere below, and adding 'Entity' here
+// would break queryNodesForType's lookup.
+const ALL_NODE_TYPES: EmbeddableNodeType[] = [...SYMBOL_LABELS];
 
 /**
  * Generate and store embeddings for all graph nodes that lack them.

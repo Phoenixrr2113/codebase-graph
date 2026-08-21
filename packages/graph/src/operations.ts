@@ -31,6 +31,7 @@ import {
   type ComponentEntity,
   type CommitEntity,
 } from './schema';
+import { SYMBOL_LABELS } from '@codegraph/types';
 import type {
   ProjectEntity,
   ExtractedDocumentEntities,
@@ -38,6 +39,7 @@ import type {
   HasParamEdgeDescriptor,
   ReturnsEdgeDescriptor,
   UsesTypeEdgeDescriptor,
+  SymbolLabel,
 } from '@codegraph/types';
 
 
@@ -393,6 +395,17 @@ const CYPHER = {
     MATCH (f:File {filePath: $filePath})
     OPTIONAL MATCH (f)-[c:CONTAINS]->()
     DELETE c, f
+  `,
+
+  // Content-only removal: detach CONTAINS edges to this file's child symbols,
+  // but leave the File node (and every other edge attached to it, e.g.
+  // MODIFIED_IN, HAS_FILE, EXPORTS) untouched. Use this instead of
+  // REMOVE_FILE_NODE when a file's content changed and is about to be
+  // re-parsed: deleting the File node would cascade-delete git-history edges
+  // from commits that were already synced and would never be re-synced.
+  REMOVE_FILE_CONTENTS: `
+    MATCH (f:File {filePath: $filePath})-[c:CONTAINS]->()
+    DELETE c
   `,
 
   // Step 2: Remove orphaned entities from this file that have no incoming edges
@@ -1095,6 +1108,16 @@ export interface GraphOperations {
    */
   removeFileAndCleanup(filePath: string): Promise<void>;
 
+  /**
+   * Content-only removal, for a file whose CONTENT changed and is about to
+   * be re-parsed (not a file deleted from disk: use removeFileAndCleanup()
+   * for that). Detaches CONTAINS edges to child symbols and cleans up any
+   * that are now orphaned, the same as removeFileAndCleanup() does, but
+   * leaves the File node itself, and every other edge on it (MODIFIED_IN,
+   * HAS_FILE, EXPORTS, ...), untouched.
+   */
+  removeFileContents(filePath: string): Promise<void>;
+
   clearAll(): Promise<void>;
 
   batchUpsert(entities: ParsedFileEntities): Promise<void>;
@@ -1113,7 +1136,7 @@ export interface GraphOperations {
 
   /** Batch update embeddings for multiple entities using UNWIND (7 queries max instead of N) */
   batchUpdateEmbeddings(items: Array<{
-    nodeType: 'File' | 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component';
+    nodeType: SymbolLabel;
     identifier: Record<string, unknown>;
     embedding: number[];
     embeddingTextHash: string;
@@ -1150,7 +1173,7 @@ export interface GraphOperations {
 
   /** Update embedding + embeddingTextHash for a node in the graph */
   updateEmbedding(
-    nodeType: 'File' | 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component',
+    nodeType: SymbolLabel,
     identifier: Record<string, unknown>,
     embedding: number[],
     embeddingTextHash: string,
@@ -1158,7 +1181,7 @@ export interface GraphOperations {
 
   /** Vector similarity search across a specific node type */
   searchByVector(
-    nodeType: 'File' | 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component',
+    nodeType: SymbolLabel,
     embedding: number[],
     limit?: number,
   ): Promise<VectorSearchResult[]>;
@@ -1378,6 +1401,22 @@ class GraphOperationsImpl implements GraphOperations {
 
     // Step 2: Remove entities from this file that have NO incoming edges from other files
     // Entities with incoming cross-file edges (CALLS, EXTENDS, etc.) are preserved
+    await this.client.query(CYPHER.CLEANUP_FILE_ORPHANS, { params: { filePath } });
+  }
+
+  @trace()
+  async removeFileContents(filePath: string): Promise<void> {
+    // Step 1: detach CONTAINS edges to this file's child symbols, but leave
+    // the File node (and every other edge on it) untouched. Use this
+    // instead of removeFileAndCleanup() when re-parsing a file whose
+    // content changed: deleting the File node would cascade-delete
+    // MODIFIED_IN / HAS_FILE / EXPORTS and any other edge attached to it.
+    await this.client.query(CYPHER.REMOVE_FILE_CONTENTS, { params: { filePath } });
+
+    // Step 2: same orphan cleanup as removeFileAndCleanup(). Entities from
+    // this file that now have no incoming cross-file edge are genuinely
+    // dangling (their CONTAINS edge is gone) and get removed; entities
+    // still referenced from elsewhere are preserved so those edges don't leak.
     await this.client.query(CYPHER.CLEANUP_FILE_ORPHANS, { params: { filePath } });
   }
 
@@ -1909,7 +1948,7 @@ class GraphOperationsImpl implements GraphOperations {
 
   @trace()
   async batchUpdateEmbeddings(items: Array<{
-    nodeType: 'File' | 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component';
+    nodeType: SymbolLabel;
     identifier: Record<string, unknown>;
     embedding: number[];
     embeddingTextHash: string;
@@ -2122,7 +2161,7 @@ class GraphOperationsImpl implements GraphOperations {
 
   @trace()
   async updateEmbedding(
-    nodeType: 'File' | 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component',
+    nodeType: SymbolLabel,
     identifier: Record<string, unknown>,
     embedding: number[],
     embeddingTextHash: string,
@@ -2152,12 +2191,13 @@ class GraphOperationsImpl implements GraphOperations {
 
   @trace()
   async searchByVector(
-    nodeType: 'File' | 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component',
+    nodeType: SymbolLabel,
     embedding: number[],
     limit: number = 10,
   ): Promise<VectorSearchResult[]> {
     // Validate nodeType against allowlist — Cypher doesn't support parameterized labels
-    const VALID_NODE_TYPES = new Set(['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component']);
+    // SYMBOL_LABELS is the shared source of truth (packages/types/src/labels.ts).
+    const VALID_NODE_TYPES = new Set(SYMBOL_LABELS);
     if (!VALID_NODE_TYPES.has(nodeType)) {
       throw new Error(`Invalid node type for vector search: ${nodeType}`);
     }

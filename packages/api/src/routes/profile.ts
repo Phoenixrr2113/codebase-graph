@@ -8,6 +8,7 @@
  */
 
 import { Hono } from 'hono';
+import { isAbsolute } from 'node:path';
 import { safeErrorMessage } from '../safe-error';
 
 export const profileRoutes = new Hono();
@@ -24,9 +25,65 @@ export interface CodebaseProfile {
     languages: Array<{ name: string; fileCount: number }>;
   };
   dynamic: {
-    recentFiles: Array<{ filePath: string; lastModified: number }>;
+    /** lastModified is the File node's ISO 8601 timestamp string, not epoch millis. */
+    recentFiles: Array<{ filePath: string; lastModified: string }>;
     recentEntities: Array<{ text: string; type: string; createdAt: number }>;
   };
+}
+
+// ============================================================================
+// Extension -> language display name
+// ============================================================================
+
+/**
+ * File nodes only carry an `extension` property (see fileToNodeProps in
+ * packages/graph/src/schema.ts) - there is no `language` property in the
+ * graph. This maps common bare extensions (no leading dot) to a
+ * human-readable language name for display; anything not listed falls back
+ * to the bare extension itself.
+ */
+const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
+  ts: 'TypeScript',
+  tsx: 'TypeScript',
+  js: 'JavaScript',
+  jsx: 'JavaScript',
+  mjs: 'JavaScript',
+  cjs: 'JavaScript',
+  py: 'Python',
+  go: 'Go',
+  rs: 'Rust',
+  java: 'Java',
+  rb: 'Ruby',
+  php: 'PHP',
+  c: 'C',
+  h: 'C',
+  cpp: 'C++',
+  cc: 'C++',
+  cxx: 'C++',
+  hpp: 'C++',
+  cs: 'C#',
+  swift: 'Swift',
+  kt: 'Kotlin',
+  kts: 'Kotlin',
+  scala: 'Scala',
+  sh: 'Shell',
+  bash: 'Shell',
+  md: 'Markdown',
+  json: 'JSON',
+  yaml: 'YAML',
+  yml: 'YAML',
+  html: 'HTML',
+  css: 'CSS',
+  scss: 'SCSS',
+  sql: 'SQL',
+  vue: 'Vue',
+  svelte: 'Svelte',
+};
+
+/** Maps a bare file extension to a display language name, falling back to the extension itself. */
+export function languageNameForExtension(extension: string | null | undefined): string {
+  if (!extension) return 'Unknown';
+  return EXTENSION_LANGUAGE_MAP[extension] ?? extension;
 }
 
 export interface ProfileService {
@@ -35,6 +92,29 @@ export interface ProfileService {
     cypher: string,
     params?: Record<string, string | number | boolean | unknown[] | null>,
   ): Promise<{ data: unknown[] }>;
+}
+
+// ============================================================================
+// projectPath validation
+// ============================================================================
+
+/**
+ * Reject a projectPath that isn't absolute instead of letting it silently
+ * build a filter that matches nothing. A relative path never matches an
+ * indexed File's filePath (those are always absolute), so the old behavior
+ * was a quiet empty profile with no sign anything was wrong.
+ */
+export function validateProjectPath(
+  projectPath: string | undefined,
+): { valid: true } | { valid: false; error: string } {
+  if (!projectPath) return { valid: true };
+  if (!isAbsolute(projectPath)) {
+    return {
+      valid: false,
+      error: 'projectPath must be an absolute path: a relative path would not match any indexed file',
+    };
+  }
+  return { valid: true };
 }
 
 // ============================================================================
@@ -53,15 +133,30 @@ export async function getProfile(
   const limit = opts.limit ?? 10;
   const projectPath = opts.projectPath;
 
-  // FalkorDB filter clauses
-  const nodeFilter = projectPath
-    ? 'WHERE n.filePath STARTS WITH $projectPath'
+  const pathCheck = validateProjectPath(projectPath);
+  if (!pathCheck.valid) {
+    throw new Error(pathCheck.error);
+  }
+
+  // Strip a trailing slash so the prefix match below is boundary-safe: without
+  // this, a filter built from "/proj/" would look for the literal (and
+  // never-occurring) prefix "/proj//".
+  const normalizedProjectPath = projectPath ? projectPath.replace(/\/+$/, '') : undefined;
+  const projectPathPrefix = normalizedProjectPath ? `${normalizedProjectPath}/` : undefined;
+
+  // FalkorDB filter clauses. A plain `STARTS WITH $projectPath` also matches
+  // a sibling directory that merely shares the prefix (projectPath
+  // "/x/project" would match "/x/project-extra/file.ts" too), so require
+  // either an exact match on the root itself or containment under "root/".
+  const nodeFilter = normalizedProjectPath
+    ? 'WHERE (n.filePath = $projectPath OR n.filePath STARTS WITH $projectPathPrefix)'
     : '';
-  const fileFilter = projectPath
-    ? 'WHERE f.path STARTS WITH $projectPath'
+  const fileFilter = normalizedProjectPath
+    ? 'WHERE (f.filePath = $projectPath OR f.filePath STARTS WITH $projectPathPrefix)'
     : '';
   const params: Record<string, string | number | boolean | null | unknown[]> = {
-    projectPath: projectPath ?? null,
+    projectPath: normalizedProjectPath ?? null,
+    projectPathPrefix: projectPathPrefix ?? null,
     limit,
   };
 
@@ -96,7 +191,7 @@ export async function getProfile(
     service
       .query(
         `MATCH (f:File) ${fileFilter}
-         RETURN f.language AS name, count(f) AS fileCount
+         RETURN f.extension AS extension, count(f) AS fileCount
          ORDER BY fileCount DESC LIMIT $limit`,
         params,
       )
@@ -105,7 +200,7 @@ export async function getProfile(
     service
       .query(
         `MATCH (f:File) ${fileFilter}
-         RETURN f.path AS filePath, f.lastModified AS lastModified
+         RETURN f.filePath AS filePath, f.lastModified AS lastModified
          ORDER BY f.lastModified DESC LIMIT $limit`,
         params,
       )
@@ -121,15 +216,19 @@ export async function getProfile(
       .catch(() => ({ data: [] as unknown[] })),
   ]);
 
+  const languages = (langsRes.data as Array<{ extension: string; fileCount: number }>).map(
+    (row) => ({ name: languageNameForExtension(row.extension), fileCount: row.fileCount }),
+  );
+
   return {
     stats: rawStats,
     static: {
       topImports: topImportsRes.data as Array<{ name: string; importCount: number }>,
       topCallers: topCallersRes.data as Array<{ name: string; callCount: number }>,
-      languages: langsRes.data as Array<{ name: string; fileCount: number }>,
+      languages,
     },
     dynamic: {
-      recentFiles: recentFilesRes.data as Array<{ filePath: string; lastModified: number }>,
+      recentFiles: recentFilesRes.data as Array<{ filePath: string; lastModified: string }>,
       recentEntities: recentEntitiesRes.data as Array<{ text: string; type: string; createdAt: number }>,
     },
   };
@@ -143,6 +242,15 @@ export async function getProfile(
 profileRoutes.get('/api/profile', async (c) => {
   try {
     const projectPath = c.req.query('projectPath') || undefined;
+
+    // Validate before touching the graph: a relative path can never match an
+    // indexed File's filePath, so let this fail loudly instead of returning
+    // a silently empty profile.
+    const pathCheck = validateProjectPath(projectPath);
+    if (!pathCheck.valid) {
+      return c.json({ error: pathCheck.error }, 400);
+    }
+
     const limitStr = c.req.query('limit');
     const limit = limitStr ? parseInt(limitStr, 10) : undefined;
 

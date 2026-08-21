@@ -7,6 +7,7 @@
 import type { GraphClient } from './client';
 import type { CypherDialect } from './driver';
 import { trace } from '@codegraph/logger';
+import { SYMBOL_LABELS, REFERENCEABLE_LABELS, resolveNodeLabel } from '@codegraph/types';
 import type {
   GraphData,
   GraphNode,
@@ -22,27 +23,15 @@ import type {
 // ============================================================================
 
 function getLabelFromLabels(labels: string[]): NodeLabel {
-  const validLabels: NodeLabel[] = [
-    'File',
-    'Function',
-    'Class',
-    'Interface',
-    'Variable',
-    'Type',
-    'Component',
-    'Import',
-    'Commit',
-    'MarkdownDocument',
-    'Section',
-    'CodeBlock',
-    'Link',
-  ];
-
-  // First check for specific valid labels (File, Interface, etc.)
-  // This ensures External File nodes return 'File', not 'Class'
-  const found = labels.find((l) => validLabels.includes(l as NodeLabel));
+  // resolveNodeLabel is the shared classifier (packages/types/src/labels.ts):
+  // it walks `labels` in DB order and returns the first recognized
+  // NodeLabel value. This is also what lets the External check below win
+  // over nothing: a specific valid label (File, Interface, etc.) always
+  // takes priority, so an External File node still returns 'File', not
+  // the 'Class' fallback for pure External nodes.
+  const found = resolveNodeLabel(labels);
   if (found) {
-    return found as NodeLabel;
+    return found;
   }
 
   // Fallback for pure External nodes (like external classes with no other label)
@@ -156,9 +145,13 @@ function buildCypherTemplates(dialect: CypherDialect) {
         ? `AND n.filePath STARTS WITH $rootPath`
         : '';
 
+      // REFERENCEABLE_LABELS = SYMBOL_LABELS plus the synthetic 'External'
+      // marker (packages/types/src/labels.ts): a node in the full graph can
+      // be any indexed code symbol, or a stand-in for a symbol outside the
+      // indexed project.
       return `
         MATCH (n)
-        WHERE (${labelOr('n', ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'External'])})
+        WHERE (${labelOr('n', [...REFERENCEABLE_LABELS])})
           ${pathFilter}
         RETURN n, ${labelsExpr('n')} as labels
         LIMIT $limit
@@ -172,10 +165,14 @@ function buildCypherTemplates(dialect: CypherDialect) {
                 OR b.filePath STARTS WITH 'external:')`
         : '';
 
+      // The edge source ('a') is always an in-repo symbol (SYMBOL_LABELS);
+      // the edge target ('b') may additionally be an External stand-in
+      // (REFERENCEABLE_LABELS), since edges can point at symbols outside
+      // the indexed project.
       return `
         MATCH (a)-[r]->(b)
-        WHERE (${labelOr('a', ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component'])})
-          AND (${labelOr('b', ['File', 'Function', 'Class', 'Interface', 'Variable', 'Type', 'Component', 'External'])})
+        WHERE (${labelOr('a', [...SYMBOL_LABELS])})
+          AND (${labelOr('b', [...REFERENCEABLE_LABELS])})
           ${edgesPathFilter}
         RETURN a, r, b, ${typeExpr('r')} as edgeType, ${labelsExpr('b')} as toLabels
         LIMIT $limit
