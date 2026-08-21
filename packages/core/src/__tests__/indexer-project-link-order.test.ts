@@ -110,6 +110,7 @@ vi.mock('../pipeline', () => ({
   })),
   registerPlugins: vi.fn(),
   registerTier2Languages: vi.fn().mockResolvedValue({ registered: [], skipped: [] }),
+  buildReExportIndex: vi.fn().mockReturnValue(new Map()),
   countEntities: vi.fn().mockReturnValue(0),
   countEdges: vi.fn().mockReturnValue(0),
   isMarkdownFile: vi.fn().mockReturnValue(false),

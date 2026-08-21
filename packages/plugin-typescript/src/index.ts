@@ -110,6 +110,8 @@ export const typescriptPlugin = {
 // Entity extractors
 export {
   extractImports,
+  extractReExports,
+  extractLocalExportedNames,
   extractFunctions,
   extractClasses,
   extractVariables,
@@ -133,6 +135,9 @@ export type {
   ExtendsReference,
   ImplementsReference,
   InheritanceResult,
+  ReExportEntity,
+  ResolvedImportTarget,
+  ResolvedImportMap,
 } from './extractors';
 
 // Complexity metrics — re-exported from @codegraph/plugin-common (universal, all languages)
