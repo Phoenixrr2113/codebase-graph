@@ -227,6 +227,28 @@ const CYPHER = {
     RETURN c
   `,
 
+  // Class-qualified variant of CREATE_CALLS_EDGE, used when the extractor
+  // knows which class the receiver was bound to (calleeClassName set on the
+  // call-edge descriptor). Matching plain {name, filePath} on the callee is
+  // not enough to pick the right method when two classes in the same file
+  // declare a method with the same name (e.g. Service.work / OtherService.work
+  // are both Function{name:'work', filePath: same file}): that ambiguous match
+  // used to create a CALLS edge to every same-named method regardless of
+  // which class the receiver actually was. Routing through HAS_METHOD from
+  // the named class disambiguates. OPTIONAL MATCH + WHERE callee IS NOT NULL
+  // means a missing HAS_METHOD edge (or a class/method that doesn't resolve)
+  // drops the edge instead of falling back to the ambiguous unqualified match.
+  CREATE_CALLS_EDGE_BY_CLASS: `
+    MATCH (caller {name: $callerName, filePath: $callerFile})
+    WHERE labels(caller)[0] = $callerKind
+    OPTIONAL MATCH (cls:Class {name: $calleeClassName, filePath: $calleeFile})-[:HAS_METHOD]->(callee:Function {name: $calleeName})
+    WITH caller, callee WHERE callee IS NOT NULL
+    MERGE (caller)-[c:CALLS]->(callee)
+    ON CREATE SET c.line = $line, c.count = 1, c.via = $via
+    ON MATCH SET c.count = c.count + 1
+    RETURN c
+  `,
+
   CREATE_IMPORTS_EDGE: `
     MATCH (from:File {filePath: $fromPath})
     MERGE (to:File {filePath: $toPath})
@@ -1033,7 +1055,15 @@ export interface GraphOperations {
     calleeFile: string,
     line: number,
     callerKind?: 'Function' | 'Variable' | 'Class' | 'Interface',
-    via?: 'direct' | 'closure'
+    via?: 'direct' | 'closure',
+    /**
+     * Class the callee method belongs to, when known (receiver-typed call).
+     * When set, the edge is created via CREATE_CALLS_EDGE_BY_CLASS (matched
+     * through HAS_METHOD) instead of the plain {name, filePath} match, so two
+     * same-named methods on different classes in the same file don't both
+     * receive the edge. Omitted/undefined keeps today's unqualified behavior.
+     */
+    calleeClassName?: string
   ): Promise<void>;
 
   createImportsEdge(
@@ -1267,8 +1297,15 @@ class GraphOperationsImpl implements GraphOperations {
     calleeFile: string,
     line: number,
     callerKind: 'Function' | 'Variable' | 'Class' | 'Interface' = 'Function',
-    via: 'direct' | 'closure' = 'direct'
+    via: 'direct' | 'closure' = 'direct',
+    calleeClassName?: string
   ): Promise<void> {
+    if (calleeClassName) {
+      await this.client.query(CYPHER.CREATE_CALLS_EDGE_BY_CLASS, {
+        params: { callerName, callerFile, calleeName, calleeFile, line, callerKind, via, calleeClassName },
+      });
+      return;
+    }
     await this.client.query(CYPHER.CREATE_CALLS_EDGE, {
       params: { callerName, callerFile, calleeName, calleeFile, line, callerKind, via },
     });
@@ -1446,14 +1483,12 @@ class GraphOperationsImpl implements GraphOperations {
       ...entities.components.map((comp) => this.upsertComponent(comp)),
     ]);
 
-    // Create edges in parallel (after entities exist)
+    // Create edges in parallel (after entities exist). Call edges are
+    // deliberately NOT in this batch: a class-qualified call edge
+    // (calleeClassName set) is matched through Class-HAS_METHOD-Function, so
+    // it must run after HAS_METHOD edges exist, not concurrently with them,
+    // see the separate await below.
     await Promise.all([
-      // Call edges
-      ...entities.callEdges.map((edge) => {
-        const caller = parseEntityId(edge.callerId);
-        const callee = parseEntityId(edge.calleeId);
-        return this.createCallEdge(caller.name, caller.filePath, callee.name, callee.filePath, edge.line, edge.callerKind, edge.via);
-      }),
       // Import edges
       ...entities.importsEdges.map((edge) =>
         this.createImportsEdge(edge.fromFilePath, edge.toFilePath, edge.specifiers)
@@ -1485,6 +1520,18 @@ class GraphOperationsImpl implements GraphOperations {
         this.createHasPropertyEdge(edge.fromId, edge.toId, { isStatic: edge.isStatic, visibility: edge.visibility, isReadonly: edge.isReadonly })
       ),
     ]);
+
+    // Call edges, after HAS_METHOD edges above: a class-qualified call edge
+    // (calleeClassName set) is matched through Class-HAS_METHOD-Function, so
+    // that edge must already exist or the OPTIONAL MATCH finds nothing and
+    // silently drops the call.
+    await Promise.all(
+      entities.callEdges.map((edge) => {
+        const caller = parseEntityId(edge.callerId);
+        const callee = parseEntityId(edge.calleeId);
+        return this.createCallEdge(caller.name, caller.filePath, callee.name, callee.filePath, edge.line, edge.callerKind, edge.via, edge.calleeClassName);
+      }),
+    );
 
     // Type ref nodes must exist before type-relationship edges are MERGE'd.
     // Process sequentially: create all TypeRef nodes, then create the edges.
@@ -1557,6 +1604,7 @@ class GraphOperationsImpl implements GraphOperations {
           calleeFile: callee.filePath,
           line: edge.line,
           via: edge.via,
+          calleeClassName: edge.calleeClassName ?? null,
         };
       }),
     );
@@ -1593,15 +1641,6 @@ class GraphOperationsImpl implements GraphOperations {
     const safeEdge = async (cypher: string, params: Record<string, unknown>): Promise<void> => {
       try { await this.client.query(cypher, { params: params as QueryParams }); } catch { /* skip missing endpoints */ }
     };
-    for (const e of callEdges) {
-      await safeEdge(
-        `MATCH (caller {name: $callerName, filePath: $callerFile})
-         WHERE labels(caller)[0] = $callerKind
-         MATCH (callee:Function {name: $calleeName, filePath: $calleeFile})
-         MERGE (caller)-[c:CALLS]->(callee) ON CREATE SET c.line = $line, c.count = 1, c.via = $via ON MATCH SET c.count = c.count + 1`,
-        e,
-      );
-    }
     for (const e of importEdges) {
       await safeEdge(
         `MATCH (from:File {filePath: $fromPath})
@@ -1645,6 +1684,18 @@ class GraphOperationsImpl implements GraphOperations {
          SET r.isStatic = coalesce($isStatic, false), r.visibility = coalesce($visibility, 'public')`,
         { fromId: e.fromId, toId: e.toId, isStatic: e.isStatic ?? null, visibility: e.visibility ?? null },
       );
+    }
+
+    // Call edges, after HAS_METHOD edges above: a class-qualified call edge
+    // (calleeClassName set) is matched through Class-HAS_METHOD-Function, so
+    // that edge must already exist or the OPTIONAL MATCH finds nothing and
+    // silently drops the call. Same query text as CYPHER.CREATE_CALLS_EDGE /
+    // CREATE_CALLS_EDGE_BY_CLASS (minus RETURN c, unused here), reused
+    // directly so the unqualified path stays byte-for-byte identical to
+    // today and the qualified path can never drift out of sync with the
+    // canonical template.
+    for (const e of callEdges) {
+      await safeEdge(e.calleeClassName ? CYPHER.CREATE_CALLS_EDGE_BY_CLASS : CYPHER.CREATE_CALLS_EDGE, e);
     }
 
     // HAS_PROPERTY edges (class → property Variable node)
@@ -1755,6 +1806,7 @@ class GraphOperationsImpl implements GraphOperations {
           calleeFile: callee.filePath,
           line: edge.line,
           via: edge.via,
+          calleeClassName: edge.calleeClassName ?? null,
         };
       }),
     );
@@ -1792,15 +1844,6 @@ class GraphOperationsImpl implements GraphOperations {
     const safeEdge = async (cypher: string, params: Record<string, unknown>): Promise<void> => {
       try { await this.client.query(cypher, { params: params as QueryParams }); } catch { /* skip missing endpoints */ }
     };
-    for (const e of callEdges) {
-      await safeEdge(
-        `MATCH (caller {name: $callerName, filePath: $callerFile})
-         WHERE labels(caller)[0] = $callerKind
-         MATCH (callee:Function {name: $calleeName, filePath: $calleeFile})
-         MERGE (caller)-[c:CALLS]->(callee) ON CREATE SET c.line = $line, c.count = 1, c.via = $via ON MATCH SET c.count = c.count + 1`,
-        e,
-      );
-    }
     for (const e of importEdges) {
       await safeEdge(
         `MATCH (from:File {filePath: $fromPath})
@@ -1844,6 +1887,18 @@ class GraphOperationsImpl implements GraphOperations {
          SET r.isStatic = coalesce($isStatic, false), r.visibility = coalesce($visibility, 'public')`,
         { fromId: e.fromId, toId: e.toId, isStatic: e.isStatic ?? null, visibility: e.visibility ?? null },
       );
+    }
+
+    // Call edges, after HAS_METHOD edges above: a class-qualified call edge
+    // (calleeClassName set) is matched through Class-HAS_METHOD-Function, so
+    // that edge must already exist or the OPTIONAL MATCH finds nothing and
+    // silently drops the call. Same query text as CYPHER.CREATE_CALLS_EDGE /
+    // CREATE_CALLS_EDGE_BY_CLASS (minus RETURN c, unused here), reused
+    // directly so the unqualified path stays byte-for-byte identical to
+    // today and the qualified path can never drift out of sync with the
+    // canonical template.
+    for (const e of callEdges) {
+      await safeEdge(e.calleeClassName ? CYPHER.CREATE_CALLS_EDGE_BY_CLASS : CYPHER.CREATE_CALLS_EDGE, e);
     }
 
     // HAS_PROPERTY edges (class → property Variable node)

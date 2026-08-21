@@ -9,13 +9,16 @@
  */
 
 import Parser from 'tree-sitter';
-import type { FileEntity, ParsedFileEntities, InheritanceReference, CallReference, LanguagePlugin, SyntaxNode as GenericSyntaxNode, ExtractedEntities } from '@codegraph/types';
+import type { FileEntity, ParsedFileEntities, InheritanceReference, CallReference, LanguagePlugin, SyntaxNode as GenericSyntaxNode, ExtractedEntities, ImportEntity } from '@codegraph/types';
 import {
   extractAllEntities,
   extractCalls as extractTsCalls,
   extractRenders,
   extractInheritance as extractTsInheritance,
   typescriptPlugin,
+  type ReExportEntity,
+  type ResolvedImportTarget,
+  type ResolvedImportMap,
 } from '@codegraph/plugin-typescript';
 import { resolvePythonImport, pythonPlugin } from '@codegraph/plugin-python';
 import { goPlugin } from '@codegraph/plugin-go';
@@ -229,6 +232,283 @@ export function extractEntitiesForFile(
 export interface PipelineOptions {
   deepAnalysis?: boolean;
   includeExternals?: boolean;
+  /**
+   * Cross-file barrel re-export index: filePath -> that file's re-export
+   * entries (from `extractReExports`), covering every TypeScript file in the
+   * batch being indexed. When provided (together with `localExportsIndex`,
+   * below), TypeScript CALL edges and TypeRefs whose target resolves through
+   * a barrel chain (`export * from '...'`, `export { x } from '...'`) are
+   * rewritten to point at the chain's origin file instead of the barrel.
+   *
+   * Building this index requires every file's re-exports to already be known,
+   * so it is only meaningful for a full/batch index where the caller has
+   * parsed the whole project up front. A single-file reindex
+   * (`indexSingleFile`) has no sibling files in memory and must omit this
+   * option: call sites simply see barrel-pointing callees unresolved, same as
+   * before this fix (see buildResolvedImportMap below).
+   */
+  barrelIndex?: ReadonlyMap<string, ReExportEntity[]>;
+  /**
+   * Cross-file local-exports index: filePath -> the set of names that file
+   * exports via its OWN declaration or a source-less `export { x }` (from
+   * `extractLocalExportedNames`), not a re-export of another module.
+   *
+   * Needed alongside `barrelIndex` so a barrel that both re-exports from
+   * elsewhere (`export * from './other'`) AND declares its own export under
+   * the same name resolves to its own declaration, not the unrelated
+   * re-export (see resolveReExportChain's local-declaration base case).
+   * Files with no local exports, or not covered at all, simply never hit the
+   * base case: chain-following falls through to the re-export checks as
+   * before, so a sparse/missing index degrades gracefully rather than
+   * mis-resolving.
+   */
+  localExportsIndex?: ReadonlyMap<string, readonly string[]>;
+}
+
+// ============================================================================
+// Barrel re-export chain resolution (batch/full-index only)
+// ============================================================================
+
+/** Bound on how many `export * from` / `export { x } from` hops to follow
+ *  before giving up on a chain. Generous for real-world barrel nesting while
+ *  still cheap, and doubles as a hard stop if `reExportsByFile` somehow
+ *  contains a chain the visited-set guard didn't already catch. */
+const MAX_BARREL_CHAIN_DEPTH = 16;
+
+/** Empty map constant, reused when a caller omits localExportsIndex so the
+ *  local-declaration base case simply never fires (safe no-op), instead of
+ *  allocating a fresh empty Map on every buildParsedFileEntities call. */
+const EMPTY_LOCAL_EXPORTS: ReadonlyMap<string, readonly string[]> = new Map();
+
+/**
+ * Build the cross-file barrel index `buildParsedFileEntities` accepts via
+ * `PipelineOptions.barrelIndex`, from a per-file list of re-export entries.
+ * Files with no re-exports are omitted (they're not barrels).
+ */
+export function buildReExportIndex(
+  entries: Array<{ filePath: string; reExports: ReExportEntity[] }>,
+): Map<string, ReExportEntity[]> {
+  const index = new Map<string, ReExportEntity[]>();
+  for (const { filePath, reExports } of entries) {
+    if (reExports.length > 0) index.set(filePath, reExports);
+  }
+  return index;
+}
+
+/**
+ * Build the cross-file local-exports index `buildParsedFileEntities` accepts
+ * via `PipelineOptions.localExportsIndex`, from a per-file list of locally
+ * exported names (from `extractLocalExportedNames`). Files that export
+ * nothing locally are omitted (an absent entry and an empty array behave
+ * identically at lookup time, so this just keeps the index small).
+ *
+ * Plain arrays, not Sets: per-file local-export lists are small (a handful
+ * of names), and this shape matches what the indexer pre-pass already
+ * produces directly (no Set conversion needed at the call site).
+ */
+export function buildLocalExportsIndex(
+  entries: Array<{ filePath: string; names: string[] }>,
+): Map<string, readonly string[]> {
+  const index = new Map<string, readonly string[]>();
+  for (const { filePath, names } of entries) {
+    if (names.length > 0) index.set(filePath, names);
+  }
+  return index;
+}
+
+/**
+ * Bound on the TOTAL number of (file, name) resolution attempts across one
+ * `resolveReExportChain` call, shared across every branch it explores (not
+ * reset per branch or per depth level). MAX_BARREL_CHAIN_DEPTH alone only
+ * bounds how deep any single path goes; a barrel with several `export *`
+ * statements, each pointing at another multi-star barrel, branches at every
+ * hop, so depth alone does not bound total work: worst case for unbounded
+ * branching is O(branching^depth). This budget converts that into a hard
+ * O(MAX_TOTAL_RESOLUTION_ATTEMPTS) cap regardless of fan-out shape: once
+ * exhausted, unexplored candidates are treated as unresolved, the same
+ * fail-safe ("never guess, only give up") this resolver already relies on
+ * for an unresolvable source or a spent depth budget.
+ *
+ * Honest worst case: a barrel of, say, 20 `export *` statements each
+ * pointing at another 20-star barrel would need 20 + 400 + 8000 + ...
+ * attempts to explore exhaustively, which blows past 1024 by the third
+ * level and safely aborts there rather than continuing to explore. Real
+ * barrel graphs (a handful of re-exports, one to three hops deep) use at
+ * most a few dozen attempts, nowhere near the cap. Per-attempt work is O(the
+ * re-export entries in that one file) to scan for a match, plus O(depth) to
+ * copy the per-path visited set (see below), so total work in the worst
+ * case is bounded by MAX_TOTAL_RESOLUTION_ATTEMPTS * (a small constant +
+ * MAX_BARREL_CHAIN_DEPTH), comfortably sub-millisecond.
+ */
+const MAX_TOTAL_RESOLUTION_ATTEMPTS = 1024;
+
+/**
+ * Follow a re-export chain starting at `startFile`, looking for the file
+ * that actually declares `symbolName` and the name it is declared under
+ * there (which may differ from `symbolName` itself after following a rename
+ * like `export { x as y } from '...'`).
+ *
+ * Resolution order at each hop, matching how a real module resolver treats a
+ * file that is both a barrel and a declarer:
+ *   1. Local-declaration base case: if the current file locally declares
+ *      the name currently being chased (per `localExportsByFile`), stop
+ *      here, even if the file ALSO has unrelated re-exports. A file that
+ *      does `export * from './other'` and also `export function f() {}`
+ *      must resolve `f` to itself, not follow the star into `./other`.
+ *   2. A matching named re-export (`export { x as y } from '...'`): follow
+ *      it, rewriting the chased name to the origin-side declared name so
+ *      the NEXT hop (and the eventual caller) searches for the name that
+ *      actually exists there, not the local alias. A named match is
+ *      authoritative (only one can match a given name at one hop): it
+ *      commits to its own result, success or failure, rather than falling
+ *      back to try star siblings.
+ *   3. Every matching star re-export (`export * from '...'`), tried in
+ *      declaration order: a barrel can have more than one, and which one
+ *      (if any) actually declares the chased name is genuinely ambiguous
+ *      until tried. The first star whose subtree actually resolves the name
+ *      wins; a star that doesn't pan out (or points somewhere unresolvable)
+ *      is skipped in favor of the next one, instead of the old behavior of
+ *      always following only the first star regardless of which name was
+ *      being chased (the exact bug this fixes: `export * from './moduleA';
+ *      export * from './moduleB';` used to resolve every name through
+ *      moduleA.ts, silently dropping or mis-keying anything actually
+ *      declared in moduleB.ts). Declaration order is preserved as the
+ *      tie-break for the legitimate case of the same name being genuinely
+ *      reachable through more than one star.
+ *   4. None of the above resolves it at this file: unresolved from here.
+ *
+ * Cycle guard: PER-PATH visited set, not one shared across sibling star
+ * branches. Each recursive call receives its own copy (extended with the
+ * current file) to pass to its children; a sibling star branch always
+ * starts from the parent's set, unpolluted by whatever an earlier sibling's
+ * (possibly failed) subtree visited. A single shared, mutated-in-place set
+ * would wrongly block a legitimate second branch that revisits a file
+ * already seen (and abandoned) on a FAILED first branch, e.g. barrel.ts
+ * does `export * from './a'; export * from './shared'` and a.ts ALSO does
+ * `export * from './shared'`: chasing a name only shared.ts declares must
+ * still succeed via barrel.ts's second star even though the first star's
+ * subtree already visited (and, for an unrelated name, abandoned)
+ * shared.ts. The mild recomputation cost (copying a small Set at every hop)
+ * is bounded by MAX_TOTAL_RESOLUTION_ATTEMPTS * MAX_BARREL_CHAIN_DEPTH
+ * element-copies in the worst case, negligible in practice.
+ *
+ * Bounded by a visited-set (cycle guard), MAX_BARREL_CHAIN_DEPTH (how deep
+ * any one path goes), and MAX_TOTAL_RESOLUTION_ATTEMPTS (total work across
+ * every branch), so neither a re-export cycle nor a wide star fan-out can
+ * hang or blow up. On a cycle, unresolved hop, exhausted depth/attempt
+ * budget, or a name that's genuinely declared nowhere reachable, falls back
+ * to the starting file and name, best-effort, never throws.
+ */
+export function resolveReExportChain(
+  startFile: string,
+  symbolName: string,
+  reExportsByFile: ReadonlyMap<string, ReExportEntity[]>,
+  localExportsByFile: ReadonlyMap<string, readonly string[]> = EMPTY_LOCAL_EXPORTS,
+): ResolvedImportTarget {
+  let attempts = 0;
+
+  function attempt(
+    file: string,
+    name: string,
+    visited: ReadonlySet<string>,
+    depth: number,
+  ): ResolvedImportTarget | undefined {
+    attempts++;
+    if (attempts > MAX_TOTAL_RESOLUTION_ATTEMPTS) return undefined; // global work budget exhausted
+    if (depth >= MAX_BARREL_CHAIN_DEPTH) return undefined; // this path alone is too deep
+    if (visited.has(file)) return undefined; // cycle on this path: dead end for this branch
+
+    if (localExportsByFile.get(file)?.includes(name)) {
+      return { filePath: file, exportedName: name }; // this file declares it itself
+    }
+
+    const reExports = reExportsByFile.get(file);
+    if (!reExports || reExports.length === 0) {
+      // No barrel data for this file. If we positively know its full local
+      // export surface (a defined list that just doesn't include `name`)
+      // and it isn't a barrel either, it definitively does not declare
+      // `name`: fail, so a sibling star branch elsewhere gets a chance.
+      // Otherwise there is no information at all about this file (never
+      // scanned, e.g. outside the indexed root): conservatively assume it's
+      // the origin, matching this resolver's long-standing behavior for a
+      // plain, uninstrumented file.
+      return localExportsByFile.get(file) !== undefined
+        ? undefined
+        : { filePath: file, exportedName: name };
+    }
+
+    const nextVisited = new Set(visited);
+    nextVisited.add(file);
+
+    const namedMatch = reExports.find(
+      (r) => r.exportedName !== '*' && (r.localName ?? r.exportedName) === name,
+    );
+    if (namedMatch) {
+      if (!namedMatch.sourceResolvedPath) return { filePath: file, exportedName: name }; // re-export source unresolved, stop here
+      return attempt(namedMatch.sourceResolvedPath, namedMatch.exportedName, nextVisited, depth + 1);
+    }
+
+    for (const star of reExports) {
+      if (star.exportedName !== '*' || star.localName) continue;
+      if (!star.sourceResolvedPath) continue; // unresolvable external star: not a viable candidate, try the next one
+      const result = attempt(star.sourceResolvedPath, name, nextVisited, depth + 1);
+      if (result) return result; // first star branch that actually resolves the name wins
+    }
+
+    return undefined; // nothing in this file resolves `name`
+  }
+
+  return attempt(startFile, symbolName, new Set(), 0) ?? { filePath: startFile, exportedName: symbolName };
+}
+
+/**
+ * Build a barrel-chain- and alias-aware resolution map for a file's imported
+ * names, for feeding to the TS calls extractor and (via extractAllEntities's
+ * resolvedImports parameter) the type-ref extractor's cross-file resolution.
+ *
+ * Each named specifier and default import is chased independently through
+ * `resolveReExportChain`, since two specifiers imported from the same
+ * statement can originate from different files (`import { A, B } from
+ * './barrel'` where the barrel re-exports A from one module and B from
+ * another). For a plain, non-barrel, non-renamed import, the chain resolves
+ * in one hop to the import's own resolvedPath under the same name, so this
+ * map is safe (and correct) to build unconditionally for every named/default
+ * import in a file, not just ones that are known to target a barrel.
+ *
+ * Namespace imports (`import * as NS from '...'`) are intentionally excluded:
+ * they bind a whole module, not one exported name, so there is no single
+ * symbol to chase through a barrel's re-export list. Callers keep resolving
+ * them via the existing same-file namespace-import path.
+ *
+ * This produces a MAP, not a rewritten ImportEntity array: the caller (calls
+ * extractor, type-ref extractor) looks up the map by local name and uses the
+ * result's `exportedName` as the actual name to search for in the graph.
+ * `extracted.imports` itself (and the File-to-File IMPORTS edge built from
+ * it) must stay untouched by this map: that edge points at the barrel, which
+ * is the truthful import relationship.
+ */
+export function buildResolvedImportMap(
+  imports: ImportEntity[],
+  reExportsByFile: ReadonlyMap<string, ReExportEntity[]>,
+  localExportsByFile: ReadonlyMap<string, readonly string[]> = EMPTY_LOCAL_EXPORTS,
+): ResolvedImportMap {
+  const map = new Map<string, ResolvedImportTarget>();
+
+  for (const imp of imports) {
+    if (!imp.resolvedPath) continue; // unresolved/external import, nothing to chase
+    const resolvedPath = imp.resolvedPath;
+
+    for (const spec of imp.specifiers) {
+      const localName = spec.alias ?? spec.name;
+      map.set(localName, resolveReExportChain(resolvedPath, spec.name, reExportsByFile, localExportsByFile));
+    }
+
+    if (imp.isDefault && imp.defaultAlias) {
+      map.set(imp.defaultAlias, resolveReExportChain(resolvedPath, 'default', reExportsByFile, localExportsByFile));
+    }
+  }
+
+  return map;
 }
 
 /**
@@ -302,7 +582,7 @@ export function buildParsedFileEntities(
   options: PipelineOptions = {},
   projectRoot?: string,
 ): ParsedFileEntities {
-  const { deepAnalysis = false, includeExternals = false } = options;
+  const { deepAnalysis = false, includeExternals = false, barrelIndex, localExportsIndex } = options;
 
   // Ensure plugins are registered so registry lookups work
   registerPlugins();
@@ -387,6 +667,17 @@ export function buildParsedFileEntities(
     ({ extendsEdges, implementsEdges } = buildInheritanceEdgesFromRefs(refs, file.path, extracted));
   }
 
+  // Barrel-chain- and alias-aware import resolution, shared by call
+  // resolution below AND (further down) TypeRef resolution. Only built when
+  // a barrelIndex was supplied (full/batch index, see PipelineOptions.barrelIndex);
+  // otherwise both consumers fall back to their pre-barrel-fix behavior.
+  // localExportsIndex is optional even then, it only sharpens the mixed-barrel
+  // case (PipelineOptions.localExportsIndex); its absence degrades gracefully.
+  const resolvedImportMap: ResolvedImportMap | undefined =
+    lang === 'typescript' && barrelIndex && barrelIndex.size > 0
+      ? buildResolvedImportMap(extracted.imports, barrelIndex, localExportsIndex ?? EMPTY_LOCAL_EXPORTS)
+      : undefined;
+
   // --- Call edges (deep analysis only) ---
   // TypeScript uses a richer call extractor that resolves callee identities
   // across files via import analysis. Other languages use the generic
@@ -394,25 +685,34 @@ export function buildParsedFileEntities(
   let callEdges: ParsedFileEntities['callEdges'] = [];
   if (deepAnalysis && rootNode) {
     if (lang === 'typescript') {
-      // TS-specific: cross-file call resolution via import analysis
+      // TS-specific: cross-file call resolution via import analysis.
+      // extracted.imports itself is untouched by resolvedImportMap, so the
+      // File IMPORTS edge built above still (truthfully) points at the barrel
+      // when a callee is reached through one.
       const calls = extractTsCalls(
         rootNode,
         file.path,
         extracted.functions,
         extracted.imports,
         includeExternals,
+        extracted.classes,
+        resolvedImportMap,
       );
-      callEdges = calls.map((call) => ({
-        // Caller id encodes its kind so cross-label disambiguation works
-        // downstream — see graph operations.ts CALLS upsert.
-        callerId: `${call.callerKind}:${call.callerFilePath}:${call.callerName}`,
-        calleeId: call.calleeFilePath
-          ? `Function:${call.calleeFilePath}:${call.calleeName}`
-          : `Function:external:${call.calleeName}`,
-        line: call.line,
-        callerKind: call.callerKind,
-        via: call.via,
-      }));
+      callEdges = calls.map((call) => {
+        const edge: ParsedFileEntities['callEdges'][number] = {
+          // Caller id encodes its kind so cross-label disambiguation works
+          // downstream, see graph operations.ts CALLS upsert.
+          callerId: `${call.callerKind}:${call.callerFilePath}:${call.callerName}`,
+          calleeId: call.calleeFilePath
+            ? `Function:${call.calleeFilePath}:${call.calleeName}`
+            : `Function:external:${call.calleeName}`,
+          line: call.line,
+          callerKind: call.callerKind,
+          via: call.via,
+        };
+        if (call.calleeClassName) edge.calleeClassName = call.calleeClassName;
+        return edge;
+      });
     } else if (plugin?.extractors.extractCalls) {
       // All other languages: use registry-dispatched extractCalls
       const refs = plugin.extractors.extractCalls(rootNode as unknown as GenericSyntaxNode, file.path);
@@ -439,6 +739,27 @@ export function buildParsedFileEntities(
     }));
   }
 
+  // --- TypeRefs / HAS_PARAM / RETURNS / USES_TYPE, re-resolved through the barrel chain ---
+  // `extracted` was built by extractEntitiesForFile() before resolvedImportMap
+  // existed (that call happens earlier in the parse pipeline, without barrel
+  // knowledge), so its typeRefs key every cross-file type reference on the
+  // barrel it was imported through, not the file that actually declares it.
+  // When resolvedImportMap is available, re-run extractAllEntities with it so
+  // these four fields reflect barrel-resolved origins; every other field
+  // (functions, classes, imports, ...) still comes from the original
+  // `extracted`, unchanged, so this only touches type-relationship edges.
+  let typeRefs = extracted.typeRefs ?? [];
+  let hasParamEdges = extracted.hasParamEdges ?? [];
+  let returnsEdges = extracted.returnsEdges ?? [];
+  let usesTypeEdges = extracted.usesTypeEdges ?? [];
+  if (resolvedImportMap && resolvedImportMap.size > 0 && rootNode) {
+    const reResolved = extractAllEntities(rootNode, file.path, resolvedImportMap);
+    typeRefs = reResolved.typeRefs ?? [];
+    hasParamEdges = reResolved.hasParamEdges ?? [];
+    returnsEdges = reResolved.returnsEdges ?? [];
+    usesTypeEdges = reResolved.usesTypeEdges ?? [];
+  }
+
   return {
     file,
     functions: extracted.functions,
@@ -455,10 +776,10 @@ export function buildParsedFileEntities(
     rendersEdges,
     hasMethodEdges: extracted.hasMethodEdges ?? [],
     hasPropertyEdges: extracted.hasPropertyEdges ?? [],
-    typeRefs: extracted.typeRefs ?? [],
-    hasParamEdges: extracted.hasParamEdges ?? [],
-    returnsEdges: extracted.returnsEdges ?? [],
-    usesTypeEdges: extracted.usesTypeEdges ?? [],
+    typeRefs,
+    hasParamEdges,
+    returnsEdges,
+    usesTypeEdges,
   };
 }
 

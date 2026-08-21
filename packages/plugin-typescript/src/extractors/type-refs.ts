@@ -5,9 +5,26 @@
  * for every function (top-level and methods) extracted from TypeScript/JavaScript.
  *
  * Identity rules (per @codegraph/plugin-common resolveTypeIdentity):
- *   - Primitives → `prim::typescript::<name>`
- *   - User types  → `type::typescript::<filePath>::<name>`
- *   - Generics stored as flat printed name (e.g. `Promise<User>`) in v1.
+ *   - Primitives: id = `prim::typescript::<name>`
+ *   - User types: id = `type::typescript::<definingFilePath>::<declaredName>`
+ *     Both the defining file AND the name are resolved per-reference (see
+ *     `TypeResolutionContext`), because identity is (definingFile, DECLARED
+ *     name), not (referencing file, local alias):
+ *       1. A name declared locally in the file being parsed (class/interface/
+ *          type alias/enum) keys on that file, name unchanged.
+ *       2. A name resolved by the (optional, barrel-aware) `resolvedImports`
+ *          map keys on that target's file, with the name rewritten to the
+ *          target's declared (origin) name, undoing any local alias.
+ *       3. A name that arrives via a same-file import (no barrel map needed)
+ *          keys on that import's resolvedPath, with the name rewritten to the
+ *          specifier's original (pre-alias) name.
+ *       4. Anything else (global/ambient/unresolvable) falls back to the file
+ *          currently being parsed with the name unchanged, matching the
+ *          pre-fix behavior.
+ *   - Generics stored as flat printed name (e.g. `Promise<User>`) in v1. The
+ *     flat name is looked up as-is against local/imported names, so it only
+ *     resolves cross-file when it matches exactly. Structural decomposition of
+ *     generics is a v2 feature.
  *
  * Per spec: docs/superpowers/specs/2026-04-27-pre-benchmark-fixes-design.md §4.3
  */
@@ -29,6 +46,88 @@ export interface TypeRefsForFunction {
 }
 
 /**
+ * Where a type is actually declared: the file that owns the declaration, and
+ * the name it is declared under there (which may differ from the local alias
+ * a given file imported it as).
+ *
+ * This is a structural duplicate of the `ResolvedImportTarget` interface the
+ * imports extractor is landing (barrel-chain + alias resolution, built once
+ * per project in the indexing pipeline). It is declared locally, rather than
+ * imported from `./imports`, purely to avoid a build-order dependency on that
+ * in-flight work; TypeScript's structural typing means the producer's real
+ * map satisfies this shape once it exists, so callers can pass either without
+ * change. Replace with an import once the producer lands (see fix report).
+ */
+export interface ResolvedImportTarget {
+  /** Absolute path of the file that actually declares the export (barrel chains already followed). */
+  filePath: string;
+  /** The name as declared at the origin file, not the local alias a consumer imported it as. */
+  exportedName: string;
+}
+
+/** Local imported name (as used in the current file) mapped to its true origin. */
+export type ResolvedImportMap = ReadonlyMap<string, ResolvedImportTarget>;
+
+/**
+ * Everything the extractor needs, beyond the current file's own AST, to resolve
+ * a type name to (a) the file that actually declares it and (b) the name it is
+ * declared under there. All fields are optional so every existing call site
+ * (which passes nothing) keeps today's pass-through behavior: keying every
+ * non-primitive reference on the current file under its as-written name.
+ */
+export interface TypeResolutionContext {
+  /** Names declared locally in the file being parsed (classes, interfaces, type aliases, enums). */
+  localTypeNames?: ReadonlySet<string>;
+  /**
+   * Same-file import resolution, built directly from this file's own
+   * ImportEntity specifiers (no barrel-chain knowledge required): local name
+   * (alias if aliased, otherwise the imported name itself) mapped to the
+   * import's resolvedPath and the specifier's original (pre-alias) name.
+   * Covers the plain aliased-import case even when `resolvedImports` is absent.
+   */
+  importedTypes?: ReadonlyMap<string, ResolvedImportTarget>;
+  /**
+   * Barrel-chain- and alias-resolved origins, supplied by the indexing
+   * pipeline once available. Takes priority over `importedTypes` for any name
+   * it covers, since it reflects the type's true origin even through re-export
+   * chains; `importedTypes` remains the fallback so same-file aliasing keeps
+   * working before this map exists.
+   */
+  resolvedImports?: ResolvedImportMap;
+}
+
+/**
+ * Resolve both the defining file AND the declared name for a type reference:
+ *   1. Declared locally in the current file: current file, name unchanged.
+ *   2. Covered by the (barrel-aware) `resolvedImports` map: that target's
+ *      file and declared name.
+ *   3. Covered by this file's own same-file import resolution
+ *      (`importedTypes`): that import's resolved file and original name.
+ *   4. Otherwise (global/ambient/unresolvable/no context given): fall back to
+ *      the current file with the name unchanged, i.e. today's behavior. This
+ *      is the regression guard: callers that don't pass a resolution context
+ *      get identical output to before this fix.
+ */
+function resolveTypeReference(
+  name: string,
+  filePath: string,
+  resolution?: TypeResolutionContext,
+): { name: string; definingFile: string } {
+  if (resolution?.localTypeNames?.has(name)) {
+    return { name, definingFile: filePath };
+  }
+  const viaResolvedImports = resolution?.resolvedImports?.get(name);
+  if (viaResolvedImports) {
+    return { name: viaResolvedImports.exportedName, definingFile: viaResolvedImports.filePath };
+  }
+  const viaSameFileImport = resolution?.importedTypes?.get(name);
+  if (viaSameFileImport) {
+    return { name: viaSameFileImport.exportedName, definingFile: viaSameFileImport.filePath };
+  }
+  return { name, definingFile: filePath };
+}
+
+/**
  * Strip the leading `: ` from a type annotation's raw text.
  * e.g. ": string" → "string", "string" → "string"
  */
@@ -37,14 +136,22 @@ function stripAnnotationColon(text: string): string {
 }
 
 /**
- * Build a TypeRefEntity for the given type name scoped to the current file.
- * Primitives get a global id; user types get file-scoped ids.
+ * Build a TypeRefEntity for the given type name (as written at the reference
+ * site, which may be a local alias). Primitives get a global id. User types
+ * get an id scoped to the file that declares them, under the name they are
+ * declared under there, resolved via `resolution` when available; otherwise
+ * the current file and the as-written name, as before.
  */
-function makeTypeRef(name: string, filePath: string): TypeRefEntity {
+function makeTypeRef(
+  name: string,
+  filePath: string,
+  resolution?: TypeResolutionContext,
+): TypeRefEntity {
+  const resolved = resolveTypeReference(name, filePath, resolution);
   const identity = resolveTypeIdentity({
     language: 'typescript',
-    name,
-    definingFile: filePath,
+    name: resolved.name,
+    definingFile: resolved.definingFile,
   });
   return {
     id: identity.id,
@@ -84,6 +191,7 @@ function isFunctionAsync(node: Parser.SyntaxNode): boolean {
 function collectBodyTypeUsages(
   bodyNode: Parser.SyntaxNode,
   filePath: string,
+  resolution?: TypeResolutionContext,
 ): { typeRef: TypeRefEntity; kind: 'annotation' | 'cast' | 'instantiation' }[] {
   const usages: { typeRef: TypeRefEntity; kind: 'annotation' | 'cast' | 'instantiation' }[] = [];
 
@@ -107,7 +215,7 @@ function collectBodyTypeUsages(
       const rawText = node.text;
       const typeName = stripAnnotationColon(rawText);
       if (typeName) {
-        usages.push({ typeRef: makeTypeRef(typeName, filePath), kind: 'annotation' });
+        usages.push({ typeRef: makeTypeRef(typeName, filePath, resolution), kind: 'annotation' });
       }
     }
 
@@ -120,7 +228,7 @@ function collectBodyTypeUsages(
       if (lastChild && lastChild.text !== 'as') {
         const typeName = lastChild.text.trim();
         if (typeName) {
-          usages.push({ typeRef: makeTypeRef(typeName, filePath), kind: 'cast' });
+          usages.push({ typeRef: makeTypeRef(typeName, filePath, resolution), kind: 'cast' });
         }
       }
     }
@@ -129,7 +237,7 @@ function collectBodyTypeUsages(
     if (node.type === 'generic_type') {
       const typeName = node.text.trim();
       if (typeName) {
-        usages.push({ typeRef: makeTypeRef(typeName, filePath), kind: 'instantiation' });
+        usages.push({ typeRef: makeTypeRef(typeName, filePath, resolution), kind: 'instantiation' });
       }
     }
 
@@ -149,11 +257,15 @@ function collectBodyTypeUsages(
  * @param node       The function declaration/expression/arrow/method AST node
  * @param functionId The already-computed FunctionEntity id for this node
  * @param filePath   The file being indexed
+ * @param resolution Optional local-declaration/import info used to resolve each
+ *                    referenced type name to its defining file. Omit to keep the
+ *                    pre-fix behavior (every non-primitive keyed on `filePath`).
  */
 export function extractTypeRefsForFunction(
   node: Parser.SyntaxNode,
   functionId: string,
   filePath: string,
+  resolution?: TypeResolutionContext,
 ): TypeRefsForFunction {
   const typeRefMap = new Map<string, TypeRefEntity>();
   const hasParamEdges: HasParamEdgeDescriptor[] = [];
@@ -210,7 +322,7 @@ export function extractTypeRefsForFunction(
 
       if (!typeName || typeName === '') typeName = 'unknown';
 
-      const typeRef = makeTypeRef(typeName, filePath);
+      const typeRef = makeTypeRef(typeName, filePath, resolution);
       addTypeRef(typeRef);
 
       hasParamEdges.push({
@@ -232,13 +344,13 @@ export function extractTypeRefsForFunction(
   if (returnTypeNode) {
     const typeName = stripAnnotationColon(returnTypeNode.text);
     if (typeName) {
-      const typeRef = makeTypeRef(typeName, filePath);
+      const typeRef = makeTypeRef(typeName, filePath, resolution);
       addTypeRef(typeRef);
       returnsEdges.push({ fromId: functionId, toId: typeRef.id, isAsync });
     }
   } else {
-    // No explicit return type — emit a RETURNS edge to "inferred"
-    const inferredRef = makeTypeRef('inferred', filePath);
+    // No explicit return type: emit a RETURNS edge to "inferred"
+    const inferredRef = makeTypeRef('inferred', filePath, resolution);
     addTypeRef(inferredRef);
     returnsEdges.push({ fromId: functionId, toId: inferredRef.id, isAsync });
   }
@@ -246,7 +358,7 @@ export function extractTypeRefsForFunction(
   // ── Body USES_TYPE ─────────────────────────────────────────────────────────
   const bodyNode = node.childForFieldName('body');
   if (bodyNode) {
-    const bodyUsages = collectBodyTypeUsages(bodyNode, filePath);
+    const bodyUsages = collectBodyTypeUsages(bodyNode, filePath, resolution);
 
     // Deduplicate: one edge per (toId, kind) pair within this function
     const seen = new Set<string>();

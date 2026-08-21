@@ -70,6 +70,10 @@ export {
   createFileEntityFromContent,
   extractEntitiesForFile,
   buildParsedFileEntities,
+  buildReExportIndex,
+  buildLocalExportsIndex,
+  buildResolvedImportMap,
+  resolveReExportChain,
   countEntities,
   countEdges,
   getLanguageCategory,
@@ -80,7 +84,7 @@ export {
   languageRegistry,
 } from './pipeline';
 
-export type { SyntaxTree, LanguageType, LanguageRegistry } from './pipeline';
+export type { SyntaxTree, LanguageType, LanguageRegistry, PipelineOptions } from './pipeline';
 
 // Markdown document processing (via @codegraph/plugin-markdown)
 export {

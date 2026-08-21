@@ -231,12 +231,21 @@ export interface ParsedFileEntities {
     callerId: string;
     calleeId: string;
     line: number;
-    /** Caller node label — needed because callerId alone doesn't disambiguate
+    /** Caller node label, needed because callerId alone doesn't disambiguate
      *  (e.g., a Function and a Variable can share name+filePath). */
     callerKind: 'Function' | 'Variable' | 'Class' | 'Interface';
     /** 'direct' = call is in the lexical body of the named caller;
      *  'closure' = call is inside an anonymous wrapper the caller initialises. */
     via: 'direct' | 'closure';
+    /**
+     * Class the callee method belongs to, when known (receiver-typed method
+     * call, e.g. `s.method()` where `s` is bound to a class). Lets the graph
+     * write path match the callee through Class-HAS_METHOD-Function instead
+     * of plain {name, filePath}, so two same-named methods on different
+     * classes in the same file don't both receive the edge. Omitted for
+     * plain function calls, which have no class to qualify against.
+     */
+    calleeClassName?: string;
   }>;
   importsEdges: Array<{ fromFilePath: string; toFilePath: string; specifiers?: string[] }>;
   extendsEdges: Array<{ childId: string; parentId: string }>;

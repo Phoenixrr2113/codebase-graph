@@ -21,6 +21,10 @@ export {
   createFileEntityFromContent,
   extractEntitiesForFile,
   buildParsedFileEntities,
+  buildReExportIndex,
+  buildLocalExportsIndex,
+  buildResolvedImportMap,
+  resolveReExportChain,
   countEntities,
   countEdges,
   getLanguageCategory,
@@ -29,6 +33,7 @@ export {
   DEFAULT_IGNORE_PATTERNS,
   MARKDOWN_EXTENSIONS,
 } from './pipeline';
+export type { PipelineOptions } from './pipeline';
 
 // Language registry
 export { languageRegistry } from './registry';

@@ -24,7 +24,8 @@ import type {
 } from '@codegraph/types';
 
 // Re-export individual extractors (still available for standalone use)
-export { extractImports, extractImportsFromNodes } from './imports';
+export { extractImports, extractImportsFromNodes, extractReExports, extractLocalExportedNames } from './imports';
+export type { ReExportEntity, ResolvedImportTarget, ResolvedImportMap } from './imports';
 export { extractFunctions, extractFunctionsFromNodes, extractFunctionsWithNodes } from './functions';
 export { extractClasses, extractClassesFromNodes, extractClassesWithEdges, extractClassesWithEdgesFromNodes } from './classes';
 export type { ClassExtractionResult, HasMethodEdgeDescriptor, HasPropertyEdgeDescriptor, Visibility } from './classes';
@@ -50,7 +51,17 @@ import { extractClassesWithEdgesFromNodes } from './classes';
 import { extractVariablesFromNodes } from './variables';
 import { extractTypesFromNodes, extractInterfacesFromNodes } from './type-aliases';
 import { extractComponentsFromNodes } from './jsx';
-import { extractTypeRefsForFunction } from './type-refs';
+import {
+  extractTypeRefsForFunction,
+  type TypeResolutionContext,
+} from './type-refs';
+// ResolvedImportTarget / ResolvedImportMap are the canonical shape, defined in
+// ./imports (the barrel-chain resolver's home) and re-exported above. type-refs.ts
+// declares a structurally identical pair locally to avoid a build-order dependency
+// on this file landing first; TypeScript's structural typing means passing this
+// module's ResolvedImportMap into that module's TypeResolutionContext.resolvedImports
+// (or extractAllEntities's resolvedImports param below) just works, no cast needed.
+import type { ResolvedImportTarget, ResolvedImportMap } from './imports';
 
 /** Combined result of all entity extraction */
 export interface ExtractedEntities {
@@ -94,7 +105,8 @@ const ALL_ENTITY_NODE_TYPES = [
  */
 export function extractAllEntities(
   rootNode: Parser.SyntaxNode,
-  filePath: string
+  filePath: string,
+  resolvedImports?: ResolvedImportMap,
 ): ExtractedEntities {
   // Single walk — collect all relevant nodes by type
   const nodesByType = collectNodesByType(rootNode, ALL_ENTITY_NODE_TYPES);
@@ -166,8 +178,53 @@ export function extractAllEntities(
   const allReturnsEdges: ReturnsEdgeDescriptor[] = [];
   const allUsesTypeEdges: UsesTypeEdgeDescriptor[] = [];
 
+  // Resolve each type reference to (a) the file that actually declares it and
+  // (b) the name it is declared under there, so the same type imported into
+  // multiple files (directly, aliased, or through a barrel) collapses onto one
+  // TypeRef node keyed on (definingFile, declaredName):
+  //   - locally declared names (classes/interfaces/type aliases/enums extracted
+  //     from this same file) key on `filePath`, name unchanged, same as before.
+  //   - names covered by the caller-supplied `resolvedImports` (barrel-chain-
+  //     and alias-aware, built by the indexing pipeline) key on that target's
+  //     file and declared name.
+  //   - names that arrive via a same-file import, absent a `resolvedImports`
+  //     entry, key on that import's resolvedPath and the specifier's original
+  //     (pre-alias) name: this is what makes `import { User as U }` resolve to
+  //     (types.ts, User) rather than (types.ts, U) even with no barrel map.
+  //   - anything else falls through to `filePath` with the name unchanged
+  //     (unresolved/global/ambient), the same behavior this extractor had
+  //     before this fix.
+  const localTypeNames = new Set<string>([
+    ...classExtraction.classes.map(c => c.name),
+    ...interfaces.map(i => i.name),
+    ...types.map(t => t.name),
+  ]);
+
+  const importedTypes = new Map<string, ResolvedImportTarget>();
+  for (const imp of imports) {
+    if (!imp.resolvedPath) continue;
+    // Default/namespace imports have no separate "declared name" available from
+    // ImportEntity (the origin's default export isn't necessarily named), so
+    // the local alias is kept as-is: this only affects definingFile, not name.
+    if (imp.defaultAlias) {
+      importedTypes.set(imp.defaultAlias, { filePath: imp.resolvedPath, exportedName: imp.defaultAlias });
+    }
+    if (imp.namespaceAlias) {
+      importedTypes.set(imp.namespaceAlias, { filePath: imp.resolvedPath, exportedName: imp.namespaceAlias });
+    }
+    for (const spec of imp.specifiers) {
+      importedTypes.set(spec.alias ?? spec.name, { filePath: imp.resolvedPath, exportedName: spec.name });
+    }
+  }
+
+  const typeResolution: TypeResolutionContext = {
+    localTypeNames,
+    importedTypes,
+    ...(resolvedImports !== undefined ? { resolvedImports } : {}),
+  };
+
   function accumulateTypeRefs(node: Parser.SyntaxNode, entityId: string): void {
-    const result = extractTypeRefsForFunction(node, entityId, filePath);
+    const result = extractTypeRefsForFunction(node, entityId, filePath, typeResolution);
     for (const ref of result.typeRefs) {
       if (!typeRefMap.has(ref.id)) typeRefMap.set(ref.id, ref);
     }

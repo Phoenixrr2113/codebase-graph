@@ -21,12 +21,14 @@ import {
   buildParsedFileEntities,
   registerPlugins,
   registerTier2Languages,
+  buildReExportIndex,
   countEntities,
   countEdges,
   isMarkdownFile,
   getSupportedExtensions,
   DEFAULT_IGNORE_PATTERNS,
 } from './pipeline';
+import { extractReExports, extractLocalExportedNames, type ReExportEntity } from '@codegraph/plugin-typescript';
 import { parseMarkdownContent } from '@codegraph/plugin-markdown';
 import { createOperations, type GraphClient } from '@codegraph/graph';
 import type { ProjectEntity, ExtractedDocumentEntities } from '@codegraph/types';
@@ -168,6 +170,118 @@ async function discoverFilesGit(
   } catch {
     return null; // Not a git repo or git not available
   }
+}
+
+// ============================================================================
+// Barrel re-export index (best-effort, batch-index only)
+// ============================================================================
+
+/**
+ * Cheap heuristic for "this file might contain a barrel re-export"
+ * (`export * from '...'`, `export { x } from '...'`, `export { x as y } from
+ * '...'`, `export * as ns from '...'`). Deliberately permissive: it also
+ * matches plain local exports like `export { x }` (no `from` clause), which
+ * extractReExports() itself filters out (it looks for a `from` source), so a
+ * false positive here just costs one wasted parse. A false negative would
+ * silently break barrel resolution for that file, so the pattern must never
+ * be tightened to the point of missing a real `export ... from` statement.
+ *
+ * Whitespace is not the only thing that can legally sit between `export` and
+ * the `*`/`{` it introduces: a line comment or a block comment can too
+ * (e.g. `export` followed by a block comment, then `* from './x'`), which a
+ * plain `\s+` gap missed entirely. The `(?:...)*` group here explicitly
+ * allows any interleaving of whitespace, line comments, and block comments,
+ * so nothing that can syntactically appear in that position causes a miss.
+ */
+export const REEXPORT_HINT_PATTERN = /export(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*(\*|\{)/;
+
+/**
+ * The two cross-file lookups the barrel-chain resolver needs, built once per
+ * indexProject() run:
+ *  - barrelIndex: filePath -> that file's re-export entries (consumed via
+ *    `PipelineOptions.barrelIndex`).
+ *  - localExportsIndex: filePath -> the names that file exports via a LOCAL
+ *    declaration (not a re-export). The resolver needs this as its base
+ *    case: a "mixed barrel" (`export * from './x'` plus its own
+ *    `export function localOnly() {}`) must stop at its own declaration
+ *    instead of following the unrelated star re-export just because the same
+ *    file happens to have one.
+ */
+export interface BarrelResolutionIndexes {
+  barrelIndex: Map<string, ReExportEntity[]>;
+  localExportsIndex: Map<string, string[]>;
+}
+
+/**
+ * Build the cross-file barrel-resolution data above. Both indexes are built
+ * from `files` (the full discovered set for this project, including files
+ * that are not changing this run): a barrel chain can pass through, or land
+ * on, a file that did not change.
+ *
+ * The two indexes deliberately use DIFFERENT candidate scopes:
+ *  - Re-exports are only extracted from files that look like they contain
+ *    `export ... from` syntax (REEXPORT_HINT_PATTERN), since that is the
+ *    only syntax extractReExports() looks for; most files in a real project
+ *    never match, so this saves a wasted AST walk for them.
+ *  - Local exports are collected for EVERY TypeScript file, not just
+ *    hint-matched ones. A chain can terminate at any file, including a
+ *    plain origin file with no re-export syntax at all (an aliased
+ *    re-export chain, for instance: consumer -> barrel -> origin, where
+ *    origin has no `export ... from` and so never matches
+ *    REEXPORT_HINT_PATTERN). There is no way to know in advance which files
+ *    a chain will land on without already knowing the full barrel graph, so
+ *    the only correct scope for local exports is every TypeScript file.
+ *    (A regex-only heuristic for enumerating exported NAMES, as opposed to
+ *    just detecting re-export syntax, would also be far less reliable than
+ *    the real AST-based extractor: there are too many ways to export
+ *    something, function/class/const/destructured-const/interface/enum/
+ *    source-less `export { x }`, to approximate safely with regex. Given
+ *    that a chain's landing file cannot be known ahead of time either way,
+ *    correctness rules out narrowing this scope for a performance gain that
+ *    would not even be sound.)
+ *
+ * Every candidate file is parsed once and reused for both extractions when a
+ * file needs both (i.e. a mixed barrel). A read or parse failure for one
+ * file is logged and that file is skipped from both indexes, never aborting
+ * the rest of indexing, since barrel resolution is a best-effort enrichment
+ * layered on top of already-correct (if less complete) call resolution.
+ */
+export async function buildBarrelResolutionIndexes(
+  files: string[],
+  concurrency: number,
+): Promise<BarrelResolutionIndexes> {
+  const candidates = files.filter((f) => getLanguageForExtension(extname(f)) === 'typescript');
+  const reExportEntries: Array<{ filePath: string; reExports: ReExportEntity[] }> = [];
+  const localExportsIndex = new Map<string, string[]>();
+
+  for (let i = 0; i < candidates.length; i += concurrency) {
+    const batch = candidates.slice(i, i + concurrency);
+    const results = await Promise.allSettled(
+      batch.map(async (filePath) => {
+        const content = await readFile(filePath, 'utf-8');
+        const syntaxTree = parseCode(content, 'typescript', extname(filePath));
+        const localNames = extractLocalExportedNames(syntaxTree.rootNode, filePath);
+        const reExports = REEXPORT_HINT_PATTERN.test(content)
+          ? extractReExports(syntaxTree.rootNode, filePath)
+          : [];
+        return { filePath, localNames, reExports };
+      }),
+    );
+
+    for (let j = 0; j < results.length; j++) {
+      const result = results[j]!;
+      if (result.status === 'rejected') {
+        const msg = `Barrel pre-pass: failed to scan ${batch[j]}: ${result.reason instanceof Error ? result.reason.message : result.reason}`;
+        logger.warn(msg);
+        continue;
+      }
+      const { filePath, localNames, reExports } = result.value;
+      if (localNames.length > 0) localExportsIndex.set(filePath, localNames);
+      reExportEntries.push({ filePath, reExports });
+    }
+  }
+
+  return { barrelIndex: buildReExportIndex(reExportEntries), localExportsIndex };
 }
 
 // ============================================================================
@@ -397,6 +511,23 @@ export async function indexProject(
       logger.info(`Split: ${codeFiles.length} code files, ${markdownFiles.length} markdown files`);
     }
 
+    // Barrel re-export index and local-exports index (best-effort): let
+    // buildParsedFileEntities() below resolve a callee reached through a
+    // barrel to its origin file instead of the barrel (which has no
+    // matching Function node, silently dropping the CALLS edge), and stop
+    // at a file that locally declares the name being chased instead of
+    // following an unrelated re-export from the same (mixed-barrel) file.
+    // Built from the full discovered file set, not just codeFiles, since a
+    // barrel chain can pass through, or land on, an unchanged file. Only
+    // worth building when there is at least one file about to be parsed
+    // this run.
+    const { barrelIndex, localExportsIndex } = codeFiles.length > 0
+      ? await buildBarrelResolutionIndexes(files, concurrency)
+      : { barrelIndex: new Map<string, ReExportEntity[]>(), localExportsIndex: new Map<string, string[]>() };
+    if (barrelIndex.size > 0) {
+      logger.info(`Barrel re-export index: ${barrelIndex.size} files with re-exports`);
+    }
+
     // Full reindex optimization: clear project data first, then use CREATE (much faster than MERGE)
     const useCreatePath = force;
     let savedEmbeddingHashes: Map<string, string> | undefined;
@@ -495,7 +626,7 @@ export async function indexProject(
             fileEntity,
             extracted,
             syntaxTree.rootNode,
-            { deepAnalysis, includeExternals },
+            { deepAnalysis, includeExternals, barrelIndex, localExportsIndex },
             rootPath,
           );
           // Skip non-exported variables — they're disconnected noise (62% of graph, zero edges)
@@ -733,6 +864,13 @@ export async function indexSingleFile(
     const syntaxTree = await parseFile(filePath);
     const extracted = extractEntitiesForFile(syntaxTree.rootNode, filePath);
     const fileEntity = createFileEntityFromContent(filePath, content, fileStat.mtime);
+    // No barrelIndex here (accepted limitation, not a bug): resolving a
+    // callee through a barrel re-export chain requires every project file's
+    // re-exports to already be known (see buildBarrelResolutionIndexes() in
+    // indexProject()). A single-file reindex has no sibling files in memory,
+    // so a callee reached through a barrel stays unresolved to the barrel
+    // file here, same as before barrel resolution existed; a subsequent
+    // full/incremental indexProject() run resolves it correctly.
     const parsed = buildParsedFileEntities(
       fileEntity,
       extracted,
