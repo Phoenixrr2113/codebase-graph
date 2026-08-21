@@ -98,12 +98,28 @@ export interface ExtractedEntities {
   usesTypeEdges?: UsesTypeEdgeDescriptor[];
 }
 
+/**
+ * Optional context handed to extractCalls so a language can resolve callees
+ * across files. The file's own extracted imports are the only sanctioned
+ * source of cross-file knowledge at extraction time; anything needing a
+ * project-wide view belongs in a pipeline pass, not here.
+ */
+export interface CallExtractionContext {
+  imports?: ImportEntity[];
+}
+
 /** Call reference for edge creation */
 export interface CallReference {
   callerName: string;
   calleeName: string;
   line: number;
   filePath: string;
+  /**
+   * Defining file of the callee when the extractor resolved it to another
+   * file (via import analysis). Absent means same-file, which is what
+   * buildCallEdgesFromRefs assumed unconditionally before this field.
+   */
+  calleeFilePath?: string;
 }
 
 /** Render reference for React component edges */
@@ -153,7 +169,7 @@ export interface OptionalExtractors {
   extractComponents?(root: SyntaxNode, filePath: string): ComponentEntity[];
 
   /** Extract function calls for CALLS edges */
-  extractCalls?(root: SyntaxNode, filePath: string): CallReference[];
+  extractCalls?(root: SyntaxNode, filePath: string, context?: CallExtractionContext): CallReference[];
 
   /** Extract render references for RENDERS edges (React) */
   extractRenders?(root: SyntaxNode, filePath: string): RenderReference[];

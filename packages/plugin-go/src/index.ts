@@ -25,6 +25,7 @@ import type {
   ImportEntity,
   TypeEntity,
   CallReference,
+  CallExtractionContext,
   SyntaxNode,
   HasMethodEdgeDescriptor,
   HasPropertyEdgeDescriptor,
@@ -979,9 +980,40 @@ const GO_BUILTINS = new Set([
 
 /**
  * Extract function/method calls from Go AST.
- * Only tracks calls to functions defined in the same file.
+ *
+ * Only same-file calls resolve (never carrying a `calleeFilePath`; absent
+ * means same-file per the CallReference contract). This is a deliberate,
+ * investigated verdict, not an unimplemented feature:
+ *
+ * Go calls are addressed by PACKAGE (`pkg.Fn()`), and a package is a
+ * DIRECTORY that can span many `.go` files. CodeGraph's Function ids are
+ * file-keyed (`Function:<filePath>:<name>`, see CallReference and the
+ * pipeline's buildCallEdgesFromRefs), so even a fully resolved package
+ * directory isn't enough to build a correct edge: we'd still be picking
+ * WHICH file in that directory declares `Fn` without actually knowing,
+ * and a wrong pick would silently corrupt the graph rather than fail loudly.
+ * See resolveGoImport below for the fuller reasoning and what a correct fix
+ * would need.
+ *
+ * The same problem exists one level down for SAME-package, cross-file calls
+ * (routine in idiomatic Go: files sharing `package foo` call each other's
+ * unqualified functions constantly). Resolving those needs to know which
+ * OTHER file in this file's own directory declares a given name, information
+ * a single-file extractor never has: extractCalls only ever sees the AST and
+ * path of the one file it's given, no sibling file list. So that case is out
+ * of per-file reach too.
+ *
+ * @param _context Accepted for interface conformance with
+ *   OptionalExtractors.extractCalls, and to make the "investigated, not
+ *   forgotten" decision explicit here: even with this file's own imports in
+ *   hand, neither gap above is resolvable per-file, so there is nothing
+ *   productive to do with it today.
  */
-export function extractCalls(root: SyntaxNode, filePath: string): CallReference[] {
+export function extractCalls(
+  root: SyntaxNode,
+  filePath: string,
+  _context?: CallExtractionContext,
+): CallReference[] {
   const calls: CallReference[] = [];
 
   // Get all functions/methods in the file for local lookup
@@ -1041,8 +1073,37 @@ export function extractCalls(root: SyntaxNode, filePath: string): CallReference[
 
 /**
  * Resolve a Go import to a file path.
- * Go import resolution requires understanding go.mod, GOPATH, and module structure.
- * This is a placeholder.
+ *
+ * This returns undefined unconditionally, and that is the correct answer
+ * for CALLS-edge purposes, not merely an unimplemented TODO:
+ *
+ * 1. A Go import path resolves to a PACKAGE, i.e. a DIRECTORY, not a file.
+ *    Determining that directory (parsing go.mod for the module path, then
+ *    matching the import path's prefix against it, the same way `go build`
+ *    would) is feasible per-file, with `_projectRoot` as the starting point.
+ *    But CodeGraph's Function ids are file-keyed
+ *    (`Function:<filePath>:<name>`, see CallReference and the pipeline's
+ *    buildCallEdgesFromRefs), so a resolved directory alone still isn't
+ *    enough to build a CALLS edge: picking one of that directory's `.go`
+ *    files without knowing which one actually declares the called symbol
+ *    would be a guess, and a wrong guess corrupts the graph silently
+ *    instead of failing loudly.
+ * 2. The identical problem exists one level down for a SAME-package,
+ *    cross-file call (very common in idiomatic Go): resolving `Fn()` called
+ *    from one file to its declaration in a DIFFERENT file of that same
+ *    package needs to know which sibling file in this file's own directory
+ *    declares that name. A single-file extractor never has that: it only
+ *    ever sees the AST and path of the one file it's given.
+ *
+ * A correct fix needs a project-wide pre-pass, run once before per-file
+ * CALLS extraction, the same shape as TypeScript's barrelIndex in the
+ * pipeline: for every Go package directory, parse go.mod for the module
+ * path, walk that directory's `*.go` files, collect each file's `package`
+ * clause plus its top-level func/method declarations, and build a
+ * (package import path or directory) to {name to declaring file} table.
+ * That table would need to reach extractCalls through an extended
+ * CallExtractionContext carrying project-wide data, not per-file data like
+ * `imports`, which is out of scope for a per-file extractor to build itself.
  */
 export function resolveGoImport(
   _importPath: string,

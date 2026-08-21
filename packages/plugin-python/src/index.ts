@@ -4,6 +4,7 @@
  */
 
 import Python from 'tree-sitter-python';
+import { existsSync } from 'node:fs';
 import type {
   FunctionEntity,
   ClassEntity,
@@ -17,6 +18,7 @@ import type {
   UsesTypeEdgeDescriptor,
   TypeRefEntity,
   Visibility,
+  CallExtractionContext,
 } from '@codegraph/types';
 import { findNodesOfType, generateEntityId, calculateComplexity, resolveTypeIdentity } from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
@@ -679,6 +681,14 @@ export function extractImports(root: SyntaxNode, filePath: string): ImportEntity
           const moduleName = child.type === 'aliased_import'
             ? child.childForFieldName('name')?.text
             : child.text;
+          // For `import foo.bar as x`, the LOCAL binding used at every call
+          // site (`x.something()`) is the alias, not the module's own name.
+          // `source` must still carry the real module name so file
+          // resolution (resolvePythonImport) keeps working; only
+          // namespaceAlias should reflect the alias.
+          const alias = child.type === 'aliased_import'
+            ? child.childForFieldName('alias')?.text
+            : undefined;
           if (moduleName) {
             const id = generateEntityId(filePath, 'import', moduleName, line);
             imports.push({
@@ -688,7 +698,7 @@ export function extractImports(root: SyntaxNode, filePath: string): ImportEntity
               isDefault: false,
               isNamespace: true,
               specifiers: [],
-              namespaceAlias: moduleName,
+              namespaceAlias: alias ?? moduleName,
             });
           }
         }
@@ -739,12 +749,20 @@ export function extractImports(root: SyntaxNode, filePath: string): ImportEntity
  * @param moduleName - The module path (e.g., 'api.analyzers.analyzer')
  * @param importingFilePath - Path of the file containing the import
  * @param projectRoot - Root path of the project
+ * @param specifierNames - Names imported by a `from <module> import <name>`
+ *   statement (e.g. ['mod2'] for `from . import mod2`). Only meaningful for
+ *   the bare-dot relative form (`from .` / `from ..` with no module-name
+ *   segment of its own): there, `<name>` might name a SUBMODULE file
+ *   (`mod2.py`) or a symbol already defined in the package's own
+ *   __init__.py, and only a disk check can tell which. Ignored otherwise
+ *   (a non-bare module name already fully identifies the file to resolve).
  * @returns Resolved file path or undefined if external/not found
  */
 export function resolvePythonImport(
   moduleName: string,
   importingFilePath: string,
-  projectRoot: string
+  projectRoot: string,
+  specifierNames?: string[],
 ): string | undefined {
   if (!moduleName) return undefined;
 
@@ -779,6 +797,18 @@ export function resolvePythonImport(
       candidates.push(`${baseDir}/${relPath}.py`);
       candidates.push(`${baseDir}/${relPath}/__init__.py`);
     } else {
+      // Bare `from . import <name>` / `from .. import <name>`: there is no
+      // module-name segment at all, so `baseDir` names a PACKAGE and each
+      // imported specifier might be either a submodule file within it or a
+      // symbol already defined in that package's own __init__.py. Real
+      // Python's import machinery tries the submodule first; try the same
+      // candidates here, ahead of the __init__.py fallback, and let
+      // existsSync below decide (the same disk-check mechanism the rest of
+      // this function already relies on).
+      for (const specifierName of specifierNames ?? []) {
+        candidates.push(`${baseDir}/${specifierName}.py`);
+        candidates.push(`${baseDir}/${specifierName}/__init__.py`);
+      }
       candidates.push(`${baseDir}/__init__.py`);
     }
   } else {
@@ -794,10 +824,21 @@ export function resolvePythonImport(
     }
   }
 
-  // Return the first candidate that looks like a project file
-  // (We can't do file system checks at extraction time, so we return the most likely path)
+  // Return the first candidate that both stays inside the project (never
+  // resolve outside projectRoot, and never into an installed dependency
+  // under site-packages) AND actually exists on disk. File-system checks are
+  // cheap and available at extraction time -- the TS extractor already
+  // relies on existsSync the same way (see
+  // packages/plugin-typescript/src/extractors/imports.ts). Returning a
+  // candidate that merely "looks like" a project file, without checking,
+  // fabricates an edge to a file that may not exist: the graph would MERGE
+  // a phantom :File:External node at that path.
   for (const candidate of candidates) {
-    if (candidate.startsWith(projectRoot) && !candidate.includes('/site-packages/')) {
+    if (
+      candidate.startsWith(projectRoot) &&
+      !candidate.includes('/site-packages/') &&
+      existsSync(candidate)
+    ) {
       return candidate;
     }
   }

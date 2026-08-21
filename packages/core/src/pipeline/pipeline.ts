@@ -555,12 +555,16 @@ function buildInheritanceEdgesFromRefs(
  */
 function buildCallEdgesFromRefs(refs: CallReference[]): ParsedFileEntities['callEdges'] {
   // Non-TS plugins haven't been migrated to attribution-aware extraction yet.
-  // They produce CallReferences with `callerName` only (no kind). Default to
-  // Function caller and via='direct' — these are the same defaults the old
+  // They produce CallReferences with `callerName` only (no kind), defaulting
+  // to Function caller and via='direct': the same defaults the old
   // TypeScript path used, so behavior is unchanged for those plugins.
   return refs.map((call) => ({
     callerId: `Function:${call.filePath}:${call.callerName}`,
-    calleeId: `Function:${call.filePath}:${call.calleeName}`,
+    // When the extractor resolved the callee to another file (via import
+    // analysis, see CallExtractionContext), key the edge on that file
+    // instead of unconditionally assuming the callee lives in the same file
+    // as the caller. Absent calleeFilePath still means same-file.
+    calleeId: `Function:${call.calleeFilePath ?? call.filePath}:${call.calleeName}`,
     line: call.line,
     callerKind: 'Function' as const,
     via: 'direct' as const,
@@ -612,9 +616,24 @@ export function buildParsedFileEntities(
         specifiers: imp.specifiers.map((s) => s.name),
       });
     } else if (lang === 'python' && projectRoot) {
-      // Python: resolve module paths to file paths
-      const resolvedPath = resolvePythonImport(imp.source, file.path, projectRoot);
+      // Python: resolve module paths to file paths. Specifier names are
+      // passed through for the bare-dot `from . import <name>` form, where
+      // `<name>` might name a submodule file rather than a symbol in the
+      // package's own __init__.py (see resolvePythonImport's specifierNames
+      // param).
+      const resolvedPath = resolvePythonImport(
+        imp.source,
+        file.path,
+        projectRoot,
+        imp.specifiers.map((s) => s.name),
+      );
       if (resolvedPath) {
+        // Backfill onto the ImportEntity itself (not just the edge), so the
+        // generic call-extraction dispatch below can resolve a cross-file
+        // callee through this same import via CallExtractionContext, the
+        // same way the TS extractor's imports already carry resolvedPath by
+        // the time calls are extracted.
+        imp.resolvedPath = resolvedPath;
         importsEdges.push({
           fromFilePath: file.path,
           toFilePath: resolvedPath,
@@ -714,8 +733,18 @@ export function buildParsedFileEntities(
         return edge;
       });
     } else if (plugin?.extractors.extractCalls) {
-      // All other languages: use registry-dispatched extractCalls
-      const refs = plugin.extractors.extractCalls(rootNode as unknown as GenericSyntaxNode, file.path);
+      // All other languages: use registry-dispatched extractCalls.
+      // extracted.imports is passed as context so a plugin whose imports
+      // carry a resolvedPath (Python, now that resolvePythonImport backfills
+      // it above, and any tier-2 config language whose own extractImports
+      // resolves real file paths) can resolve a cross-file callee instead of
+      // dropping it. Imports are already fully extracted by this point
+      // (extractEntitiesForFile ran before buildParsedFileEntities, and the
+      // Python resolvedPath backfill above happens earlier in this same
+      // function), so the ordering is safe.
+      const refs = plugin.extractors.extractCalls(rootNode as unknown as GenericSyntaxNode, file.path, {
+        imports: extracted.imports,
+      });
       callEdges = buildCallEdgesFromRefs(refs);
     }
   }

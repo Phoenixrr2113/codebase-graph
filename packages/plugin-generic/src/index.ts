@@ -27,6 +27,7 @@ import type {
   ImportEntity,
   TypeEntity,
   CallReference,
+  CallExtractionContext,
   InheritanceReference,
   ExtractedEntities,
   LanguagePlugin,
@@ -964,20 +965,86 @@ function stripQuotes(text: string): string {
   return text;
 }
 
+/** What a locally-bound imported name resolves to: the file that declares
+ *  it, and the name it is actually declared under THERE (which may differ
+ *  from the local alias a consumer imported it as). */
+interface ImportedSymbolTarget {
+  resolvedPath: string | undefined;
+  /** The name as declared at the target file, e.g. `fn` for
+   *  `from .mod import fn as f` (not `f`, the call-site's local alias). */
+  declaredName: string;
+}
+
+/**
+ * Build two import maps from a file's imports, mirroring the TS calls
+ * extractor's buildImportMaps (packages/plugin-typescript/src/extractors/
+ * calls.ts), plus the DECLARED name at the target so a renamed import
+ * resolves to the name the target file actually uses, not the local alias:
+ * - `symbols`: any locally-bound import name (named specifier, its alias, a
+ *   default alias, or a namespace alias) -> `{ resolvedPath, declaredName }`.
+ *   For a plain (non-aliased) specifier, declaredName equals the local name.
+ *   For `from .mod import fn as f`, the map key is `f` (what call sites
+ *   write) but declaredName is `fn` (what mod.py actually calls it) --
+ *   without this, a callee id built from the local alias names a Function
+ *   node that does not exist at the target file, and the graph's
+ *   {name, filePath} MATCH (packages/graph/src/operations.ts
+ *   CREATE_CALLS_EDGE) silently finds nothing. `resolvedPath` is undefined
+ *   for an import the language's own extractImports never resolved to a
+ *   real file, which is the common case today for most generic-factory
+ *   languages; those names simply never produce a cross-file callee below.
+ * - `namespaces`: only namespace aliases -> resolvedPath. Used to resolve an
+ *   attribute/member call whose LHS is a whole-module import (Python's
+ *   `import module` followed by `module.fn()`), separately from a plain
+ *   identifier call. No declared-name rewrite is needed here: the attribute
+ *   name at the call site (`fn` in `module.fn()`) is read directly off the
+ *   target's own name, unaffected by any alias on the MODULE itself.
+ */
+function buildImportedNameMap(imports: ImportEntity[]): {
+  symbols: Map<string, ImportedSymbolTarget>;
+  namespaces: Map<string, string | undefined>;
+} {
+  const symbols = new Map<string, ImportedSymbolTarget>();
+  const namespaces = new Map<string, string | undefined>();
+  for (const imp of imports) {
+    if (imp.isDefault && imp.defaultAlias) {
+      symbols.set(imp.defaultAlias, { resolvedPath: imp.resolvedPath, declaredName: imp.defaultAlias });
+    }
+    if (imp.isNamespace && imp.namespaceAlias) {
+      symbols.set(imp.namespaceAlias, { resolvedPath: imp.resolvedPath, declaredName: imp.namespaceAlias });
+      namespaces.set(imp.namespaceAlias, imp.resolvedPath);
+    }
+    for (const spec of imp.specifiers) {
+      const localName = spec.alias ?? spec.name;
+      symbols.set(localName, { resolvedPath: imp.resolvedPath, declaredName: spec.name });
+    }
+  }
+  return { symbols, namespaces };
+}
+
 /**
  * Generic call extraction.
+ *
+ * `context.imports`, when supplied, lets a call to a name imported from
+ * another file resolve to that file (`calleeFilePath`), instead of being
+ * silently dropped the moment it isn't also a local function. Same-file
+ * resolution (a call to a function defined in THIS file) is checked first
+ * and always wins, unconditionally of context. A name that is neither local
+ * nor a known, resolved import stays dropped, exactly as before: this
+ * extractor never guesses.
  */
 function genericExtractCalls(
   root: SyntaxNode,
   filePath: string,
   config: GenericLanguageConfig,
   functions: FunctionEntity[],
+  context?: CallExtractionContext,
 ): CallReference[] {
   if (!config.nodeTypes.calls || config.nodeTypes.calls.length === 0) return [];
 
   const calls: CallReference[] = [];
   const builtins = config.overrides?.builtinFunctions ?? new Set<string>();
   const localFunctionNames = new Set(functions.map((f) => f.name));
+  const { symbols: importedSymbols, namespaces: importedNamespaces } = buildImportedNameMap(context?.imports ?? []);
 
   const funcNodes = findNodesOfType(root, config.nodeTypes.functions);
 
@@ -997,6 +1064,7 @@ function genericExtractCalls(
       if (!funcExpr) continue;
 
       let calleeName: string | undefined;
+      let namespaceLhs: string | undefined;
 
       if (funcExpr.type === 'identifier' || funcExpr.type === 'simple_identifier') {
         calleeName = funcExpr.text;
@@ -1006,17 +1074,45 @@ function genericExtractCalls(
           ?? funcExpr.childForFieldName('property')
           ?? funcExpr.childForFieldName('name');
         if (attr) calleeName = attr.text;
+
+        // Module-qualified call (`module.fn()`): capture the receiver so it
+        // can be resolved through a namespace import below, if the plain
+        // callee name itself isn't a local function or a direct import.
+        const object = funcExpr.childForFieldName('object')
+          ?? funcExpr.childForFieldName('value');
+        if (object && (object.type === 'identifier' || object.type === 'simple_identifier')) {
+          namespaceLhs = object.text;
+        }
       }
 
       if (!calleeName || builtins.has(calleeName)) continue;
 
+      const line = callNode.startPosition.row + 1;
+
       if (localFunctionNames.has(calleeName)) {
+        calls.push({ callerName, calleeName, line, filePath });
+        continue;
+      }
+
+      const importedCallee = importedSymbols.get(calleeName);
+      if (importedCallee?.resolvedPath) {
+        // calleeName is rewritten to the DECLARED name at the target file
+        // here (not the call-site's local alias): see buildImportedNameMap.
         calls.push({
           callerName,
-          calleeName,
-          line: callNode.startPosition.row + 1,
+          calleeName: importedCallee.declaredName,
+          line,
           filePath,
+          calleeFilePath: importedCallee.resolvedPath,
         });
+        continue;
+      }
+
+      if (namespaceLhs) {
+        const namespacePath = importedNamespaces.get(namespaceLhs);
+        if (namespacePath) {
+          calls.push({ callerName, calleeName, line, filePath, calleeFilePath: namespacePath });
+        }
       }
     }
   }
@@ -1121,9 +1217,9 @@ export function createLanguagePlugin(config: GenericLanguageConfig): LanguagePlu
 
   const extractCalls = config.overrides?.extractCalls
     ?? (config.nodeTypes.calls && config.nodeTypes.calls.length > 0
-      ? (root: SyntaxNode, filePath: string) => {
+      ? (root: SyntaxNode, filePath: string, context?: CallExtractionContext) => {
           const fns = extractFunctions(root, filePath);
-          return genericExtractCalls(root, filePath, config, fns);
+          return genericExtractCalls(root, filePath, config, fns, context);
         }
       : undefined);
 
