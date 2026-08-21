@@ -395,7 +395,10 @@ class GraphQueriesImpl implements GraphQueries {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
     const nodeIds = new Set<string>();
-    const normalizedRootPath = rootPath ? rootPath.replace(/\/+$/, '') : undefined;
+    let normalizedRootPath = rootPath || undefined;
+    while (normalizedRootPath && normalizedRootPath.endsWith('/')) {
+      normalizedRootPath = normalizedRootPath.slice(0, -1) || undefined;
+    }
     const rootPathPrefix = normalizedRootPath ? `${normalizedRootPath}/` : undefined;
 
     // Get nodes
