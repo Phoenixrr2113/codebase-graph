@@ -51,6 +51,41 @@ export {
   type SymbolReferencesResult,
 } from './queries';
 
+// Read-only analysis queries
+export {
+  createAnalysisQueries,
+  AnalysisQueryInputError,
+  type AnalysisQueries,
+  type AnalysisSymbol,
+  type BlastRadiusInput,
+  type NormalizedBlastRadiusInput,
+  type BlastRadiusItem,
+  type BlastRadiusResult,
+  type ImportCyclesInput,
+  type NormalizedImportCyclesInput,
+  type ImportCycle,
+  type ImportCyclesResult,
+  type CallHierarchyDirection,
+  type CallHierarchyInput,
+  type NormalizedCallHierarchyInput,
+  type CallHierarchyItem,
+  type CallHierarchyResult,
+  type UnreferencedExportsInput,
+  type NormalizedUnreferencedExportsInput,
+  type UnreferencedExportItem,
+  type UnreferencedExportsResult,
+  type HistoryCoverage,
+  type HotspotScore,
+  type HotspotsInput,
+  type NormalizedHotspotsInput,
+  type HotspotItem,
+  type HotspotsResult,
+  type ChangeCouplingInput,
+  type NormalizedChangeCouplingInput,
+  type ChangeCouplingItem,
+  type ChangeCouplingResult,
+} from './analysis-queries';
+
 // Knowledge graph exports (NLC merger)
 export {
   createKnowledgeOperations,

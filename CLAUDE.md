@@ -1,6 +1,6 @@
 # CodeGraph — AI Assistant Skill Document
 
-CodeGraph indexes codebases into a graph database (FalkorDB) and provides MCP tools for code search, context retrieval, knowledge management, and raw graph queries.
+CodeGraph indexes codebases into a graph database (FalkorDB) and provides MCP tools for code search, context retrieval, repository analysis, knowledge management, and raw graph queries.
 
 ## Quick Start
 
@@ -15,7 +15,7 @@ codebase({ action: "configure", projectAction: "set", projects: ["/path/to/proje
 codebase({ action: "reindex", mode: "full" })
 ```
 
-## Tool Reference (4 tool groups, 17 actions)
+## Tool Reference (5 tool groups, 24 actions)
 
 ### 1. `search` — Find code and knowledge
 
@@ -90,12 +90,38 @@ knowledge({ action: "resolve_entities" })
 | `stats` | Graph node/edge counts | (none) |
 | `source` | Read source code | `path` |
 | `ping` | Test connectivity | (none) |
+| `profile` | Get a fast static and dynamic project snapshot | (none) |
 
-### 4. `query` — Raw Cypher (power users)
+### 4. `analyze`: Bounded repository analysis
+
+Use purpose-built static and history analysis instead of hand-writing Cypher.
+
+| Action | Use When | Required Params |
+|--------|----------|-----------------|
+| `impact` | Need the static blast radius of a persisted symbol | `id` |
+| `import_cycles` | Need canonical import cycles within a project | `projectPath` |
+| `call_hierarchy` | Need direct callers, callees, or both | `id` |
+| `dead_code` | Need unreferenced export candidates | `projectPath` |
+| `hotspots` | Need frequently changed files ranked by current complexity or degree | `projectPath` |
+| `change_coupling` | Need file pairs that change together | `projectPath` |
+
+**Examples:**
+```
+analyze({ action: "impact", id: "sym:v1:<64 lowercase hex characters>", depth: 3, limit: 100 })
+analyze({ action: "import_cycles", projectPath: "/path/to/project", maxDepth: 25, limit: 100 })
+analyze({ action: "call_hierarchy", id: "sym:v1:<64 lowercase hex characters>", direction: "both", limit: 100 })
+analyze({ action: "dead_code", projectPath: "/path/to/project", limit: 100 })
+analyze({ action: "hotspots", projectPath: "/path/to/project", since: "2026-01-01", scoreBy: "complexity", limit: 100 })
+analyze({ action: "change_coupling", projectPath: "/path/to/project", since: "2026-01-01", minSupport: 2, limit: 100 })
+```
+
+Every result carries display-ready caveat strings and truncation metadata from the analysis layer. Hotspots and change coupling also report `historyCoverage`, including the observed commit count and date range. Impact, call hierarchy, import cycles, and unreferenced exports are static evidence, not proof of runtime behavior. Dead-code results are candidates and must never drive automated deletion. Git-backed results cover indexed history only.
+
+### 5. `query`: Raw Cypher (power users)
 
 Execute read-only Cypher against the code graph.
 
-**Schema:** Nodes: File, Function, Class, Interface, Variable, Type, Component, Entity. Edges: CONTAINS, CALLS, IMPORTS, IMPORTS_SYMBOL, EXTENDS, IMPLEMENTS, EXPORTS, PARENT_SECTION, ABOUT, RELATES_TO. SAID is not a separate edge label: it's a RELATES_TO edge with a `type` property set to "SAID" (deliberate design, same as every other relationship kind RELATES_TO carries via its `type` property).
+**Schema:** Nodes: File, Function, Class, Interface, Variable, Type, Component, TypeRef, Entity, Project, Commit, Metadata, MarkdownDocument, Section, CodeBlock, Link. Edges: CONTAINS, IMPORTS, IMPORTS_SYMBOL, CALLS, EXTENDS, IMPLEMENTS, USES_TYPE, RETURNS, HAS_PARAM, HAS_METHOD, HAS_PROPERTY, RENDERS, INTRODUCED_IN, MODIFIED_IN, DELETED_IN, EXPORTS, PARENT_SECTION, ABOUT, RELATES_TO. SAID is not a separate edge label: it is a RELATES_TO edge with a `type` property set to "SAID", like every other relationship kind carried by RELATES_TO.
 
 ```
 query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f.filePath LIMIT 20", params: { name: "parse" } })
@@ -117,6 +143,18 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 1. `search({ action: "find", query: "retry logic", searchScope: "all" })` — search both code and knowledge
 2. Results include both code symbols and knowledge entities, ranked by RRF fusion
 
+### Analyze Change Risk
+1. `analyze({ action: "impact", id: "<persisted-symbol-id>" })`: inspect the bounded static blast radius
+2. `analyze({ action: "call_hierarchy", id: "<persisted-symbol-id>", direction: "both" })`: inspect direct callers and callees
+3. Read every returned caveat and truncation field before drawing a conclusion
+
+### Analyze Repository Health
+1. `analyze({ action: "import_cycles", projectPath: "<absolute-project-path>" })`: find canonical cycles
+2. `analyze({ action: "dead_code", projectPath: "<absolute-project-path>" })`: review unreferenced export candidates
+3. `analyze({ action: "hotspots", projectPath: "<absolute-project-path>" })`: rank frequently changed files
+4. `analyze({ action: "change_coupling", projectPath: "<absolute-project-path>" })`: find correlated file changes
+5. Treat historyCoverage as the observed indexed window, not all-time repository history
+
 ### Ingest Documents
 1. `knowledge({ action: "add", input: "/path/to/spec.pdf" })` — auto-detects format, chunks, extracts entities
 2. Supported: PDF, DOCX, HTML, CSV, URLs, raw text
@@ -134,14 +172,14 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 
 - **Don't** pass raw user input to `query` — use parameterized queries with `params`
 - **Don't** fetch everything — always use `limit` and `scope` to constrain results
-- **Don't** use `query` for things `search` can do — `search` has better defaults
+- **Don't** use `query` for things `search` or `analyze` can do. The purpose-built tools have safer bounds and clearer caveats.
 - **Don't** call `codebase({ action: "reindex" })` repeatedly — use `mode: "incremental"` (the default)
 
 ## Environment
 
 - **Graph DB**: FalkorDB (Docker)
 - **Search**: Vector embeddings (local/Voyage/OpenRouter) + cross-encoder reranking (Voyage rerank-2) — MRR 0.938, S@1 88%, S@5 100%, ~440ms latency (post-purity baseline, 2026-05-10)
-- **Dashboard**: `http://localhost:3000/dashboard` (Graph Explorer + Operations tabs)
+- **Dashboard**: `http://localhost:3000/dashboard` (Graph Explorer + Analysis + Operations tabs)
 - **API**: `http://localhost:3001` (REST endpoints for dashboard)
 - **Build**: `pnpm turbo build` (monorepo with Turbo)
 - **Test**: `pnpm turbo test`

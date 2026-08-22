@@ -1,7 +1,7 @@
 /**
  * Consolidated MCP Tool Tests
  *
- * Tests the 4 public persona tools against an isolated indexed fixture.
+ * Tests the 5 public persona tools against an isolated indexed fixture.
  */
 
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
@@ -12,10 +12,29 @@ import { handleToolCall } from '../tools/router';
 import { setActiveProjects } from '@codegraph/core';
 import { triggerReindex } from '../tools/reindex';
 import { teardownGraphClient, assertNoError } from './helpers';
+import { personaToolDefinitions } from '../personas';
 
 let fixtureDirectory: string;
 let fixtureFile: string;
 let previousEmbeddingProvider: string | undefined;
+
+describe('public persona tools', () => {
+  it('registers exactly the five canonical persona names', () => {
+    expect(personaToolDefinitions.map((tool) => tool.name)).toEqual([
+      'search',
+      'knowledge',
+      'codebase',
+      'query',
+      'analyze',
+    ]);
+
+    const actionCount = personaToolDefinitions.reduce((total, tool) => {
+      const actionSchema = tool.inputSchema.properties.action as { enum?: unknown[] } | undefined;
+      return total + (actionSchema?.enum?.length ?? 1);
+    }, 0);
+    expect(actionCount).toBe(24);
+  });
+});
 
 beforeAll(async () => {
   previousEmbeddingProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
@@ -196,6 +215,33 @@ describe('query', () => {
 
     // Should return error, not throw
     expect(result.error || result.success === false).toBeTruthy();
+  });
+});
+
+describe('analyze', () => {
+  it('runs impact through the real service against the indexed fixture', async () => {
+    const lookup = (await handleToolCall('query', {
+      cypher: 'MATCH (f:Function {name: $name}) RETURN f.id AS id LIMIT 1',
+      params: { name: 'buildWidget' },
+    })) as Record<string, unknown>;
+    assertNoError(lookup, 'lookup persisted fixture symbol id');
+    const rows = lookup.data as Array<{ id: string }>;
+    const id = rows[0]?.id;
+    expect(id).toMatch(/^sym:v1:[a-f0-9]{64}$/);
+
+    const result = (await handleToolCall('analyze', {
+      action: 'impact',
+      id,
+      depth: 2,
+      limit: 10,
+    })) as Record<string, unknown>;
+
+    assertNoError(result, 'analyze impact');
+    expect(result.status).toBe('ok');
+    expect(result.target).toMatchObject({ id, name: 'buildWidget' });
+    expect(result.truncated).toBe(false);
+    expect(result.caveats).toEqual(expect.arrayContaining([expect.any(String)]));
+    expect(result._meta).toMatchObject({ action: 'impact', toolUsed: 'getBlastRadius' });
   });
 });
 

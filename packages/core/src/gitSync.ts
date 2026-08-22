@@ -22,6 +22,10 @@ export interface GitSyncResult {
   commitsProcessed: number;
   edgesCreated: number;
   lastCommitHash: string | null;
+  totalCommits: number | null;
+  historyWindowSize: number;
+  historyTruncated: boolean;
+  historyComplete: boolean;
   durationMs: number;
   errors: string[];
 }
@@ -167,6 +171,10 @@ export async function syncGitHistory(
         commitsProcessed: 0,
         edgesCreated: 0,
         lastCommitHash: null,
+        totalCommits: null,
+        historyWindowSize: maxCommits,
+        historyTruncated: false,
+        historyComplete: false,
         durationMs: Date.now() - startTime,
         errors: [`${repoPath} is not a git repository`],
       };
@@ -182,6 +190,7 @@ export async function syncGitHistory(
     // nodes, instead of naively joining repoPath with git's relative path.
     const repoRoot = (await git.revparse(['--show-toplevel'])).trim();
     const indexedRoot = resolve(repoPath);
+    const totalCommits = Number.parseInt((await git.raw(['rev-list', '--count', 'HEAD'])).trim(), 10);
 
     // `git rev-parse --show-toplevel` resolves symlinks. On macOS,
     // os.tmpdir() lives under /var/folders, itself a symlink to
@@ -208,6 +217,15 @@ export async function syncGitHistory(
     if (!fromCommit) {
       fromCommit = await getMetadata(client, `lastCommitSynced:${repoPath}`);
     }
+    const previousHistoryComplete = fromCommit
+      ? await getMetadata(client, `historyComplete:${repoPath}`)
+      : undefined;
+    const previousHistoryTruncated = fromCommit
+      ? await getMetadata(client, `historyTruncated:${repoPath}`)
+      : undefined;
+    const commitsAvailable = fromCommit
+      ? Number.parseInt((await git.raw(['rev-list', '--count', `${fromCommit}..HEAD`])).trim(), 10)
+      : totalCommits;
 
     // Build git log options
     const logOptions: Parameters<SimpleGit['log']>[0] = {
@@ -228,6 +246,10 @@ export async function syncGitHistory(
         commitsProcessed: 0,
         edgesCreated: 0,
         lastCommitHash: fromCommit ?? null,
+        totalCommits,
+        historyWindowSize: maxCommits,
+        historyTruncated: previousHistoryTruncated === 'true',
+        historyComplete: fromCommit ? previousHistoryComplete === 'true' : commitsAvailable === 0,
         durationMs: Date.now() - startTime,
         errors: [],
       };
@@ -354,6 +376,13 @@ export async function syncGitHistory(
     if (newestCommitHash) {
       await setMetadata(client, `lastCommitSynced:${repoPath}`, newestCommitHash);
     }
+    const coveredAvailableCommits = commitsProcessed === commitsAvailable && errors.length === 0;
+    const historyTruncated = previousHistoryTruncated === 'true' || commitsAvailable > maxCommits;
+    const historyComplete = fromCommit
+      ? previousHistoryComplete === 'true' && coveredAvailableCommits
+      : coveredAvailableCommits;
+    await setMetadata(client, `historyComplete:${repoPath}`, String(historyComplete));
+    await setMetadata(client, `historyTruncated:${repoPath}`, String(historyTruncated));
 
     logger.info(`Git sync complete: ${commitsProcessed} commits, ${edgesCreated} edges`);
 
@@ -361,6 +390,10 @@ export async function syncGitHistory(
       commitsProcessed,
       edgesCreated,
       lastCommitHash: newestCommitHash,
+      totalCommits,
+      historyWindowSize: maxCommits,
+      historyTruncated,
+      historyComplete,
       durationMs: Date.now() - startTime,
       errors,
     };
@@ -372,6 +405,10 @@ export async function syncGitHistory(
       commitsProcessed: 0,
       edgesCreated: 0,
       lastCommitHash: null,
+      totalCommits: null,
+      historyWindowSize: options.maxCommits ?? 100,
+      historyTruncated: false,
+      historyComplete: false,
       durationMs: Date.now() - startTime,
       errors: [errorMsg],
     };

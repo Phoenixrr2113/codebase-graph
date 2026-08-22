@@ -6,11 +6,14 @@ import { ParseProjectDialog } from '@/components/dashboard/parse-project-dialog'
 import { EmbeddingBadge } from '@/components/dashboard/embedding-badge'
 import { ProjectSelector } from '@/components/dashboard/project-selector'
 import { API_URL } from '@/lib/api'
+import { AnalysisTab } from '@/components/dashboard/analysis-tab'
+import type { GraphNode } from '@/components/dashboard/graph-canvas'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('explorer')
   const [project, setProject] = useState<{ id: string; name: string } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [analysisSelection, setAnalysisSelection] = useState<GraphNode | null>(null)
 
   const handleProjectParsed = useCallback(() => {
     setRefreshKey(k => k + 1)
@@ -18,6 +21,7 @@ export default function App() {
 
   const handleProjectChange = useCallback((project: { id: string; name: string } | null) => {
     setProject(project)
+    setAnalysisSelection(null)
   }, [])
 
   return (
@@ -34,6 +38,7 @@ export default function App() {
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList>
               <TabsTrigger value="explorer">Graph Explorer</TabsTrigger>
+              <TabsTrigger value="analysis">Analysis</TabsTrigger>
               <TabsTrigger value="operations">Operations</TabsTrigger>
             </TabsList>
           </Tabs>
@@ -46,6 +51,16 @@ export default function App() {
             key={`${project?.id ?? 'all'}-${refreshKey}`}
             projectId={project?.id ?? null}
             projectName={project?.name ?? 'All projects'}
+            externalSelection={analysisSelection}
+          />
+        )}
+        {activeTab === 'analysis' && (
+          <AnalysisTab
+            projectId={project?.id ?? null}
+            onSelect={(node) => {
+              setAnalysisSelection(node)
+              setActiveTab('explorer')
+            }}
           />
         )}
         {activeTab === 'operations' && <OperationsTab />}

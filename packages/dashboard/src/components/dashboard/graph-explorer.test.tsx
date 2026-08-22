@@ -9,6 +9,7 @@ import {
 } from './graph-canvas'
 import { GraphControls } from './graph-controls'
 import { GraphLegend, buildNodeLegend } from './graph-legend'
+import App from '@/App'
 
 const selectedNode: GraphNode = {
   id: 'sym:v1:4444444444444444444444444444444444444444444444444444444444444444',
@@ -57,6 +58,15 @@ describe('externally selected canvas nodes', () => {
 })
 
 describe('graph explorer accessibility', () => {
+  it('renders Analysis as a labelled top-level tab beside existing surfaces', () => {
+    const html = renderToStaticMarkup(<App />)
+
+    expect(html).toContain('role="tablist"')
+    expect(html).toContain('Graph Explorer')
+    expect(html).toContain('Analysis')
+    expect(html).toContain('Operations')
+  })
+
   it('names the Cytoscape region and exposes a keyboard node-selection list', () => {
     const html = renderToStaticMarkup(
       <GraphCanvas

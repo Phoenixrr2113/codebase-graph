@@ -593,6 +593,10 @@ const CYPHER = {
         p.createdAt = $createdAt,
         p.lastParsed = $lastParsed,
         p.fileCount = $fileCount,
+        p.gitHistoryTotalCommits = $gitHistoryTotalCommits,
+        p.gitHistoryWindowSize = $gitHistoryWindowSize,
+        p.gitHistoryTruncated = $gitHistoryTruncated,
+        p.gitHistoryComplete = $gitHistoryComplete,
         p.sourcePipeline = $sourcePipeline,
         p.sourceTask = $sourceTask,
         p.processedAt = $processedAt
@@ -2547,6 +2551,10 @@ class GraphOperationsImpl implements GraphOperations {
         createdAt: project.createdAt,
         lastParsed: project.lastParsed,
         fileCount: project.fileCount ?? 0,
+        gitHistoryTotalCommits: project.gitHistoryTotalCommits ?? null,
+        gitHistoryWindowSize: project.gitHistoryWindowSize ?? null,
+        gitHistoryTruncated: project.gitHistoryTruncated ?? null,
+        gitHistoryComplete: project.gitHistoryComplete ?? null,
         sourcePipeline: project.sourcePipeline ?? null,
         sourceTask: project.sourceTask ?? null,
         processedAt: project.processedAt ?? null,
@@ -2755,7 +2763,10 @@ class GraphOperationsImpl implements GraphOperations {
     }
 
     return result.data.map((row) => {
-      const id = row['id'];
+      const filePath = row['filePath'];
+      const id = nodeType === 'File' && typeof filePath === 'string' && filePath.length > 0
+        ? `File:${filePath}`
+        : row['id'];
       if (typeof id !== 'string' || id.length === 0) {
         throw new Error(`Vector search returned ${nodeType} row without a valid persisted id`);
       }
@@ -2787,6 +2798,22 @@ class GraphOperationsImpl implements GraphOperations {
     };
     if (fileCount !== undefined) {
       entity.fileCount = fileCount;
+    }
+    const gitHistoryTotalCommits = properties['gitHistoryTotalCommits'];
+    if (typeof gitHistoryTotalCommits === 'number') {
+      entity.gitHistoryTotalCommits = gitHistoryTotalCommits;
+    }
+    const gitHistoryWindowSize = properties['gitHistoryWindowSize'];
+    if (typeof gitHistoryWindowSize === 'number') {
+      entity.gitHistoryWindowSize = gitHistoryWindowSize;
+    }
+    const gitHistoryComplete = properties['gitHistoryComplete'];
+    const gitHistoryTruncated = properties['gitHistoryTruncated'];
+    if (typeof gitHistoryTruncated === 'boolean') {
+      entity.gitHistoryTruncated = gitHistoryTruncated;
+    }
+    if (typeof gitHistoryComplete === 'boolean') {
+      entity.gitHistoryComplete = gitHistoryComplete;
     }
     return entity;
   }

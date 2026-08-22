@@ -19,6 +19,24 @@ function clientReturning(rows: Array<Record<string, unknown>>): GraphClient {
 }
 
 describe('searchByVector row identity mapping', () => {
+  it('derives the canonical File id from filePath when the row has no persisted id', async () => {
+    const client = clientReturning([{
+      name: 'widget.ts',
+      filePath: '/project/widget.ts',
+      score: 0.01,
+    }]);
+
+    const results = await createOperations(client).searchByVector('File', [0.1, 0.2], 5);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      id: 'File:/project/widget.ts',
+      name: 'widget.ts',
+      nodeType: 'File',
+      filePath: '/project/widget.ts',
+    });
+  });
+
   it('projects and maps the persisted id returned by FalkorDB', async () => {
     const id = `sym:v1:${'a'.repeat(64)}`;
     const client = clientReturning([{

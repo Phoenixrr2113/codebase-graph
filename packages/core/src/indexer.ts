@@ -900,6 +900,12 @@ export async function indexProject(
       });
       commitsProcessed = gitResult.commitsProcessed;
       gitEdges = gitResult.edgesCreated;
+      if (gitResult.totalCommits !== null) {
+        project.gitHistoryTotalCommits = gitResult.totalCommits;
+      }
+      project.gitHistoryWindowSize = gitResult.historyWindowSize;
+      project.gitHistoryTruncated = gitResult.historyTruncated;
+      project.gitHistoryComplete = gitResult.historyComplete;
       if (commitsProcessed > 0) {
         logger.info(`Git sync: ${commitsProcessed} commits, ${gitEdges} edges in ${gitResult.durationMs}ms`);
       }

@@ -23,6 +23,7 @@ import { statsRoutes } from './routes/stats';
 import { naturalRoutes } from './routes/natural';
 import { sourceRoutes } from './routes/source';
 import { profileRoutes } from './routes/profile';
+import { analysisRoutes } from './routes/analysis';
 
 // Load .env before any route module reads configuration from process.env.
 const loadedEnvFile = loadEnvironment();
@@ -66,6 +67,7 @@ app.route('/', statsRoutes);
 app.route('/', naturalRoutes);
 app.route('/', sourceRoutes);
 app.route('/', profileRoutes);
+app.route('/', analysisRoutes);
 
 // Serve the built dashboard, when one is present, from the same origin as the
 // API. Same origin means the browser never needs a CORS allowance for it.

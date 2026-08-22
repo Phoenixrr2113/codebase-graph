@@ -175,6 +175,39 @@ export type {
 // Re-export graph traversal types from @codegraph/graph
 export type { FileTreeOptions } from '@codegraph/graph';
 
+// Re-export read-only analysis contracts for API and MCP consumers
+export { AnalysisQueryInputError } from '@codegraph/graph';
+export type {
+  AnalysisSymbol,
+  BlastRadiusInput,
+  NormalizedBlastRadiusInput,
+  BlastRadiusItem,
+  BlastRadiusResult,
+  ImportCyclesInput,
+  NormalizedImportCyclesInput,
+  ImportCycle,
+  ImportCyclesResult,
+  CallHierarchyDirection,
+  CallHierarchyInput,
+  NormalizedCallHierarchyInput,
+  CallHierarchyItem,
+  CallHierarchyResult,
+  UnreferencedExportsInput,
+  NormalizedUnreferencedExportsInput,
+  UnreferencedExportItem,
+  UnreferencedExportsResult,
+  HistoryCoverage,
+  HotspotScore,
+  HotspotsInput,
+  NormalizedHotspotsInput,
+  HotspotItem,
+  HotspotsResult,
+  ChangeCouplingInput,
+  NormalizedChangeCouplingInput,
+  ChangeCouplingItem,
+  ChangeCouplingResult,
+} from '@codegraph/graph';
+
 // Re-export entity types from @codegraph/types
 export type {
   FileEntity,
