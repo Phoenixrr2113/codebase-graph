@@ -5,11 +5,18 @@ import { Badge } from '@/components/ui/badge'
 
 interface ParseProjectDialogProps {
   apiUrl: string
-  onProjectParsed?: () => void
+  onProjectParsed?: (project: ParsedProject) => void
+}
+
+export interface ParsedProject {
+  projectId: string
+  projectName: string
 }
 
 interface ParseResult {
   success: boolean
+  projectId?: string
+  projectName?: string
   stats?: {
     files: number
     entities: number
@@ -19,6 +26,37 @@ interface ParseResult {
   }
   errorMessages?: string[]
   error?: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function parseSuccessfulProject(value: unknown): ParsedProject {
+  if (
+    !isRecord(value)
+    || value.success !== true
+    || typeof value.projectId !== 'string'
+    || typeof value.projectName !== 'string'
+  ) {
+    throw new Error('Invalid parse response')
+  }
+  return { projectId: value.projectId, projectName: value.projectName }
+}
+
+function parseStats(value: unknown): ParseResult['stats'] {
+  if (!isRecord(value)) return undefined
+  const fields = ['files', 'entities', 'edges', 'errors', 'durationMs'] as const
+  if (fields.some((field) => typeof value[field] !== 'number' || !Number.isFinite(value[field]))) {
+    return undefined
+  }
+  return {
+    files: value.files as number,
+    entities: value.entities as number,
+    edges: value.edges as number,
+    errors: value.errors as number,
+    durationMs: value.durationMs as number,
+  }
 }
 
 interface ParseProjectFormProps {
@@ -104,18 +142,27 @@ export function ParseProjectDialog({ apiUrl, onProjectParsed }: ParseProjectDial
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: trimmed }),
       })
-      const data = await res.json()
+      const data: unknown = await res.json()
 
       // A failed index can still arrive as a well-formed body, so the payload's
       // own verdict matters as much as the status code.
-      if (!res.ok || data.error || data.success === false) {
+      if (!res.ok || !isRecord(data) || data.error || data.success === false) {
         setResult({
           success: false,
-          error: data.error ?? data.errorMessages?.[0] ?? `HTTP ${res.status}`,
+          error: isRecord(data) && typeof data.error === 'string'
+            ? data.error
+            : isRecord(data) && Array.isArray(data.errorMessages) && typeof data.errorMessages[0] === 'string'
+              ? data.errorMessages[0]
+              : `HTTP ${res.status}`,
         })
       } else {
-        setResult({ success: true, stats: data.stats, errorMessages: data.errorMessages })
-        onProjectParsed?.()
+        const parsedProject = parseSuccessfulProject(data)
+        const stats = parseStats(data.stats)
+        const errorMessages = Array.isArray(data.errorMessages)
+          ? data.errorMessages.filter((message): message is string => typeof message === 'string')
+          : undefined
+        setResult({ success: true, ...parsedProject, stats, errorMessages })
+        onProjectParsed?.(parsedProject)
       }
     } catch (err) {
       setResult({ success: false, error: err instanceof Error ? err.message : 'Parse failed' })

@@ -41,7 +41,12 @@ import type { ProjectEntity, ExtractedDocumentEntities } from '@codegraph/types'
 import type { EmbeddingConfig } from '@codegraph/plugin-nlp';
 import { getGraphClient } from './graphClient';
 import { loadGitignorePatterns } from './watchService';
-import { embedParsedEntities, embedAllParsedEntities } from './embed-pass';
+import {
+  embedParsedEntities,
+  embedAllParsedEntities,
+  getEmbeddingPassState as getRemainingEmbeddingPassState,
+  scheduleEmbeddingPass as scheduleRemainingEmbeddingPass,
+} from './embed-pass';
 import { syncGitHistory } from './gitSync';
 import { createLogger } from '@codegraph/logger';
 import { stat, readFile } from 'node:fs/promises';
@@ -635,6 +640,7 @@ export async function indexProject(
     let totalFiles = 0;
     let totalErrors = 0;
     let totalEmbedded = 0;
+    let initialEmbeddingPromise: Promise<unknown> | undefined;
     const totalToProcess = filesToProcess.length;
 
     // Progress logging interval (every 10% or every 50 files, whichever is smaller)
@@ -866,7 +872,7 @@ export async function indexProject(
 
       if (options.deferEmbeddings) {
         // Fire-and-forget: graph structure is searchable immediately
-        embedAllParsedEntities(builtList, ops, embeddingConfig, savedEmbeddingHashes)
+        initialEmbeddingPromise = embedAllParsedEntities(builtList, ops, embeddingConfig, savedEmbeddingHashes)
           .then(result => {
             if (result.embedded > 0) {
               logger.info(`Background embedding complete: ${result.embedded} entities in ${result.durationMs.toFixed(0)}ms`);
@@ -921,6 +927,19 @@ export async function indexProject(
     project.fileCount = totalFiles + skippedCount;
     await ops.upsertProject(project);
 
+    if (embeddingsEnabled) {
+      const continuationOptions: Parameters<typeof scheduleRemainingEmbeddingPass>[0] = {
+        client: graphClient,
+        force: false,
+        projectId: project.id,
+        rootPath,
+      };
+      if (initialEmbeddingPromise) continuationOptions.after = initialEmbeddingPromise;
+      void scheduleRemainingEmbeddingPass(continuationOptions).catch((error: unknown) => {
+        logger.warn(`Post-index embedding continuation failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+
     const durationMs = Date.now() - startTime;
     const skipMsg = skippedCount > 0 ? `, ${skippedCount} skipped (unchanged)` : '';
     const embedMsg = totalEmbedded > 0 ? `, ${totalEmbedded} embedded` : '';
@@ -956,6 +975,12 @@ export async function indexProject(
       errorMessages,
     };
   }
+}
+
+/** Public embedding coordination used by the API without widening the core barrel. */
+export namespace indexProject {
+  export const scheduleEmbeddingPass = scheduleRemainingEmbeddingPass;
+  export const getEmbeddingPassState = getRemainingEmbeddingPassState;
 }
 
 // ============================================================================

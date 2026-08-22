@@ -1,8 +1,49 @@
 import { Hono } from 'hono';
-import { codeGraphService, knowledgeService, getGraphClient, embedAllNodes } from '@codegraph/core';
+import { codeGraphService, knowledgeService, getGraphClient, indexProject } from '@codegraph/core';
+import type { GraphClient } from '@codegraph/graph';
 import { safeErrorMessage } from '../safe-error';
 
 export const statsRoutes = new Hono();
+
+type EmbeddingScope =
+  | { type: 'global' }
+  | { type: 'project'; projectId: string; rootPath: string };
+
+interface EmbeddingPassState {
+  running: boolean;
+  scope: EmbeddingScope | null;
+  startedAt: string | null;
+}
+
+interface EmbeddingGenerateResult {
+  embedded: number;
+  skipped: number;
+  errors: number;
+  durationMs: number;
+  byType: Record<string, number>;
+}
+
+const embeddingCoordinator = indexProject as typeof indexProject & {
+  getEmbeddingPassState(projectId?: string): EmbeddingPassState;
+  scheduleEmbeddingPass(options: {
+    client: GraphClient;
+    force: boolean;
+    projectId?: string;
+    rootPath?: string;
+  }): Promise<EmbeddingGenerateResult>;
+};
+
+function normalizeProjectRoot(rootPath: string): string {
+  return rootPath.replace(/\/+$/, '') || '/';
+}
+
+async function resolveEmbeddingScope(projectId: string | undefined): Promise<EmbeddingScope | null> {
+  if (projectId === undefined) return { type: 'global' };
+  const rootPath = await codeGraphService.resolveProjectRootPath(projectId);
+  return rootPath === undefined
+    ? null
+    : { type: 'project', projectId, rootPath: normalizeProjectRoot(rootPath) };
+}
 
 /** GET /api/projects — list indexed projects */
 statsRoutes.get('/api/projects', async (c) => {
@@ -63,7 +104,20 @@ statsRoutes.get('/api/knowledge/stats', async (c) => {
 /** GET /api/embeddings/status — embedding coverage per label */
 statsRoutes.get('/api/embeddings/status', async (c) => {
   try {
+    const projectId = c.req.query('projectId') || undefined;
+    const scope = await resolveEmbeddingScope(projectId);
+    if (scope === null) return c.json({ error: 'Project not found.' }, 404);
+
     const client = await getGraphClient();
+    const projectFilter = scope.type === 'project'
+      ? 'AND (n.filePath = $projectPath OR n.filePath STARTS WITH $projectPathPrefix)'
+      : '';
+    const params = scope.type === 'project'
+      ? {
+          projectPath: scope.rootPath,
+          projectPathPrefix: scope.rootPath === '/' ? '/' : `${scope.rootPath}/`,
+        }
+      : {};
 
     // Get counts of nodes with and without embeddings per label
     const result = await client.roQuery<{
@@ -73,11 +127,13 @@ statsRoutes.get('/api/embeddings/status', async (c) => {
     }>(
       `MATCH (n)
        WHERE labels(n)[0] IS NOT NULL
+         ${projectFilter}
        WITH labels(n)[0] AS label, n
        RETURN label,
               count(n) AS total,
               sum(CASE WHEN n.embedding IS NOT NULL THEN 1 ELSE 0 END) AS withEmbedding
        ORDER BY total DESC`,
+      { params },
     );
 
     const labels = result.data.map((row) => ({
@@ -87,7 +143,11 @@ statsRoutes.get('/api/embeddings/status', async (c) => {
       coverage: row.total > 0 ? Math.round((row.withEmbedding / row.total) * 100) : 0,
     }));
 
-    return c.json({ labels });
+    return c.json({
+      scope,
+      embeddingPass: embeddingCoordinator.getEmbeddingPassState(projectId),
+      labels,
+    });
   } catch (error) {
     return c.json({ error: safeErrorMessage('GET /api/embeddings/status', error, 'Failed to fetch embedding status.') }, 500);
   }
@@ -97,11 +157,30 @@ statsRoutes.get('/api/embeddings/status', async (c) => {
 statsRoutes.post('/api/embeddings/generate', async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
-    const force = (body as Record<string, unknown>).force === true;
+    const values = body as Record<string, unknown>;
+    const rawProjectId = values.projectId;
+    if (
+      rawProjectId !== undefined &&
+      (typeof rawProjectId !== 'string' || rawProjectId.trim().length === 0)
+    ) {
+      return c.json({ error: 'projectId must be a non-empty string.' }, 400);
+    }
+    const projectId = typeof rawProjectId === 'string' ? rawProjectId : undefined;
+    const scope = await resolveEmbeddingScope(projectId);
+    if (scope === null) return c.json({ error: 'Project not found.' }, 404);
+    const force = values.force === true;
+    const client = await getGraphClient();
 
-    const result = await embedAllNodes({ force });
+    const result = await embeddingCoordinator.scheduleEmbeddingPass({
+      client,
+      force,
+      ...(scope.type === 'project'
+        ? { projectId: scope.projectId, rootPath: scope.rootPath }
+        : {}),
+    });
 
     return c.json({
+      scope,
       ...result,
       message: `Embedded ${result.embedded} nodes in ${(result.durationMs / 1000).toFixed(1)}s (${result.skipped} skipped, ${result.errors} errors)`,
     });
