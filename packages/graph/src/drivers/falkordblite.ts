@@ -15,14 +15,21 @@ import { statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import type { Graph } from 'falkordb';
+import { FalkorDB as FalkorDBClient, type Graph } from 'falkordb';
 import type { DatabaseDriver, DriverConfig, CypherDialect } from '../driver';
 import type { QueryParams } from '../client';
 import { falkorDialect } from './falkordb';
 import { executeQuery, executeRoQuery, ensureSchemaImpl } from './falkordb-shared';
+import {
+  acquireEmbeddedOwnership,
+  EMBEDDED_REDIS_PID_FILENAME,
+  type EmbeddedOwnership,
+} from './embedded-owner-lease';
 
 type FalkorDBLiteModule = typeof import('falkordblite');
 type FalkorDBLiteInstance = Awaited<ReturnType<FalkorDBLiteModule['FalkorDB']['open']>>;
+type FalkorDBAttachedInstance = Awaited<ReturnType<typeof FalkorDBClient.connect>>;
+type FalkorDBInstance = FalkorDBLiteInstance | FalkorDBAttachedInstance;
 
 const shutdownSignals = ['SIGINT', 'SIGTERM'] as const;
 const embeddedPlatformPackages: Readonly<Record<string, string>> = {
@@ -177,7 +184,10 @@ function removeShutdownHandlers(): void {
 async function closeOpenDrivers(): Promise<void> {
   const drivers = Array.from(openDrivers);
   removeShutdownHandlers();
-  await Promise.allSettled(drivers.map((driver) => driver.close()));
+  const attached = drivers.filter((driver) => !driver.isEmbeddedOwner());
+  const owners = drivers.filter((driver) => driver.isEmbeddedOwner());
+  await Promise.allSettled(attached.map((driver) => driver.close()));
+  await Promise.allSettled(owners.map((driver) => driver.close()));
 }
 
 /** Test seam: reports whether a shutdown handler is currently installed. */
@@ -242,8 +252,11 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
   /** Ensures the relocation notice is printed at most once per process. */
   static warnedAboutRelocation = false;
 
-  private db: FalkorDBLiteInstance | null = null;
+  private db: FalkorDBInstance | null = null;
   private graph: Graph | null = null;
+  private ownership: EmbeddedOwnership | null = null;
+  private closePromise: Promise<void> | null = null;
+  private attachedConnectionError: Error | null = null;
   readonly dialect: CypherDialect = falkorDialect;
 
   async connect(config: DriverConfig): Promise<void> {
@@ -263,19 +276,53 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
       );
     }
 
-    // The driver owns shutdown through close(). Keep the embedded wrapper from
-    // installing competing signal handlers that can stop Redis before its
-    // client disconnects.
     const binaryPaths = resolveEmbeddedBinaryPaths();
-    const signalListenersBeforeOpen = captureSignalListeners();
-    try {
-      this.db = await FalkorDBLite.open({
-        path: dataPath,
-        timeout: resolveStartupTimeout(dataPath),
-        ...(binaryPaths ?? {}),
+    const startupTimeout = resolveStartupTimeout(dataPath);
+    const ownership = await acquireEmbeddedOwnership(dataPath, startupTimeout);
+    this.ownership = ownership;
+
+    if (ownership.role === 'attached') {
+      const attachedClient = await FalkorDBClient.connect({
+        socket: { path: ownership.lease.socketPath },
       });
-    } finally {
-      removeAddedSignalListeners(signalListenersBeforeOpen);
+      attachedClient.on('error', (error: unknown) => {
+        this.attachedConnectionError = error instanceof Error ? error : new Error(String(error));
+      });
+      this.db = attachedClient;
+    } else {
+      // The owner owns shutdown through close(). Keep the embedded wrapper from
+      // installing competing signal handlers that can stop Redis before its
+      // client disconnects.
+      const signalListenersBeforeOpen = captureSignalListeners();
+      try {
+        const ownerDb = await FalkorDBLite.open({
+          path: dataPath,
+          timeout: startupTimeout,
+          additionalConfig: {
+            pidfile: join(dataPath, EMBEDDED_REDIS_PID_FILENAME),
+          },
+          ...(binaryPaths ?? {}),
+        });
+        this.db = ownerDb;
+        await ownership.publish(ownerDb.socketPath);
+      } catch (error) {
+        if (this.db) {
+          try {
+            await this.db.close();
+          } catch (cleanupError) {
+            throw new AggregateError(
+              [error, cleanupError],
+              `Embedded database startup failed and its server could not be stopped for "${dataPath}"`,
+            );
+          }
+        }
+        await ownership.release();
+        this.ownership = null;
+        this.db = null;
+        throw error;
+      } finally {
+        removeAddedSignalListeners(signalListenersBeforeOpen);
+      }
     }
 
     // We just took the wrapper's shutdown handlers away, so we owe the process
@@ -289,11 +336,17 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
   }
 
   async query<T>(cypher: string, params?: QueryParams, timeout?: number): Promise<{ data: T[]; metadata: string[] }> {
+    if (this.attachedConnectionError) {
+      throw new Error(`Embedded database owner disconnected: ${this.attachedConnectionError.message}`);
+    }
     if (!this.graph) throw new Error('FalkorDBLiteDriver: not connected');
     return executeQuery<T>(this.graph, cypher, params, timeout);
   }
 
   async roQuery<T>(cypher: string, params?: QueryParams, timeout?: number): Promise<{ data: T[]; metadata: string[] }> {
+    if (this.attachedConnectionError) {
+      throw new Error(`Embedded database owner disconnected: ${this.attachedConnectionError.message}`);
+    }
     if (!this.graph) throw new Error('FalkorDBLiteDriver: not connected');
     return executeRoQuery<T>(this.graph, cypher, params, timeout);
   }
@@ -304,15 +357,30 @@ export class FalkorDBLiteDriver implements DatabaseDriver {
   }
 
   async close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
     openDrivers.delete(this);
     if (openDrivers.size === 0) removeShutdownHandlers();
-    if (this.db) {
-      const db = this.db;
-      // Clear first so a concurrent signal-driven close cannot stop the server twice.
+    const db = this.db;
+    if (!db) return;
+    const ownership = this.ownership;
+    this.closePromise = (async (): Promise<void> => {
+      await db.close();
+      if (ownership?.role === 'owner') await ownership.release();
       this.db = null;
       this.graph = null;
-      await db.close();
+      this.ownership = null;
+      this.attachedConnectionError = null;
+    })();
+    try {
+      await this.closePromise;
+    } finally {
+      this.closePromise = null;
     }
+  }
+
+  /** Whether this process owns the embedded server and its final snapshot. */
+  isEmbeddedOwner(): boolean {
+    return this.ownership?.role === 'owner';
   }
 
   /** Expose the underlying FalkorDB Graph for backward compatibility */

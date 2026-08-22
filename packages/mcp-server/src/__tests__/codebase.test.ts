@@ -17,10 +17,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@codegraph/core', () => ({
   codeGraphService: { getGraphStats: vi.fn() },
   getGraphClient: vi.fn(),
+  getSetupStatus: vi.fn(),
   readSourceFile: vi.fn(),
 }));
 
-import { codeGraphService, getGraphClient } from '@codegraph/core';
+import { codeGraphService, getGraphClient, getSetupStatus } from '@codegraph/core';
 import { handleIndex } from '../personas/codebase';
 
 /**
@@ -44,6 +45,7 @@ const PHANTOM_FILE_PROPERTIES = ['f.path', 'f.language'];
 
 const mockGetGraphStats = vi.mocked(codeGraphService.getGraphStats);
 const mockGetGraphClient = vi.mocked(getGraphClient);
+const mockGetSetupStatus = vi.mocked(getSetupStatus);
 
 function makeRoQuery() {
   return vi.fn().mockImplementation(async (cypher: string) => {
@@ -129,6 +131,43 @@ describe('codebase persona: profile action', () => {
         expect(REAL_FILE_PROPERTIES).toContain(prop);
       }
     }
+  });
+});
+
+describe('codebase persona: empty status', () => {
+  it('reports setup required without leaking the empty graph error', async () => {
+    const setup = {
+      storage: {
+        driver: 'falkordblite',
+        dataPath: '/private/tmp/codegraph-mcp-empty',
+        ownerState: 'owned',
+        embeddedSupported: true,
+        externalGuidance: null,
+        error: null,
+      },
+      embedding: {
+        profile: { provider: 'local', model: 'nomic-ai/nomic-embed-text-v1.5', dimension: 768 },
+        keyPresent: false,
+        localModelCached: true,
+        modelLoad: { state: 'ready', model: 'nomic-ai/nomic-embed-text-v1.5', cached: true },
+        migration: null,
+      },
+      projects: { configured: false, count: 0 },
+      index: {
+        state: 'not-configured',
+        progress: null,
+        embeddingPass: { running: false, scope: null, startedAt: null },
+      },
+    } as const;
+    mockGetSetupStatus.mockResolvedValue(setup);
+    mockGetGraphStats.mockRejectedValue(new Error('ERR Invalid graph operation on empty key'));
+
+    const result = await handleIndex({ action: 'status' }) as Record<string, unknown>;
+
+    expect(result['setupRequired']).toBe(true);
+    expect(result['configured']).toBe(false);
+    expect(result['setup']).toEqual(setup);
+    expect(JSON.stringify(result)).not.toContain('Invalid graph operation');
   });
 });
 

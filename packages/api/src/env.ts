@@ -50,6 +50,20 @@ export function resolvePort(
 }
 
 /**
+ * Convert a server startup failure into one actionable line for the CLI.
+ */
+export function formatServerStartError(error: Error, port: number): string {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === 'EADDRINUSE') {
+    return `CodeGraph dashboard could not start on port ${port}: the port is already in use. Set API_PORT to another port and try again.`;
+  }
+  if (code === 'EACCES') {
+    return `CodeGraph dashboard could not start on port ${port}: permission was denied. Set API_PORT to another port and try again.`;
+  }
+  return `CodeGraph dashboard could not start on port ${port}: ${error.message}`;
+}
+
+/**
  * Load the nearest `.env` into `process.env` without overwriting values that
  * are already set, so explicit exports and container environments still win.
  *

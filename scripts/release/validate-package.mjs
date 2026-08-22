@@ -95,6 +95,7 @@ export async function validatePackageDirectory(directoryUrl) {
     'README.md',
     join('bin', 'codegraph-mcp.mjs'),
     join('server', 'index.mjs'),
+    join('server', 'esm-loader.js'),
   ]) {
     if (!paths.has(requiredPath)) {
       violations.push(`required file is missing: ${requiredPath}`);

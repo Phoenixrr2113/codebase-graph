@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { join, resolve } from 'node:path';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { findEnvFile, isAllowedOrigin, loadEnvironment, resolvePort } from '../env';
+import {
+  findEnvFile,
+  formatServerStartError,
+  isAllowedOrigin,
+  loadEnvironment,
+  resolvePort,
+} from '../env';
 
 describe('resolvePort', () => {
   it('defaults to 3001 when nothing is configured', () => {
@@ -33,6 +39,18 @@ describe('resolvePort', () => {
 
   it('skips an unusable API_PORT and uses PORT instead', () => {
     expect(resolvePort({ API_PORT: '', PORT: '5005' })).toBe(5005);
+  });
+});
+
+describe('formatServerStartError', () => {
+  it('gives an API_PORT remedy when the process cannot bind a privileged port', () => {
+    const error = Object.assign(new Error('listen EACCES: permission denied 0.0.0.0:80'), {
+      code: 'EACCES',
+    });
+
+    expect(formatServerStartError(error, 80)).toBe(
+      'CodeGraph dashboard could not start on port 80: permission was denied. Set API_PORT to another port and try again.',
+    );
   });
 });
 

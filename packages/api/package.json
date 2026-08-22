@@ -12,9 +12,10 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/prepare-dist-entry.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
+    "test:dist-boot": "node scripts/smoke-dist.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"

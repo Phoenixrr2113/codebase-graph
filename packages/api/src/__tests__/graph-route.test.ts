@@ -8,6 +8,14 @@ vi.mock('@codegraph/core', () => ({
     getDependencyTree: vi.fn(),
   },
   getGraphClient: vi.fn(),
+  getSetupStatus: Object.assign(vi.fn(), {
+    migrateEmbeddingProfile: vi.fn(),
+  }),
+  indexProject: Object.assign(vi.fn(), {
+    getEmbeddingPassState: vi.fn(),
+    scheduleEmbeddingPass: vi.fn(),
+  }),
+  knowledgeService: {},
 }));
 
 vi.mock('@codegraph/graph', () => ({
@@ -17,6 +25,7 @@ vi.mock('@codegraph/graph', () => ({
 import { codeGraphService, getGraphClient } from '@codegraph/core';
 import { createQueries } from '@codegraph/graph';
 import { graphRoutes } from '../routes/graph';
+import { statsRoutes } from '../routes/stats';
 
 const mockedFullGraph = vi.mocked(codeGraphService.getFullGraph);
 const mockedReferences = vi.mocked(codeGraphService.getSymbolReferences);
@@ -91,6 +100,18 @@ describe('graph route numeric boundaries', () => {
 
     expect(result).toEqual({ status: 400, error: 'id parameter is required' });
     expect(mockedReferences).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/projects empty graph', () => {
+  it('returns an empty project list', async () => {
+    const roQuery = vi.fn().mockResolvedValue({ data: [], metadata: [] });
+    mockedGetGraphClient.mockResolvedValue({ roQuery } as never);
+
+    const response = await statsRoutes.request('/api/projects');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ projects: [] });
   });
 });
 

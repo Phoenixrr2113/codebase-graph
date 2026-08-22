@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createPublishedManifest } from '../lib/package-metadata.mjs';
+import { canonicalPackCommand, rejectSourcePackagePack } from '../guard-pack.mjs';
 
 const packageManifest = {
   name: 'codegraph-mcp',
@@ -123,5 +124,13 @@ describe('createPublishedManifest', () => {
       packageManifest,
       dependencyManifests: missingSdk,
     })).toThrow('@modelcontextprotocol/sdk');
+  });
+});
+
+describe('source package pack guard', () => {
+  it('fails with the canonical repository-root pack command', () => {
+    expect(() => rejectSourcePackagePack()).toThrow(
+      `Source package packing is disabled. Run "${canonicalPackCommand}" from the repository root.`,
+    );
   });
 });

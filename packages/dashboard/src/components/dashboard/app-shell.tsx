@@ -2,9 +2,9 @@ import { useState, useCallback, useEffect } from 'react'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { GraphCanvas, type GraphNode } from './graph-canvas'
 import { GraphLegend } from './graph-legend'
-import { SearchPanel, type SearchResult } from './search-panel'
+import { SearchPanel, type SearchResult, type SearchWorkspace } from './search-panel'
 import { EntityDetail } from './entity-detail'
-import { QueryPanel } from './query-panel'
+import { QueryPanel, type QueryWorkspaces } from './query-panel'
 import { API_URL } from '@/lib/api'
 import {
   fetchFileRelationships,
@@ -168,10 +168,18 @@ export function AppShell({
   projectId,
   projectName,
   externalSelection,
+  searchWorkspace,
+  onSearchWorkspaceChange,
+  queryWorkspaces,
+  onQueryWorkspacesChange,
 }: {
   projectId?: string | null
   projectName?: string
   externalSelection?: GraphNode | null
+  searchWorkspace?: SearchWorkspace
+  onSearchWorkspaceChange?: (updater: (current: SearchWorkspace) => SearchWorkspace) => void
+  queryWorkspaces?: QueryWorkspaces
+  onQueryWorkspacesChange?: (updater: (current: QueryWorkspaces) => QueryWorkspaces) => void
 }) {
   const [selectionHistory, setSelectionHistory] = useState<SelectionHistory>(EMPTY_SELECTION_HISTORY)
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set())
@@ -313,6 +321,8 @@ export function AppShell({
             // filePath and line numbers, which is everything the panel needs.
             handleNodeSelect(node)
           }}
+          workspace={searchWorkspace}
+          onWorkspaceChange={onSearchWorkspaceChange}
         />
       </ResizablePanel>
 
@@ -372,7 +382,11 @@ export function AppShell({
               <ResizableHandle withHandle />
               <ResizablePanel defaultSize={35} minSize={20} maxSize={60}>
                 <div id="query-panel" className="h-full">
-                  <QueryPanel apiUrl={API_URL} />
+                  <QueryPanel
+                    apiUrl={API_URL}
+                    workspaces={queryWorkspaces}
+                    onWorkspacesChange={onQueryWorkspacesChange}
+                  />
                 </div>
               </ResizablePanel>
             </>

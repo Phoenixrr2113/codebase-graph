@@ -5,8 +5,8 @@ import {
   FsBrowseError,
   resolveBrowseRoots,
   type DirectoryBrowseResponse,
-} from '../fs-browse';
-import { safeErrorMessage } from '../safe-error';
+} from '../fs-browse.js';
+import { safeErrorMessage } from '../safe-error.js';
 
 interface FsRoutesOptions {
   homeDirectory?: string;

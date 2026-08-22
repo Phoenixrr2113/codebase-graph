@@ -99,6 +99,7 @@ function createProjectScopedClient(client: GraphClient, rootPath: string): Graph
     graph: client.graph,
     graphName: client.graphName,
     dialect: client.dialect,
+    storage: client.storage,
     query<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
       return client.query<T>(cypher, options);
     },

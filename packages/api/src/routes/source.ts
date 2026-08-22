@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { readFile } from 'node:fs/promises';
 import { codeGraphService } from '@codegraph/core';
-import { authorizeSourcePath } from '../source-access';
-import { safeErrorMessage } from '../safe-error';
+import { authorizeSourcePath } from '../source-access.js';
+import { safeErrorMessage } from '../safe-error.js';
 
 export const sourceRoutes = new Hono();
 

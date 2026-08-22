@@ -1,9 +1,17 @@
 import { Hono } from 'hono';
-import { codeGraphService, knowledgeService, getGraphClient, indexProject } from '@codegraph/core';
+import { codeGraphService, knowledgeService, getGraphClient, getSetupStatus, indexProject } from '@codegraph/core';
 import type { GraphClient } from '@codegraph/graph';
-import { safeErrorMessage } from '../safe-error';
+import { safeErrorMessage } from '../safe-error.js';
 
 export const statsRoutes = new Hono();
+
+statsRoutes.get('/api/setup/status', async (c) => {
+  try {
+    return c.json(await getSetupStatus());
+  } catch (error) {
+    return c.json({ error: safeErrorMessage('GET /api/setup/status', error, 'Failed to fetch setup status.') }, 500);
+  }
+});
 
 type EmbeddingScope =
   | { type: 'global' }
@@ -23,6 +31,14 @@ interface EmbeddingGenerateResult {
   byType: Record<string, number>;
 }
 
+interface EmbeddingMigrationResult extends EmbeddingGenerateResult {
+  profile: {
+    provider: 'local' | 'voyage' | 'openrouter' | 'none';
+    model: string | null;
+    dimension: number;
+  };
+}
+
 const embeddingCoordinator = indexProject as typeof indexProject & {
   getEmbeddingPassState(projectId?: string): EmbeddingPassState;
   scheduleEmbeddingPass(options: {
@@ -31,6 +47,10 @@ const embeddingCoordinator = indexProject as typeof indexProject & {
     projectId?: string;
     rootPath?: string;
   }): Promise<EmbeddingGenerateResult>;
+};
+
+const setupCoordinator = getSetupStatus as typeof getSetupStatus & {
+  migrateEmbeddingProfile(options: { client: GraphClient }): Promise<EmbeddingMigrationResult>;
 };
 
 function normalizeProjectRoot(rootPath: string): string {
@@ -143,9 +163,11 @@ statsRoutes.get('/api/embeddings/status', async (c) => {
       coverage: row.total > 0 ? Math.round((row.withEmbedding / row.total) * 100) : 0,
     }));
 
+    const setup = await getSetupStatus();
     return c.json({
       scope,
       embeddingPass: embeddingCoordinator.getEmbeddingPassState(projectId),
+      embedding: setup.embedding,
       labels,
     });
   } catch (error) {
@@ -170,6 +192,15 @@ statsRoutes.post('/api/embeddings/generate', async (c) => {
     if (scope === null) return c.json({ error: 'Project not found.' }, 404);
     const force = values.force === true;
     const client = await getGraphClient();
+
+    if (force && (await getSetupStatus()).embedding.migration !== null) {
+      const result = await setupCoordinator.migrateEmbeddingProfile({ client });
+      return c.json({
+        scope,
+        ...result,
+        message: `Embedded ${result.embedded} nodes in ${(result.durationMs / 1000).toFixed(1)}s (${result.skipped} skipped, ${result.errors} errors)`,
+      });
+    }
 
     const result = await embeddingCoordinator.scheduleEmbeddingPass({
       client,
@@ -204,5 +235,25 @@ statsRoutes.post('/api/embeddings/generate', async (c) => {
     // or not, would still forward whatever an unrelated exception says,
     // unsanitized, whenever it happens to contain those words.
     return c.json({ error: safeErrorMessage('POST /api/embeddings/generate', error, 'Failed to generate embeddings.') }, 500);
+  }
+});
+
+/** POST /api/embeddings/migrate: rebuild vector indexes for the resolved profile and re-embed. */
+statsRoutes.post('/api/embeddings/migrate', async (c) => {
+  try {
+    const client = await getGraphClient();
+    const result = await setupCoordinator.migrateEmbeddingProfile({ client });
+    return c.json({
+      ...result,
+      message: `Migrated embedding profile and embedded ${result.embedded} nodes in ${(result.durationMs / 1000).toFixed(1)}s`,
+    });
+  } catch (error) {
+    return c.json({
+      error: safeErrorMessage(
+        'POST /api/embeddings/migrate',
+        error,
+        'Failed to migrate the embedding profile.',
+      ),
+    }, 500);
   }
 });

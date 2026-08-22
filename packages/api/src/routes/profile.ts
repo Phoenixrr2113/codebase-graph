@@ -9,7 +9,7 @@
 
 import { Hono } from 'hono';
 import { isAbsolute } from 'node:path';
-import { safeErrorMessage } from '../safe-error';
+import { safeErrorMessage } from '../safe-error.js';
 
 export const profileRoutes = new Hono();
 

@@ -11,20 +11,25 @@ import { cors } from 'hono/cors';
 import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isAllowedOrigin, loadEnvironment, resolvePort } from './env';
-import { checkMutatingRequest } from './csrf-guard';
-import { findDashboardAsset, resolveDashboardDir } from './static';
-import { healthRoutes } from './routes/health';
-import { graphRoutes } from './routes/graph';
-import { searchRoutes } from './routes/search';
-import { queryRoutes } from './routes/query';
-import { parseRoutes } from './routes/parse';
-import { statsRoutes } from './routes/stats';
-import { naturalRoutes } from './routes/natural';
-import { sourceRoutes } from './routes/source';
-import { profileRoutes } from './routes/profile';
-import { analysisRoutes } from './routes/analysis';
-import { fsRoutes } from './routes/fs-directories';
+import {
+  formatServerStartError,
+  isAllowedOrigin,
+  loadEnvironment,
+  resolvePort,
+} from './env.js';
+import { checkMutatingRequest } from './csrf-guard.js';
+import { findDashboardAsset, resolveDashboardDir } from './static.js';
+import { healthRoutes } from './routes/health.js';
+import { graphRoutes } from './routes/graph.js';
+import { searchRoutes } from './routes/search.js';
+import { queryRoutes } from './routes/query.js';
+import { parseRoutes } from './routes/parse.js';
+import { statsRoutes } from './routes/stats.js';
+import { naturalRoutes } from './routes/natural.js';
+import { sourceRoutes } from './routes/source.js';
+import { profileRoutes } from './routes/profile.js';
+import { analysisRoutes } from './routes/analysis.js';
+import { fsRoutes } from './routes/fs-directories.js';
 
 // Load .env before any route module reads configuration from process.env.
 const loadedEnvFile = loadEnvironment();
@@ -93,7 +98,7 @@ if (dashboardDir !== undefined) {
 // Start server
 const port = resolvePort(process.env);
 
-serve({ fetch: app.fetch, port }, (info) => {
+const server = serve({ fetch: app.fetch, port }, (info) => {
   console.log(`CodeGraph API server running on http://localhost:${info.port}`);
   console.log(`  Config:     ${loadedEnvFile ?? 'process environment only (no .env found)'}`);
   console.log(
@@ -109,6 +114,11 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log(`  Profile:    GET  /api/profile`);
   console.log(`  Embeddings: GET  /api/embeddings/status`);
   console.log(`  Directories: GET /api/fs/directories`);
+});
+
+server.on('error', (error) => {
+  process.stderr.write(`${formatServerStartError(error, port)}\n`);
+  process.exitCode = 1;
 });
 
 export { app };

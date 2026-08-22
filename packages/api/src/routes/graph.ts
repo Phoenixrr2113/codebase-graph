@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { codeGraphService, getGraphClient } from '@codegraph/core';
 import { createQueries } from '@codegraph/graph';
-import { safeErrorMessage } from '../safe-error';
+import { safeErrorMessage } from '../safe-error.js';
 
 export const graphRoutes = new Hono();
 

@@ -10,6 +10,18 @@ import { createClient, type GraphClient } from '@codegraph/graph';
 let graphClient: GraphClient | null = null;
 let graphClientPromise: Promise<GraphClient> | null = null;
 
+export type GraphClientRuntimeState =
+  | { state: 'idle' }
+  | { state: 'starting' }
+  | { state: 'ready'; client: GraphClient }
+  | { state: 'blocked'; error: string };
+
+let graphClientRuntimeState: GraphClientRuntimeState = { state: 'idle' };
+
+export function getGraphClientRuntimeState(): GraphClientRuntimeState {
+  return graphClientRuntimeState;
+}
+
 /**
  * Get the shared graph client instance.
  * Creates the client on first call, returns cached instance thereafter.
@@ -19,8 +31,10 @@ export async function getGraphClient(): Promise<GraphClient> {
     return graphClient;
   }
   if (!graphClientPromise) {
+    graphClientRuntimeState = { state: 'starting' };
     const connection = createClient().then((client) => {
       graphClient = client;
+      graphClientRuntimeState = { state: 'ready', client };
       return client;
     });
     graphClientPromise = connection;
@@ -28,7 +42,11 @@ export async function getGraphClient(): Promise<GraphClient> {
       () => {
         if (graphClientPromise === connection) graphClientPromise = null;
       },
-      () => {
+      (error: unknown) => {
+        graphClientRuntimeState = {
+          state: 'blocked',
+          error: error instanceof Error ? error.message : String(error),
+        };
         if (graphClientPromise === connection) graphClientPromise = null;
       },
     );
@@ -57,4 +75,5 @@ export async function closeGraphClient(): Promise<void> {
     graphClient = null;
     await client.close();
   }
+  graphClientRuntimeState = { state: 'idle' };
 }

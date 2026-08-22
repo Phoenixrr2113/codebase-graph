@@ -1,6 +1,6 @@
 import { lstat, readdir, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { isInsideRoot } from './source-access';
+import { isInsideRoot } from './source-access.js';
 
 export const DIRECTORY_ENTRY_LIMIT = 500;
 

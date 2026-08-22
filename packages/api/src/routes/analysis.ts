@@ -1,6 +1,6 @@
 import { AnalysisQueryInputError, codeGraphService } from '@codegraph/core';
 import { Hono } from 'hono';
-import { safeErrorMessage } from '../safe-error';
+import { safeErrorMessage } from '../safe-error.js';
 
 const SYMBOL_ID_PATTERN = /^sym:v1:[a-f0-9]{64}$/;
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))?$/;
