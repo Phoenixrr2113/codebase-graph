@@ -12,6 +12,7 @@ import { analysisSymbolToGraphNode } from '@/lib/analysis'
 import { symbolReferenceToGraphNode } from './entity-detail'
 import type { GraphNode } from './graph-canvas'
 import type { SymbolReference } from '@/lib/references'
+import type { GraphCanvasViewState } from '@/lib/graph-window'
 
 const fileNode: GraphNode = {
   id: 'File:/repo/src/main.ts',
@@ -25,6 +26,13 @@ const symbolNode: GraphNode = {
   label: 'run',
   type: 'Function',
   properties: { filePath: '/repo/src/main.ts', name: 'run', startLine: 5 },
+}
+
+const canvasView: GraphCanvasViewState = {
+  mode: 'symbols',
+  limit: 300,
+  fileScope: null,
+  expansions: [],
 }
 
 describe('explorer selection history', () => {
@@ -102,20 +110,20 @@ describe('explorer selection history', () => {
   })
 
   it('deduplicates consecutive selections and truncates Forward after a new branch', () => {
-    let history = pushSelectionHistory(EMPTY_SELECTION_HISTORY, fileNode)
-    history = pushSelectionHistory(history, fileNode)
-    history = pushSelectionHistory(history, symbolNode)
+    let history = pushSelectionHistory(EMPTY_SELECTION_HISTORY, fileNode, canvasView)
+    history = pushSelectionHistory(history, fileNode, canvasView)
+    history = pushSelectionHistory(history, symbolNode, canvasView)
 
-    expect(history.entries.map((node) => node?.id ?? null)).toEqual([
+    expect(history.entries.map((entry) => entry.node?.id ?? null)).toEqual([
       'File:/repo/src/main.ts',
       symbolNode.id,
     ])
     expect(history.index).toBe(1)
 
     history = moveSelectionHistory(history, -1)
-    history = pushSelectionHistory(history, null)
+    history = pushSelectionHistory(history, null, canvasView)
 
-    expect(history.entries.map((node) => node?.id ?? null)).toEqual([
+    expect(history.entries.map((entry) => entry.node?.id ?? null)).toEqual([
       'File:/repo/src/main.ts',
       null,
     ])
@@ -123,14 +131,14 @@ describe('explorer selection history', () => {
   })
 
   it('moves backward and forward without pushing duplicate entries', () => {
-    let history = pushSelectionHistory(EMPTY_SELECTION_HISTORY, fileNode)
-    history = pushSelectionHistory(history, symbolNode)
+    let history = pushSelectionHistory(EMPTY_SELECTION_HISTORY, fileNode, canvasView)
+    history = pushSelectionHistory(history, symbolNode, canvasView)
 
     history = moveSelectionHistory(history, -1)
-    expect(history.entries[history.index]?.id).toBe(fileNode.id)
+    expect(history.entries[history.index]?.node?.id).toBe(fileNode.id)
 
     history = moveSelectionHistory(history, 1)
-    expect(history.entries[history.index]?.id).toBe(symbolNode.id)
+    expect(history.entries[history.index]?.node?.id).toBe(symbolNode.id)
   })
 })
 

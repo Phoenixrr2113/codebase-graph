@@ -69,6 +69,7 @@ import type {
   FileTreeOptions,
   SymbolReferenceQuery,
   SymbolReferencesResult,
+  GraphWindowResult,
   BlastRadiusInput,
   BlastRadiusResult,
   ImportCyclesInput,
@@ -106,7 +107,7 @@ class CodeGraphServiceImpl {
 
   // --- Graph Traversal ---
 
-  async getFullGraph(limit?: number, rootPath?: string): Promise<GraphData> {
+  async getFullGraph(limit?: number, rootPath?: string): Promise<GraphWindowResult> {
     return getFullGraphImpl(limit, rootPath);
   }
 

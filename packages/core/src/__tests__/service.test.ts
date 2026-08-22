@@ -60,8 +60,8 @@ describe('CodeGraphService', () => {
     it('delegates to operations.deleteProject via client.query', async () => {
       await codeGraphService.deleteProject('proj-123');
 
-      expect(mockClient.query).toHaveBeenCalledTimes(1);
-      const cypher: string = mockClient.query.mock.calls[0][0];
+      expect(mockClient.query).toHaveBeenCalledTimes(3);
+      const cypher: string = mockClient.query.mock.calls[2]![0];
       expect(cypher).toContain('DELETE');
       expect(cypher).toContain('$id');
     });

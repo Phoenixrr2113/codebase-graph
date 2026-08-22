@@ -59,6 +59,7 @@ const opsMocks = vi.hoisted(() => {
       callOrder.push(`linkProjectFile:${projectId}`);
     }),
     batchUpsertDocuments: vi.fn().mockResolvedValue(undefined),
+    recomputeGraphDegrees: vi.fn().mockResolvedValue(undefined),
   };
 });
 

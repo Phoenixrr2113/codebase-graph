@@ -144,6 +144,15 @@ export const cytoscapeStylesheet: cytoscape.StylesheetJson = [
   },
   // Per-type node styles
   ...Object.keys(NODE_COLORS).map(label => nodeStyle(label)),
+  // File overview nodes carry symbolCount. Scale them without changing symbol
+  // mode nodes or files from older payloads that do not expose the count.
+  {
+    selector: 'node[type="File"][symbolCount]',
+    style: {
+      width: 'mapData(symbolCount, 0, 100, 30, 80)',
+      height: 'mapData(symbolCount, 0, 100, 30, 80)',
+    },
+  },
   // Selected
   {
     selector: 'node:selected',
@@ -158,6 +167,10 @@ export const cytoscapeStylesheet: cytoscape.StylesheetJson = [
   {
     selector: 'node.neighbor',
     style: { 'border-width': 2, 'border-color': '#60a5fa' },
+  },
+  {
+    selector: 'node.truncated',
+    style: { 'border-width': 4, 'border-color': '#fbbf24', 'border-style': 'dashed' },
   },
   // Dimmed (when something is highlighted, dim the rest)
   {

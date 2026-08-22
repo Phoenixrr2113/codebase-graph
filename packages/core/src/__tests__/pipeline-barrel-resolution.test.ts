@@ -267,6 +267,37 @@ describe('buildReExportIndex', () => {
   });
 });
 
+describe('buildParsedFileEntities: File graph re-export dependencies', () => {
+  it('writes each resolved export-from source as a File IMPORTS dependency of the barrel', () => {
+    registerPlugins();
+    const dir = mkdtempSync(join(tmpdir(), 'barrel-file-edge-test-'));
+    try {
+      const leafPath = join(dir, 'leaf.ts');
+      const indexPath = join(dir, 'index.ts');
+      writeFileSync(leafPath, 'export const leaf = 1;\n');
+      writeFileSync(indexPath, "export { leaf } from './leaf';\nexport * from './other';\n");
+      writeFileSync(join(dir, 'other.ts'), 'export const other = 2;\n');
+      const content = readFileSync(indexPath, 'utf-8');
+      const tree = parseCode(content, 'typescript', '.ts');
+      const extracted = extractEntitiesForFile(tree.rootNode, indexPath);
+      const reExports = extractReExports(tree.rootNode, indexPath);
+      const parsed = buildParsedFileEntities(
+        createFileEntityFromContent(indexPath, content, new Date()),
+        extracted,
+        tree.rootNode,
+        { barrelIndex: buildReExportIndex([{ filePath: indexPath, reExports }]) },
+      );
+
+      expect(parsed.importsEdges).toEqual([
+        { fromFilePath: indexPath, toFilePath: leafPath, specifiers: ['leaf'] },
+        { fromFilePath: indexPath, toFilePath: join(dir, 'other.ts'), specifiers: ['*'] },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('buildLocalExportsIndex', () => {
   it('omits files with no local exports', () => {
     const index = buildLocalExportsIndex([

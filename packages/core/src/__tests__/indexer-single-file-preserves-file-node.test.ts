@@ -38,6 +38,7 @@ const opsMocks = vi.hoisted(() => ({
   removeFileContents: vi.fn().mockResolvedValue(undefined),
   removeDocumentContents: vi.fn().mockResolvedValue(undefined),
   batchUpsert: vi.fn().mockResolvedValue(undefined),
+  recomputeGraphDegrees: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@codegraph/graph', () => ({
@@ -121,6 +122,7 @@ beforeEach(() => {
   opsMocks.removeFileAndCleanup.mockClear();
   opsMocks.removeFileContents.mockClear();
   opsMocks.sweepStaleFileSymbols.mockClear();
+  opsMocks.recomputeGraphDegrees.mockClear();
 });
 
 afterEach(() => {
@@ -134,6 +136,7 @@ describe('indexSingleFile: reindexing a changed file must not destroy the File n
     expect(result.success).toBe(true);
     expect(opsMocks.removeFileContents).toHaveBeenCalledWith(filePath);
     expect(opsMocks.sweepStaleFileSymbols).toHaveBeenCalledWith(filePath, []);
+    expect(opsMocks.recomputeGraphDegrees).toHaveBeenCalledOnce();
     expect(opsMocks.removeFileAndCleanup).not.toHaveBeenCalled();
   });
 });

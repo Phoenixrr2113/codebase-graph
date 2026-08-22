@@ -33,6 +33,19 @@ const relationships: FileRelationships = {
     displayName: 'Main entry point',
     data: { text: 'Main entry point', type: 'Decision' },
   }],
+  totals: {
+    containedSymbols: 600,
+    imports: 1,
+    importers: 0,
+    knowledgeEntities: 1,
+  },
+  truncated: {
+    containedSymbols: true,
+    imports: false,
+    importers: false,
+    knowledgeEntities: false,
+  },
+  limit: 500,
 }
 
 describe('file relationship loading', () => {
@@ -106,6 +119,8 @@ describe('file relationship panel', () => {
     )
 
     expect(html).toContain('Contained symbols')
+    expect(html).toContain('1 of 600')
+    expect(html).toContain('truncated')
     expect(html).toContain('Imports')
     expect(html).toContain('Importers')
     expect(html).toContain('Knowledge entities')

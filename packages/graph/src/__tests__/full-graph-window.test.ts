@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createClient, type GraphClient } from '../client';
 import { createQueries, type GraphQueries } from '../queries';
+import { createOperations } from '../operations';
 import { resolveEmbeddedBinaryPaths } from '../drivers/falkordblite';
 import type { GraphNode } from '@codegraph/types';
 
@@ -38,6 +39,7 @@ describeIfAvailable('dashboard full-graph window', () => {
       CREATE (c)-[:CALLS]->(a)
       CREATE (a)-[:USES_TYPE]->(c)
     `);
+    await createOperations(client).recomputeGraphDegrees();
   }, 60_000);
 
   afterAll(async () => {
@@ -57,6 +59,19 @@ describeIfAvailable('dashboard full-graph window', () => {
     }
   });
 
+  it('orders a truncated window by degree with honest full-graph totals', async () => {
+    const result = await queries.getFullGraph(2);
+
+    expect(result.nodes.map((node) => node.displayName)).toEqual(['a', 'c']);
+    expect(result.edges).toHaveLength(2);
+    expect(result).toMatchObject({
+      totalNodes: 3,
+      totalEdges: 4,
+      windowOrder: 'degree-desc,id-asc',
+      truncated: true,
+    });
+  });
+
   it('returns the persisted opaque symbol id as the graph node id', async () => {
     const result = await queries.getFullGraph(3);
     const nodeA = result.nodes.find((node) => node.displayName === 'a');
@@ -64,16 +79,38 @@ describeIfAvailable('dashboard full-graph window', () => {
     expect(nodeA?.id).toBe('sym:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
   });
 
-  it('projects embedding fields out of dashboard graph nodes', async () => {
+  it('projects embedding fields and legacy data out of serialized graph nodes', async () => {
     const result = await queries.getFullGraph(3);
     const nodeA = result.nodes.find((node) => node.displayName === 'a');
 
-    expect(nodeA?.data).not.toHaveProperty('embedding');
-    expect(nodeA?.data).not.toHaveProperty('embeddingTextHash');
+    expect(nodeA?.data.path).toBe('/x/a.ts');
+    expect(JSON.parse(JSON.stringify(nodeA))).not.toHaveProperty('data');
     for (const edge of result.edges) {
       expect(JSON.stringify(edge.data)).not.toContain('"embedding"');
       expect(JSON.stringify(edge.data)).not.toContain('"embeddingTextHash"');
     }
+  });
+
+  it('returns only the canvas node projection with persisted degree', async () => {
+    await client.query(`
+      MATCH (n)
+      WHERE n:Function AND n.filePath STARTS WITH '/x/'
+      OPTIONAL MATCH (n)-[r]-()
+      WITH n, count(r) AS degree
+      SET n.degree = degree
+    `);
+
+    const result = await queries.getFullGraph(3);
+
+    expect(result.nodes[0]).toEqual({
+      id: 'sym:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      label: 'Function',
+      displayName: 'a',
+      filePath: '/x/a.ts',
+      startLine: 1,
+      degree: 3,
+    });
+    expect(result).toMatchObject({ degreeScope: 'global' });
   });
 
   it('includes Entity nodes and ABOUT plus RELATES_TO edges using Entity identity', async () => {
@@ -98,8 +135,7 @@ describeIfAvailable('dashboard full-graph window', () => {
       label: 'Entity',
       displayName: 'Retry policy',
     });
-    expect(decision?.data).not.toHaveProperty('embedding');
-    expect(decision?.data).not.toHaveProperty('embeddingTextHash');
+    expect(JSON.parse(JSON.stringify(decision))).not.toHaveProperty('data');
     expect(edgeLabels).toContain('ABOUT');
     expect(edgeLabels).toContain('RELATES_TO');
   });
@@ -145,6 +181,32 @@ describeIfAvailable('dashboard full-graph window', () => {
     expect(result.knowledgeEntities[0]?.data).not.toHaveProperty('embeddingTextHash');
   });
 
+  it('reports true per-collection File relationship totals and truncation', async () => {
+    await client.query(`
+      MATCH (main:File {filePath: '/x/main.ts'})
+      CREATE (extra1:Function {id: 'sym:v1:1313131313131313131313131313131313131313131313131313131313131313', name: 'extra1', filePath: '/x/main.ts', startLine: 8})
+      CREATE (extra2:Function {id: 'sym:v1:1414141414141414141414141414141414141414141414141414141414141414', name: 'extra2', filePath: '/x/main.ts', startLine: 9})
+      CREATE (main)-[:CONTAINS]->(extra1)
+      CREATE (main)-[:CONTAINS]->(extra2)
+    `);
+
+    const result = await queries.getFileRelationships('/x/main.ts', 1);
+
+    expect(result.totals).toEqual({
+      containedSymbols: 3,
+      imports: 1,
+      importers: 1,
+      knowledgeEntities: 1,
+    });
+    expect(result.truncated).toEqual({
+      containedSymbols: true,
+      imports: false,
+      importers: false,
+      knowledgeEntities: false,
+    });
+    expect(result.limit).toBe(1);
+  });
+
   it('returns persisted ids from dependency and file subgraph reads', async () => {
     await client.query(`
       CREATE (entry:File {id: 'file:v1:entry', filePath: '/deps/entry.ts', name: 'entry.ts'})
@@ -158,14 +220,49 @@ describeIfAvailable('dashboard full-graph window', () => {
     const subgraph = await queries.getFileSubgraph('/deps/entry.ts');
 
     expect(new Set(dependencies.nodes.map((node) => node.id))).toEqual(
-      new Set(['file:v1:entry', 'file:v1:dependency']),
+      new Set(['File:/deps/entry.ts', 'File:/deps/dependency.ts']),
     );
     expect(subgraph.nodes.map((node) => node.id)).toEqual(
       expect.arrayContaining([
-        'file:v1:entry',
+        'File:/deps/entry.ts',
         'sym:v1:1212121212121212121212121212121212121212121212121212121212121212',
       ]),
     );
+  });
+});
+
+describeIfAvailable('full graph unique window selection', () => {
+  let client: GraphClient;
+  let queries: GraphQueries;
+  let dataDir: string;
+
+  beforeAll(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'cg-full-unique-'));
+    client = await createClient({ driver: 'falkordblite', databasePath: dataDir, graphName: 'full-unique' } as never);
+    queries = createQueries(client);
+    await client.query(`
+      CREATE (:File {filePath: '/repo/a.ts', name: 'a.ts', degree: 10})
+      CREATE (:File:External {filePath: '/repo/a.ts', degree: 9})
+      CREATE (:File {filePath: '/repo/b.ts', name: 'b.ts', degree: 8})
+      CREATE (:File {filePath: '/repo/c.ts', name: 'c.ts', degree: 7})
+    `);
+  });
+
+  afterAll(async () => {
+    await client?.close();
+    if (dataDir) await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('deduplicates stable File ids in Cypher before applying the limit', async () => {
+    const result = await queries.getFullGraph(3, '/repo');
+
+    expect(result.nodes.map((node) => node.id)).toEqual([
+      'File:/repo/a.ts',
+      'File:/repo/b.ts',
+      'File:/repo/c.ts',
+    ]);
+    expect(result.nodes).toHaveLength(3);
+    expect(result.totalNodes).toBe(3);
   });
 });
 

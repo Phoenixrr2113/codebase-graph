@@ -70,7 +70,15 @@ async function errorFor(path: string): Promise<{ status: number; error: string }
 describe('graph route numeric boundaries', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedFullGraph.mockResolvedValue({ nodes: [], edges: [] });
+    mockedFullGraph.mockResolvedValue({
+      nodes: [],
+      edges: [],
+      totalNodes: 0,
+      totalEdges: 0,
+      windowOrder: 'degree-desc,id-asc',
+      degreeScope: 'global',
+      truncated: false,
+    });
     mockedReferences.mockResolvedValue({ references: [], referencingFiles: [], truncated: false });
     mockedDependencies.mockResolvedValue({ nodes: [], edges: [] });
   });
@@ -99,6 +107,84 @@ describe('graph route numeric boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(mockedFullGraph).toHaveBeenCalledWith(1000, undefined);
+  });
+
+  it('preserves full graph totals, ordering metadata, and truncation caveat', async () => {
+    mockedFullGraph.mockResolvedValue({
+      nodes: [],
+      edges: [],
+      totalNodes: 25,
+      totalEdges: 40,
+      windowOrder: 'degree-desc,id-asc',
+      degreeScope: 'global',
+      truncated: true,
+    });
+
+    const response = await graphRoutes.request('/api/graph/full?limit=10');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      nodes: [],
+      edges: [],
+      totalNodes: 25,
+      totalEdges: 40,
+      windowOrder: 'degree-desc,id-asc',
+      degreeScope: 'global',
+      truncated: true,
+    });
+  });
+
+  it('projects full graph edges to the fields consumed by the dashboard', async () => {
+    mockedFullGraph.mockResolvedValue({
+      nodes: [],
+      edges: [{
+        id: '["CALLS","source","target"]',
+        source: 'source',
+        target: 'target',
+        label: 'CALLS',
+        data: {
+          type: 'CALLS',
+          from: 'source',
+          to: 'target',
+          bodySnippet: 'large relationship payload',
+        },
+      } as never],
+      totalNodes: 2,
+      totalEdges: 1,
+      windowOrder: 'degree-desc,id-asc',
+      degreeScope: 'global',
+      truncated: false,
+    });
+
+    const response = await graphRoutes.request('/api/graph/full?limit=10');
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).edges).toEqual([{
+      source: 'source',
+      target: 'target',
+      label: 'CALLS',
+    }]);
+  });
+
+  it('resolves projectId to a boundary-safe graph scope', async () => {
+    const roQuery = vi.fn().mockResolvedValue({ data: [{ rootPath: '/workspace/app' }], metadata: [] });
+    mockedGetGraphClient.mockResolvedValue({ roQuery } as never);
+
+    const response = await graphRoutes.request('/api/graph/full?projectId=project-app');
+
+    expect(response.status).toBe(200);
+    expect(mockedFullGraph).toHaveBeenCalledWith(100, '/workspace/app');
+  });
+
+  it('does not fall back to the global graph for an unknown projectId', async () => {
+    const roQuery = vi.fn().mockResolvedValue({ data: [], metadata: [] });
+    mockedGetGraphClient.mockResolvedValue({ roQuery } as never);
+
+    const response = await graphRoutes.request('/api/graph/full?projectId=missing');
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Project not found' });
+    expect(mockedFullGraph).not.toHaveBeenCalled();
   });
 
   it.each(['NaN', 'Infinity', '0', '-1', '1.5', '11'])(
@@ -167,8 +253,125 @@ describe('GET /api/graph/full unavailable storage', () => {
     expect(await response.json()).toEqual({
       nodes: [],
       edges: [],
+      totalNodes: 0,
+      totalEdges: 0,
+      windowOrder: 'degree-desc,id-asc',
+      degreeScope: 'global',
+      truncated: false,
       storage: blockedSetupStatus.storage,
     });
+  });
+});
+
+describe('GET /api/graph/files', () => {
+  const getFileGraph = vi.fn();
+  const fileGraphResult = {
+    nodes: [{
+      id: 'File:/x/main.ts',
+      displayName: 'main.ts',
+      filePath: '/x/main.ts',
+      symbolCount: 3,
+      label: 'File' as const,
+    }],
+    edges: [],
+    totalNodes: 4,
+    totalEdges: 5,
+    windowOrder: 'degree-desc,id-asc' as const,
+    truncated: true,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedGetGraphClient.mockResolvedValue({
+      roQuery: vi.fn().mockResolvedValue({ data: [{ rootPath: '/x' }], metadata: [] }),
+    } as never);
+    getFileGraph.mockResolvedValue(fileGraphResult);
+    mockedCreateQueries.mockReturnValue({ getFileGraph } as never);
+  });
+
+  it.each(['NaN', 'Infinity', '0', '-1', '1.5', '1001'])(
+    'rejects limit=%s before touching the graph',
+    async (limit) => {
+      const result = await errorFor(`/api/graph/files?limit=${limit}`);
+
+      expect(result.status).toBe(400);
+      expect(result.error).toBe('limit must be a positive integer between 1 and 1000');
+      expect(mockedGetGraphClient).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns the frozen file graph shape scoped through project root resolution', async () => {
+    const response = await graphRoutes.request('/api/graph/files?projectId=project-x&limit=50');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(fileGraphResult);
+    expect(getFileGraph).toHaveBeenCalledWith(50, '/x');
+  });
+
+  it('does not return the global file graph for an unknown projectId', async () => {
+    mockedGetGraphClient.mockResolvedValueOnce({
+      roQuery: vi.fn().mockResolvedValue({ data: [], metadata: [] }),
+    } as never);
+
+    const response = await graphRoutes.request('/api/graph/files?projectId=missing');
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Project not found' });
+    expect(getFileGraph).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/graph/neighbors', () => {
+  const getNodeNeighbors = vi.fn();
+  const neighborResult = {
+    centerId: 'File:/x/main.ts',
+    nodes: [{ id: 'File:/x/main.ts', label: 'File', displayName: 'main.ts', filePath: '/x/main.ts', data: {} }],
+    edges: [],
+    incomingTruncated: false,
+    outgoingTruncated: true,
+    limit: 25,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedGetGraphClient.mockResolvedValue({} as never);
+    getNodeNeighbors.mockResolvedValue(neighborResult);
+    mockedCreateQueries.mockReturnValue({ getNodeNeighbors } as never);
+  });
+
+  it('requires a persisted id', async () => {
+    const result = await errorFor('/api/graph/neighbors');
+
+    expect(result).toEqual({ status: 400, error: 'id parameter is required' });
+    expect(mockedGetGraphClient).not.toHaveBeenCalled();
+  });
+
+  it.each(['NaN', 'Infinity', '0', '-1', '1.5', '1001'])(
+    'rejects limit=%s before touching the graph',
+    async (limit) => {
+      const result = await errorFor(`/api/graph/neighbors?id=File%3A%2Fx%2Fmain.ts&limit=${limit}`);
+
+      expect(result.status).toBe(400);
+      expect(result.error).toBe('limit must be a positive integer between 1 and 1000');
+      expect(mockedGetGraphClient).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns the frozen neighbor shape for a persisted File id', async () => {
+    const response = await graphRoutes.request('/api/graph/neighbors?id=File%3A%2Fx%2Fmain.ts&limit=25');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(neighborResult);
+    expect(getNodeNeighbors).toHaveBeenCalledWith('File:/x/main.ts', 25);
+  });
+
+  it('returns 404 when the persisted id does not exist', async () => {
+    getNodeNeighbors.mockResolvedValueOnce(undefined);
+
+    const response = await graphRoutes.request('/api/graph/neighbors?id=File%3A%2Fx%2Fmissing.ts');
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Graph node not found' });
   });
 });
 
@@ -179,6 +382,9 @@ describe('GET /api/graph/file-relationships', () => {
     imports: [{ id: 'File:/x/dep.ts', label: 'File', displayName: 'dep.ts', filePath: '/x/dep.ts', data: {} }],
     importers: [{ id: 'File:/x/importer.ts', label: 'File', displayName: 'importer.ts', filePath: '/x/importer.ts', data: {} }],
     knowledgeEntities: [{ id: 'Entity:Decision:Main entry point', label: 'Entity', displayName: 'Main entry point', data: { text: 'Main entry point', type: 'Decision' } }],
+    totals: { containedSymbols: 600, imports: 1, importers: 1, knowledgeEntities: 1 },
+    truncated: { containedSymbols: true, imports: false, importers: false, knowledgeEntities: false },
+    limit: 500,
   };
   const getFileRelationships = vi.fn();
 
@@ -196,13 +402,13 @@ describe('GET /api/graph/file-relationships', () => {
     expect(mockedGetGraphClient).not.toHaveBeenCalled();
   });
 
-  it.each(['NaN', 'Infinity', '0', '-1', '1.5', '501'])(
+  it.each(['NaN', 'Infinity', '0', '-1', '1.5', '1001'])(
     'rejects limit=%s before touching the graph',
     async (limit) => {
       const result = await errorFor(`/api/graph/file-relationships?path=/x/main.ts&limit=${limit}`);
 
       expect(result.status).toBe(400);
-      expect(result.error).toBe('limit must be a positive integer between 1 and 500');
+      expect(result.error).toBe('limit must be a positive integer between 1 and 1000');
       expect(mockedGetGraphClient).not.toHaveBeenCalled();
     },
   );

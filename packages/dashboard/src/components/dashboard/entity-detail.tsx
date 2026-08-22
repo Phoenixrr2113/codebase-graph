@@ -9,6 +9,7 @@ import { ImpactSection } from './impact-section'
 import { CallHierarchySection } from './call-hierarchy-section'
 import type {
   FileRelationshipNode,
+  FileRelationshipCollection,
   FileRelationships,
   SymbolReference,
   SymbolReferences,
@@ -27,6 +28,8 @@ interface EntityDetailProps {
   referencesLoading?: boolean
   onSelectReference?: (node: GraphNode) => void
   fileRelationshipsState?: FileRelationshipsState
+  onOpenSymbols?: (node: GraphNode) => void
+  onExpand?: (node: GraphNode) => void
 }
 
 export function EntityDetail({
@@ -35,6 +38,8 @@ export function EntityDetail({
   referencesLoading,
   onSelectReference,
   fileRelationshipsState,
+  onOpenSymbols,
+  onExpand,
 }: EntityDetailProps) {
   const [copied, setCopied] = useState(false)
 
@@ -225,6 +230,24 @@ export function EntityDetail({
 
         {/* Actions */}
         <div className="flex flex-wrap gap-2 pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => onExpand?.(node)}
+          >
+            Expand
+          </Button>
+          {node.type === 'File' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => onOpenSymbols?.(node)}
+            >
+              Open symbols
+            </Button>
+          )}
           {filePath && (
             <>
               <Button variant="outline" size="sm" className="text-xs h-7" onClick={handleOpenInEditor}>
@@ -674,7 +697,7 @@ export function relationshipNodeToGraphNode(node: FileRelationshipNode): GraphNo
 }
 
 const FILE_RELATIONSHIP_GROUPS: ReadonlyArray<{
-  key: keyof Pick<FileRelationships, 'containedSymbols' | 'imports' | 'importers' | 'knowledgeEntities'>
+  key: FileRelationshipCollection
   label: string
 }> = [
   { key: 'containedSymbols', label: 'Contained symbols' },
@@ -704,9 +727,17 @@ export function FileRelationshipsContent({
         const items = state.data[group.key]
         return (
           <div key={group.key} className="space-y-1">
-            <h4 className="text-[10px] font-medium uppercase tracking-wide text-subtle">
-              {group.label}
-            </h4>
+            <div className="flex flex-wrap items-baseline justify-between gap-1">
+              <h4 className="text-[10px] font-medium uppercase tracking-wide text-subtle">
+                {group.label}
+              </h4>
+              <span className="text-[10px] text-subtle">
+                {items.length} of {state.data.totals[group.key]}
+                {state.data.truncated[group.key] && (
+                  <span className="ml-1 font-medium text-amber-300">truncated</span>
+                )}
+              </span>
+            </div>
             {items.length === 0 ? (
               <p className="text-xs text-subtle">Nothing found</p>
             ) : (

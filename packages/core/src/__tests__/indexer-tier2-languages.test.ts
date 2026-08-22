@@ -56,6 +56,7 @@ const opsMocks = vi.hoisted(() => ({
   linkProjectFile: vi.fn().mockResolvedValue(undefined),
   batchUpsert: vi.fn().mockResolvedValue(undefined),
   batchUpsertDocuments: vi.fn().mockResolvedValue(undefined),
+  recomputeGraphDegrees: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@codegraph/graph', () => ({

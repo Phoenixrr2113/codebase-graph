@@ -48,6 +48,9 @@ import type {
 
 
 const logger = createLogger({ namespace: 'graph:operations' });
+const DEGREE_NODE_PREDICATE = [...SYMBOL_LABELS, 'Entity']
+  .map((label) => `n:${label}`)
+  .join(' OR ');
 
 // ============================================================================
 // Entity ID parsing — format: "Type:filePath:name" or "Type:external:name"
@@ -113,6 +116,7 @@ const CYPHER = {
   // File operations
   UPSERT_FILE: `
     MERGE (f:File {filePath: $filePath})
+    REMOVE f:External
     SET f.id = $id,
         f.name = $name,
         f.extension = $extension,
@@ -564,6 +568,24 @@ const CYPHER = {
     DETACH DELETE e
   `,
 
+  REWIRE_FILE_STUB_IMPORTS: `
+    MATCH (real:File), (stub:File:External)<-[oldImport:IMPORTS]-(source:File)
+    WHERE real.filePath = stub.filePath AND id(real) <> id(stub)
+      AND NOT real:External
+      AND ($filePath IS NULL OR real.filePath = $filePath)
+    MERGE (source)-[replacement:IMPORTS]->(real)
+    SET replacement.specifiers = oldImport.specifiers
+    DELETE oldImport
+  `,
+
+  DELETE_RECONCILED_FILE_STUBS: `
+    MATCH (real:File), (stub:File:External)
+    WHERE real.filePath = stub.filePath AND id(real) <> id(stub)
+      AND NOT real:External
+      AND ($filePath IS NULL OR real.filePath = $filePath)
+    DETACH DELETE stub
+  `,
+
   // Content-only removal for a changed Markdown document. Keep the stable
   // MarkdownDocument node, but delete every contained content node and all
   // of their relationships so re-upsert cannot retain obsolete hierarchy.
@@ -583,6 +605,23 @@ const CYPHER = {
   CLEAR_ALL: `
     MATCH (n)
     DETACH DELETE n
+  `,
+
+  RECOMPUTE_GRAPH_DEGREES: `
+    MATCH (n)
+    WHERE ${DEGREE_NODE_PREDICATE}
+    OPTIONAL MATCH (n)-[r]-()
+    WITH n, count(r) AS degree
+    SET n.degree = degree
+  `,
+
+  RECOMPUTE_FILE_SYMBOL_COUNTS: `
+    MATCH (f:File)
+    OPTIONAL MATCH (f)-[:CONTAINS]->(symbol)
+    WHERE symbol:Function OR symbol:Class OR symbol:Interface OR
+      symbol:Variable OR symbol:Type OR symbol:Component
+    WITH f, count(DISTINCT symbol) AS symbolCount
+    SET f.symbolCount = symbolCount
   `,
 
   // Project operations
@@ -645,6 +684,7 @@ const CYPHER = {
   BATCH_UPSERT_FILES: `
     UNWIND $items AS item
     MERGE (f:File {filePath: item.filePath})
+    REMOVE f:External
     SET f.id = item.id,
         f.name = item.name,
         f.extension = item.extension,
@@ -880,13 +920,17 @@ const CYPHER = {
     SET owned.projectId = item.projectId
   `,
 
-  // --- Fast CREATE path for full reindex (no MERGE lookups needed) ---
-  // Used after clearing old data; CREATE is much faster than MERGE for bulk inserts.
+  // --- Fast CREATE path for full reindex ---
+  // File nodes still MERGE by filePath because an earlier IMPORTS edge can
+  // create an External target stub before the real file's chunk is written.
   BATCH_CREATE_FILES: `
     UNWIND $items AS item
-    CREATE (f:File {id: item.id, filePath: item.filePath, name: item.name, extension: item.extension,
-      loc: item.loc, lastModified: item.lastModified, hash: item.hash,
-      sourcePipeline: item.sourcePipeline, sourceTask: item.sourceTask, processedAt: item.processedAt})
+    MERGE (f:File {filePath: item.filePath})
+    REMOVE f:External
+    SET f.id = item.id, f.name = item.name, f.extension = item.extension,
+        f.loc = item.loc, f.lastModified = item.lastModified, f.hash = item.hash,
+        f.sourcePipeline = item.sourcePipeline, f.sourceTask = item.sourceTask,
+        f.processedAt = item.processedAt
   `,
 
   BATCH_CREATE_FUNCTIONS_FAST: `
@@ -969,6 +1013,7 @@ const CYPHER = {
   COMBINED_UPSERT_ALL: `
     UNWIND $files AS item
     MERGE (f:File {filePath: item.filePath})
+    REMOVE f:External
     SET f.id = item.id,
         f.name = item.name,
         f.extension = item.extension,
@@ -1341,6 +1386,9 @@ export interface GraphOperations {
 
   clearAll(): Promise<void>;
 
+  /** Recompute persisted global degree and File symbolCount after structural writes. */
+  recomputeGraphDegrees(): Promise<void>;
+
   batchUpsert(entities: ParsedFileEntities): Promise<void>;
 
   /** Batch upsert multiple files' entities using UNWIND (much fewer Cypher round trips) */
@@ -1475,6 +1523,12 @@ class GraphOperationsImpl implements GraphOperations {
         );
       }
     }
+  }
+
+  private async reconcileFileStubs(filePath: string | null): Promise<void> {
+    const params = { filePath };
+    await this.client.query(CYPHER.REWIRE_FILE_STUB_IMPORTS, { params });
+    await this.client.query(CYPHER.DELETE_RECONCILED_FILE_STUBS, { params });
   }
 
   @trace()
@@ -1742,6 +1796,7 @@ class GraphOperationsImpl implements GraphOperations {
 
   @trace()
   async removeFileContents(filePath: string): Promise<void> {
+    await this.reconcileFileStubs(filePath);
     await this.client.query(CYPHER.REMOVE_FILE_CONTENTS, { params: { filePath } });
     await this.client.query(CYPHER.REMOVE_FILE_OUTGOING_EDGES, { params: { filePath } });
     await this.client.query(CYPHER.REMOVE_SYMBOL_OUTGOING_EDGES, { params: { filePath } });
@@ -1762,6 +1817,12 @@ class GraphOperationsImpl implements GraphOperations {
   @trace()
   async clearAll(): Promise<void> {
     await this.client.query(CYPHER.CLEAR_ALL, { params: {} });
+  }
+
+  @trace()
+  async recomputeGraphDegrees(): Promise<void> {
+    await this.client.query(CYPHER.RECOMPUTE_GRAPH_DEGREES, { params: {} });
+    await this.client.query(CYPHER.RECOMPUTE_FILE_SYMBOL_COUNTS, { params: {} });
   }
 
   @trace()
@@ -2634,6 +2695,7 @@ class GraphOperationsImpl implements GraphOperations {
 
   @trace()
   async deleteProject(projectId: string): Promise<void> {
+    await this.reconcileFileStubs(null);
     await this.client.query(CYPHER.DELETE_PROJECT, { params: { id: projectId } });
   }
 

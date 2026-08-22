@@ -178,12 +178,14 @@ export async function ensureSchemaImpl(
   // --- Range indexes (lookup by exact value) ---
   await safeIndex(`CREATE INDEX FOR (f:File) ON (f.filePath)`);
   for (const label of SYMBOL_LABELS) {
+    await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.degree)`);
     if (label === 'File') continue;
     await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.id)`);
     await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.projectId)`);
   }
   await safeIndex(`CREATE INDEX FOR (f:File) ON (f.projectId)`);
   await safeIndex(`CREATE INDEX FOR (d:MarkdownDocument) ON (d.projectId)`);
+  await safeIndex(`CREATE INDEX FOR (n:Entity) ON (n.degree)`);
 
   // --- Commit & Metadata range indexes (git history / state tracking) ---
   await safeIndex(`CREATE INDEX FOR (c:Commit) ON (c.hash)`);

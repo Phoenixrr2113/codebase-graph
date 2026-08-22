@@ -45,12 +45,24 @@ export interface FileRelationshipNode {
   data: Record<string, unknown>
 }
 
+export type FileRelationshipCollection =
+  | 'containedSymbols'
+  | 'imports'
+  | 'importers'
+  | 'knowledgeEntities'
+
+export type FileRelationshipTotals = Record<FileRelationshipCollection, number>
+export type FileRelationshipTruncation = Record<FileRelationshipCollection, boolean>
+
 export interface FileRelationships {
   filePath: string
   containedSymbols: FileRelationshipNode[]
   imports: FileRelationshipNode[]
   importers: FileRelationshipNode[]
   knowledgeEntities: FileRelationshipNode[]
+  totals: FileRelationshipTotals
+  truncated: FileRelationshipTruncation
+  limit: number
 }
 
 /** Node labels that declare something another file can use. */
@@ -150,12 +162,49 @@ export function parseFileRelationships(value: unknown): FileRelationships {
     throw new Error('Invalid file relationships response')
   }
 
+  const collections: FileRelationshipCollection[] = [
+    'containedSymbols',
+    'imports',
+    'importers',
+    'knowledgeEntities',
+  ]
+  const totalsValue = isRecord(value.totals) ? value.totals : null
+  const truncatedValue = isRecord(value.truncated) ? value.truncated : null
+  if (
+    totalsValue !== null
+    && !collections.every((key) => typeof totalsValue[key] === 'number')
+    || truncatedValue !== null
+    && !collections.every((key) => typeof truncatedValue[key] === 'boolean')
+    || value.limit !== undefined
+    && typeof value.limit !== 'number'
+  ) {
+    throw new Error('Invalid file relationship metadata')
+  }
+
+  const loadedCounts: FileRelationshipTotals = {
+    containedSymbols: value.containedSymbols.length,
+    imports: value.imports.length,
+    importers: value.importers.length,
+    knowledgeEntities: value.knowledgeEntities.length,
+  }
+  const totals = Object.fromEntries(collections.map((key) => [
+    key,
+    totalsValue?.[key] ?? loadedCounts[key],
+  ])) as FileRelationshipTotals
+  const truncated = Object.fromEntries(collections.map((key) => [
+    key,
+    truncatedValue?.[key] ?? false,
+  ])) as FileRelationshipTruncation
+
   return {
     filePath: value.filePath,
     containedSymbols: value.containedSymbols.map(parseRelationshipNode),
     imports: value.imports.map(parseRelationshipNode),
     importers: value.importers.map(parseRelationshipNode),
     knowledgeEntities: value.knowledgeEntities.map(parseRelationshipNode),
+    totals,
+    truncated,
+    limit: value.limit ?? 100,
   }
 }
 

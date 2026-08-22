@@ -9,6 +9,7 @@ import type {
   FileTreeOptions,
   SymbolReferenceQuery,
   SymbolReferencesResult,
+  GraphWindowResult,
 } from '@codegraph/graph';
 import type { GraphStats, GraphData, SubgraphData, GraphNode, GraphEdge, NodeLabel, EdgeLabel } from '@codegraph/types';
 import type { ProjectEntity } from '@codegraph/types';
@@ -58,7 +59,7 @@ export async function getGraphStatsImpl(): Promise<GraphStats> {
 /**
  * Get the full graph (nodes + edges), optionally filtered by root path.
  */
-export async function getFullGraphImpl(limit?: number, rootPath?: string): Promise<GraphData> {
+export async function getFullGraphImpl(limit?: number, rootPath?: string): Promise<GraphWindowResult> {
   const client = await getGraphClient();
   const queries = createQueries(client);
   return queries.getFullGraph(limit, rootPath);
