@@ -53,6 +53,10 @@ describe('API server startup', () => {
 
     let stdout = '';
     let stderr = '';
+    const expectedError =
+      `CodeGraph dashboard could not start on port ${address.port}: the port is already in use. Set API_PORT to another port and try again.\n`;
+    let exitAfterErrorTimeout: NodeJS.Timeout | undefined;
+    let forcedExitAfterError = false;
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
@@ -60,29 +64,36 @@ describe('API server startup', () => {
     });
     child.stderr.on('data', (chunk: string) => {
       stderr += chunk;
+      if (stderr === expectedError && exitAfterErrorTimeout === undefined) {
+        exitAfterErrorTimeout = setTimeout(() => {
+          forcedExitAfterError = true;
+          child.kill('SIGKILL');
+        }, 1_000);
+      }
     });
 
     try {
       const exitCode = await new Promise<number | null>((resolvePromise, reject) => {
         const timeout = setTimeout(() => {
           child.kill('SIGKILL');
-          reject(new Error('API server did not exit after the port conflict'));
-        }, 5_000);
+          reject(new Error('API server did not report the port conflict'));
+        }, 15_000);
         child.once('error', (error) => {
           clearTimeout(timeout);
+          if (exitAfterErrorTimeout !== undefined) clearTimeout(exitAfterErrorTimeout);
           reject(error);
         });
         child.once('exit', (code) => {
           clearTimeout(timeout);
+          if (exitAfterErrorTimeout !== undefined) clearTimeout(exitAfterErrorTimeout);
           resolvePromise(code);
         });
       });
 
       expect(exitCode).not.toBe(0);
+      expect(forcedExitAfterError, 'API server did not exit promptly after the port conflict').toBe(false);
       expect(stdout).toBe('');
-      expect(stderr).toBe(
-        `CodeGraph dashboard could not start on port ${address.port}: the port is already in use. Set API_PORT to another port and try again.\n`,
-      );
+      expect(stderr).toBe(expectedError);
     } finally {
       if (child.exitCode === null) child.kill('SIGKILL');
       await new Promise<void>((resolvePromise, reject) => {
@@ -92,5 +103,5 @@ describe('API server startup', () => {
         });
       });
     }
-  }, 10_000);
+  }, 20_000);
 });

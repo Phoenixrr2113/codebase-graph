@@ -135,6 +135,10 @@ describe('codebase persona: profile action', () => {
 });
 
 describe('codebase persona: empty status', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('reports setup required without leaking the empty graph error', async () => {
     const setup = {
       storage: {
@@ -168,6 +172,54 @@ describe('codebase persona: empty status', () => {
     expect(result['configured']).toBe(false);
     expect(result['setup']).toEqual(setup);
     expect(JSON.stringify(result)).not.toContain('Invalid graph operation');
+  });
+
+  it('waits for an unsupported storage startup and reports the blocked setup contract', async () => {
+    const startingSetup = {
+      storage: {
+        driver: 'falkordb',
+        dataPath: null,
+        ownerState: 'starting',
+        embeddedSupported: false,
+        externalGuidance: 'Embedded FalkorDBLite is unavailable on this platform. Set CODEGRAPH_DRIVER=falkordb and FALKORDB_URL, or configure FALKORDB_HOST and FALKORDB_PORT.',
+        error: null,
+      },
+      embedding: {
+        profile: { provider: 'none', model: null, dimension: 0 },
+        keyPresent: false,
+        localModelCached: false,
+        modelLoad: null,
+        migration: null,
+      },
+      projects: { configured: false, count: 0 },
+      index: {
+        state: 'not-configured',
+        progress: null,
+        embeddingPass: { running: false, scope: null, startedAt: null },
+      },
+    } as const;
+    const blockedSetup = {
+      ...startingSetup,
+      storage: {
+        ...startingSetup.storage,
+        ownerState: 'blocked' as const,
+        error: 'Embedded FalkorDBLite is unavailable on win32-x64.',
+      },
+    };
+    mockGetSetupStatus
+      .mockResolvedValueOnce(startingSetup)
+      .mockResolvedValueOnce(blockedSetup);
+    mockGetGraphClient.mockRejectedValue(
+      new Error('Embedded FalkorDBLite is unavailable on win32-x64.'),
+    );
+
+    const result = await handleIndex({ action: 'status' }) as Record<string, unknown>;
+
+    expect(result['configured']).toBe(false);
+    expect(result['setupRequired']).toBe(true);
+    expect(result['setup']).toEqual(blockedSetup);
+    expect(result['error']).toBeUndefined();
+    expect(mockGetSetupStatus).toHaveBeenCalledTimes(2);
   });
 });
 

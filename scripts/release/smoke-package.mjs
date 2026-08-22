@@ -18,6 +18,7 @@ const requiredTools = ['analyze', 'codebase', 'knowledge', 'query', 'search'];
 const releaseDirectory = dirname(fileURLToPath(import.meta.url));
 const rootDirectory = resolve(releaseDirectory, '../..');
 const installedSmokePath = resolve(releaseDirectory, 'installed-package-smoke.mjs');
+const unsupportedStorageContractPath = resolve(releaseDirectory, 'unsupported-storage-contract.mjs');
 
 const defaultRunner = {
   run(command, args, options) {
@@ -177,7 +178,13 @@ export async function smokePackage({
     reporter.pass(`installed codegraph-mcp reports version ${expectedVersion}`);
 
     const installedSmoke = join(consumerDirectory, 'installed-package-smoke.mjs');
-    await writeFile(installedSmoke, await readFile(installedSmokePath));
+    await Promise.all([
+      writeFile(installedSmoke, await readFile(installedSmokePath)),
+      writeFile(
+        join(consumerDirectory, 'unsupported-storage-contract.mjs'),
+        await readFile(unsupportedStorageContractPath),
+      ),
+    ]);
     const fixtureDirectory = join(consumerDirectory, 'fixture');
     const dataDirectory = join(consumerDirectory, 'data');
     const databaseDirectory = join(consumerDirectory, 'db');

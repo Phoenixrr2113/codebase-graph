@@ -14,6 +14,7 @@ import {
   resolveValidatedPackageInput,
   smokePackage,
 } from '../smoke-package.mjs';
+import { assertUnsupportedMcpStatus } from '../unsupported-storage-contract.mjs';
 
 const temporaryDirectories: string[] = [];
 
@@ -190,6 +191,29 @@ describe('smokePackage', () => {
 });
 
 describe('smoke helpers', () => {
+  it('requires unsupported MCP status to expose the blocked setup contract', () => {
+    const guidance =
+      'Embedded FalkorDBLite is unavailable on this platform. Set CODEGRAPH_DRIVER=falkordb and FALKORDB_URL, or configure FALKORDB_HOST and FALKORDB_PORT.';
+    const status = {
+      configured: false,
+      setupRequired: true,
+      setup: {
+        storage: {
+          driver: 'falkordb',
+          ownerState: 'blocked',
+          embeddedSupported: false,
+          externalGuidance: guidance,
+        },
+      },
+    };
+
+    expect(() => assertUnsupportedMcpStatus(status)).not.toThrow();
+    expect(() => assertUnsupportedMcpStatus({
+      ...status,
+      setup: { storage: { ...status.setup.storage, ownerState: 'starting' } },
+    })).toThrow('MCP status did not report blocked storage');
+  });
+
   it('selects guidance mode only when embedded storage and external FalkorDB are unavailable', () => {
     expect(resolveInstalledSmokeMode({
       requestedMode: 'basic',

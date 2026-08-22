@@ -102,8 +102,9 @@ const port = resolvePort(process.env);
 const server = createAdaptorServer({ fetch: app.fetch, hostname: API_BIND_HOST });
 
 server.once('error', (error) => {
-  process.stderr.write(`${formatServerStartError(error, port)}\n`);
-  process.exitCode = 1;
+  process.stderr.write(`${formatServerStartError(error, port)}\n`, () => {
+    process.exit(1);
+  });
 });
 
 server.listen(port, API_BIND_HOST, () => {

@@ -14,6 +14,20 @@ import { createLogger } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'MCP:Persona:Index' });
 
+async function getSettledSetupStatus(): Promise<Awaited<ReturnType<typeof getSetupStatus>>> {
+  const setup = await getSetupStatus();
+  if (setup.storage.ownerState !== 'starting') return setup;
+
+  try {
+    await getGraphClient();
+  } catch (error) {
+    logger.debug('Storage startup settled as blocked while reading status', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return getSetupStatus();
+}
+
 // ============================================================================
 // Extension -> language display name (profile action)
 // ============================================================================
@@ -210,7 +224,7 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
 
     case 'status': {
       try {
-        const setup = await getSetupStatus();
+        const setup = await getSettledSetupStatus();
         if (!setup.projects.configured) {
           result = {
             configured: false,

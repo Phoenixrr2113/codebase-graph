@@ -5,9 +5,11 @@ import { readdir, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import {
+  assertBlockedStorage,
+  assertUnsupportedMcpStatus,
+} from './unsupported-storage-contract.mjs';
 
-const expectedGuidance =
-  'Embedded FalkorDBLite is unavailable on this platform. Set CODEGRAPH_DRIVER=falkordb and FALKORDB_URL, or configure FALKORDB_HOST and FALKORDB_PORT.';
 const expectedTools = ['analyze', 'codebase', 'knowledge', 'query', 'search'];
 const mode = process.argv[2] ?? 'basic';
 const packageDirectory = process.argv[3];
@@ -174,12 +176,6 @@ async function assertMcpQuery(session) {
   requireCondition(Array.isArray(query.data) && query.data[0]?.count > 0, 'MCP query returned no indexed nodes');
 }
 
-function assertBlockedStorage(storage, label) {
-  requireCondition(storage?.ownerState === 'blocked', `${label} did not report blocked storage`);
-  requireCondition(storage?.driver === 'falkordb', `${label} did not select external FalkorDB`);
-  requireCondition(storage?.externalGuidance === expectedGuidance, `${label} guidance did not match the frozen contract`);
-}
-
 async function runUnsupported(environment) {
   const dashboard = await startDashboard(environment);
   try {
@@ -213,9 +209,7 @@ async function runUnsupported(environment) {
     const mcp = await startMcp(environment);
     try {
       const status = await mcpCall(mcp, 'codebase', { action: 'status' });
-      requireCondition(status.configured === false && status.setupRequired === true, 'unsupported MCP status did not remain setup-safe');
-      requireCondition(status.setup?.storage?.embeddedSupported === false, 'unsupported MCP status reported embedded storage support');
-      assertBlockedStorage(status.setup?.storage, 'MCP status');
+      assertUnsupportedMcpStatus(status);
       pass('unsupported MCP status returns the same external FalkorDB guidance');
     } finally {
       await closeMcp(mcp);
