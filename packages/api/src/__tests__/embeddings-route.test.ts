@@ -57,6 +57,21 @@ const setupStatus = {
   index: { state: 'not-configured', progress: null, embeddingPass: idlePass },
 };
 
+const externalGuidance =
+  'Embedded FalkorDBLite is unavailable on this platform. Set CODEGRAPH_DRIVER=falkordb and FALKORDB_URL, or configure FALKORDB_HOST and FALKORDB_PORT.';
+
+const blockedSetupStatus = {
+  ...setupStatus,
+  storage: {
+    driver: 'falkordb' as const,
+    dataPath: null,
+    ownerState: 'blocked' as const,
+    embeddedSupported: false,
+    externalGuidance,
+    error: 'connect ECONNREFUSED 127.0.0.1:16379',
+  },
+};
+
 function graphClientWith(rows: Array<{ label: string; total: number; withEmbedding: number }>) {
   return {
     roQuery: vi.fn().mockResolvedValue({ data: rows, metadata: [] }),
@@ -120,6 +135,22 @@ describe('embedding routes', () => {
     });
   });
 
+  it('returns setup-compatible blocked storage instead of 500 when coverage storage is unavailable', async () => {
+    mockedGetGraphClient.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:16379'));
+    getSetupStatus.mockResolvedValue(blockedSetupStatus);
+
+    const response = await statsRoutes.request('/api/embeddings/status');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      scope: { type: 'global' },
+      embeddingPass: idlePass,
+      embedding: embeddingSetup,
+      labels: [],
+      storage: blockedSetupStatus.storage,
+    });
+  });
+
   it('resolves projectId and scopes coverage with an exact-or-slash-prefix boundary', async () => {
     mockedResolveProjectRootPath.mockResolvedValue('/repos/app/');
     const client = graphClientWith([{ label: 'Function', total: 2, withEmbedding: 1 }]);
@@ -157,6 +188,29 @@ describe('embedding routes', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(setupStatus);
+  });
+
+  it('adds the frozen external guidance when configured storage is unreachable', async () => {
+    getSetupStatus.mockResolvedValue({
+      ...blockedSetupStatus,
+      storage: {
+        ...blockedSetupStatus.storage,
+        embeddedSupported: true,
+        externalGuidance: null,
+      },
+    });
+
+    const response = await statsRoutes.request('/api/setup/status');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ...blockedSetupStatus,
+      storage: {
+        ...blockedSetupStatus.storage,
+        embeddedSupported: true,
+        externalGuidance,
+      },
+    });
   });
 
   it('generates only for the resolved project scope', async () => {

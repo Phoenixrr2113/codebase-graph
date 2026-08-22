@@ -2,6 +2,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -66,6 +67,26 @@ export function parseToolJson(result, label) {
   }
 }
 
+export function resolveInstalledSmokeMode({
+  requestedMode,
+  platform = process.platform,
+  architecture = process.arch,
+  environment = process.env,
+  fileExists = existsSync,
+}) {
+  if (requestedMode !== 'basic') return requestedMode;
+  if (environment.FALKORDB_URL || environment.FALKORDB_HOST) return 'basic';
+  if (platform === 'linux' && architecture === 'x64') return 'basic';
+  if (platform !== 'darwin' || architecture !== 'arm64') return 'unsupported';
+
+  const embeddedLibrariesPresent = [
+    '/opt/homebrew/opt/libomp/lib/libomp.dylib',
+    '/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib',
+    '/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib',
+  ].every(fileExists);
+  return embeddedLibrariesPresent ? 'basic' : 'unsupported';
+}
+
 export async function assertHttpJson({ fetcher = fetch, url, label, assertBody }) {
   const response = await fetcher(url);
   if (response.status !== 200) {
@@ -111,6 +132,7 @@ export async function smokePackage({
   if (!['basic', 'unsupported', 'local'].includes(mode)) {
     throw new TypeError(`Unsupported smoke mode: ${mode}`);
   }
+  const installedMode = resolveInstalledSmokeMode({ requestedMode: mode });
 
   const sha256 = createHash('sha256').update(await readFile(absoluteTarball)).digest('hex');
 
@@ -174,7 +196,7 @@ export async function smokePackage({
       process.execPath,
       [
         installedSmoke,
-        mode,
+        installedMode,
         packageDirectory,
         fixtureDirectory,
         dataDirectory,
@@ -184,18 +206,18 @@ export async function smokePackage({
         cwd: consumerDirectory,
         encoding: 'utf8',
         env: smokeEnvironment,
-        timeout: mode === 'local' ? 900_000 : 300_000,
+        timeout: installedMode === 'local' ? 900_000 : 300_000,
       },
     );
     if (typeof runtimeResult.stdout === 'string' && runtimeResult.stdout.length > 0) {
       process.stdout.write(runtimeResult.stdout);
     }
     if (runtimeResult.status !== 0) {
-      throw commandFailure(`installed package ${mode} smoke`, runtimeResult);
+      throw commandFailure(`installed package ${installedMode} smoke`, runtimeResult);
     }
     reporter.pass(`tarball SHA-256 ${sha256}`);
 
-    return { version: installedVersion, mode, sha256 };
+    return { version: installedVersion, mode: installedMode, sha256 };
   } finally {
     await rm(consumerDirectory, { recursive: true, force: true });
   }

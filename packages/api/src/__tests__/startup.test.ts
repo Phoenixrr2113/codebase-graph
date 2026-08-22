@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { API_BIND_HOST } from '../env';
 
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const workspaceDirectory = resolve(packageDirectory, '../..');
@@ -19,17 +20,19 @@ afterEach(async () => {
 });
 
 describe('API server startup', () => {
-  it('reports an occupied IPv6 wildcard port without an unhandled stack trace', async () => {
+  it('reports an occupied API bind address without an unhandled stack trace', async () => {
     const blockingServer = createServer();
     await new Promise<void>((resolvePromise, reject) => {
       blockingServer.once('error', reject);
-      blockingServer.listen({ port: 0, host: '::' }, resolvePromise);
+      blockingServer.listen({ port: 0, host: API_BIND_HOST }, resolvePromise);
     });
 
     const address = blockingServer.address();
     if (address === null || typeof address === 'string') {
-      throw new Error('Could not reserve an IPv6 wildcard port');
+      throw new Error('Could not reserve the API bind address');
     }
+    expect(address.address).toBe(API_BIND_HOST);
+    expect(address.family).toBe('IPv4');
 
     const stateDirectory = await mkdtemp(join(tmpdir(), 'codegraph-api-startup-'));
     temporaryDirectories.push(stateDirectory);

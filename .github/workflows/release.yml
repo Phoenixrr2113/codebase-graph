@@ -170,10 +170,10 @@ jobs:
             os: macos-15
             architecture: arm64
             mode: basic
-          - label: unsupported platform guidance
+          - label: Windows x64 unsupported storage guidance
             os: windows-latest
             architecture: x64
-            mode: unsupported
+            mode: basic
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read

@@ -5,13 +5,14 @@
  * and external integrations. Runs on port 3001 by default.
  */
 
-import { serve } from '@hono/node-server';
+import { createAdaptorServer } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  API_BIND_HOST,
   formatServerStartError,
   isAllowedOrigin,
   loadEnvironment,
@@ -98,7 +99,21 @@ if (dashboardDir !== undefined) {
 // Start server
 const port = resolvePort(process.env);
 
-const server = serve({ fetch: app.fetch, port }, (info) => {
+const server = createAdaptorServer({ fetch: app.fetch, hostname: API_BIND_HOST });
+
+server.once('error', (error) => {
+  process.stderr.write(`${formatServerStartError(error, port)}\n`);
+  process.exitCode = 1;
+});
+
+server.listen(port, API_BIND_HOST, () => {
+  const info = server.address();
+  if (info === null || typeof info === 'string') {
+    process.stderr.write(`${formatServerStartError(new Error('the listening address was unavailable'), port)}\n`);
+    process.exitCode = 1;
+    server.close();
+    return;
+  }
   console.log(`CodeGraph API server running on http://localhost:${info.port}`);
   console.log(`  Config:     ${loadedEnvFile ?? 'process environment only (no .env found)'}`);
   console.log(
@@ -114,11 +129,6 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
   console.log(`  Profile:    GET  /api/profile`);
   console.log(`  Embeddings: GET  /api/embeddings/status`);
   console.log(`  Directories: GET /api/fs/directories`);
-});
-
-server.on('error', (error) => {
-  process.stderr.write(`${formatServerStartError(error, port)}\n`);
-  process.exitCode = 1;
 });
 
 export { app };

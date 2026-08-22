@@ -8,6 +8,7 @@ import {
   assertRequiredTools,
   createPassReporter,
   parseToolJson,
+  resolveInstalledSmokeMode,
   resolveNpmInvocation,
   resolveSmokeInput,
   resolveValidatedPackageInput,
@@ -189,6 +190,41 @@ describe('smokePackage', () => {
 });
 
 describe('smoke helpers', () => {
+  it('selects guidance mode only when embedded storage and external FalkorDB are unavailable', () => {
+    expect(resolveInstalledSmokeMode({
+      requestedMode: 'basic',
+      platform: 'win32',
+      architecture: 'x64',
+      environment: {},
+    })).toBe('unsupported');
+    expect(resolveInstalledSmokeMode({
+      requestedMode: 'basic',
+      platform: 'win32',
+      architecture: 'x64',
+      environment: { FALKORDB_HOST: 'db.internal' },
+    })).toBe('basic');
+    expect(resolveInstalledSmokeMode({
+      requestedMode: 'basic',
+      platform: 'linux',
+      architecture: 'x64',
+      environment: {},
+    })).toBe('basic');
+    expect(resolveInstalledSmokeMode({
+      requestedMode: 'basic',
+      platform: 'darwin',
+      architecture: 'arm64',
+      environment: {},
+      fileExists: () => true,
+    })).toBe('basic');
+    expect(resolveInstalledSmokeMode({
+      requestedMode: 'basic',
+      platform: 'darwin',
+      architecture: 'arm64',
+      environment: {},
+      fileExists: () => false,
+    })).toBe('unsupported');
+  });
+
   it('requires the complete five-tool public surface', () => {
     expect(() => assertRequiredTools(['search', 'knowledge', 'codebase', 'query'])).toThrow(
       'analyze',

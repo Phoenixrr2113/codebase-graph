@@ -10,6 +10,8 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
+export const API_BIND_HOST = '127.0.0.1';
+
 /**
  * Walk upwards from a starting directory looking for a `.env` file.
  * Returns undefined when none is found before the filesystem root.

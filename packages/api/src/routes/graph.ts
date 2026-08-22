@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { codeGraphService, getGraphClient } from '@codegraph/core';
 import { createQueries } from '@codegraph/graph';
 import { safeErrorMessage } from '../safe-error.js';
+import { readBlockedSetupStatus } from '../storage-state.js';
 
 export const graphRoutes = new Hono();
 
@@ -59,6 +60,10 @@ graphRoutes.get('/api/graph/full', async (c) => {
     const data = await codeGraphService.getFullGraph(limit, rootPath);
     return c.json({ nodes: data.nodes, edges: data.edges });
   } catch (error) {
+    const setup = await readBlockedSetupStatus();
+    if (setup !== null) {
+      return c.json({ nodes: [], edges: [], storage: setup.storage });
+    }
     return c.json({ error: safeErrorMessage('GET /api/graph/full', error, 'Failed to fetch graph.') }, 500);
   }
 });

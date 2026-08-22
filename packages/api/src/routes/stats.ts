@@ -2,12 +2,13 @@ import { Hono } from 'hono';
 import { codeGraphService, knowledgeService, getGraphClient, getSetupStatus, indexProject } from '@codegraph/core';
 import type { GraphClient } from '@codegraph/graph';
 import { safeErrorMessage } from '../safe-error.js';
+import { normalizeSetupStatus, readBlockedSetupStatus } from '../storage-state.js';
 
 export const statsRoutes = new Hono();
 
 statsRoutes.get('/api/setup/status', async (c) => {
   try {
-    return c.json(await getSetupStatus());
+    return c.json(normalizeSetupStatus(await getSetupStatus()));
   } catch (error) {
     return c.json({ error: safeErrorMessage('GET /api/setup/status', error, 'Failed to fetch setup status.') }, 500);
   }
@@ -94,6 +95,8 @@ statsRoutes.get('/api/projects', async (c) => {
     }));
     return c.json({ projects });
   } catch (error) {
+    const setup = await readBlockedSetupStatus();
+    if (setup !== null) return c.json({ projects: [], storage: setup.storage });
     return c.json(
       { projects: [], error: safeErrorMessage('GET /api/projects', error, 'Failed to list projects.') },
       500,
@@ -171,6 +174,19 @@ statsRoutes.get('/api/embeddings/status', async (c) => {
       labels,
     });
   } catch (error) {
+    const setup = await readBlockedSetupStatus();
+    if (setup !== null) {
+      const projectId = c.req.query('projectId') || undefined;
+      return c.json({
+        scope: projectId === undefined
+          ? { type: 'global' as const }
+          : { type: 'project' as const, projectId, rootPath: null },
+        embeddingPass: embeddingCoordinator.getEmbeddingPassState(projectId),
+        embedding: setup.embedding,
+        labels: [],
+        storage: setup.storage,
+      });
+    }
     return c.json({ error: safeErrorMessage('GET /api/embeddings/status', error, 'Failed to fetch embedding status.') }, 500);
   }
 });

@@ -174,13 +174,52 @@ async function assertMcpQuery(session) {
   requireCondition(Array.isArray(query.data) && query.data[0]?.count > 0, 'MCP query returned no indexed nodes');
 }
 
+function assertBlockedStorage(storage, label) {
+  requireCondition(storage?.ownerState === 'blocked', `${label} did not report blocked storage`);
+  requireCondition(storage?.driver === 'falkordb', `${label} did not select external FalkorDB`);
+  requireCondition(storage?.externalGuidance === expectedGuidance, `${label} guidance did not match the frozen contract`);
+}
+
 async function runUnsupported(environment) {
   const dashboard = await startDashboard(environment);
   try {
+    const health = await requestJson(dashboard.baseUrl, '/health');
+    requireCondition(health.status === 'ok', 'unsupported dashboard health did not report ok');
+    pass('unsupported dashboard health returns 200');
+
+    const rootResponse = await fetch(`${dashboard.baseUrl}/`);
+    const rootHtml = await rootResponse.text();
+    requireCondition(rootResponse.status === 200 && rootHtml.includes('id="root"'), 'unsupported dashboard root did not boot');
+    pass('unsupported dashboard root returns 200');
+
     const setup = await requestJson(dashboard.baseUrl, '/api/setup/status');
     requireCondition(setup.storage?.embeddedSupported === false, 'unsupported platform reported embedded storage support');
-    requireCondition(setup.storage?.externalGuidance === expectedGuidance, 'external FalkorDB guidance did not match the frozen contract');
-    pass('unsupported platform returns external FalkorDB guidance without crashing');
+    assertBlockedStorage(setup.storage, 'setup status');
+
+    const projects = await requestJson(dashboard.baseUrl, '/api/projects');
+    requireCondition(Array.isArray(projects.projects) && projects.projects.length === 0, 'unsupported projects response was not empty');
+    assertBlockedStorage(projects.storage, 'projects response');
+
+    const embeddings = await requestJson(dashboard.baseUrl, '/api/embeddings/status');
+    requireCondition(Array.isArray(embeddings.labels) && embeddings.labels.length === 0, 'unsupported embeddings response was not empty');
+    assertBlockedStorage(embeddings.storage, 'embeddings response');
+
+    const graph = await requestJson(dashboard.baseUrl, '/api/graph/full?limit=100');
+    requireCondition(Array.isArray(graph.nodes) && graph.nodes.length === 0, 'unsupported graph nodes were not empty');
+    requireCondition(Array.isArray(graph.edges) && graph.edges.length === 0, 'unsupported graph edges were not empty');
+    assertBlockedStorage(graph.storage, 'graph response');
+    pass('unsupported API reads return setup-compatible storage guidance without 500s');
+
+    const mcp = await startMcp(environment);
+    try {
+      const status = await mcpCall(mcp, 'codebase', { action: 'status' });
+      requireCondition(status.configured === false && status.setupRequired === true, 'unsupported MCP status did not remain setup-safe');
+      requireCondition(status.setup?.storage?.embeddedSupported === false, 'unsupported MCP status reported embedded storage support');
+      assertBlockedStorage(status.setup?.storage, 'MCP status');
+      pass('unsupported MCP status returns the same external FalkorDB guidance');
+    } finally {
+      await closeMcp(mcp);
+    }
   } finally {
     await stopChild(dashboard.child);
   }
@@ -374,11 +413,11 @@ async function main() {
     ...process.env,
     CODEGRAPH_DATA_DIR: dataDirectory,
     CODEGRAPH_DB_PATH: databaseDirectory,
-    CODEGRAPH_DRIVER: 'falkordblite',
     CODEGRAPH_EMBEDDING_PROVIDER: mode === 'local' ? 'local' : 'none',
     CODEGRAPH_BROWSE_ROOTS: fixtureDirectory,
     CODEGRAPH_LOG_STDERR: 'true',
   };
+  delete environment.CODEGRAPH_DRIVER;
 
   if (mode === 'unsupported') await runUnsupported(environment);
   else if (mode === 'local') await runLocal(environment);
