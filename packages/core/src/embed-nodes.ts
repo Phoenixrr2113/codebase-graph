@@ -52,6 +52,8 @@ export interface EmbedNodesOptions {
   embeddings?: EmbeddingConfig;
   /** Batch size for embedding generation (default: 100) */
   batchSize?: number;
+  /** Restrict node selection to this project root. */
+  projectRootPath?: string;
   /** Progress callback */
   onProgress?: (current: number, total: number, type: string) => void;
 }
@@ -350,7 +352,7 @@ export async function embedAllNodes(options: EmbedNodesOptions = {}): Promise<Em
   for (const nodeType of nodeTypes) {
     try {
       // Query nodes for this type
-      const rows = await queryNodesForType(client, nodeType, force);
+      const rows = await queryNodesForType(client, nodeType, force, options.projectRootPath);
       if (rows.length === 0) {
         logger.debug(`${nodeType}: no nodes to embed`);
         continue;
@@ -420,21 +422,44 @@ async function queryNodesForType(
   client: GraphClient,
   nodeType: EmbeddableNodeType,
   force: boolean,
+  projectRootPath?: string,
 ): Promise<Record<string, unknown>[]> {
-  const queryMap: Record<EmbeddableNodeType, { needed: string; all: string }> = {
-    File: { needed: QUERIES.FILES_NEEDING_EMBEDDING, all: QUERIES.ALL_FILES },
-    Function: { needed: QUERIES.FUNCTIONS_NEEDING_EMBEDDING, all: QUERIES.ALL_FUNCTIONS },
-    Class: { needed: QUERIES.CLASSES_NEEDING_EMBEDDING, all: QUERIES.ALL_CLASSES },
-    Interface: { needed: QUERIES.INTERFACES_NEEDING_EMBEDDING, all: QUERIES.ALL_INTERFACES },
-    Variable: { needed: QUERIES.VARIABLES_NEEDING_EMBEDDING, all: QUERIES.ALL_VARIABLES },
-    Type: { needed: QUERIES.TYPES_NEEDING_EMBEDDING, all: QUERIES.ALL_TYPES },
-    Component: { needed: QUERIES.COMPONENTS_NEEDING_EMBEDDING, all: QUERIES.ALL_COMPONENTS },
+  const queryMap: Record<EmbeddableNodeType, { needed: string; all: string; variable: string }> = {
+    File: { needed: QUERIES.FILES_NEEDING_EMBEDDING, all: QUERIES.ALL_FILES, variable: 'f' },
+    Function: { needed: QUERIES.FUNCTIONS_NEEDING_EMBEDDING, all: QUERIES.ALL_FUNCTIONS, variable: 'fn' },
+    Class: { needed: QUERIES.CLASSES_NEEDING_EMBEDDING, all: QUERIES.ALL_CLASSES, variable: 'c' },
+    Interface: { needed: QUERIES.INTERFACES_NEEDING_EMBEDDING, all: QUERIES.ALL_INTERFACES, variable: 'i' },
+    Variable: { needed: QUERIES.VARIABLES_NEEDING_EMBEDDING, all: QUERIES.ALL_VARIABLES, variable: 'v' },
+    Type: { needed: QUERIES.TYPES_NEEDING_EMBEDDING, all: QUERIES.ALL_TYPES, variable: 't' },
+    Component: { needed: QUERIES.COMPONENTS_NEEDING_EMBEDDING, all: QUERIES.ALL_COMPONENTS, variable: 'comp' },
   };
 
   const q = queryMap[nodeType];
-  const cypher = force ? q.all : q.needed;
-  const result = await client.roQuery<Record<string, unknown>>(cypher, { params: {} });
+  let cypher = force ? q.all : q.needed;
+  const params: Record<string, string> = {};
+  if (projectRootPath !== undefined) {
+    const projectPath = normalizeProjectRoot(projectRootPath);
+    const projectPathPrefix = projectPath === '/' ? '/' : `${projectPath}/`;
+    const pathFilter = `(${q.variable}.filePath = $projectPath OR ${q.variable}.filePath STARTS WITH $projectPathPrefix)`;
+    cypher = cypher.includes('WHERE')
+      ? cypher.replace('WHERE', `WHERE ${pathFilter} AND`)
+      : cypher.replace(
+          `MATCH (${q.variable}:${nodeType})`,
+          `MATCH (${q.variable}:${nodeType})\n    WHERE ${pathFilter}`,
+        );
+    params['projectPath'] = projectPath;
+    params['projectPathPrefix'] = projectPathPrefix;
+  }
+  const result = await client.roQuery<Record<string, unknown>>(cypher, { params });
   return result.data;
+}
+
+function normalizeProjectRoot(rootPath: string): string {
+  let normalized = rootPath;
+  while (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized || '/';
 }
 
 function buildNodesForType(nodeType: EmbeddableNodeType, rows: Record<string, unknown>[]): NodeWithText[] {

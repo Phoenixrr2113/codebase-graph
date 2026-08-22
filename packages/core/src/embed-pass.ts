@@ -22,9 +22,9 @@ import {
   type EmbeddingConfig,
 } from '@codegraph/plugin-nlp';
 import type { ParsedFileEntities } from '@codegraph/types';
-import type { GraphClient, GraphOperations, QueryOptions, QueryResult } from '@codegraph/graph';
+import type { GraphClient, GraphOperations } from '@codegraph/graph';
 import { createLogger } from '@codegraph/logger';
-import { embedAllNodes, type EmbedNodesResult } from './embed-nodes';
+import { embedAllNodes, type EmbedNodesOptions, type EmbedNodesResult } from './embed-nodes';
 
 const logger = createLogger({ namespace: 'Core:EmbedPass' });
 
@@ -76,59 +76,12 @@ function hashText(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
-const EMBEDDABLE_MATCH = /MATCH \(([A-Za-z_][A-Za-z0-9_]*):(File|Function|Class|Interface|Variable|Type|Component)\)/;
-
 function normalizeProjectRoot(rootPath: string): string {
   let normalized = rootPath;
   while (normalized.length > 1 && normalized.endsWith('/')) {
     normalized = normalized.slice(0, -1);
   }
   return normalized || '/';
-}
-
-/**
- * Restrict embedAllNodes() reads to one project without changing its write
- * behavior. Updates still target the stable identifiers returned by these
- * scoped reads.
- */
-function createProjectScopedClient(client: GraphClient, rootPath: string): GraphClient {
-  const projectPath = normalizeProjectRoot(rootPath);
-  const projectPathPrefix = projectPath === '/' ? '/' : `${projectPath}/`;
-
-  return {
-    graph: client.graph,
-    graphName: client.graphName,
-    dialect: client.dialect,
-    storage: client.storage,
-    query<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
-      return client.query<T>(cypher, options);
-    },
-    roQuery<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
-      const match = EMBEDDABLE_MATCH.exec(cypher);
-      if (!match) {
-        throw new Error('Cannot scope an embedding query without an embeddable node match');
-      }
-      const variable = match[1]!;
-      const pathFilter = `(${variable}.filePath = $projectPath OR ${variable}.filePath STARTS WITH $projectPathPrefix)`;
-      const scopedCypher = cypher.includes('WHERE')
-        ? cypher.replace('WHERE', `WHERE ${pathFilter} AND`)
-        : cypher.replace(match[0], `${match[0]}\n    WHERE ${pathFilter}`);
-      return client.roQuery<T>(scopedCypher, {
-        ...options,
-        params: {
-          ...(options?.params ?? {}),
-          projectPath,
-          projectPathPrefix,
-        },
-      });
-    },
-    ensureIndexes(options?: { embeddingDim?: number }): Promise<void> {
-      return client.ensureIndexes(options);
-    },
-    close(): Promise<void> {
-      return client.close();
-    },
-  };
 }
 
 const scheduledPasses = new Map<string, Promise<EmbedNodesResult>>();
@@ -175,13 +128,12 @@ export function scheduleEmbeddingPass(
         }
       }
 
-      const passClient = scope.type === 'project'
-        ? createProjectScopedClient(options.client, scope.rootPath)
-        : options.client;
-      return embedAllNodes({
-        client: passClient,
+      const embedOptions: EmbedNodesOptions = {
+        client: options.client,
         force: options.force ?? false,
-      });
+      };
+      if (scope.type === 'project') embedOptions.projectRootPath = scope.rootPath;
+      return embedAllNodes(embedOptions);
     })
     .catch((error: unknown) => {
       logger.warn(`Embedding continuation failed: ${error instanceof Error ? error.message : String(error)}`);
