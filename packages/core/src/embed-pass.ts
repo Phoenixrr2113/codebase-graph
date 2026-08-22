@@ -79,7 +79,11 @@ function hashText(text: string): string {
 const EMBEDDABLE_MATCH = /MATCH \(([A-Za-z_][A-Za-z0-9_]*):(File|Function|Class|Interface|Variable|Type|Component)\)/;
 
 function normalizeProjectRoot(rootPath: string): string {
-  return rootPath.replace(/\/+$/, '') || '/';
+  let normalized = rootPath;
+  while (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized || '/';
 }
 
 /**
