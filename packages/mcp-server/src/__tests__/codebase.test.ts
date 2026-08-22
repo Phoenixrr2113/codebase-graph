@@ -17,10 +17,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@codegraph/core', () => ({
   codeGraphService: { getGraphStats: vi.fn() },
   getGraphClient: vi.fn(),
+  getSetupStatus: vi.fn(),
   readSourceFile: vi.fn(),
 }));
 
-import { codeGraphService, getGraphClient } from '@codegraph/core';
+import { codeGraphService, getGraphClient, getSetupStatus } from '@codegraph/core';
 import { handleIndex } from '../personas/codebase';
 
 /**
@@ -44,6 +45,7 @@ const PHANTOM_FILE_PROPERTIES = ['f.path', 'f.language'];
 
 const mockGetGraphStats = vi.mocked(codeGraphService.getGraphStats);
 const mockGetGraphClient = vi.mocked(getGraphClient);
+const mockGetSetupStatus = vi.mocked(getSetupStatus);
 
 function makeRoQuery() {
   return vi.fn().mockImplementation(async (cypher: string) => {
@@ -129,6 +131,95 @@ describe('codebase persona: profile action', () => {
         expect(REAL_FILE_PROPERTIES).toContain(prop);
       }
     }
+  });
+});
+
+describe('codebase persona: empty status', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('reports setup required without leaking the empty graph error', async () => {
+    const setup = {
+      storage: {
+        driver: 'falkordblite',
+        dataPath: '/private/tmp/codegraph-mcp-empty',
+        ownerState: 'owned',
+        embeddedSupported: true,
+        externalGuidance: null,
+        error: null,
+      },
+      embedding: {
+        profile: { provider: 'local', model: 'nomic-ai/nomic-embed-text-v1.5', dimension: 768 },
+        keyPresent: false,
+        localModelCached: true,
+        modelLoad: { state: 'ready', model: 'nomic-ai/nomic-embed-text-v1.5', cached: true },
+        migration: null,
+      },
+      projects: { configured: false, count: 0 },
+      index: {
+        state: 'not-configured',
+        progress: null,
+        embeddingPass: { running: false, scope: null, startedAt: null },
+      },
+    } as const;
+    mockGetSetupStatus.mockResolvedValue(setup);
+    mockGetGraphStats.mockRejectedValue(new Error('ERR Invalid graph operation on empty key'));
+
+    const result = await handleIndex({ action: 'status' }) as Record<string, unknown>;
+
+    expect(result['setupRequired']).toBe(true);
+    expect(result['configured']).toBe(false);
+    expect(result['setup']).toEqual(setup);
+    expect(JSON.stringify(result)).not.toContain('Invalid graph operation');
+  });
+
+  it('waits for an unsupported storage startup and reports the blocked setup contract', async () => {
+    const startingSetup = {
+      storage: {
+        driver: 'falkordb',
+        dataPath: null,
+        ownerState: 'starting',
+        embeddedSupported: false,
+        externalGuidance: 'Embedded FalkorDBLite is unavailable on this platform. Set CODEGRAPH_DRIVER=falkordb and FALKORDB_URL, or configure FALKORDB_HOST and FALKORDB_PORT.',
+        error: null,
+      },
+      embedding: {
+        profile: { provider: 'none', model: null, dimension: 0 },
+        keyPresent: false,
+        localModelCached: false,
+        modelLoad: null,
+        migration: null,
+      },
+      projects: { configured: false, count: 0 },
+      index: {
+        state: 'not-configured',
+        progress: null,
+        embeddingPass: { running: false, scope: null, startedAt: null },
+      },
+    } as const;
+    const blockedSetup = {
+      ...startingSetup,
+      storage: {
+        ...startingSetup.storage,
+        ownerState: 'blocked' as const,
+        error: 'Embedded FalkorDBLite is unavailable on win32-x64.',
+      },
+    };
+    mockGetSetupStatus
+      .mockResolvedValueOnce(startingSetup)
+      .mockResolvedValueOnce(blockedSetup);
+    mockGetGraphClient.mockRejectedValue(
+      new Error('Embedded FalkorDBLite is unavailable on win32-x64.'),
+    );
+
+    const result = await handleIndex({ action: 'status' }) as Record<string, unknown>;
+
+    expect(result['configured']).toBe(false);
+    expect(result['setupRequired']).toBe(true);
+    expect(result['setup']).toEqual(blockedSetup);
+    expect(result['error']).toBeUndefined();
+    expect(mockGetSetupStatus).toHaveBeenCalledTimes(2);
   });
 });
 

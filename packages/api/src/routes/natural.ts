@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { getGraphClient, unifiedSearch, cotSearch } from '@codegraph/core';
-import { safeErrorMessage } from '../safe-error';
+import { safeErrorMessage } from '../safe-error.js';
 
 export const naturalRoutes = new Hono();
 

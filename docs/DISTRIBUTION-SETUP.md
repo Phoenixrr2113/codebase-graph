@@ -8,7 +8,8 @@ This is the operator guide for the public `codegraph-mcp` npm package and the pl
 - CI validates the repository and tests one exact npm tarball on Linux, macOS, and Windows. Linux x64 and Apple silicon macOS also exercise a database-backed MCP call through embedded FalkorDBLite; the macOS job installs the module's required Homebrew `libomp` and `openssl@3` libraries first.
 - The first `0.1.0` npm publication is a manual authenticated bootstrap, followed by a one-time Release workflow run that verifies the registry package and creates its annotated tag and GitHub release.
 - Later annotated `vX.Y.Z` tags publish through npm trusted publishing with GitHub Actions OIDC.
-- The release workflow creates a GitHub release only after the registry package passes the CLI and MCP handshake smoke tests.
+- The release workflow publishes or finalizes only after the installed-package matrix passes on Linux x64, Apple silicon macOS, and Windows x64.
+- The optional local-provider lane runs on Linux x64 with an empty model cache and proves download progress plus a usable 768-dimension vector index.
 - MCPB artifacts are built for the current runner platform. They are not claimed to be portable across operating systems.
 
 ## Prerequisites
@@ -59,6 +60,16 @@ If `npm whoami` fails, run `npm login` in your terminal and repeat the identity 
 
 ## Verify the bootstrap package
 
+The sole canonical command for creating and validating the publishable artifact is:
+
+```bash
+pnpm pack:npm
+```
+
+`pnpm release:check` starts with that command, then boots the source API, audits the consumer dependency tree, and runs the basic smoke against the exact generated tarball.
+
+Installed runtime defaults are part of the package contract. `API_PORT` defaults to `3001`. `CODEGRAPH_DATA_DIR` defaults to `~/.codegraph`, with MCP configuration at `~/.codegraph/mcp-context.json`; embedded database files separately default to `<current working directory>/.codegraph/falkordb`. Without an explicit embedding provider, CodeGraph selects Voyage when `VOYAGE_API_KEY` is set, then OpenRouter when `OPENROUTER_API_KEY` is set, then local when neither key is set. Without an explicit database driver, a configured external host selects FalkorDB; otherwise Linux x64 and Apple silicon macOS with the required native libraries default to embedded FalkorDBLite when its package loads, while other platforms and failed embedded loads default to external FalkorDB.
+
 From the repository root:
 
 ```bash
@@ -70,7 +81,9 @@ node scripts/release/smoke-package.mjs \
   --version 0.1.0
 ```
 
-The smoke test creates a temporary consumer, installs the registry tarball without lifecycle scripts, checks `codegraph-mcp --version`, opens an MCP stdio connection, and verifies the `search`, `knowledge`, `codebase`, and `query` tools. On Linux x64 and Apple silicon macOS it also stores and reads an isolated verification entity through embedded FalkorDBLite. Apple silicon requires `brew install libomp openssl@3`; without those libraries CodeGraph falls back to external FalkorDB. Other platforms require an external FalkorDB service for database operations.
+The basic smoke creates a temporary consumer and installs the exact tarball without lifecycle scripts. Its 25 runtime assertions cover the matching CLI version, dashboard health and built assets, empty projects and embedding coverage, setup status, Browse roots, MCP initialization, the exact five-tool surface (`analyze`, `codebase`, `knowledge`, `query`, and `search`), project configuration, indexing, graph queries, restart persistence, concurrent MCP and dashboard access through one embedded server, shutdown order, persisted data, and the tarball SHA-256.
+
+Release CI runs this installed artifact with embedded FalkorDBLite on Linux x64 and Apple silicon macOS. The macOS job first runs `brew install libomp openssl@3`. The Windows x64 job verifies the exact external FalkorDB guidance without attempting embedded startup. A local tarball does not prove npm registry resolution for the documented `npx` entry paths; check those only after publication.
 
 After the registry smoke passes, create the GitHub `npm` environment for later tag releases. In GitHub Actions, open the Release workflow, choose **Run workflow** from `main`, enter `0.1.0` as `bootstrap_version`, and enter the saved full SHA as `bootstrap_commit`. This one-time path accepts only the `0.1.0` package version, checks out that exact commit, requires it to be reachable from `main`, reruns the full release gate, confirms that the exact version already exists on npm, requires the registry tarball to be byte-for-byte identical to the artifact rebuilt from `bootstrap_commit`, creates the annotated `v0.1.0` tag on that commit, and publishes the tarball plus checksum as a GitHub release. It does not use the `npm` environment, request an OIDC token, or call `npm publish` again.
 

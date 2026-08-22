@@ -8,7 +8,15 @@ import { existsSync } from 'node:fs';
 import { trace, toErrorMessage } from '@codegraph/logger';
 import type { DatabaseDriver, DriverConfig, CypherDialect } from './driver';
 import { FalkorDBDriver } from './drivers/falkordb';
-import { FalkorDBLiteDriver } from './drivers/falkordblite';
+import { FalkorDBLiteDriver, resolveEmbeddedDataPath } from './drivers/falkordblite';
+import {
+  EMBEDDING_MIGRATION_REMEDY,
+  EmbeddingProfileMismatchError,
+  type EmbeddingIndexProfile,
+  type EnsureSchemaOptions,
+} from './drivers/falkordb-shared';
+
+export type { EmbeddingIndexProfile, EnsureSchemaOptions } from './drivers/falkordb-shared';
 
 /**
  * FalkorDB connection configuration (backward-compatible alias)
@@ -67,6 +75,12 @@ export interface QueryResult<T> {
   metadata: string[];
 }
 
+export interface GraphStorageRuntime {
+  driver: 'falkordb' | 'falkordblite';
+  dataPath: string | null;
+  ownerState: 'owned' | 'attached';
+}
+
 function sanitizeQueryParamValue(value: unknown): unknown {
   if (value === undefined) return null;
   if (value === null || typeof value !== 'object') return value;
@@ -85,13 +99,22 @@ function sanitizeQueryParams(params: QueryParams | undefined): QueryParams | und
   return sanitizeQueryParamValue(params) as QueryParams;
 }
 
+function isEmptyGraphError(error: unknown): boolean {
+  return toErrorMessage(error).includes('ERR Invalid graph operation on empty key');
+}
+
 /**
  * Graph client error types
  */
 export class GraphClientError extends Error {
   constructor(
     message: string,
-    public readonly code: 'CONNECTION_FAILED' | 'QUERY_FAILED' | 'INDEX_FAILED' | 'INDEX_DIM_CONFLICT' | 'UNKNOWN'
+    public readonly code: 'CONNECTION_FAILED' | 'QUERY_FAILED' | 'INDEX_FAILED' | 'INDEX_DIM_CONFLICT' | 'EMBEDDING_PROFILE_MISMATCH' | 'UNKNOWN',
+    public readonly details?: {
+      storedProfile: EmbeddingIndexProfile;
+      requestedProfile: EmbeddingIndexProfile;
+      remedy: string;
+    },
   ) {
     super(message);
     this.name = 'GraphClientError';
@@ -108,6 +131,8 @@ export interface GraphClient {
   readonly graphName: string;
   /** Cypher dialect for this driver */
   readonly dialect: CypherDialect;
+  /** Runtime storage identity used by setup and diagnostics. */
+  readonly storage: GraphStorageRuntime;
 
   /**
    * Execute a Cypher query with optional parameters
@@ -124,7 +149,7 @@ export interface GraphClient {
    * @param opts.embeddingDim - Optional embedding dimension override. Threads through
    *   to ensureSchemaImpl. See driver.ts for details.
    */
-  ensureIndexes(opts?: { embeddingDim?: number }): Promise<void>;
+  ensureIndexes(opts?: EnsureSchemaOptions): Promise<void>;
 
   /**
    * Close the client connection
@@ -140,10 +165,12 @@ class GraphClientImpl implements GraphClient {
   private schemaCreated = false;
   /** The embeddingDim used when the schema was first created, if any. */
   private firstEmbeddingDim: number | undefined = undefined;
+  private firstEmbeddingProfile: EmbeddingIndexProfile | undefined;
 
   constructor(
     private readonly driver: DatabaseDriver,
     graphName: string,
+    readonly storage: GraphStorageRuntime,
   ) {
     this.graphName = graphName;
   }
@@ -168,6 +195,7 @@ class GraphClientImpl implements GraphClient {
     try {
       return await this.driver.query<T>(cypher, sanitizeQueryParams(options?.params), options?.timeout);
     } catch (error) {
+      if (isEmptyGraphError(error)) return { data: [], metadata: [] };
       throw new GraphClientError(
         `Query failed: ${toErrorMessage(error)}`,
         'QUERY_FAILED'
@@ -180,6 +208,7 @@ class GraphClientImpl implements GraphClient {
     try {
       return await this.driver.roQuery<T>(cypher, sanitizeQueryParams(options?.params), options?.timeout);
     } catch (error) {
+      if (isEmptyGraphError(error)) return { data: [], metadata: [] };
       throw new GraphClientError(
         `Read-only query failed: ${toErrorMessage(error)}`,
         'QUERY_FAILED'
@@ -188,39 +217,85 @@ class GraphClientImpl implements GraphClient {
   }
 
   @trace()
-  async ensureIndexes(opts?: { embeddingDim?: number }): Promise<void> {
+  async ensureIndexes(opts?: EnsureSchemaOptions): Promise<void> {
     // Schema is created exactly once per client lifetime. Repeat calls with
     // different `opts` are no-ops by design — re-applying schema with a
     // different embeddingDim would require dropping vector indexes first.
     if (this.schemaCreated) {
+      const requestedDimension = opts?.embeddingDim ?? opts?.embeddingProfile?.dimension;
+      const profileChanged = opts?.embeddingProfile !== undefined
+        && this.firstEmbeddingProfile !== undefined
+        && (
+          opts.embeddingProfile.provider !== this.firstEmbeddingProfile.provider
+          || opts.embeddingProfile.model !== this.firstEmbeddingProfile.model
+          || opts.embeddingProfile.dimension !== this.firstEmbeddingProfile.dimension
+        );
+      const profileNeedsInitialization = opts?.embeddingProfile !== undefined
+        && this.firstEmbeddingProfile === undefined;
+      if (profileChanged && !opts?.allowEmbeddingMigration) {
+        throw new GraphClientError(
+          `Embedding profile mismatch. ${EMBEDDING_MIGRATION_REMEDY}`,
+          'EMBEDDING_PROFILE_MISMATCH',
+          {
+            storedProfile: this.firstEmbeddingProfile!,
+            requestedProfile: opts.embeddingProfile!,
+            remedy: EMBEDDING_MIGRATION_REMEDY,
+          },
+        );
+      }
       // Guard: if the caller passes a different embeddingDim than was used at
       // creation time, throw rather than silently no-op. Silently accepting a
       // conflicting dim would leave the vector index at the wrong dimension.
       if (
-        opts?.embeddingDim !== undefined &&
+        requestedDimension !== undefined &&
         this.firstEmbeddingDim !== undefined &&
-        opts.embeddingDim !== this.firstEmbeddingDim
+        requestedDimension !== this.firstEmbeddingDim
       ) {
+        if (opts?.allowEmbeddingMigration) {
+          await this.driver.ensureSchema(opts);
+          this.firstEmbeddingDim = requestedDimension;
+          this.firstEmbeddingProfile = opts.embeddingProfile;
+          return;
+        }
         throw new GraphClientError(
-          `ensureIndexes called with embeddingDim=${opts.embeddingDim} but schema was created with embeddingDim=${this.firstEmbeddingDim}. ` +
+          `ensureIndexes called with embeddingDim=${requestedDimension} but schema was created with embeddingDim=${this.firstEmbeddingDim}. ` +
           `Close and recreate the client to change dimension.`,
           'INDEX_DIM_CONFLICT',
         );
+      }
+      if (profileChanged && opts?.allowEmbeddingMigration) {
+        await this.driver.ensureSchema(opts);
+        this.firstEmbeddingDim = requestedDimension;
+        this.firstEmbeddingProfile = opts.embeddingProfile;
+      }
+      if (profileNeedsInitialization) {
+        await this.driver.ensureSchema(opts);
+        this.firstEmbeddingDim = requestedDimension;
+        this.firstEmbeddingProfile = opts.embeddingProfile;
       }
       return;
     }
     try {
       await this.driver.ensureSchema(opts);
       this.schemaCreated = true;
-      this.firstEmbeddingDim = opts?.embeddingDim;
+      this.firstEmbeddingDim = opts?.embeddingDim ?? opts?.embeddingProfile?.dimension;
+      this.firstEmbeddingProfile = opts?.embeddingProfile;
     } catch (error) {
+      if (error instanceof EmbeddingProfileMismatchError) {
+        throw new GraphClientError(error.message, error.code, {
+          storedProfile: error.storedProfile,
+          requestedProfile: error.requestedProfile,
+          remedy: EMBEDDING_MIGRATION_REMEDY,
+        });
+      }
       const errorMessage = toErrorMessage(error);
       // FalkorDB says "already indexed"
       if (!errorMessage.includes('Index already exists') && !errorMessage.includes('already indexed')) {
         throw new GraphClientError(`Index creation failed: ${errorMessage}`, 'INDEX_FAILED');
       }
       this.schemaCreated = true;
-      this.firstEmbeddingDim = opts?.embeddingDim;
+      this.firstEmbeddingDim = opts?.embeddingDim ?? opts?.embeddingProfile?.dimension;
+      this.firstEmbeddingProfile = opts?.embeddingProfile;
     }
   }
 
@@ -327,6 +402,7 @@ async function detectDefaultDriver(): Promise<'falkordb' | 'falkordblite'> {
  * problem is a large snapshot sends them the wrong way entirely.
  */
 export function embeddedConnectionHint(message: string): string {
+  if (message.includes('Embedded database path')) return '';
   if (/did not become ready/i.test(message)) {
     return (
       '\nHint: the embedded database ran out of startup time. A large graph takes ' +
@@ -378,7 +454,16 @@ export async function createClient(config?: FalkorConfig | GraphConfig): Promise
 
   try {
     await driver.connect(driverConfig);
-    return new GraphClientImpl(driver, graphName);
+    const storage: GraphStorageRuntime = driverType === 'falkordblite'
+      ? {
+          driver: driverType,
+          dataPath: resolveEmbeddedDataPath(driverConfig.databasePath ?? '.codegraph/falkordb').dataPath,
+          ownerState: driver instanceof FalkorDBLiteDriver && driver.isEmbeddedOwner()
+            ? 'owned'
+            : 'attached',
+        }
+      : { driver: driverType, dataPath: null, ownerState: 'attached' };
+    return new GraphClientImpl(driver, graphName, storage);
   } catch (error) {
     const msg = toErrorMessage(error);
     let hint = '';

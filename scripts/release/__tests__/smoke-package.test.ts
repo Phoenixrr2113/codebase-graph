@@ -4,11 +4,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SpawnSyncReturns } from 'node:child_process';
 import {
+  assertHttpJson,
+  assertRequiredTools,
+  createPassReporter,
+  parseToolJson,
+  resolveInstalledSmokeMode,
   resolveNpmInvocation,
   resolveSmokeInput,
   resolveValidatedPackageInput,
   smokePackage,
 } from '../smoke-package.mjs';
+import { assertUnsupportedMcpStatus } from '../unsupported-storage-contract.mjs';
 
 const temporaryDirectories: string[] = [];
 
@@ -47,10 +53,7 @@ function successfulRunner() {
     run: vi.fn()
       .mockReturnValueOnce(processResult(0))
       .mockReturnValueOnce(processResult(0, '0.1.0\n'))
-      .mockReturnValueOnce(processResult(0, JSON.stringify({
-        tools: ['search', 'knowledge', 'codebase', 'query'],
-        databaseVerified: true,
-      }))),
+      .mockReturnValueOnce(processResult(0, 'PASS installed runtime acceptance\n')),
   };
 }
 
@@ -123,37 +126,19 @@ describe('smokePackage', () => {
     })).rejects.toThrow(/9\.9\.9[\s\S]*0\.1\.0/);
   });
 
-  it('rejects non-JSON handshake output', async () => {
+  it('rejects a failed installed runtime smoke', async () => {
     const runner = successfulRunner();
     runner.run.mockReset()
       .mockReturnValueOnce(processResult(0))
       .mockReturnValueOnce(processResult(0, '0.1.0\n'))
-      .mockReturnValueOnce(processResult(0, 'server log on stdout'));
+      .mockReturnValueOnce(processResult(1, 'FAIL dashboard health: HTTP 500\n', 'runtime failed'));
 
     await expect(smokePackage({
       verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
       tarballPath: createTarball(),
       expectedVersion: '0.1.0',
       runner,
-    })).rejects.toThrow('non-JSON');
-  });
-
-  it('requires all four public MCP tools', async () => {
-    const runner = successfulRunner();
-    runner.run.mockReset()
-      .mockReturnValueOnce(processResult(0))
-      .mockReturnValueOnce(processResult(0, '0.1.0\n'))
-      .mockReturnValueOnce(processResult(0, JSON.stringify({
-        tools: ['search'],
-        databaseVerified: true,
-      })));
-
-    await expect(smokePackage({
-      verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
-      tarballPath: createTarball(),
-      expectedVersion: '0.1.0',
-      runner,
-    })).rejects.toThrow('knowledge');
+    })).rejects.toThrow('runtime failed');
   });
 
   it('returns the installed version and tool names after a valid smoke run', async () => {
@@ -164,8 +149,8 @@ describe('smokePackage', () => {
       runner: successfulRunner(),
     })).resolves.toMatchObject({
       version: '0.1.0',
-      tools: ['search', 'knowledge', 'codebase', 'query'],
-      databaseVerified: true,
+      mode: 'basic',
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
   });
 
@@ -182,7 +167,7 @@ describe('smokePackage', () => {
     expect(runner.run.mock.calls.map((call) => call[2].timeout)).toEqual([
       300_000,
       30_000,
-      60_000,
+      300_000,
     ]);
   });
 
@@ -205,11 +190,136 @@ describe('smokePackage', () => {
   });
 });
 
+describe('smoke helpers', () => {
+  it('requires unsupported MCP status to expose the blocked setup contract', () => {
+    const guidance =
+      'Embedded FalkorDBLite is unavailable on this platform. Set CODEGRAPH_DRIVER=falkordb and FALKORDB_URL, or configure FALKORDB_HOST and FALKORDB_PORT.';
+    const status = {
+      configured: false,
+      setupRequired: true,
+      setup: {
+        storage: {
+          driver: 'falkordb',
+          ownerState: 'blocked',
+          embeddedSupported: false,
+          externalGuidance: guidance,
+        },
+      },
+    };
+
+    expect(() => assertUnsupportedMcpStatus(status)).not.toThrow();
+    expect(() => assertUnsupportedMcpStatus({
+      ...status,
+      setup: { storage: { ...status.setup.storage, ownerState: 'starting' } },
+    })).toThrow('MCP status did not report blocked storage');
+  });
+
+  it('selects guidance mode only when embedded storage and external FalkorDB are unavailable', () => {
+    expect(resolveInstalledSmokeMode({
+      requestedMode: 'basic',
+      platform: 'win32',
+      architecture: 'x64',
+      environment: {},
+    })).toBe('unsupported');
+    expect(resolveInstalledSmokeMode({
+      requestedMode: 'basic',
+      platform: 'win32',
+      architecture: 'x64',
+      environment: { FALKORDB_HOST: 'db.internal' },
+    })).toBe('basic');
+    expect(resolveInstalledSmokeMode({
+      requestedMode: 'basic',
+      platform: 'linux',
+      architecture: 'x64',
+      environment: {},
+    })).toBe('basic');
+    expect(resolveInstalledSmokeMode({
+      requestedMode: 'basic',
+      platform: 'darwin',
+      architecture: 'arm64',
+      environment: {},
+      fileExists: () => true,
+    })).toBe('basic');
+    expect(resolveInstalledSmokeMode({
+      requestedMode: 'basic',
+      platform: 'darwin',
+      architecture: 'arm64',
+      environment: {},
+      fileExists: () => false,
+    })).toBe('unsupported');
+  });
+
+  it('requires the complete five-tool public surface', () => {
+    expect(() => assertRequiredTools(['search', 'knowledge', 'codebase', 'query'])).toThrow(
+      'analyze',
+    );
+    expect(assertRequiredTools(['analyze', 'query', 'codebase', 'knowledge', 'search'])).toEqual([
+      'analyze',
+      'codebase',
+      'knowledge',
+      'query',
+      'search',
+    ]);
+  });
+
+  it('parses successful MCP text content and rejects protocol errors', () => {
+    expect(parseToolJson({
+      content: [{ type: 'text', text: '{"configured":false}' }],
+      isError: false,
+    }, 'codebase status')).toEqual({ configured: false });
+
+    expect(() => parseToolJson({
+      content: [{ type: 'text', text: '{"error":"boom"}' }],
+      isError: true,
+    }, 'codebase status')).toThrow('codebase status returned an MCP error');
+  });
+
+  it('validates HTTP status and response shape', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ projects: [] }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ));
+
+    await expect(assertHttpJson({
+      fetcher,
+      url: 'http://127.0.0.1:1234/api/projects',
+      label: 'projects empty list',
+      assertBody: (body) => {
+        if (!Array.isArray(body.projects) || body.projects.length !== 0) {
+          throw new Error('projects must be empty');
+        }
+      },
+    })).resolves.toEqual({ projects: [] });
+
+    fetcher.mockResolvedValueOnce(new Response('{"error":"nope"}', { status: 500 }));
+    await expect(assertHttpJson({
+      fetcher,
+      url: 'http://127.0.0.1:1234/api/projects',
+      label: 'projects empty list',
+      assertBody: () => {},
+    })).rejects.toThrow('expected HTTP 200, received 500');
+  });
+
+  it('prints one plain pass or fail line per step', () => {
+    const lines: string[] = [];
+    const reporter = createPassReporter((line) => lines.push(line));
+
+    reporter.pass('installed exact tarball');
+    reporter.fail('dashboard health', new Error('HTTP 500'));
+
+    expect(lines).toEqual([
+      'PASS installed exact tarball',
+      'FAIL dashboard health: HTTP 500',
+    ]);
+  });
+});
+
 describe('resolveSmokeInput', () => {
   it('uses a validation result when no CLI arguments are provided', () => {
     expect(resolveSmokeInput([], '/repo/tmp/release/package-result.json')).toEqual({
       kind: 'result',
       resultPath: '/repo/tmp/release/package-result.json',
+      mode: 'basic',
     });
   });
 
@@ -223,6 +333,20 @@ describe('resolveSmokeInput', () => {
       kind: 'tarball',
       tarballPath: '/repo/tmp/release/codegraph-mcp-0.1.0.tgz',
       expectedVersion: '0.1.0',
+      mode: 'basic',
+    });
+  });
+
+  it('accepts an opt-in local-provider mode with a validation result', () => {
+    expect(resolveSmokeInput([
+      '--result',
+      '/repo/tmp/release/package-result.json',
+      '--mode',
+      'local',
+    ], '/unused/result.json')).toEqual({
+      kind: 'result',
+      resultPath: '/repo/tmp/release/package-result.json',
+      mode: 'local',
     });
   });
 

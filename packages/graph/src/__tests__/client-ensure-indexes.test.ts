@@ -139,6 +139,18 @@ describe('GraphClientImpl.ensureIndexes() dim conflict guard', () => {
     await client.close();
   });
 
+  it('second call with a different model at the same dimension requires migration', async () => {
+    const client = await createClient({ driver: 'falkordblite', databasePath: '/tmp/test-dim-guard-profile' });
+    await client.ensureIndexes({
+      embeddingProfile: { provider: 'local', model: 'model-a', dimension: 768 },
+    });
+
+    await expect(client.ensureIndexes({
+      embeddingProfile: { provider: 'local', model: 'model-b', dimension: 768 },
+    })).rejects.toMatchObject({ code: 'EMBEDDING_PROFILE_MISMATCH' });
+    await client.close();
+  });
+
   it('second call with no opts is always a no-op (no throw)', async () => {
     const client = await createClient({ driver: 'falkordblite', databasePath: '/tmp/test-dim-guard-4' });
     await client.ensureIndexes({ embeddingDim: 768 });

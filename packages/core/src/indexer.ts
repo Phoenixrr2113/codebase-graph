@@ -38,7 +38,7 @@ import { extractReExports, extractLocalExportedNames, type ReExportEntity } from
 import { parseMarkdownContent } from '@codegraph/plugin-markdown';
 import { createOperations, type GraphClient } from '@codegraph/graph';
 import type { ProjectEntity, ExtractedDocumentEntities } from '@codegraph/types';
-import type { EmbeddingConfig } from '@codegraph/plugin-nlp';
+import { getEmbeddingProfile, type EmbeddingConfig } from '@codegraph/plugin-nlp';
 import { getGraphClient } from './graphClient';
 import { loadGitignorePatterns } from './watchService';
 import {
@@ -199,6 +199,31 @@ export interface IndexResult {
   projectName: string;
   stats: IndexStats;
   errorMessages: string[];
+}
+
+export type IndexProgressPhase =
+  | 'storage'
+  | 'discovering'
+  | 'parsing'
+  | 'writing'
+  | 'embedding'
+  | 'complete'
+  | 'failed';
+
+export interface IndexProgressState {
+  id: string;
+  phase: IndexProgressPhase;
+  processed?: number;
+  total?: number;
+  message?: string;
+  startedAt: string;
+  completedAt?: string;
+}
+
+let latestIndexProgress: IndexProgressState | null = null;
+
+export function getIndexProgressState(): IndexProgressState | null {
+  return latestIndexProgress ? { ...latestIndexProgress } : null;
 }
 
 // ============================================================================
@@ -470,14 +495,40 @@ export async function indexProject(
     deferEmbeddings?: boolean;
     /** Sync git commit history into the graph (default: true). Set false for fixtures inside an unrelated repo. */
     gitSync?: boolean;
+    /** Receives durable setup phases and item counts for UI polling or direct observation. */
+    onProgress?: (progress: IndexProgressState) => void;
   } = {},
 ): Promise<IndexResult> {
   const startTime = Date.now();
+  const progressId = randomUUID();
+  const progressStartedAt = new Date().toISOString();
+  const reportProgress = (
+    phase: IndexProgressPhase,
+    details: Pick<IndexProgressState, 'processed' | 'total' | 'message'> = {},
+  ): void => {
+    const progress: IndexProgressState = {
+      id: progressId,
+      phase,
+      startedAt: progressStartedAt,
+      ...details,
+      ...(phase === 'complete' || phase === 'failed'
+        ? { completedAt: new Date().toISOString() }
+        : {}),
+    };
+    latestIndexProgress = progress;
+    options.onProgress?.({ ...progress });
+  };
   const { deepAnalysis = true, includeExternals = false, force = false } = options;
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const errorMessages: string[] = [];
+  const embeddingConfig = options.embeddings === false ? undefined : options.embeddings;
+  const embeddingsEnabled = options.embeddings !== false;
+  const embeddingProfile = getEmbeddingProfile(
+    options.embeddings === false ? { provider: 'none' } : options.embeddings,
+  );
 
   try {
+    reportProgress('storage', { message: 'Validating graph storage.' });
     // Verify path is a directory
     const pathStat = await stat(rootPath);
     if (!pathStat.isDirectory()) {
@@ -500,6 +551,7 @@ export async function indexProject(
     await registerTier2Languages();
 
     // Discover source files (git ls-files when available, glob fallback)
+    reportProgress('discovering', { message: 'Discovering source files.' });
     const gitignorePatterns = await loadGitignorePatterns(rootPath);
     const ignoreList = [...DEFAULT_IGNORE_PATTERNS, ...(options.ignorePatterns ?? []), ...gitignorePatterns];
     let files: string[];
@@ -533,7 +585,10 @@ export async function indexProject(
     const graphClient = options.client ?? await getGraphClient();
     // Ensure schema/indexes exist before any writes (also pre-creates labels
     // to prevent FalkorDB #1240 crash on concurrent label introduction)
-    await graphClient.ensureIndexes();
+    await graphClient.ensureIndexes({
+      embeddingProfile,
+      allowEmbeddingMigration: force,
+    });
     const ops = createOperations(graphClient);
 
     // Create or update Project node
@@ -627,10 +682,6 @@ export async function indexProject(
       logger.info(`Incremental: ${skippedCount} unchanged, ${filesToProcess.length} to process (hash check: ${hashDurationMs}ms)`);
     }
 
-    // Resolve embedding config (false = disabled, undefined = default)
-    const embeddingConfig = options.embeddings === false ? undefined : options.embeddings;
-    const embeddingsEnabled = options.embeddings !== false;
-
     // ----------------------------------------------------------------
     // Pipelined index: parse batch N while upserting batch N-1
     // Overlaps CPU-bound parsing with I/O-bound graph writes
@@ -642,6 +693,7 @@ export async function indexProject(
     let totalEmbedded = 0;
     let initialEmbeddingPromise: Promise<unknown> | undefined;
     const totalToProcess = filesToProcess.length;
+    reportProgress('parsing', { processed: 0, total: totalToProcess, message: 'Parsing source files.' });
 
     // Progress logging interval (every 10% or every 50 files, whichever is smaller)
     const progressInterval = Math.max(1, Math.min(50, Math.floor(totalToProcess / 10)));
@@ -802,6 +854,7 @@ export async function indexProject(
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         logger.info(`Pipeline: ${processed}/${codeFiles.length} parsed (${elapsed}s)`);
       }
+      reportProgress('parsing', { processed, total: totalToProcess, message: 'Parsing source files.' });
     }
 
     const symbolCatalog = buildProjectSymbolCatalog(
@@ -810,8 +863,14 @@ export async function indexProject(
     );
     resolveProjectSymbolEdges(allParsed.map(result => result.built), symbolCatalog);
 
+    reportProgress('writing', { processed: 0, total: allParsed.length, message: 'Writing graph data.' });
     for (let i = 0; i < allParsed.length; i += UPSERT_CHUNK_SIZE) {
       await upsertChunk(allParsed.slice(i, i + UPSERT_CHUNK_SIZE));
+      reportProgress('writing', {
+        processed: Math.min(i + UPSERT_CHUNK_SIZE, allParsed.length),
+        total: allParsed.length,
+        message: 'Writing graph data.',
+      });
     }
 
     // Parse markdown files (typically few, no pipeline needed)
@@ -868,6 +927,11 @@ export async function indexProject(
 
     // Embeddings (runs after all structure is committed)
     if (allParsed.length > 0 && embeddingsEnabled) {
+      reportProgress('embedding', {
+        processed: 0,
+        total: allParsed.length,
+        message: 'Generating embeddings.',
+      });
       const builtList = allParsed.map(r => r.built);
 
       if (options.deferEmbeddings) {
@@ -944,6 +1008,11 @@ export async function indexProject(
     const skipMsg = skippedCount > 0 ? `, ${skippedCount} skipped (unchanged)` : '';
     const embedMsg = totalEmbedded > 0 ? `, ${totalEmbedded} embedded` : '';
     logger.info(`Indexed ${rootPath}: ${totalFiles} files, ${totalEntities} entities, ${totalEdges} edges${skipMsg}${embedMsg} in ${durationMs}ms`);
+    reportProgress('complete', {
+      processed: totalFiles,
+      total: totalFiles,
+      message: 'Indexing complete.',
+    });
 
     const stats: IndexStats = {
       files: totalFiles,
@@ -967,6 +1036,7 @@ export async function indexProject(
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error during indexing';
     errorMessages.push(msg);
+    reportProgress('failed', { message: msg });
     return {
       success: false,
       projectId: '',

@@ -18,10 +18,24 @@ export interface SearchResponseResult extends SearchResult {
   id: string
 }
 
+export interface SearchWorkspace {
+  query: string
+  results: SearchResponseResult[]
+  searching: boolean
+  total: number
+  error: string | null
+}
+
+export function createSearchWorkspace(): SearchWorkspace {
+  return { query: '', results: [], searching: false, total: 0, error: null }
+}
+
 interface SearchPanelProps {
   apiUrl: string
   onHighlight: (nodeIds: string[]) => void
   onSelectResult: (result: SearchResponseResult) => void
+  workspace?: SearchWorkspace
+  onWorkspaceChange?: (updater: (current: SearchWorkspace) => SearchWorkspace) => void
 }
 
 interface SearchRequestManagerOptions {
@@ -173,29 +187,34 @@ export function createSearchRequestManager({
   }
 }
 
-export function SearchPanel({ apiUrl, onHighlight, onSelectResult }: SearchPanelProps) {
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SearchResponseResult[]>([])
-  const [searching, setSearching] = useState(false)
-  const [total, setTotal] = useState(0)
-  const [error, setError] = useState<string | null>(null)
+export function SearchPanel({ apiUrl, onHighlight, onSelectResult, workspace: controlledWorkspace, onWorkspaceChange }: SearchPanelProps) {
+  const [localWorkspace, setLocalWorkspace] = useState<SearchWorkspace>(createSearchWorkspace)
   const requestManagerRef = useRef<SearchRequestManager | null>(null)
+  const workspace = controlledWorkspace ?? localWorkspace
+
+  const updateWorkspace = (updater: (current: SearchWorkspace) => SearchWorkspace): void => {
+    if (onWorkspaceChange) {
+      onWorkspaceChange(updater)
+      return
+    }
+    setLocalWorkspace(updater)
+  }
 
   useEffect(() => {
     const manager = createSearchRequestManager({
       apiUrl,
-      onResults: setResults,
-      onTotal: setTotal,
+      onResults: (results) => updateWorkspace((current) => ({ ...current, results })),
+      onTotal: (total) => updateWorkspace((current) => ({ ...current, total })),
       onHighlight,
-      onSearching: setSearching,
-      onError: setError,
+      onSearching: (searching) => updateWorkspace((current) => ({ ...current, searching })),
+      onError: (error) => updateWorkspace((current) => ({ ...current, error })),
     })
     requestManagerRef.current = manager
     return () => {
       manager.dispose()
       if (requestManagerRef.current === manager) requestManagerRef.current = null
     }
-  }, [apiUrl, onHighlight])
+  }, [apiUrl, onHighlight, onWorkspaceChange])
 
   return (
     <div className="flex h-full min-h-0 flex-col border-r border-border bg-card">
@@ -205,30 +224,30 @@ export function SearchPanel({ apiUrl, onHighlight, onSelectResult }: SearchPanel
           aria-label="Search code"
           placeholder="Search code..."
           data-testid="search-input"
-          value={query}
+          value={workspace.query}
           onChange={(e) => {
-            setQuery(e.target.value)
+            updateWorkspace((current) => ({ ...current, query: e.target.value }))
             requestManagerRef.current?.searchAfterDelay(e.target.value)
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') requestManagerRef.current?.searchNow(query)
+            if (e.key === 'Enter') requestManagerRef.current?.searchNow(workspace.query)
           }}
           className="h-8 text-sm"
         />
         <div
           role="status"
           aria-live="polite"
-          className={searching || total > 0 ? 'mt-1 text-xs text-muted-foreground' : 'sr-only'}
+          className={workspace.searching || workspace.total > 0 ? 'mt-1 text-xs text-muted-foreground' : 'sr-only'}
         >
-          {searching ? 'Searching...' : total > 0 ? `${total} results` : ''}
+          {workspace.searching ? 'Searching...' : workspace.total > 0 ? `${workspace.total} results` : ''}
         </div>
-        <div role="alert" className={error ? 'mt-1 text-xs text-red-400' : 'sr-only'}>
-          {error ?? ''}
+        <div role="alert" className={workspace.error ? 'mt-1 text-xs text-red-400' : 'sr-only'}>
+          {workspace.error ?? ''}
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {results.map((r) => (
+        {workspace.results.map((r) => (
           <button
             key={r.id}
             className="w-full border-b border-border/50 px-3 py-2 text-left transition-colors hover:bg-accent/50"

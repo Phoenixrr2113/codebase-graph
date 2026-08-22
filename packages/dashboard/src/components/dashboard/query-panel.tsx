@@ -2,10 +2,35 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
-type QueryMode = 'cypher' | 'search' | 'natural'
+export type QueryMode = 'cypher' | 'search' | 'natural'
+
+export interface QueryWorkspace {
+  input: string
+  results: unknown[] | null
+  meta: Record<string, unknown> | null
+  error: string | null
+  loading: boolean
+  durationMs: number | null
+}
+
+export type QueryWorkspaces = Record<QueryMode, QueryWorkspace>
+
+export function createQueryWorkspaces(): QueryWorkspaces {
+  const empty = (): QueryWorkspace => ({
+    input: '',
+    results: null,
+    meta: null,
+    error: null,
+    loading: false,
+    durationMs: null,
+  })
+  return { cypher: empty(), search: empty(), natural: empty() }
+}
 
 interface QueryPanelProps {
   apiUrl: string
+  workspaces?: QueryWorkspaces
+  onWorkspacesChange?: (updater: (current: QueryWorkspaces) => QueryWorkspaces) => void
 }
 
 interface ResultItem {
@@ -166,43 +191,60 @@ function asStringArray(value: unknown): string[] {
     : []
 }
 
-export function QueryPanel({ apiUrl }: QueryPanelProps) {
-  const [query, setQuery] = useState('')
+export function QueryPanel({ apiUrl, workspaces: controlledWorkspaces, onWorkspacesChange }: QueryPanelProps) {
+  const [localWorkspaces, setLocalWorkspaces] = useState<QueryWorkspaces>(createQueryWorkspaces)
   const [mode, setMode] = useState<QueryMode>('cypher')
-  const [results, setResults] = useState<unknown[] | null>(null)
-  const [meta, setMeta] = useState<Record<string, unknown> | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [durationMs, setDurationMs] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const requestManagerRef = useRef<QueryRequestManager | null>(null)
+  const requestManagersRef = useRef<Record<QueryMode, QueryRequestManager> | null>(null)
+  const workspaces = controlledWorkspaces ?? localWorkspaces
+  const workspace = workspaces[mode]
+
+  const updateWorkspaces = useCallback((updater: (current: QueryWorkspaces) => QueryWorkspaces): void => {
+    if (onWorkspacesChange) {
+      onWorkspacesChange(updater)
+      return
+    }
+    setLocalWorkspaces(updater)
+  }, [onWorkspacesChange])
+
+  const updateWorkspace = useCallback((targetMode: QueryMode, patch: Partial<QueryWorkspace>): void => {
+    updateWorkspaces((current) => ({
+      ...current,
+      [targetMode]: { ...current[targetMode], ...patch },
+    }))
+  }, [updateWorkspaces])
 
   useEffect(() => {
     textareaRef.current?.focus()
   }, [mode])
 
   useEffect(() => {
-    const manager = createQueryRequestManager({
+    const createManager = (targetMode: QueryMode): QueryRequestManager => createQueryRequestManager({
       apiUrl,
-      onLoading: setLoading,
-      onError: setError,
-      onResults: setResults,
-      onMeta: setMeta,
-      onDuration: setDurationMs,
+      onLoading: (loading) => updateWorkspace(targetMode, { loading }),
+      onError: (error) => updateWorkspace(targetMode, { error }),
+      onResults: (results) => updateWorkspace(targetMode, { results }),
+      onMeta: (meta) => updateWorkspace(targetMode, { meta }),
+      onDuration: (durationMs) => updateWorkspace(targetMode, { durationMs }),
     })
-    requestManagerRef.current = manager
-    return () => {
-      manager.cancel()
-      if (requestManagerRef.current === manager) requestManagerRef.current = null
+    const managers: Record<QueryMode, QueryRequestManager> = {
+      cypher: createManager('cypher'),
+      search: createManager('search'),
+      natural: createManager('natural'),
     }
-  }, [apiUrl])
+    requestManagersRef.current = managers
+    return () => {
+      Object.values(managers).forEach((manager) => manager.cancel())
+      if (requestManagersRef.current === managers) requestManagersRef.current = null
+    }
+  }, [apiUrl, updateWorkspace])
 
   const handleExecute = useCallback(async () => {
-    const trimmed = query.trim()
+    const trimmed = workspace.input.trim()
     if (!trimmed) return
-    await requestManagerRef.current?.execute(mode, trimmed)
-  }, [query, mode])
+    await requestManagersRef.current?.[mode].execute(mode, trimmed)
+  }, [workspace.input, mode])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -215,23 +257,25 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
   )
 
   const handleCopy = useCallback(async () => {
-    if (!results) return
+    if (!workspace.results) return
     try {
-      await navigator.clipboard.writeText(JSON.stringify(results, null, 2))
+      await navigator.clipboard.writeText(JSON.stringify(workspace.results, null, 2))
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    } catch { /* clipboard can fail */ }
-  }, [results])
+    } catch (error) {
+      console.warn('Unable to copy query results', error)
+    }
+  }, [workspace.results])
 
   const placeholders: Record<QueryMode, string> = {
     cypher: 'MATCH (n:Function) RETURN n.name LIMIT 10',
     search: 'createUser authentication handler',
     natural: 'What functions call createOrder? Why does payment retry 3 times?',
   }
-  const routedTo = asString(meta?.routedTo)
-  const iterations = asFiniteNumber(meta?.iterations)
-  const queries = asStringArray(meta?.queries)
-  const total = asFiniteNumber(meta?.total)
+  const routedTo = asString(workspace.meta?.routedTo)
+  const iterations = asFiniteNumber(workspace.meta?.iterations)
+  const queries = asStringArray(workspace.meta?.queries)
+  const total = asFiniteNumber(workspace.meta?.total)
 
   return (
     <div className="flex h-full min-h-0 flex-col border-t border-border bg-card">
@@ -246,11 +290,7 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
             <button
               key={m.value}
               onClick={() => {
-                requestManagerRef.current?.cancel()
                 setMode(m.value)
-                setResults(null)
-                setError(null)
-                setMeta(null)
               }}
               className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                 mode === m.value
@@ -272,8 +312,8 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
         <textarea
           ref={textareaRef}
           aria-label="Query"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          value={workspace.input}
+          onChange={(e) => updateWorkspace(mode, { input: e.target.value })}
           onKeyDown={handleKeyDown}
           placeholder={placeholders[mode]}
           className="w-full h-16 px-3 py-2 text-sm font-mono bg-background border border-border rounded-md text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
@@ -285,11 +325,11 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
           </span>
           <Button
             onClick={handleExecute}
-            disabled={!query.trim()}
+            disabled={!workspace.input.trim()}
             size="sm"
             className="h-7 text-xs"
           >
-            {loading ? 'Running...' : mode === 'natural' ? 'Ask' : 'Execute'}
+            {workspace.loading ? 'Running...' : mode === 'natural' ? 'Ask' : 'Execute'}
           </Button>
         </div>
       </div>
@@ -297,21 +337,21 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
       {/* Error */}
       <div
         role="alert"
-        className={error ? 'shrink-0 border-b border-border bg-red-500/10 p-3' : 'sr-only'}
+        className={workspace.error ? 'shrink-0 border-b border-border bg-red-500/10 p-3' : 'sr-only'}
       >
-        <div className="text-sm text-red-400">{error ?? ''}</div>
+        <div className="text-sm text-red-400">{workspace.error ?? ''}</div>
       </div>
 
       {/* Results */}
       <div className="flex-1 overflow-auto p-3">
-        {results !== null ? (
+        {workspace.results !== null ? (
           <div className="space-y-2">
             {/* Meta info (routing, iterations) */}
             {routedTo && (
               <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                 <Badge variant="outline" className="text-[10px]">{routedTo}</Badge>
                 {iterations !== undefined && <span>{iterations} iterations</span>}
-                {durationMs != null && <span>{durationMs}ms</span>}
+                {workspace.durationMs != null && <span>{workspace.durationMs}ms</span>}
               </div>
             )}
             {queries.length > 1 && (
@@ -325,8 +365,8 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
             {/* Result count + copy */}
             <div className="flex items-center justify-between">
               <div className="text-xs text-muted-foreground">
-                {total ?? results.length} result{(total ?? results.length) !== 1 ? 's' : ''}
-                {durationMs != null && !routedTo && <span className="ml-2 text-muted-foreground/60">{durationMs}ms</span>}
+                {total ?? workspace.results.length} result{(total ?? workspace.results.length) !== 1 ? 's' : ''}
+                {workspace.durationMs != null && !routedTo && <span className="ml-2 text-muted-foreground/60">{workspace.durationMs}ms</span>}
               </div>
               <button
                 onClick={handleCopy}
@@ -339,14 +379,14 @@ export function QueryPanel({ apiUrl }: QueryPanelProps) {
             </div>
 
             {/* Render results based on mode */}
-            {results.length > 0 ? (
+            {workspace.results.length > 0 ? (
               mode === 'cypher' ? (
                 <pre className="text-xs text-foreground/80 font-mono bg-background p-3 rounded border border-border overflow-x-auto max-h-[300px]">
-                  {JSON.stringify(results, null, 2)}
+                  {JSON.stringify(workspace.results, null, 2)}
                 </pre>
               ) : (
                 <div className="space-y-1">
-                  {(results as ResultItem[]).map((r, i) => (
+                  {(workspace.results as ResultItem[]).map((r, i) => (
                     <div key={i} className="flex items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 hover:bg-accent/30 transition-colors">
                       <Badge variant="outline" className="text-[10px] shrink-0">{asString(r.nodeType) ?? r.type}</Badge>
                       {r.source && <Badge variant="outline" className="text-[9px] shrink-0 text-muted-foreground">{r.source}</Badge>}

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { indexProject } from '@codegraph/core';
-import { safeErrorMessage } from '../safe-error';
+import { safeErrorMessage } from '../safe-error.js';
 
 export const parseRoutes = new Hono();
 

@@ -28,6 +28,7 @@ function createValidFixture(): string {
   mkdirSync(join(directory, 'dashboard'));
   writeFileSync(join(directory, 'dashboard', 'index.html'), '<!doctype html><div id="root"></div>\n');
   writeFileSync(join(directory, 'server', 'index.mjs'), 'export {};\n');
+  writeFileSync(join(directory, 'server', 'esm-loader.js'), 'export async function resolve() {}\n');
   writeFileSync(join(directory, 'LICENSE'), 'MIT License\n');
   writeFileSync(join(directory, 'README.md'), '# CodeGraph\n');
   writeFileSync(join(directory, 'package.json'), JSON.stringify({
@@ -58,7 +59,7 @@ describe('validatePackageDirectory', () => {
     await expect(validatePackageDirectory(pathToFileURL(directory))).resolves.toMatchObject({
       name: 'codegraph-mcp',
       version: '0.1.0',
-      fileCount: 7,
+      fileCount: 8,
     });
   });
 
@@ -70,6 +71,15 @@ describe('validatePackageDirectory', () => {
     writeFileSync(manifestPath, JSON.stringify(manifest));
 
     await expect(validatePackageDirectory(pathToFileURL(directory))).rejects.toThrow('workspace:');
+  });
+
+  it('reports a missing runtime ESM loader', async () => {
+    const directory = createValidFixture();
+    rmSync(join(directory, 'server', 'esm-loader.js'));
+
+    await expect(validatePackageDirectory(pathToFileURL(directory))).rejects.toThrow(
+      'server/esm-loader.js',
+    );
   });
 
   it('reports node_modules directories and native binaries', async () => {

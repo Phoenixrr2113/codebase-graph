@@ -8,21 +8,58 @@ vi.mock('@codegraph/core', () => ({
     getDependencyTree: vi.fn(),
   },
   getGraphClient: vi.fn(),
+  getSetupStatus: Object.assign(vi.fn(), {
+    migrateEmbeddingProfile: vi.fn(),
+  }),
+  indexProject: Object.assign(vi.fn(), {
+    getEmbeddingPassState: vi.fn(),
+    scheduleEmbeddingPass: vi.fn(),
+  }),
+  knowledgeService: {},
 }));
 
 vi.mock('@codegraph/graph', () => ({
   createQueries: vi.fn(),
 }));
 
-import { codeGraphService, getGraphClient } from '@codegraph/core';
+import { codeGraphService, getGraphClient, getSetupStatus } from '@codegraph/core';
 import { createQueries } from '@codegraph/graph';
 import { graphRoutes } from '../routes/graph';
+import { statsRoutes } from '../routes/stats';
 
 const mockedFullGraph = vi.mocked(codeGraphService.getFullGraph);
 const mockedReferences = vi.mocked(codeGraphService.getSymbolReferences);
 const mockedDependencies = vi.mocked(codeGraphService.getDependencyTree);
 const mockedGetGraphClient = vi.mocked(getGraphClient);
+const mockedGetSetupStatus = vi.mocked(getSetupStatus);
 const mockedCreateQueries = vi.mocked(createQueries);
+
+const externalGuidance =
+  'Embedded FalkorDBLite is unavailable on this platform. Set CODEGRAPH_DRIVER=falkordb and FALKORDB_URL, or configure FALKORDB_HOST and FALKORDB_PORT.';
+
+const blockedSetupStatus = {
+  storage: {
+    driver: 'falkordb' as const,
+    dataPath: null,
+    ownerState: 'blocked' as const,
+    embeddedSupported: false,
+    externalGuidance,
+    error: 'connect ECONNREFUSED 127.0.0.1:16379',
+  },
+  embedding: {
+    profile: { provider: 'none' as const, model: null, dimension: 0 },
+    keyPresent: false,
+    localModelCached: false,
+    modelLoad: null,
+    migration: null,
+  },
+  projects: { configured: false, count: 0 },
+  index: {
+    state: 'not-configured' as const,
+    progress: null,
+    embeddingPass: { running: false, scope: null, startedAt: null },
+  },
+};
 
 async function errorFor(path: string): Promise<{ status: number; error: string }> {
   const response = await graphRoutes.request(path);
@@ -91,6 +128,47 @@ describe('graph route numeric boundaries', () => {
 
     expect(result).toEqual({ status: 400, error: 'id parameter is required' });
     expect(mockedReferences).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/projects empty graph', () => {
+  it('returns an empty project list', async () => {
+    const roQuery = vi.fn().mockResolvedValue({ data: [], metadata: [] });
+    mockedGetGraphClient.mockResolvedValue({ roQuery } as never);
+
+    const response = await statsRoutes.request('/api/projects');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ projects: [] });
+  });
+
+  it('returns setup-compatible blocked storage instead of 500 when storage is unavailable', async () => {
+    mockedGetGraphClient.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:16379'));
+    mockedGetSetupStatus.mockResolvedValue(blockedSetupStatus);
+
+    const response = await statsRoutes.request('/api/projects');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      projects: [],
+      storage: blockedSetupStatus.storage,
+    });
+  });
+});
+
+describe('GET /api/graph/full unavailable storage', () => {
+  it('returns an empty graph with setup-compatible blocked storage instead of 500', async () => {
+    mockedFullGraph.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:16379'));
+    mockedGetSetupStatus.mockResolvedValue(blockedSetupStatus);
+
+    const response = await graphRoutes.request('/api/graph/full?limit=100');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      nodes: [],
+      edges: [],
+      storage: blockedSetupStatus.storage,
+    });
   });
 });
 

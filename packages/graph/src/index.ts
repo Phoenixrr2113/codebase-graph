@@ -6,13 +6,18 @@
 // Client exports
 export {
   createClient,
+  supportsEmbeddedPlatform,
   type GraphClient,
   type FalkorConfig,
   type GraphConfig,
   type QueryOptions,
   type QueryResult,
+  type GraphStorageRuntime,
+  type EmbeddingIndexProfile,
+  type EnsureSchemaOptions,
   GraphClientError,
 } from './client';
+export { EMBEDDING_MIGRATION_REMEDY } from './drivers/falkordb-shared';
 
 // Driver exports
 export {

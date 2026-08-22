@@ -14,6 +14,68 @@ import { ALL_GRAPH_LABELS, EMBEDDABLE_LABELS, SYMBOL_LABELS } from '@codegraph/t
 
 const logger = createLogger({ namespace: 'graph:schema' });
 
+export type EmbeddingIndexProvider = 'local' | 'voyage' | 'openrouter' | 'none';
+
+export interface EmbeddingIndexProfile {
+  provider: EmbeddingIndexProvider;
+  model: string | null;
+  dimension: number;
+}
+
+export interface EnsureSchemaOptions {
+  embeddingDim?: number;
+  embeddingProfile?: EmbeddingIndexProfile;
+  allowEmbeddingMigration?: boolean;
+}
+
+export const EMBEDDING_PROFILE_METADATA_KEY = 'codegraph.embeddingProfile';
+export const EMBEDDING_MIGRATION_REMEDY =
+  'Run an explicit re-embed migration or a full reindex before using the requested embedding profile.';
+
+export class EmbeddingProfileMismatchError extends Error {
+  readonly code = 'EMBEDDING_PROFILE_MISMATCH' as const;
+
+  constructor(
+    public readonly storedProfile: EmbeddingIndexProfile,
+    public readonly requestedProfile: EmbeddingIndexProfile,
+  ) {
+    super(`Embedding profile mismatch. ${EMBEDDING_MIGRATION_REMEDY}`);
+    this.name = 'EmbeddingProfileMismatchError';
+  }
+}
+
+function isEmbeddingIndexProfile(value: unknown): value is EmbeddingIndexProfile {
+  if (!value || typeof value !== 'object') return false;
+  const profile = value as Record<string, unknown>;
+  return (
+    ['local', 'voyage', 'openrouter', 'none'].includes(String(profile['provider']))
+    && (typeof profile['model'] === 'string' || profile['model'] === null)
+    && typeof profile['dimension'] === 'number'
+    && Number.isInteger(profile['dimension'])
+    && profile['dimension'] >= 0
+  );
+}
+
+function profilesMatch(left: EmbeddingIndexProfile, right: EmbeddingIndexProfile): boolean {
+  return left.provider === right.provider
+    && left.model === right.model
+    && left.dimension === right.dimension;
+}
+
+export async function readStoredEmbeddingProfile(graph: Graph): Promise<EmbeddingIndexProfile | null> {
+  try {
+    const result = await graph.roQuery<{ value: string }>(
+      `MATCH (m:Metadata {key: '${EMBEDDING_PROFILE_METADATA_KEY}'}) RETURN m.value AS value`,
+    );
+    const raw = result.data?.[0]?.value;
+    if (typeof raw !== 'string') return null;
+    const parsed: unknown = JSON.parse(raw);
+    return isEmbeddingIndexProfile(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 // ============================================================================
 // Shared query execution
 // ============================================================================
@@ -69,16 +131,29 @@ export async function executeRoQuery<T>(
  */
 export async function ensureSchemaImpl(
   graph: Graph,
-  opts?: { embeddingDim?: number },
+  opts?: EnsureSchemaOptions,
 ): Promise<void> {
+  const requestedProfile = opts?.embeddingProfile;
+  const storedProfile = requestedProfile
+    ? await readStoredEmbeddingProfile(graph)
+    : null;
+  const profileMismatch = storedProfile !== null
+    && requestedProfile !== undefined
+    && !profilesMatch(storedProfile, requestedProfile);
+
+  if (profileMismatch && !opts?.allowEmbeddingMigration) {
+    throw new EmbeddingProfileMismatchError(storedProfile, requestedProfile);
+  }
+
   // Helper: run a query ignoring "Index already exists" errors
-  const safeIndex = async (cypher: string): Promise<void> => {
+  const safeIndex = async (cypher: string, throwUnexpected = false): Promise<void> => {
     try {
       await graph.query(cypher);
     } catch (error) {
       const msg = error instanceof Error ? error.message : '';
       // Swallow duplicate index errors — they're expected on restart
       if (msg.includes('Index already exists') || msg.includes('Attribute already indexed')) return;
+      if (throwUnexpected) throw error;
       // Log but don't throw for other index errors (label may not exist yet)
       // Vector indexes will be created lazily when data arrives
     }
@@ -194,43 +269,62 @@ export async function ensureSchemaImpl(
   // If no provider is configured, vector indexes are skipped entirely.
   // If existing indexes have a different dimension (e.g. user switched from
   // local/768 to voyage/1024), drop and recreate them + clear stale embeddings.
-  const embDim = resolveEmbeddingDimension(opts?.embeddingDim);
+  const embDim = requestedProfile?.dimension ?? resolveEmbeddingDimension(opts?.embeddingDim);
   // EMBEDDABLE_LABELS is the shared source of truth (packages/types/src/labels.ts):
   // the same SYMBOL_LABELS-plus-'Entity' set the provenance indexes above use,
   // since every label that carries ProvenanceFields also carries an embedding.
   const vectorTargets = EMBEDDABLE_LABELS;
 
   if (embDim === 0) {
-    // No embedding provider configured — skip vector indexes entirely.
-    // Indexing will work (structural graph) but search won't use embeddings.
+    if (requestedProfile) {
+      await graph.query(
+        `MERGE (m:Metadata {key: '${EMBEDDING_PROFILE_METADATA_KEY}'}) SET m.value = $value`,
+        { params: { value: JSON.stringify(requestedProfile) } } as unknown as FalkorQueryOptions,
+      );
+    }
     return;
   }
 
   // Check for dimension mismatch on an existing index
-  const mismatch = await detectDimensionMismatch(graph, vectorTargets[0]!, embDim);
-  if (mismatch) {
-    process.stderr.write(
-      `\n[CodeGraph] Embedding dimension changed: ${mismatch.existing} → ${embDim}\n` +
-      `  Rebuilding vector indexes and clearing stale embeddings.\n` +
-      `  You MUST reindex your project(s) for search to work.\n\n`
-    );
+  const dimensionMismatch = await detectDimensionMismatch(graph, vectorTargets[0]!, embDim);
+  if (dimensionMismatch && !opts?.allowEmbeddingMigration) {
+    const inferredStored: EmbeddingIndexProfile = {
+      provider: dimensionMismatch.existing === 1024
+        ? 'voyage'
+        : dimensionMismatch.existing === 1536
+          ? 'openrouter'
+          : 'local',
+      model: null,
+      dimension: dimensionMismatch.existing,
+    };
+    const inferredRequested = requestedProfile ?? {
+      provider: embDim === 1024 ? 'voyage' : embDim === 1536 ? 'openrouter' : 'local',
+      model: null,
+      dimension: embDim,
+    };
+    throw new EmbeddingProfileMismatchError(inferredStored, inferredRequested);
+  }
 
-    // Drop all existing vector indexes
+  if (profileMismatch || dimensionMismatch) {
     for (const label of vectorTargets) {
       await safeQuery(graph, `DROP VECTOR INDEX FOR (n:${label}) ON (n.embedding)`);
     }
     await safeQuery(graph, `DROP VECTOR INDEX FOR ()-[r:RELATES_TO]-() ON (r.fact_embedding)`);
 
-    // Clear stale embedding vectors (they're the wrong dimension)
     for (const label of vectorTargets) {
-      await safeQuery(graph, `MATCH (n:${label}) WHERE n.embedding IS NOT NULL SET n.embedding = NULL`);
+      await safeQuery(
+        graph,
+        `MATCH (n:${label}) WHERE n.embedding IS NOT NULL OR n.embeddingTextHash IS NOT NULL ` +
+          `SET n.embedding = NULL, n.embeddingTextHash = NULL`,
+      );
     }
     await safeQuery(graph, `MATCH ()-[r:RELATES_TO]-() WHERE r.fact_embedding IS NOT NULL SET r.fact_embedding = NULL`);
   }
 
   for (const label of vectorTargets) {
     await safeIndex(
-      `CREATE VECTOR INDEX FOR (n:${label}) ON (n.embedding) OPTIONS {dimension: ${embDim}, similarityFunction: 'cosine'}`
+      `CREATE VECTOR INDEX FOR (n:${label}) ON (n.embedding) OPTIONS {dimension: ${embDim}, similarityFunction: 'cosine'}`,
+      Boolean(profileMismatch || dimensionMismatch),
     );
   }
 
@@ -238,6 +332,13 @@ export async function ensureSchemaImpl(
   await safeIndex(
     `CREATE VECTOR INDEX FOR ()-[r:RELATES_TO]-() ON (r.fact_embedding) OPTIONS {dimension: ${embDim}, similarityFunction: 'cosine'}`
   );
+
+  if (requestedProfile) {
+    await graph.query(
+      `MERGE (m:Metadata {key: '${EMBEDDING_PROFILE_METADATA_KEY}'}) SET m.value = $value`,
+      { params: { value: JSON.stringify(requestedProfile) } } as unknown as FalkorQueryOptions,
+    );
+  }
 }
 
 // ============================================================================
@@ -295,21 +396,7 @@ function resolveEmbeddingDimension(override?: number): number {
   if (process.env['VOYAGE_API_KEY']) return 1024;
   if (process.env['OPENROUTER_API_KEY']) return 1536;
 
-  // No provider configured and no explicit dimension — fail loudly rather than
-  // silently skipping vector index creation. A graph without vector indexes
-  // accepts writes normally but produces cryptic "Invalid arguments" errors on
-  // every vector search, with no indication that setup is incomplete.
-  //
-  // To intentionally skip vector indexes (structural-only graph), set:
-  //   CODEGRAPH_EMBEDDING_PROVIDER=none
-  // To use the built-in local model (nomic-embed-text-v1.5, 768-dim), set:
-  //   CODEGRAPH_EMBEDDING_PROVIDER=local
-  throw new Error(
-    'Cannot determine embedding dimension. ' +
-    'Set CODEGRAPH_EMBEDDING_PROVIDER (local | voyage | openrouter | none), ' +
-    'CODEGRAPH_EMBEDDING_DIM, or pass the embeddingDim option to ensureIndexes(). ' +
-    'To skip vector indexes entirely (structural graph only), set CODEGRAPH_EMBEDDING_PROVIDER=none.'
-  );
+  return 768;
 }
 
 /**

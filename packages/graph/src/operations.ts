@@ -7,6 +7,7 @@
 
 import type { GraphClient, QueryParams } from './client';
 import type { CypherDialect } from './driver';
+import { EMBEDDING_PROFILE_METADATA_KEY } from './drivers/falkordb-shared';
 import { createLogger, trace } from '@codegraph/logger';
 import {
   fileToNodeProps,
@@ -1432,9 +1433,48 @@ function toParams<T extends object>(props: T): QueryParams {
 
 class GraphOperationsImpl implements GraphOperations {
   private readonly dialect: CypherDialect;
+  private persistedEmbeddingDimension: Promise<number | null> | null = null;
 
   constructor(private readonly client: GraphClient) {
     this.dialect = client.dialect;
+  }
+
+  private getPersistedEmbeddingDimension(): Promise<number | null> {
+    this.persistedEmbeddingDimension ??= this.client.roQuery<{ value: unknown }>(
+      `MATCH (m:Metadata {key: '${EMBEDDING_PROFILE_METADATA_KEY}'}) RETURN m.value AS value`,
+    ).then((result) => {
+      const raw = result.data[0]?.value;
+      if (typeof raw !== 'string') return null;
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        throw new Error('Persisted embedding profile is invalid JSON');
+      }
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('Persisted embedding profile is invalid');
+      }
+      const dimension = (parsed as Record<string, unknown>)['dimension'];
+      if (typeof dimension !== 'number' || !Number.isInteger(dimension) || dimension < 0) {
+        throw new Error('Persisted embedding profile dimension is invalid');
+      }
+      return dimension;
+    });
+    return this.persistedEmbeddingDimension;
+  }
+
+  private async validateEmbeddingDimensions(embeddings: readonly number[][]): Promise<void> {
+    const expectedDimension = await this.getPersistedEmbeddingDimension();
+    if (expectedDimension === null) return;
+
+    for (const embedding of embeddings) {
+      if (embedding.length !== expectedDimension) {
+        throw new Error(
+          `Embedding vector length ${embedding.length} does not match persisted index dimension ${expectedDimension}`,
+        );
+      }
+    }
   }
 
   @trace()
@@ -2457,6 +2497,8 @@ class GraphOperationsImpl implements GraphOperations {
   }>): Promise<number> {
     if (items.length === 0) return 0;
 
+    await this.validateEmbeddingDimensions(items.map((item) => item.embedding));
+
     // Group items by node type
     const byType = new Map<string, Array<Record<string, unknown>>>();
     for (const item of items) {
@@ -2682,6 +2724,7 @@ class GraphOperationsImpl implements GraphOperations {
     embedding: number[],
     embeddingTextHash: string,
   ): Promise<void> {
+    await this.validateEmbeddingDimensions([embedding]);
     const baseParams = { embedding, embeddingTextHash };
 
     if (nodeType === 'File') {

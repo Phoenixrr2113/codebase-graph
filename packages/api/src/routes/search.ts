@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { codeGraphService, getGraphClient } from '@codegraph/core';
-import { getKnownNodeLabels } from '../graph-labels';
-import { safeErrorMessage } from '../safe-error';
+import { getKnownNodeLabels } from '../graph-labels.js';
+import { safeErrorMessage } from '../safe-error.js';
 
 export const searchRoutes = new Hono();
 

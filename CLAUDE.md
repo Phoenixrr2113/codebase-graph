@@ -9,11 +9,15 @@ Check if a codebase is indexed:
 codebase({ action: "status" })
 ```
 
-If no projects are configured:
+On a fresh install this returns `configured: false` and `setupRequired: true`. An empty database is valid and ready for setup.
+
+If no projects are configured, save an absolute project path and then index it:
 ```
 codebase({ action: "configure", projectAction: "set", projects: ["/path/to/project"] })
-codebase({ action: "reindex", mode: "full" })
+codebase({ action: "reindex", mode: "full", scope: "/path/to/project" })
 ```
+
+Configuration does not index the project. Reindexing parses structure first and finishes embeddings. With no provider or provider key set, local `nomic-ai/nomic-embed-text-v1.5` embeddings are the default. The first use downloads approximately 132 MiB and reports progress.
 
 ## Tool Reference (5 tool groups, 24 actions)
 
@@ -177,12 +181,13 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 
 ## Environment
 
-- **Graph DB**: FalkorDB (Docker)
-- **Search**: Vector embeddings (local/Voyage/OpenRouter) + cross-encoder reranking (Voyage rerank-2) — MRR 0.938, S@1 88%, S@5 100%, ~440ms latency (post-purity baseline, 2026-05-10)
-- **Dashboard**: `http://localhost:3000/dashboard` (Graph Explorer + Analysis + Operations tabs)
-- **API**: `http://localhost:3001` (REST endpoints for dashboard)
-- **Build**: `pnpm turbo build` (monorepo with Turbo)
-- **Test**: `pnpm turbo test`
+- **Graph DB**: Embedded FalkorDBLite on Linux x64 and Apple silicon macOS. Apple silicon requires Homebrew `libomp` and `openssl@3`. Other platforms use external FalkorDB.
+- **Storage concurrency**: One database server runs per data directory. A second CodeGraph process attaches to it.
+- **Search**: Local 768-dimension embeddings are the no-key default. Voyage and OpenRouter require their provider keys. `none` is the explicit structural-only option.
+- **Embedding migration**: A provider, model, or dimension switch requires an explicit re-embed migration or a full reindex.
+- **Dashboard and API**: One `codegraph-dashboard` process serves both on the URL it prints. A fresh database opens on guided setup with Browse, indexing, and progress.
+- **Build**: `pnpm build` (monorepo with Turbo)
+- **Test**: `pnpm test`
 
 ## Public Benchmark — CGBench v1
 

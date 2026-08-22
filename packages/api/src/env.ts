@@ -10,6 +10,8 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
+export const API_BIND_HOST = '127.0.0.1';
+
 /**
  * Walk upwards from a starting directory looking for a `.env` file.
  * Returns undefined when none is found before the filesystem root.
@@ -47,6 +49,20 @@ export function resolvePort(
     if (Number.isInteger(parsed) && parsed > 0 && parsed < 65536) return parsed;
   }
   return fallback;
+}
+
+/**
+ * Convert a server startup failure into one actionable line for the CLI.
+ */
+export function formatServerStartError(error: Error, port: number): string {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === 'EADDRINUSE') {
+    return `CodeGraph dashboard could not start on port ${port}: the port is already in use. Set API_PORT to another port and try again.`;
+  }
+  if (code === 'EACCES') {
+    return `CodeGraph dashboard could not start on port ${port}: permission was denied. Set API_PORT to another port and try again.`;
+  }
+  return `CodeGraph dashboard could not start on port ${port}: ${error.message}`;
 }
 
 /**

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,9 +14,11 @@ import { fileURLToPath } from 'node:url';
  * }} CommandRunner
  */
 
-const requiredTools = ['search', 'knowledge', 'codebase', 'query'];
+const requiredTools = ['analyze', 'codebase', 'knowledge', 'query', 'search'];
 const releaseDirectory = dirname(fileURLToPath(import.meta.url));
 const rootDirectory = resolve(releaseDirectory, '../..');
+const installedSmokePath = resolve(releaseDirectory, 'installed-package-smoke.mjs');
+const unsupportedStorageContractPath = resolve(releaseDirectory, 'unsupported-storage-contract.mjs');
 
 const defaultRunner = {
   run(command, args, options) {
@@ -26,6 +30,75 @@ function commandFailure(label, result) {
   const stderr = typeof result.stderr === 'string' ? result.stderr.trim() : '';
   const detail = stderr || result.error?.message || `exit status ${result.status}`;
   return new Error(`${label} failed: ${detail}`);
+}
+
+export function createPassReporter(writeLine = (line) => process.stdout.write(`${line}\n`)) {
+  return {
+    pass(label) {
+      writeLine(`PASS ${label}`);
+    },
+    fail(label, error) {
+      const message = error instanceof Error ? error.message : String(error);
+      writeLine(`FAIL ${label}: ${message}`);
+    },
+  };
+}
+
+export function assertRequiredTools(tools) {
+  for (const toolName of requiredTools) {
+    if (!tools.includes(toolName)) {
+      throw new Error(`MCP handshake did not expose required tool: ${toolName}`);
+    }
+  }
+  return [...tools].sort();
+}
+
+export function parseToolJson(result, label) {
+  if (result?.isError === true) {
+    throw new Error(`${label} returned an MCP error`);
+  }
+  const text = result?.content?.find((item) => item?.type === 'text')?.text;
+  if (typeof text !== 'string') {
+    throw new Error(`${label} did not return text content`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label} returned invalid JSON`);
+  }
+}
+
+export function resolveInstalledSmokeMode({
+  requestedMode,
+  platform = process.platform,
+  architecture = process.arch,
+  environment = process.env,
+  fileExists = existsSync,
+}) {
+  if (requestedMode !== 'basic') return requestedMode;
+  if (environment.FALKORDB_URL || environment.FALKORDB_HOST) return 'basic';
+  if (platform === 'linux' && architecture === 'x64') return 'basic';
+  if (platform !== 'darwin' || architecture !== 'arm64') return 'unsupported';
+
+  const embeddedLibrariesPresent = [
+    '/opt/homebrew/opt/libomp/lib/libomp.dylib',
+    '/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib',
+    '/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib',
+  ].every(fileExists);
+  return embeddedLibrariesPresent ? 'basic' : 'unsupported';
+}
+
+export async function assertHttpJson({ fetcher = fetch, url, label, assertBody }) {
+  const response = await fetcher(url);
+  if (response.status !== 200) {
+    throw new Error(`${label} expected HTTP 200, received ${response.status}`);
+  }
+  const body = await response.json();
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new Error(`${label} returned a non-object JSON body`);
+  }
+  assertBody(body);
+  return body;
 }
 
 export function resolveNpmInvocation(
@@ -41,204 +114,12 @@ export function resolveNpmInvocation(
   return { command: 'npm', args: [] };
 }
 
-function parseHandshake(stdout) {
-  let parsed;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    throw new Error('MCP handshake emitted non-JSON data on stdout');
-  }
-  if (typeof parsed !== 'object' || parsed === null || !Array.isArray(parsed.tools)) {
-    throw new Error('MCP handshake result must contain a tools array');
-  }
-  if (!parsed.tools.every((toolName) => typeof toolName === 'string')) {
-    throw new Error('MCP handshake returned an invalid tool name');
-  }
-  if (typeof parsed.databaseVerified !== 'boolean') {
-    throw new Error('MCP handshake result must report database verification');
-  }
-  for (const toolName of requiredTools) {
-    if (!parsed.tools.includes(toolName)) {
-      throw new Error(`MCP handshake did not expose required tool: ${toolName}`);
-    }
-  }
-  return {
-    tools: parsed.tools,
-    databaseVerified: parsed.databaseVerified,
-  };
-}
-
-const handshakeSource = `
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-
-const binPath = process.argv[2];
-const environment = Object.fromEntries(
-  Object.entries(process.env).filter((entry) => typeof entry[1] === 'string'),
-);
-environment.CODEGRAPH_EMBEDDING_PROVIDER = 'none';
-environment.CODEGRAPH_LOG_STDERR = 'true';
-
-const transport = new StdioClientTransport({
-  command: process.execPath,
-  args: [binPath],
-  env: environment,
-  stderr: 'pipe',
-});
-const client = new Client(
-  { name: 'codegraph-package-smoke', version: '1.0.0' },
-  { capabilities: {} },
-);
-let serverStderr = '';
-transport.stderr?.on('data', (chunk) => {
-  serverStderr = (serverStderr + chunk.toString()).slice(-4000);
-});
-
-try {
-  await client.connect(transport);
-  const result = await client.listTools();
-  const supportsEmbeddedDatabase =
-    (process.platform === 'darwin' && process.arch === 'arm64') ||
-    (process.platform === 'linux' && process.arch === 'x64');
-  let databaseVerified = false;
-  if (supportsEmbeddedDatabase) {
-    const storeResult = await client.callTool({
-      name: 'knowledge',
-      arguments: {
-        action: 'store',
-        text: 'codegraph package smoke',
-        type: 'Verification',
-      },
-    });
-    const storeText = storeResult.content.find((item) => item.type === 'text')?.text;
-    if (storeResult.isError || typeof storeText !== 'string') {
-      throw new Error(
-        'Database-backed knowledge store call failed: ' + JSON.stringify(storeResult.content),
-      );
-    }
-    const stored = JSON.parse(storeText);
-    if (typeof stored !== 'object' || stored === null || stored.stored !== true) {
-      throw new Error(
-        'Database-backed knowledge store returned an error: ' + JSON.stringify(stored),
-      );
-    }
-    const queryResult = await client.callTool({
-      name: 'query',
-      arguments: {
-        cypher: 'MATCH (n:Entity {text: $text}) RETURN count(n) AS count',
-        params: { text: 'codegraph package smoke' },
-      },
-    });
-    const queryText = queryResult.content.find((item) => item.type === 'text')?.text;
-    if (queryResult.isError || typeof queryText !== 'string') {
-      throw new Error('Database-backed verification query failed');
-    }
-    const verification = JSON.parse(queryText);
-    if (
-      typeof verification !== 'object'
-      || verification === null
-      || verification.success !== true
-      || !Array.isArray(verification.data)
-      || verification.data[0]?.count !== 1
-    ) {
-      throw new Error(
-        'Database-backed verification query returned an error: ' + JSON.stringify(verification),
-      );
-    }
-    databaseVerified = true;
-  }
-  await client.close();
-  process.stdout.write(JSON.stringify({
-    tools: result.tools.map((tool) => tool.name),
-    databaseVerified,
-  }) + '\\n');
-} catch (error) {
-  await client.close().catch(() => {});
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(message + (serverStderr ? '\\n' + serverStderr : '') + '\\n');
-  process.exitCode = 1;
-}
-`;
-
-
-/** Ask the OS for a free TCP port so the smoke run cannot collide with a live server. */
-export async function findFreePort() {
-  const { createServer } = await import('node:net');
-  return await new Promise((resolvePort, rejectPort) => {
-    const server = createServer();
-    server.on('error', rejectPort);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = typeof address === 'object' && address !== null ? address.port : undefined;
-      server.close(() => (port ? resolvePort(port) : rejectPort(new Error('no port assigned'))));
-    });
-  });
-}
-
-/**
- * Start the packaged dashboard binary and confirm it serves the built UI.
- *
- * The dashboard ships inside the same package as the MCP server, so a missing or
- * misplaced asset directory would otherwise only surface after publication.
- */
-export async function verifyDashboardBinary({ binPath, cwd, env }) {
-  const { spawn } = await import('node:child_process');
-  const port = await findFreePort();
-  const child = spawn(process.execPath, [binPath], {
-    cwd,
-    env: { ...env, API_PORT: String(port), CODEGRAPH_EMBEDDING_PROVIDER: 'none' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  let output = '';
-  child.stdout.on('data', (chunk) => { output += String(chunk); });
-  child.stderr.on('data', (chunk) => { output += String(chunk); });
-
-  try {
-    const deadline = Date.now() + 60_000;
-    let indexHtml;
-    for (;;) {
-      if (child.exitCode !== null) {
-        throw new Error(`dashboard binary exited early (code ${child.exitCode}):\n${output.slice(0, 800)}`);
-      }
-      try {
-        const health = await fetch(`http://127.0.0.1:${port}/health`);
-        if (health.ok) {
-          const page = await fetch(`http://127.0.0.1:${port}/`);
-          if (!page.ok) throw new Error(`dashboard root returned ${page.status}`);
-          indexHtml = await page.text();
-          break;
-        }
-      } catch (error) {
-        if (Date.now() > deadline) {
-          throw new Error(`dashboard did not become ready: ${String(error)}\n${output.slice(0, 800)}`);
-        }
-      }
-      await new Promise((wait) => setTimeout(wait, 500));
-    }
-
-    if (!indexHtml.includes('id="root"')) {
-      throw new Error('dashboard root document did not contain the application mount point');
-    }
-    const assetMatch = indexHtml.match(/\/assets\/[A-Za-z0-9._-]+\.js/);
-    if (!assetMatch) {
-      throw new Error('dashboard root document did not reference a built asset');
-    }
-    const asset = await fetch(`http://127.0.0.1:${port}${assetMatch[0]}`);
-    if (!asset.ok) {
-      throw new Error(`dashboard asset ${assetMatch[0]} returned ${asset.status}`);
-    }
-    return { port, asset: assetMatch[0] };
-  } finally {
-    child.kill('SIGTERM');
-  }
-}
-
 export async function smokePackage({
   tarballPath,
   expectedVersion,
+  mode = 'basic',
   runner = defaultRunner,
-  verifyDashboard = verifyDashboardBinary,
+  reporter = createPassReporter(),
 }) {
   const absoluteTarball = resolve(tarballPath);
   try {
@@ -249,6 +130,12 @@ export async function smokePackage({
   if (typeof expectedVersion !== 'string' || expectedVersion.length === 0) {
     throw new TypeError('expectedVersion must be a non-empty string');
   }
+  if (!['basic', 'unsupported', 'local'].includes(mode)) {
+    throw new TypeError(`Unsupported smoke mode: ${mode}`);
+  }
+  const installedMode = resolveInstalledSmokeMode({ requestedMode: mode });
+
+  const sha256 = createHash('sha256').update(await readFile(absoluteTarball)).digest('hex');
 
   const consumerDirectory = await mkdtemp(join(tmpdir(), 'cg-'));
   try {
@@ -265,6 +152,7 @@ export async function smokePackage({
     if (installResult.status !== 0) {
       throw commandFailure('npm install', installResult);
     }
+    reporter.pass('installed exact canonical tarball into a clean consumer');
 
     const binPath = join(
       consumerDirectory,
@@ -287,43 +175,56 @@ export async function smokePackage({
         `Installed CLI version ${installedVersion || '<empty>'} does not match expected ${expectedVersion}`,
       );
     }
+    reporter.pass(`installed codegraph-mcp reports version ${expectedVersion}`);
 
-    const handshakePath = join(consumerDirectory, 'mcp-handshake.mjs');
-    await writeFile(handshakePath, handshakeSource);
+    const installedSmoke = join(consumerDirectory, 'installed-package-smoke.mjs');
+    await Promise.all([
+      writeFile(installedSmoke, await readFile(installedSmokePath)),
+      writeFile(
+        join(consumerDirectory, 'unsupported-storage-contract.mjs'),
+        await readFile(unsupportedStorageContractPath),
+      ),
+    ]);
+    const fixtureDirectory = join(consumerDirectory, 'fixture');
+    const dataDirectory = join(consumerDirectory, 'data');
+    const databaseDirectory = join(consumerDirectory, 'db');
+    await Promise.all([
+      mkdir(fixtureDirectory),
+      mkdir(dataDirectory),
+      mkdir(databaseDirectory),
+    ]);
     const smokeEnvironment = {
       ...process.env,
-      CODEGRAPH_DATA_DIR: join(consumerDirectory, 'data'),
-      CODEGRAPH_DB_PATH: join(consumerDirectory, 'db'),
+      CODEGRAPH_DATA_DIR: dataDirectory,
+      CODEGRAPH_DB_PATH: databaseDirectory,
     };
-    const handshakeResult = runner.run(
+    const packageDirectory = join(consumerDirectory, 'node_modules', 'codegraph-mcp');
+    const runtimeResult = runner.run(
       process.execPath,
-      [handshakePath, binPath],
+      [
+        installedSmoke,
+        installedMode,
+        packageDirectory,
+        fixtureDirectory,
+        dataDirectory,
+        databaseDirectory,
+      ],
       {
         cwd: consumerDirectory,
         encoding: 'utf8',
         env: smokeEnvironment,
-        timeout: 60_000,
+        timeout: installedMode === 'local' ? 900_000 : 300_000,
       },
     );
-    if (handshakeResult.status !== 0) {
-      throw commandFailure('MCP handshake', handshakeResult);
+    if (typeof runtimeResult.stdout === 'string' && runtimeResult.stdout.length > 0) {
+      process.stdout.write(runtimeResult.stdout);
     }
-    const handshake = parseHandshake(handshakeResult.stdout);
+    if (runtimeResult.status !== 0) {
+      throw commandFailure(`installed package ${installedMode} smoke`, runtimeResult);
+    }
+    reporter.pass(`tarball SHA-256 ${sha256}`);
 
-    const dashboardBinPath = join(
-      consumerDirectory,
-      'node_modules',
-      'codegraph-mcp',
-      'bin',
-      'codegraph-dashboard.mjs',
-    );
-    const dashboard = await verifyDashboard({
-      binPath: dashboardBinPath,
-      cwd: consumerDirectory,
-      env: smokeEnvironment,
-    });
-
-    return { version: installedVersion, ...handshake, dashboardVerified: true, dashboardAsset: dashboard.asset };
+    return { version: installedVersion, mode: installedMode, sha256 };
   } finally {
     await rm(consumerDirectory, { recursive: true, force: true });
   }
@@ -331,19 +232,30 @@ export async function smokePackage({
 
 export function resolveSmokeInput(argumentsList, defaultResultPath) {
   if (argumentsList.length === 0) {
-    return { kind: 'result', resultPath: resolve(defaultResultPath) };
+    return { kind: 'result', resultPath: resolve(defaultResultPath), mode: 'basic' };
   }
   if (argumentsList.length === 1 && !argumentsList[0].startsWith('--')) {
-    return { kind: 'result', resultPath: resolve(argumentsList[0]) };
+    return { kind: 'result', resultPath: resolve(argumentsList[0]), mode: 'basic' };
   }
   const values = new Map();
   for (let index = 0; index < argumentsList.length; index += 2) {
     const flag = argumentsList[index];
     const value = argumentsList[index + 1];
-    if (!['--tarball', '--version'].includes(flag) || !value) {
-      throw new Error('Usage: smoke-package.mjs [result.json] or --tarball <path> --version <semver>');
+    if (!['--tarball', '--version', '--result', '--mode'].includes(flag) || !value) {
+      throw new Error('Usage: smoke-package.mjs [result.json] [--mode basic|unsupported|local] or --tarball <path> --version <semver> [--mode basic|unsupported|local]');
     }
     values.set(flag, value);
+  }
+  const mode = values.get('--mode') ?? 'basic';
+  if (!['basic', 'unsupported', 'local'].includes(mode)) {
+    throw new Error(`Invalid smoke mode: ${mode}`);
+  }
+  const resultPath = values.get('--result');
+  if (resultPath) {
+    if (values.has('--tarball') || values.has('--version')) {
+      throw new Error('--result cannot be combined with --tarball or --version');
+    }
+    return { kind: 'result', resultPath: resolve(resultPath), mode };
   }
   const tarballPath = values.get('--tarball');
   const expectedVersion = values.get('--version');
@@ -354,6 +266,7 @@ export function resolveSmokeInput(argumentsList, defaultResultPath) {
     kind: 'tarball',
     tarballPath: resolve(tarballPath),
     expectedVersion,
+    mode,
   };
 }
 
@@ -393,14 +306,17 @@ async function runCli() {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Unable to read package validation result: ${message}`);
   }
-  const result = await smokePackage(resolveValidatedPackageInput(packageResult, input.resultPath));
+  const result = await smokePackage({
+    ...resolveValidatedPackageInput(packageResult, input.resultPath),
+    mode: input.mode,
+  });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   runCli().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${message}\n`);
+    process.stderr.write(`FAIL release package smoke: ${message}\n`);
     process.exitCode = 1;
   });
 }

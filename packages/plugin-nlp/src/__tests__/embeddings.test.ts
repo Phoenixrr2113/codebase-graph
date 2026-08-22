@@ -9,10 +9,13 @@
 
 import { describe, it, expect, afterAll } from 'vitest';
 import {
+  createResponseCompatibleFetch,
   generateEmbedding,
   generateEmbeddings,
   getEmbeddingDimensions,
+  getEmbeddingProfile,
   getEmbeddingProvider,
+  getLocalEmbeddingModelState,
   isEmbeddingAvailable,
   _resetLocalModel,
 } from '../embeddings';
@@ -23,6 +26,8 @@ import {
 
 describe('Embedding config resolution', () => {
   const originalEnv = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
+  const originalVoyageKey = process.env['VOYAGE_API_KEY'];
+  const originalOpenRouterKey = process.env['OPENROUTER_API_KEY'];
 
   afterAll(() => {
     if (originalEnv === undefined) {
@@ -30,11 +35,33 @@ describe('Embedding config resolution', () => {
     } else {
       process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = originalEnv;
     }
+
+    if (originalVoyageKey === undefined) {
+      delete process.env['VOYAGE_API_KEY'];
+    } else {
+      process.env['VOYAGE_API_KEY'] = originalVoyageKey;
+    }
+
+    if (originalOpenRouterKey === undefined) {
+      delete process.env['OPENROUTER_API_KEY'];
+    } else {
+      process.env['OPENROUTER_API_KEY'] = originalOpenRouterKey;
+    }
   });
 
-  it('defaults to none when no env set', () => {
+  it('defaults to the 768 dimension local profile when no provider or key is set', () => {
     delete process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
-    expect(getEmbeddingProvider()).toBe('none');
+    delete process.env['VOYAGE_API_KEY'];
+    delete process.env['OPENROUTER_API_KEY'];
+
+    expect(getEmbeddingProvider()).toBe('local');
+    expect(getEmbeddingDimensions()).toBe(768);
+    expect(isEmbeddingAvailable()).toBe(true);
+    expect(getEmbeddingProfile()).toEqual({
+      provider: 'local',
+      model: 'nomic-ai/nomic-embed-text-v1.5',
+      dimension: 768,
+    });
   });
 
   it('returns none dimensions as 0', () => {
@@ -78,6 +105,22 @@ describe('Embedding config resolution', () => {
   });
 });
 
+describe('Transformers.js response compatibility', () => {
+  it('rewraps fetched model responses when the active Response constructor differs', async () => {
+    class BundledResponse extends Response {}
+    const nativeResponse = new Response('model-bytes', {
+      status: 200,
+      headers: { 'content-type': 'application/octet-stream' },
+    });
+    const fetcher: typeof globalThis.fetch = async () => nativeResponse;
+
+    const response = await createResponseCompatibleFetch(fetcher, BundledResponse)('https://example.test/model.onnx');
+
+    expect(response).toBeInstanceOf(BundledResponse);
+    expect(await response.text()).toBe('model-bytes');
+  });
+});
+
 // ============================================================================
 // Local embedding generation (real model, no mocking)
 // ============================================================================
@@ -97,6 +140,20 @@ describe('Local embedding generation', () => {
     expect(result.dimensions).toBe(768);
     expect(result.embedding).toHaveLength(768);
     expect(result.embedding.every((v) => typeof v === 'number' && !Number.isNaN(v))).toBe(true);
+  });
+
+  it('surfaces observable byte progress while the local model loads', async () => {
+    _resetLocalModel();
+    const updates: Array<{ state: string; loadedBytes?: number; totalBytes?: number }> = [];
+
+    await generateEmbedding('observable model load', {
+      provider: 'local',
+      onLoadProgress: (progress) => updates.push(progress),
+    });
+
+    expect(updates.some((progress) => (progress.loadedBytes ?? 0) > 0)).toBe(true);
+    expect(updates.at(-1)?.state).toBe('ready');
+    expect(getLocalEmbeddingModelState().state).toBe('ready');
   });
 
   it('produces normalized embeddings (L2 norm ≈ 1.0)', async () => {

@@ -5,6 +5,7 @@ function makeFakeGraph() {
   return {
     query: vi.fn().mockResolvedValue({ data: [] }),
     roQuery: vi.fn().mockResolvedValue({ data: [] }),
+    constraintCreate: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -40,12 +41,13 @@ describe('ensureSchemaImpl — embedding dim DI', () => {
     delete process.env['CODEGRAPH_EMBEDDING_DIM'];
   });
 
-  it('throws when no provider, no env, and no override are configured', async () => {
+  it('uses local 768 dimensions when no provider, key, or override is configured', async () => {
     const graph = makeFakeGraph();
 
-    await expect(ensureSchemaImpl(graph as never)).rejects.toThrow(
-      'Cannot determine embedding dimension'
-    );
+    await ensureSchemaImpl(graph as never);
+
+    const calls = graph.query.mock.calls.map(c => c[0] as string);
+    expect(calls.some(c => c.includes('VECTOR INDEX') && c.includes('768'))).toBe(true);
   });
 
   it('skips vector indexes (no throw) when CODEGRAPH_EMBEDDING_PROVIDER=none', async () => {
@@ -103,5 +105,63 @@ describe('ensureSchemaImpl — embedding dim DI', () => {
     const vectorCalls = calls.filter(c => c.includes('VECTOR INDEX'));
     expect(vectorCalls.some(c => c.includes('512'))).toBe(true);
     expect(vectorCalls.some(c => c.includes('1024'))).toBe(false);
+  });
+
+  it('refuses a same-dimension model change before mutating the graph', async () => {
+    const graph = makeFakeGraph();
+    graph.roQuery.mockImplementation(async (cypher: string) => ({
+      data: cypher.includes('codegraph.embeddingProfile')
+        ? [{ value: JSON.stringify({ provider: 'local', model: 'old-model', dimension: 768 }) }]
+        : [],
+    }));
+
+    await expect(ensureSchemaImpl(graph as never, {
+      embeddingProfile: { provider: 'local', model: 'new-model', dimension: 768 },
+    })).rejects.toMatchObject({
+      code: 'EMBEDDING_PROFILE_MISMATCH',
+      storedProfile: { provider: 'local', model: 'old-model', dimension: 768 },
+      requestedProfile: { provider: 'local', model: 'new-model', dimension: 768 },
+    });
+    expect(graph.query).not.toHaveBeenCalled();
+  });
+
+  it('performs profile migration only when explicitly requested', async () => {
+    const graph = makeFakeGraph();
+    graph.roQuery.mockImplementation(async (cypher: string) => ({
+      data: cypher.includes('codegraph.embeddingProfile')
+        ? [{ value: JSON.stringify({ provider: 'local', model: 'old-model', dimension: 768 }) }]
+        : [],
+    }));
+
+    await ensureSchemaImpl(graph as never, {
+      embeddingProfile: { provider: 'voyage', model: 'voyage-code-3', dimension: 1024 },
+      allowEmbeddingMigration: true,
+    });
+
+    const calls = graph.query.mock.calls.map(c => c[0] as string);
+    expect(calls.some(c => c.includes('DROP VECTOR INDEX'))).toBe(true);
+    expect(calls.some(c => c.includes('embeddingTextHash = NULL'))).toBe(true);
+    expect(calls.some(c => c.includes('codegraph.embeddingProfile'))).toBe(true);
+  });
+
+  it('refuses to persist a migrated profile when vector index recreation fails', async () => {
+    const graph = makeFakeGraph();
+    graph.roQuery.mockResolvedValue({
+      data: [{ value: JSON.stringify({ provider: 'local', model: 'old-model', dimension: 768 }) }],
+    });
+    graph.query.mockImplementation(async (cypher: string) => {
+      if (cypher.includes('CREATE VECTOR INDEX')) throw new Error('vector create failed');
+      return { data: [] };
+    });
+
+    await expect(ensureSchemaImpl(graph as never, {
+      embeddingProfile: { provider: 'voyage', model: 'voyage-code-3', dimension: 1024 },
+      allowEmbeddingMigration: true,
+    })).rejects.toThrow('vector create failed');
+
+    const metadataWrites = graph.query.mock.calls.filter(([cypher]) => (
+      String(cypher).includes("MERGE (m:Metadata {key: 'codegraph.embeddingProfile'})")
+    ));
+    expect(metadataWrites).toHaveLength(0);
   });
 });

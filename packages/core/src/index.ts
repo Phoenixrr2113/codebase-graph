@@ -8,7 +8,10 @@
  */
 
 // Client singletons
-export { getGraphClient, closeGraphClient } from './graphClient';
+export { getGraphClient, closeGraphClient, getGraphClientRuntimeState } from './graphClient';
+export type { GraphClientRuntimeState } from './graphClient';
+export { getSetupStatus } from './setup-status';
+export type { SetupStatus, SetupStatusDependencies, SetupStorageOwnerState } from './setup-status';
 export { getKnowledgeOps, resetKnowledgeOps } from './knowledgeClient';
 
 // Config management
@@ -28,8 +31,8 @@ export type { MCPContextConfig, ProjectInfo } from './config';
 
 
 // Indexer
-export { indexProject, indexSingleFile, isProjectIndexed } from './indexer';
-export type { IndexStats, IndexResult } from './indexer';
+export { indexProject, indexSingleFile, isProjectIndexed, getIndexProgressState } from './indexer';
+export type { IndexStats, IndexResult, IndexProgressPhase, IndexProgressState } from './indexer';
 
 // Embedding pass (generates + stores embeddings during indexing pipeline)
 export { embedParsedEntities, embedAllParsedEntities } from './embed-pass';

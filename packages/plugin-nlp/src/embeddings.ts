@@ -5,14 +5,16 @@
  *   1. Explicit CODEGRAPH_EMBEDDING_PROVIDER env var (override)
  *   2. VOYAGE_API_KEY present → voyage (voyage-code-3, 1024-dim)
  *   3. OPENROUTER_API_KEY present → openrouter (text-embedding-3-small, 1536-dim)
- *   4. CODEGRAPH_EMBEDDING_PROVIDER=local → nomic-embed-text-v1.5 (768-dim, CPU)
+ *   4. No provider and no key present → local nomic-embed-text-v1.5 (768-dim, CPU)
  *
  * Set CODEGRAPH_EMBEDDING_PROVIDER only to override auto-detection.
- * If no API key is present and no explicit provider is set, embeddings are
- * disabled and search will not work.
+ * Use CODEGRAPH_EMBEDDING_PROVIDER=none as the explicit opt-out.
  */
 
 import { createLogger, traced } from '@codegraph/logger';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 
 const logger = createLogger({ namespace: 'nlp:embeddings' });
 
@@ -35,6 +37,24 @@ export interface EmbeddingConfig {
   voyageModel?: string;
   /** Input type hint for Voyage: 'document' for indexing, 'query' for search */
   inputType?: 'document' | 'query';
+  /** Receives model download and initialization progress for local embeddings. */
+  onLoadProgress?: (progress: EmbeddingLoadProgress) => void;
+}
+
+export interface EmbeddingProfile {
+  provider: EmbeddingProvider;
+  model: string | null;
+  dimension: number;
+}
+
+export interface EmbeddingLoadProgress {
+  state: 'not-started' | 'downloading' | 'loading' | 'ready' | 'failed';
+  model: string;
+  cached: boolean;
+  loadedBytes?: number;
+  totalBytes?: number;
+  percent?: number;
+  error?: string;
 }
 
 export interface EmbeddingResult {
@@ -72,38 +92,181 @@ const VOYAGE_API_URL = 'https://api.voyageai.com/v1/embeddings';
 // Lazy singleton — model loaded on first use, reused thereafter
 let _localExtractor: LocalExtractorFn | null = null;
 let _localLoadPromise: Promise<LocalExtractorFn> | null = null;
+let _loadedLocalModel: string | null = null;
+const localProgressObservers = new Set<(progress: EmbeddingLoadProgress) => void>();
+const runtimeRequire = createRequire(import.meta.url);
+let localModelState: EmbeddingLoadProgress = {
+  state: 'not-started',
+  model: LOCAL_MODEL,
+  cached: false,
+};
 
 type LocalExtractorFn = (
   text: string | string[],
   options: { pooling: string; normalize: boolean },
 ) => Promise<{ data: Float32Array; dims: number[] }>;
 
-async function getLocalExtractor(model: string): Promise<LocalExtractorFn> {
-  if (_localExtractor) return _localExtractor;
-  if (_localLoadPromise) return _localLoadPromise;
+type ResponseConstructor = new (
+  body?: BodyInit | null,
+  init?: ResponseInit,
+) => Response;
+
+export function createResponseCompatibleFetch(
+  fetcher: typeof globalThis.fetch,
+  ResponseType: ResponseConstructor,
+): typeof globalThis.fetch {
+  return async (input, init) => {
+    const response = await fetcher(input, init);
+    if (ResponseType.prototype.isPrototypeOf(response)) return response;
+
+    return new ResponseType(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  };
+}
+
+export function isLocalEmbeddingModelCached(model = LOCAL_MODEL): boolean {
+  try {
+    const entrypoint = runtimeRequire.resolve('@huggingface/transformers');
+    const packageRoot = dirname(dirname(entrypoint));
+    const modelRoot = join(packageRoot, '.cache', ...model.split('/'));
+    return [
+      join(modelRoot, 'config.json'),
+      join(modelRoot, 'tokenizer.json'),
+      join(modelRoot, 'onnx', 'model_quantized.onnx'),
+    ].every(existsSync);
+  } catch {
+    return false;
+  }
+}
+
+function publishLocalProgress(progress: EmbeddingLoadProgress): void {
+  localModelState = progress;
+  for (const observer of localProgressObservers) observer(progress);
+}
+
+export function getLocalEmbeddingModelState(model = LOCAL_MODEL): EmbeddingLoadProgress {
+  if (localModelState.state === 'not-started' || localModelState.model !== model) {
+    return {
+      state: 'not-started',
+      model,
+      cached: isLocalEmbeddingModelCached(model),
+    };
+  }
+  return { ...localModelState };
+}
+
+async function getLocalExtractor(
+  model: string,
+  onProgress?: (progress: EmbeddingLoadProgress) => void,
+): Promise<LocalExtractorFn> {
+  if (_localExtractor && _loadedLocalModel === model) {
+    const ready = { state: 'ready', model, cached: true } as const;
+    publishLocalProgress(ready);
+    onProgress?.(ready);
+    return _localExtractor;
+  }
+
+  if (onProgress) localProgressObservers.add(onProgress);
+  if (_localLoadPromise) {
+    try {
+      return await _localLoadPromise;
+    } finally {
+      if (onProgress) localProgressObservers.delete(onProgress);
+    }
+  }
+
+  const cachedAtStart = isLocalEmbeddingModelCached(model);
+  const fileProgress = new Map<string, { loaded: number; total: number }>();
+  let lastLoggedBucket = -1;
 
   _localLoadPromise = (async () => {
-    logger.info('Loading local embedding model (first run downloads ~140MB)...', { model });
+    publishLocalProgress({
+      state: cachedAtStart ? 'loading' : 'downloading',
+      model,
+      cached: cachedAtStart,
+      loadedBytes: 0,
+      totalBytes: 0,
+      percent: 0,
+    });
+    logger.info(
+      cachedAtStart
+        ? 'Loading cached local embedding model.'
+        : 'Downloading local embedding model (approximately 132 MiB), then loading it.',
+      { model },
+    );
     const start = performance.now();
 
     const { pipeline } = await import('@huggingface/transformers');
-    // Use quantized int8 model for ~2x faster inference vs fp32.
-    // Quality difference is negligible for code embeddings.
-    const extractor = await pipeline('feature-extraction', model, { dtype: 'q8' });
+    const originalFetch = globalThis.fetch;
+    const compatibleFetch = createResponseCompatibleFetch(originalFetch, globalThis.Response);
+    globalThis.fetch = compatibleFetch;
+    let extractor: unknown;
+    try {
+      extractor = await pipeline('feature-extraction', model, {
+        dtype: 'q8',
+        progress_callback: (event) => {
+          if (event.status !== 'progress') return;
+          fileProgress.set(event.file, { loaded: event.loaded, total: event.total });
+          const totals = Array.from(fileProgress.values()).reduce(
+            (sum, item) => ({ loaded: sum.loaded + item.loaded, total: sum.total + item.total }),
+            { loaded: 0, total: 0 },
+          );
+          const percent = totals.total > 0 ? Math.round((totals.loaded / totals.total) * 100) : 0;
+          publishLocalProgress({
+            state: cachedAtStart ? 'loading' : 'downloading',
+            model,
+            loadedBytes: totals.loaded,
+            totalBytes: totals.total,
+            percent,
+            cached: cachedAtStart,
+          });
+          const bucket = Math.floor(percent / 10);
+          if (bucket > lastLoggedBucket) {
+            lastLoggedBucket = bucket;
+            logger.info('Local embedding model load progress.', {
+              model,
+              loadedBytes: totals.loaded,
+              totalBytes: totals.total,
+              percent,
+            });
+          }
+        },
+      });
+    } finally {
+      if (globalThis.fetch === compatibleFetch) globalThis.fetch = originalFetch;
+    }
 
     const loadMs = performance.now() - start;
     logger.info(`Local embedding model loaded in ${(loadMs / 1000).toFixed(1)}s`);
 
-    _localExtractor = extractor as unknown as LocalExtractorFn;
+    _localExtractor = extractor as LocalExtractorFn;
+    _loadedLocalModel = model;
     _localLoadPromise = null;
+    publishLocalProgress({ state: 'ready', model, cached: true });
     return _localExtractor;
-  })();
+  })().catch((error: unknown) => {
+    _localLoadPromise = null;
+    const message = error instanceof Error ? error.message : String(error);
+    publishLocalProgress({ state: 'failed', model, cached: cachedAtStart, error: message });
+    throw error;
+  });
 
-  return _localLoadPromise;
+  try {
+    return await _localLoadPromise;
+  } finally {
+    if (onProgress) localProgressObservers.delete(onProgress);
+  }
 }
 
-async function embedLocal(text: string, model: string): Promise<number[]> {
-  const extractor = await getLocalExtractor(model);
+async function embedLocal(
+  text: string,
+  model: string,
+  onProgress?: (progress: EmbeddingLoadProgress) => void,
+): Promise<number[]> {
+  const extractor = await getLocalExtractor(model, onProgress);
   const output = await extractor(text, { pooling: 'mean', normalize: true });
   return Array.from(output.data);
 }
@@ -112,8 +275,12 @@ async function embedLocal(text: string, model: string): Promise<number[]> {
  *  equal length, so keep small to avoid wasting compute on padding. */
 const ONNX_BATCH_SIZE = 16;
 
-async function embedLocalBatch(texts: string[], model: string): Promise<number[][]> {
-  const extractor = await getLocalExtractor(model);
+async function embedLocalBatch(
+  texts: string[],
+  model: string,
+  onProgress?: (progress: EmbeddingLoadProgress) => void,
+): Promise<number[][]> {
+  const extractor = await getLocalExtractor(model, onProgress);
   const results: number[][] = [];
 
   // Process in small batches — the ONNX runtime can leverage SIMD for
@@ -279,8 +446,7 @@ function resolveProvider(config?: EmbeddingConfig): EmbeddingProvider {
   if (process.env['VOYAGE_API_KEY']) return 'voyage';
   if (process.env['OPENROUTER_API_KEY']) return 'openrouter';
 
-  // Nothing configured — embeddings disabled
-  return 'none';
+  return 'local';
 }
 
 function resolveLocalModel(config?: EmbeddingConfig): string {
@@ -367,7 +533,7 @@ async function generateEmbeddingImpl(
 
   // Local embeddings are ~10ms — no cache needed
   const model = resolveLocalModel(config);
-  const embedding = await embedLocal(text, model);
+  const embedding = await embedLocal(text, model, config?.onLoadProgress);
   return { embedding, dimensions: embedding.length, provider: 'local' };
 }
 
@@ -422,7 +588,7 @@ export async function generateEmbeddings(
   }
 
   const model = resolveLocalModel(config);
-  const embeddings = await embedLocalBatch(texts, model);
+  const embeddings = await embedLocalBatch(texts, model, config?.onLoadProgress);
   return {
     embeddings,
     dimensions: embeddings[0]?.length ?? LOCAL_DIMENSIONS,
@@ -445,6 +611,18 @@ export function getEmbeddingDimensions(config?: EmbeddingConfig): number {
  */
 export function getEmbeddingProvider(config?: EmbeddingConfig): EmbeddingProvider {
   return resolveProvider(config);
+}
+
+export function getEmbeddingProfile(config?: EmbeddingConfig): EmbeddingProfile {
+  const provider = resolveProvider(config);
+  if (provider === 'none') return { provider, model: null, dimension: 0 };
+  if (provider === 'voyage') {
+    return { provider, model: resolveVoyageModel(config), dimension: VOYAGE_DIMENSIONS };
+  }
+  if (provider === 'openrouter') {
+    return { provider, model: resolveCloudModel(config), dimension: CLOUD_DIMENSIONS };
+  }
+  return { provider, model: resolveLocalModel(config), dimension: LOCAL_DIMENSIONS };
 }
 
 /**
@@ -495,4 +673,10 @@ export async function warmupEmbedding(config?: EmbeddingConfig): Promise<void> {
 export function _resetLocalModel(): void {
   _localExtractor = null;
   _localLoadPromise = null;
+  _loadedLocalModel = null;
+  localModelState = {
+    state: 'not-started',
+    model: LOCAL_MODEL,
+    cached: isLocalEmbeddingModelCached(LOCAL_MODEL),
+  };
 }

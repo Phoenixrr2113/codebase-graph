@@ -5,26 +5,32 @@
  * and external integrations. Runs on port 3001 by default.
  */
 
-import { serve } from '@hono/node-server';
+import { createAdaptorServer } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isAllowedOrigin, loadEnvironment, resolvePort } from './env';
-import { checkMutatingRequest } from './csrf-guard';
-import { findDashboardAsset, resolveDashboardDir } from './static';
-import { healthRoutes } from './routes/health';
-import { graphRoutes } from './routes/graph';
-import { searchRoutes } from './routes/search';
-import { queryRoutes } from './routes/query';
-import { parseRoutes } from './routes/parse';
-import { statsRoutes } from './routes/stats';
-import { naturalRoutes } from './routes/natural';
-import { sourceRoutes } from './routes/source';
-import { profileRoutes } from './routes/profile';
-import { analysisRoutes } from './routes/analysis';
-import { fsRoutes } from './routes/fs-directories';
+import {
+  API_BIND_HOST,
+  formatServerStartError,
+  isAllowedOrigin,
+  loadEnvironment,
+  resolvePort,
+} from './env.js';
+import { checkMutatingRequest } from './csrf-guard.js';
+import { findDashboardAsset, resolveDashboardDir } from './static.js';
+import { healthRoutes } from './routes/health.js';
+import { graphRoutes } from './routes/graph.js';
+import { searchRoutes } from './routes/search.js';
+import { queryRoutes } from './routes/query.js';
+import { parseRoutes } from './routes/parse.js';
+import { statsRoutes } from './routes/stats.js';
+import { naturalRoutes } from './routes/natural.js';
+import { sourceRoutes } from './routes/source.js';
+import { profileRoutes } from './routes/profile.js';
+import { analysisRoutes } from './routes/analysis.js';
+import { fsRoutes } from './routes/fs-directories.js';
 
 // Load .env before any route module reads configuration from process.env.
 const loadedEnvFile = loadEnvironment();
@@ -93,7 +99,22 @@ if (dashboardDir !== undefined) {
 // Start server
 const port = resolvePort(process.env);
 
-serve({ fetch: app.fetch, port }, (info) => {
+const server = createAdaptorServer({ fetch: app.fetch, hostname: API_BIND_HOST });
+
+server.once('error', (error) => {
+  process.stderr.write(`${formatServerStartError(error, port)}\n`, () => {
+    process.exit(1);
+  });
+});
+
+server.listen(port, API_BIND_HOST, () => {
+  const info = server.address();
+  if (info === null || typeof info === 'string') {
+    process.stderr.write(`${formatServerStartError(new Error('the listening address was unavailable'), port)}\n`);
+    process.exitCode = 1;
+    server.close();
+    return;
+  }
   console.log(`CodeGraph API server running on http://localhost:${info.port}`);
   console.log(`  Config:     ${loadedEnvFile ?? 'process environment only (no .env found)'}`);
   console.log(

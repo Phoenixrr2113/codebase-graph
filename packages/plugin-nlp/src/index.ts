@@ -62,7 +62,10 @@ export {
   generateEmbedding,
   generateEmbeddings,
   getEmbeddingDimensions,
+  getEmbeddingProfile,
   getEmbeddingProvider,
+  getLocalEmbeddingModelState,
+  isLocalEmbeddingModelCached,
   isEmbeddingAvailable,
   warmupEmbedding,
 } from './embeddings';
@@ -71,6 +74,8 @@ export type {
   EmbeddingConfig,
   EmbeddingResult,
   EmbeddingBatchResult,
+  EmbeddingLoadProgress,
+  EmbeddingProfile,
 } from './embeddings';
 
 // File-to-text loaders (PDF, DOCX, HTML, CSV)

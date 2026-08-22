@@ -10,6 +10,7 @@
   "main": "./server/index.mjs",
   "scripts": {
     "build": "node build.mjs",
+    "prepack": "node guard-pack.mjs",
     "test": "vitest run"
   },
   "keywords": [

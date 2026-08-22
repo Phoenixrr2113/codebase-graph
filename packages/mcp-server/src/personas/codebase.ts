@@ -8,11 +8,25 @@ import { isAbsolute } from 'node:path';
 import type { ToolDefinition } from '../tools/router';
 import { configureProjects, type ConfigureProjectsInput } from '../tools/configureProjects';
 import { triggerReindex, type ReindexInput } from '../tools/reindex';
-import { codeGraphService, readSourceFile, getGraphClient } from '@codegraph/core';
+import { codeGraphService, readSourceFile, getGraphClient, getSetupStatus } from '@codegraph/core';
 import { validateFilePath } from './validation';
 import { createLogger } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'MCP:Persona:Index' });
+
+async function getSettledSetupStatus(): Promise<Awaited<ReturnType<typeof getSetupStatus>>> {
+  const setup = await getSetupStatus();
+  if (setup.storage.ownerState !== 'starting') return setup;
+
+  try {
+    await getGraphClient();
+  } catch (error) {
+    logger.debug('Storage startup settled as blocked while reading status', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return getSetupStatus();
+}
 
 // ============================================================================
 // Extension -> language display name (profile action)
@@ -210,6 +224,17 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
 
     case 'status': {
       try {
+        const setup = await getSettledSetupStatus();
+        if (!setup.projects.configured) {
+          result = {
+            configured: false,
+            setupRequired: true,
+            message: 'CodeGraph is ready for setup. Configure and index a project to begin.',
+            setup,
+          };
+          toolUsed = 'get_status';
+          break;
+        }
         const stats = await codeGraphService.getGraphStats();
         // Query embedding coverage per node type
         let embeddingCoverage: Record<string, number> = {};
@@ -230,9 +255,12 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
           nodesByType: stats.nodesByType,
           edgesByType: stats.edgesByType,
           embeddingCoverage,
+          configured: true,
+          setupRequired: false,
+          setup,
         };
-      } catch (error) {
-        result = { error: error instanceof Error ? error.message : 'Unknown error getting status' };
+      } catch {
+        result = { error: 'Unable to read CodeGraph runtime status.' };
       }
       toolUsed = 'get_status';
       break;

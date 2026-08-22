@@ -158,6 +158,7 @@ beforeEach(() => {
   opsMocks.upsertProject.mockClear();
   opsMocks.linkProjectFiles.mockClear();
   opsMocks.deleteProject.mockClear();
+  vi.mocked(fakeClient.ensureIndexes).mockClear();
 });
 
 afterEach(() => {
@@ -190,6 +191,49 @@ describe('indexProject: Project node must exist before linkProjectFiles', () => 
     const linkedProjectId = opsMocks.callOrder[linkIdx]!.split(':')[1];
     const upsertedProjectId = opsMocks.callOrder[upsertIdx]!.split(':')[1];
     expect(linkedProjectId).toBe(upsertedProjectId);
+  });
+
+  it('publishes index phases and locks the explicit structural profile', async () => {
+    opsMocks.getProjectByRoot.mockResolvedValue(null);
+    const phases: string[] = [];
+
+    const result = await indexProject(projectDir, {
+      client: fakeClient,
+      includePatterns: ['*.ts'],
+      embeddings: false,
+      gitSync: false,
+      onProgress: (progress) => phases.push(progress.phase),
+    });
+
+    expect(result.success).toBe(true);
+    expect(phases).toEqual(expect.arrayContaining([
+      'storage',
+      'discovering',
+      'parsing',
+      'writing',
+      'complete',
+    ]));
+    expect(fakeClient.ensureIndexes).toHaveBeenCalledWith({
+      embeddingProfile: { provider: 'none', model: null, dimension: 0 },
+      allowEmbeddingMigration: false,
+    });
+  });
+
+  it('authorizes embedding profile migration only for a forced reindex', async () => {
+    opsMocks.getProjectByRoot.mockResolvedValue(null);
+
+    await indexProject(projectDir, {
+      client: fakeClient,
+      includePatterns: ['*.ts'],
+      embeddings: { provider: 'local', localModel: 'replacement-model' },
+      gitSync: false,
+      force: true,
+    });
+
+    expect(fakeClient.ensureIndexes).toHaveBeenCalledWith({
+      embeddingProfile: { provider: 'local', model: 'replacement-model', dimension: 768 },
+      allowEmbeddingMigration: true,
+    });
   });
 
   it('re-upserts the Project node after deleteProject() during a full reindex, before linking files', async () => {
