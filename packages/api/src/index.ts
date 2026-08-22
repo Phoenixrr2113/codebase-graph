@@ -24,6 +24,7 @@ import { naturalRoutes } from './routes/natural';
 import { sourceRoutes } from './routes/source';
 import { profileRoutes } from './routes/profile';
 import { analysisRoutes } from './routes/analysis';
+import { fsRoutes } from './routes/fs-directories';
 
 // Load .env before any route module reads configuration from process.env.
 const loadedEnvFile = loadEnvironment();
@@ -68,6 +69,7 @@ app.route('/', naturalRoutes);
 app.route('/', sourceRoutes);
 app.route('/', profileRoutes);
 app.route('/', analysisRoutes);
+app.route('/', fsRoutes);
 
 // Serve the built dashboard, when one is present, from the same origin as the
 // API. Same origin means the browser never needs a CORS allowance for it.
@@ -106,6 +108,7 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log(`  Knowledge:  GET  /api/knowledge/stats`);
   console.log(`  Profile:    GET  /api/profile`);
   console.log(`  Embeddings: GET  /api/embeddings/status`);
+  console.log(`  Directories: GET /api/fs/directories`);
 });
 
 export { app };
