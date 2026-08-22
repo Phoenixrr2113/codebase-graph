@@ -20,7 +20,7 @@ describeIfAvailable('indexProject overload call target resolution', () => {
     previousEmbeddingProvider = process.env['CODEGRAPH_EMBEDDING_PROVIDER'];
     process.env['CODEGRAPH_EMBEDDING_PROVIDER'] = 'none';
 
-    dataDir = await mkdtemp('/private/tmp/cgot-');
+    dataDir = await mkdtemp(join(tmpdir(), 'cgot-'));
     client = await createClient({
       driver: 'falkordblite',
       databasePath: dataDir,

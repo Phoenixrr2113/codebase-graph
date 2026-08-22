@@ -492,17 +492,14 @@ async function retrieveCandidates(
     for (const r of results) {
       if (!matchesScope(r.filePath, scope, scopePaths)) continue;
 
-      const persistedId = typeof r.properties?.['id'] === 'string'
-        ? r.properties['id']
-        : r.nodeType === 'File' ? `File:${r.filePath}` : undefined;
-      if (!persistedId || seen.has(persistedId)) continue;
-      seen.add(persistedId);
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
 
       const vScore = distanceToScore(r.distance);
       // r.properties contains the full row from searchByVector (all node fields)
       const props = r.properties ?? {};
       candidates.push({
-        id: persistedId,
+        id: r.id,
         name: r.name,
         nodeType: r.nodeType,
         filePath: r.filePath,

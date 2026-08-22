@@ -17,6 +17,7 @@ import type { GraphClient } from '@codegraph/graph';
 // ---------------------------------------------------------------------------
 
 const MOCK_VECTOR_HIT = {
+  id: 'sym:v1:parse-token',
   name: 'parseToken',
   nodeType: 'Function',
   filePath: 'src/auth.ts',
@@ -34,6 +35,7 @@ vi.mock('@codegraph/graph', () => ({
   createOperations: vi.fn().mockReturnValue({
     searchByVector: vi.fn().mockResolvedValue([
       {
+        id: 'sym:v1:parse-token',
         name: 'parseToken',
         nodeType: 'Function',
         filePath: 'src/auth.ts',

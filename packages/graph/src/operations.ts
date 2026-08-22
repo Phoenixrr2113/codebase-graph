@@ -1405,6 +1405,7 @@ export interface GraphOperations {
 
 /** Result from vector similarity search */
 export interface VectorSearchResult {
+  id: string;
   nodeType: string;
   name: string;
   filePath: string;
@@ -2722,7 +2723,7 @@ class GraphOperationsImpl implements GraphOperations {
     const cypher = `
       CALL db.idx.vector.queryNodes('${nodeType}', 'embedding', $k, vecf32($queryVec))
       YIELD node, score
-      RETURN node.name AS name, ${filePathExpr} AS filePath${startLineReturn}, score,
+      RETURN node.id AS id, node.name AS name, ${filePathExpr} AS filePath${startLineReturn}, score,
              node.endLine AS endLine,
              node.complexity AS complexity,
              node.cognitiveComplexity AS cognitiveComplexity,
@@ -2737,22 +2738,10 @@ class GraphOperationsImpl implements GraphOperations {
              node.bodySnippet AS bodySnippet
     `;
 
+    let result: { data: Array<Record<string, unknown>> };
     try {
-      const result = await this.client.roQuery<Record<string, unknown>>(cypher, {
+      result = await this.client.roQuery<Record<string, unknown>>(cypher, {
         params: { queryVec: embedding, k: limit },
-      });
-
-      return result.data.map((row) => {
-        const entry: VectorSearchResult = {
-          nodeType,
-          name: row['name'] as string,
-          filePath: row['filePath'] as string,
-          distance: row['score'] as number,
-          properties: row,
-        };
-        const sl = row['startLine'];
-        if (typeof sl === 'number') entry.startLine = sl;
-        return entry;
       });
     } catch (error) {
       // A missing vector index is an expected, benign state on a fresh graph.
@@ -2764,6 +2753,25 @@ class GraphOperationsImpl implements GraphOperations {
       }
       return [];
     }
+
+    return result.data.map((row) => {
+      const id = row['id'];
+      if (typeof id !== 'string' || id.length === 0) {
+        throw new Error(`Vector search returned ${nodeType} row without a valid persisted id`);
+      }
+
+      const entry: VectorSearchResult = {
+        id,
+        nodeType,
+        name: row['name'] as string,
+        filePath: row['filePath'] as string,
+        distance: row['score'] as number,
+        properties: row,
+      };
+      const sl = row['startLine'];
+      if (typeof sl === 'number') entry.startLine = sl;
+      return entry;
+    });
   }
 
   private projectFromRow(row: Record<string, unknown>): ProjectEntity {
