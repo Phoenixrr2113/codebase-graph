@@ -986,6 +986,11 @@ export async function indexProject(
       logger.warn(`Git sync failed (non-fatal): ${err instanceof Error ? err.message : err}`);
     }
 
+    // Degree is a persisted global ordering key for dashboard windows. A
+    // post-write reconciliation is deterministic across bulk fallbacks and
+    // edge deletions, unlike increment/decrement bookkeeping on every path.
+    await ops.recomputeGraphDegrees();
+
     // Update project metadata
     project.lastParsed = now;
     project.fileCount = totalFiles + skippedCount;
@@ -1141,6 +1146,7 @@ export async function indexSingleFile(
     await ops.removeFileContents(filePath);
     await ops.batchUpsert(parsed);
     await sweepStaleSymbols(ops, parsed);
+    await ops.recomputeGraphDegrees();
 
     // Embedding pass — deferred (background) or blocking
     let embedded = 0;

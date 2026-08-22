@@ -2,20 +2,22 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import type cytoscape from 'cytoscape'
 import { GraphControls } from './graph-controls'
 import { cytoscapeStylesheet, LAYOUT_OPTIONS, type LayoutName } from '@/lib/cytoscape-config'
+import {
+  fetchGraphWindow,
+  fetchNeighbors,
+  mergeGraphWindow,
+  resetGraphWindow,
+  restoreGraphWindow,
+  type GraphEdgeData,
+  type GraphNodeData,
+  type GraphViewMode,
+  type GraphWindow,
+  type GraphWindowLimit,
+} from '@/lib/graph-window'
 
-export interface GraphNode {
-  id: string
-  label: string
-  type: string
-  properties: Record<string, unknown>
-}
+export type GraphNode = GraphNodeData
 
-interface GraphWireEdge {
-  id: string
-  source: string
-  target: string
-  label: string
-}
+type GraphWireEdge = GraphEdgeData
 
 interface CanvasNodeElement {
   data: {
@@ -74,21 +76,120 @@ interface GraphCanvasProps {
   hiddenEdgeTypes: Set<string>
   hiddenNodeTypes: Set<string>
   projectId?: string | null
+  mode?: GraphViewMode
+  windowLimit?: GraphWindowLimit
+  fileScope?: GraphNode | null
+  onModeChange?: (mode: GraphViewMode) => void
+  onWindowLimitChange?: (limit: GraphWindowLimit) => void
+  expansionRequest?: { node: GraphNode; sequence: number } | null
+  restoredExpansions?: readonly GraphNode[]
+  onExpanded?: (node: GraphNode) => void
+  onResetView?: () => void
 }
 
-export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNodeIds, referenceNodeIds, hiddenEdgeTypes, hiddenNodeTypes, projectId }: GraphCanvasProps) {
+export function GraphCanvas({
+  apiUrl,
+  onNodeSelect,
+  selectedNode,
+  highlightedNodeIds,
+  referenceNodeIds,
+  hiddenEdgeTypes,
+  hiddenNodeTypes,
+  projectId,
+  mode = 'symbols',
+  windowLimit = 300,
+  fileScope = null,
+  onModeChange,
+  onWindowLimitChange,
+  expansionRequest = null,
+  restoredExpansions = [],
+  onExpanded,
+  onResetView,
+}: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<cytoscape.Core | null>(null)
+  const graphWindowRef = useRef<GraphWindow | null>(null)
+  const baseWindowRef = useRef<GraphWindow | null>(null)
+  const expandNodeRef = useRef<((node: GraphNode) => Promise<void>) | null>(null)
+  const handledExpansionSequenceRef = useRef<number | null>(null)
+  const expansionAbortRef = useRef<AbortController | null>(null)
+  const restorationAbortRef = useRef<AbortController | null>(null)
+  const appliedExpansionIdsRef = useRef<string[]>([])
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [nodeCount, setNodeCount] = useState(0)
+  const [edgeCount, setEdgeCount] = useState(0)
   const [canvasNodes, setCanvasNodes] = useState<GraphNode[]>([])
+  const [graphWindow, setGraphWindow] = useState<GraphWindow | null>(null)
+  const [baseWindow, setBaseWindow] = useState<GraphWindow | null>(null)
+  const [expandingNodeId, setExpandingNodeId] = useState<string | null>(null)
+  const [expansionError, setExpansionError] = useState<string | null>(null)
   const [layout, setLayout] = useState<LayoutName>('cose')
+  const [renderRevision, setRenderRevision] = useState(0)
+
+  const expandNode = useCallback(async (node: GraphNode): Promise<void> => {
+    if (expansionAbortRef.current !== null) return
+    const controller = new AbortController()
+    expansionAbortRef.current = controller
+    setExpandingNodeId(node.id)
+    setExpansionError(null)
+    try {
+      const incoming = await fetchNeighbors(apiUrl, node.id, windowLimit, controller.signal)
+      const current = graphWindowRef.current
+      const cy = cyRef.current
+      if (!current || !cy || cy.destroyed()) return
+
+      const merged = mergeGraphWindow(current, incoming)
+      const existingNodeIds = new Set(current.nodes.map((entry) => entry.id))
+      const existingEdgeIds = new Set(current.edges.map((edge) => edge.id))
+      const nodesToAdd = incoming.nodes
+        .filter((entry) => !existingNodeIds.has(entry.id))
+        .map(graphNodeToCanvasElement)
+      const mergedNodeIds = new Set(merged.nodes.map((entry) => entry.id))
+      const edgesToAdd = incoming.edges
+        .filter((edge) => !existingEdgeIds.has(edge.id))
+        .filter((edge) => mergedNodeIds.has(edge.source) && mergedNodeIds.has(edge.target))
+        .map((edge) => ({ data: edge }))
+
+      if (nodesToAdd.length > 0 || edgesToAdd.length > 0) {
+        cy.add([...nodesToAdd, ...edgesToAdd])
+        cy.layout(LAYOUT_OPTIONS[layout]).run()
+      }
+      graphWindowRef.current = merged
+      appliedExpansionIdsRef.current = [...appliedExpansionIdsRef.current, node.id]
+      setGraphWindow(merged)
+      setCanvasNodes(merged.nodes)
+      setNodeCount(merged.nodes.length)
+      setEdgeCount(merged.edges.length)
+      const target = cy.getElementById(node.id)
+      if (target.length > 0) {
+        if (incoming.incomingTruncated || incoming.outgoingTruncated) {
+          target.addClass('truncated')
+        }
+        cy.animate({ fit: { eles: target.neighborhood().add(target), padding: 60 }, duration: 400 })
+      }
+      onExpanded?.(node)
+    } catch (error) {
+      if (controller.signal.aborted) return
+      console.error('Failed to expand graph node', error)
+      setExpansionError(error instanceof Error ? error.message : 'Failed to expand node')
+    } finally {
+      if (expansionAbortRef.current === controller) {
+        expansionAbortRef.current = null
+        setExpandingNodeId(null)
+      }
+    }
+  }, [apiUrl, layout, onExpanded, windowLimit])
+  expandNodeRef.current = expandNode
 
   // Initialize Cytoscape and load data
   useEffect(() => {
     let mounted = true
+    setLoading(true)
+    setError(null)
+    setExpansionError(null)
+    setExpandingNodeId(null)
 
     async function init() {
       if (!containerRef.current) return
@@ -96,61 +197,35 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
       const cy = (await import('cytoscape')).default
 
       try {
-        const graphUrl = projectId
-          ? `${apiUrl}/api/graph/full?limit=300&projectId=${encodeURIComponent(projectId)}`
-          : `${apiUrl}/api/graph/full?limit=300`
-        const res = await fetch(graphUrl)
-        if (!res.ok) throw new Error(`API error: ${res.status}`)
-        const data = await res.json()
+        const data = await fetchGraphWindow({
+          apiUrl,
+          mode,
+          limit: windowLimit,
+          projectId,
+          fileScope,
+        })
 
         if (!mounted) return
 
-        const nodes: CanvasNodeElement[] = (data.nodes ?? []).map((n: Record<string, unknown>) => {
-          const nodeData = (typeof n.data === 'object' && n.data != null ? n.data : {}) as Record<string, unknown>
-          const displayName = (n.displayName ?? nodeData.name ?? n.id) as string
-          const nodeType = (n.label ?? nodeData.type ?? 'Unknown') as string
-          return {
-            data: {
-              // Spread first: the graph payload carries its own internal "id",
-              // and spreading it last replaced the cytoscape node id. Every edge
-              // referencing the real id was then treated as an orphan and
-              // dropped, so functions, classes and interfaces rendered with no
-              // edges at all while files, which carry no inner id, looked fine.
-              ...nodeData,
-              id: n.id as string,
-              label: displayName,
-              type: nodeType,
-              filePath: n.filePath as string | undefined,
-            },
-          }
-        })
-
-        const graphNodes: GraphNode[] = nodes.map((node) => ({
-          id: node.data.id,
-          label: node.data.label,
-          type: node.data.type,
-          properties: node.data,
-        }))
+        const nodes = data.nodes.map(graphNodeToCanvasElement)
 
         // Build valid node ID set to filter orphan edges
         const nodeIds = new Set(nodes.map((n: { data: { id: string } }) => n.data.id))
-
-        const loadedEdges: GraphWireEdge[] = (data.edges ?? [])
-          .flatMap((edge: Record<string, unknown>, index: number) => {
-            if (typeof edge.source !== 'string' || typeof edge.target !== 'string') return []
-            return [{
-              id: typeof edge.id === 'string' ? edge.id : `edge-${index}`,
-              source: edge.source,
-              target: edge.target,
-              label: typeof edge.label === 'string' ? edge.label : '',
-            }]
-          })
-        const edges: CanvasEdgeElement[] = loadedEdges
+        const loadedEdges = data.edges
+        const visibleEdges = loadedEdges
           .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
+        const edges: CanvasEdgeElement[] = visibleEdges
           .map((edge) => ({ data: edge }))
+        const visibleWindow = { ...data, edges: visibleEdges }
 
         setNodeCount(nodes.length)
-        setCanvasNodes(graphNodes)
+        setEdgeCount(edges.length)
+        setCanvasNodes(data.nodes)
+        setGraphWindow(visibleWindow)
+        setBaseWindow(visibleWindow)
+        graphWindowRef.current = visibleWindow
+        baseWindowRef.current = visibleWindow
+        appliedExpansionIdsRef.current = []
 
         const instance = cy({
           container: containerRef.current,
@@ -182,11 +257,15 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
           neighborhood.nodes().not(node).addClass('neighbor')
         })
 
-        // Node double-click → focus on neighborhood
+        // Node double-click loads direct neighbors before focusing the result.
         instance.on('dbltap', 'node', (evt) => {
           const node = evt.target
-          const neighborhood = node.neighborhood().add(node)
-          instance.animate({ fit: { eles: neighborhood, padding: 60 }, duration: 400 })
+          void expandNodeRef.current?.({
+            id: node.id(),
+            label: node.data('label'),
+            type: node.data('type'),
+            properties: node.data(),
+          })
         })
 
         // Click on background → deselect
@@ -238,8 +317,77 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
       resizeObserverRef.current?.disconnect()
       resizeObserverRef.current = null
       cyRef.current?.destroy()
+      expansionAbortRef.current?.abort()
+      expansionAbortRef.current = null
+      restorationAbortRef.current?.abort()
+      restorationAbortRef.current = null
+      appliedExpansionIdsRef.current = []
+      graphWindowRef.current = null
+      baseWindowRef.current = null
     }
-  }, [apiUrl, onNodeSelect, projectId])
+  }, [apiUrl, fileScope, mode, onNodeSelect, projectId, windowLimit])
+
+  useEffect(() => {
+    if (
+      loading
+      || !expansionRequest
+      || handledExpansionSequenceRef.current === expansionRequest.sequence
+    ) return
+    handledExpansionSequenceRef.current = expansionRequest.sequence
+    void expandNode(expansionRequest.node)
+  }, [expandNode, expansionRequest, loading])
+
+  useEffect(() => {
+    if (loading) return
+    const requestedIds = restoredExpansions.map((node) => node.id)
+    if (
+      requestedIds.length === appliedExpansionIdsRef.current.length
+      && requestedIds.every((id, index) => id === appliedExpansionIdsRef.current[index])
+    ) return
+
+    const base = baseWindowRef.current
+    const cy = cyRef.current
+    if (!base || !cy || cy.destroyed()) return
+
+    restorationAbortRef.current?.abort()
+    const controller = new AbortController()
+    restorationAbortRef.current = controller
+    void restoreGraphWindow(
+      base,
+      restoredExpansions,
+      (node) => fetchNeighbors(apiUrl, node.id, windowLimit, controller.signal),
+    ).then((restored) => {
+      if (controller.signal.aborted || cy.destroyed()) return
+      const nodeIds = new Set(restored.nodes.map((node) => node.id))
+      const visibleWindow = {
+        ...restored,
+        edges: restored.edges.filter(
+          (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target),
+        ),
+      }
+      cy.elements().remove()
+      cy.add([
+        ...visibleWindow.nodes.map(graphNodeToCanvasElement),
+        ...visibleWindow.edges.map((edge) => ({ data: edge })),
+      ])
+      cy.layout(LAYOUT_OPTIONS[layout]).run()
+      graphWindowRef.current = visibleWindow
+      appliedExpansionIdsRef.current = requestedIds
+      setGraphWindow(visibleWindow)
+      setCanvasNodes(visibleWindow.nodes)
+      setNodeCount(visibleWindow.nodes.length)
+      setEdgeCount(visibleWindow.edges.length)
+      setRenderRevision((current) => current + 1)
+    }).catch((error: unknown) => {
+      if (controller.signal.aborted) return
+      console.error('Failed to restore graph view', error)
+      setExpansionError(error instanceof Error ? error.message : 'Failed to restore graph view')
+    }).finally(() => {
+      if (restorationAbortRef.current === controller) restorationAbortRef.current = null
+    })
+
+    return () => controller.abort()
+  }, [apiUrl, layout, loading, restoredExpansions, windowLimit])
 
   // Search, breadcrumb, reference, and File relationship selections can point
   // outside the initial graph window. Add that node before centering it. Direct
@@ -261,7 +409,7 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
     cy.nodes().unselect()
     target.select()
     cy.animate({ center: { eles: target }, duration: 250 })
-  }, [selectedNode, loading])
+  }, [selectedNode, loading, renderRevision])
 
   // Handle search highlight changes
   useEffect(() => {
@@ -280,7 +428,7 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
       })
       cy.edges().addClass('dimmed')
     }
-  }, [highlightedNodeIds])
+  }, [highlightedNodeIds, renderRevision])
 
   // Mark the symbols that use the selected one.
   //
@@ -297,7 +445,7 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
     cy.nodes().forEach((node) => {
       if (referenceNodeIds.has(node.id())) node.addClass('reference')
     })
-  }, [referenceNodeIds])
+  }, [referenceNodeIds, renderRevision])
 
   // Handle edge type filter changes
   useEffect(() => {
@@ -312,7 +460,7 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
         edge.removeClass('hidden')
       }
     })
-  }, [hiddenEdgeTypes])
+  }, [hiddenEdgeTypes, renderRevision])
 
   // Handle node type filter changes
   useEffect(() => {
@@ -341,7 +489,7 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
         })
       }
     })
-  }, [hiddenNodeTypes, hiddenEdgeTypes])
+  }, [hiddenNodeTypes, hiddenEdgeTypes, renderRevision])
 
   const handleZoomIn = useCallback(() => {
     const cy = cyRef.current
@@ -362,6 +510,28 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
   const handleFit = useCallback(() => {
     cyRef.current?.fit(undefined, 40)
   }, [])
+
+  const handleReset = useCallback(() => {
+    const cy = cyRef.current
+    const base = baseWindowRef.current
+    if (!cy || cy.destroyed() || !base) return
+    const reset = resetGraphWindow(base)
+    cy.elements().remove()
+    cy.add([
+      ...reset.nodes.map(graphNodeToCanvasElement),
+      ...reset.edges.map((edge) => ({ data: edge })),
+    ])
+    cy.layout(LAYOUT_OPTIONS[layout]).run()
+    graphWindowRef.current = reset
+    appliedExpansionIdsRef.current = []
+    setGraphWindow(reset)
+    setCanvasNodes(reset.nodes)
+    setNodeCount(reset.nodes.length)
+    setEdgeCount(reset.edges.length)
+    setExpansionError(null)
+    setRenderRevision((current) => current + 1)
+    onResetView?.()
+  }, [layout, onResetView])
 
   const handleRelayout = useCallback((newLayout?: LayoutName) => {
     const l = newLayout ?? layout
@@ -400,6 +570,11 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
           )}
         </div>
       )}
+      {expansionError && !error && (
+        <div role="alert" className="absolute bottom-4 right-4 z-20 max-w-sm rounded-lg border border-red-400/60 bg-card px-3 py-2 text-xs text-foreground">
+          {expansionError}
+        </div>
+      )}
       {!loading && !error && nodeCount === 0 && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <div className="text-sm text-muted-foreground">Empty graph</div>
@@ -422,15 +597,29 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
           {canvasNodes.length === 0 ? (
             <p className="px-2 py-1.5 text-subtle">No nodes loaded</p>
           ) : canvasNodes.map((node) => (
-            <button
-              key={node.id}
-              type="button"
-              className="block w-full truncate rounded px-2 py-1.5 text-left text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => handleNodeListSelect(node)}
-            >
-              {node.label}
-              <span className="ml-1 text-subtle">{node.type}</span>
-            </button>
+            <div key={node.id} className="flex items-center gap-1 rounded hover:bg-accent/40">
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => handleNodeListSelect(node)}
+              >
+                {node.label}
+                <span className="ml-1 text-subtle">{node.type}</span>
+                {typeof node.properties.symbolCount === 'number' && (
+                  <span className="ml-1 text-subtle">{node.properties.symbolCount} symbols</span>
+                )}
+              </button>
+              <button
+                type="button"
+                aria-label={`Expand ${node.label}`}
+                title={`Expand ${node.label}`}
+                disabled={expandingNodeId !== null}
+                onClick={() => void expandNode(node)}
+                className="text-subtle mr-1 rounded px-1.5 py-1 text-[10px] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+              >
+                Expand
+              </button>
+            </div>
           ))}
         </div>
       </details>
@@ -438,8 +627,19 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNod
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onFit={handleFit}
+        onReset={handleReset}
         onRelayout={handleRelayout}
         nodeCount={nodeCount}
+        edgeCount={edgeCount}
+        totalNodes={graphWindow?.totalNodes ?? nodeCount}
+        totalEdges={graphWindow?.totalEdges ?? edgeCount}
+        windowLimit={windowLimit}
+        onWindowLimitChange={onWindowLimitChange}
+        mode={mode}
+        onModeChange={onModeChange}
+        canReset={graphWindow !== null && baseWindow !== null && graphWindow !== baseWindow}
+        truncation={graphWindow?.truncation}
+        windowOrder={graphWindow?.windowOrder}
         layout={layout}
       />
     </div>

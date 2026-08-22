@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { GraphCanvas, type GraphNode } from './graph-canvas'
 import { GraphLegend } from './graph-legend'
@@ -13,9 +13,25 @@ import {
   type SymbolReferences,
 } from '@/lib/references'
 import type { FileRelationshipsState } from './entity-detail'
+import {
+  appendGraphExpansion,
+  DEFAULT_GRAPH_VIEW,
+  fetchGraphNodeDetail,
+  persistGraphViewState,
+  readGraphViewState,
+  resetGraphExpansions,
+  type GraphCanvasViewState,
+  type GraphViewMode,
+  type GraphWindowLimit,
+} from '@/lib/graph-window'
+
+export interface SelectionHistoryEntry {
+  node: GraphNode | null
+  view: GraphCanvasViewState
+}
 
 export interface SelectionHistory {
-  entries: Array<GraphNode | null>
+  entries: SelectionHistoryEntry[]
   index: number
 }
 
@@ -25,14 +41,20 @@ function selectionIdentity(node: GraphNode | null): string | null {
   return node?.id ?? null
 }
 
+function currentHistoryNode(history: SelectionHistory): GraphNode | null {
+  return history.index >= 0 ? history.entries[history.index]?.node ?? null : null
+}
+
 export function pushSelectionHistory(
   history: SelectionHistory,
   node: GraphNode | null,
+  view: GraphCanvasViewState,
+  options: { force?: boolean } = {},
 ): SelectionHistory {
   const current = history.index >= 0 ? history.entries[history.index] : undefined
-  if (current !== undefined && selectionIdentity(current) === selectionIdentity(node)) return history
+  if (!options.force && current !== undefined && selectionIdentity(current.node) === selectionIdentity(node)) return history
 
-  const entries = [...history.entries.slice(0, history.index + 1), node]
+  const entries = [...history.entries.slice(0, history.index + 1), { node, view }]
   return { entries, index: entries.length - 1 }
 }
 
@@ -181,34 +203,124 @@ export function AppShell({
   queryWorkspaces?: QueryWorkspaces
   onQueryWorkspacesChange?: (updater: (current: QueryWorkspaces) => QueryWorkspaces) => void
 }) {
+  const [canvasView, setCanvasView] = useState<GraphCanvasViewState>(() => {
+    if (typeof window === 'undefined') {
+      return { ...DEFAULT_GRAPH_VIEW, fileScope: null, expansions: [] }
+    }
+    try {
+      return {
+        ...readGraphViewState(window.location, window.localStorage),
+        fileScope: null,
+        expansions: [],
+      }
+    } catch (error) {
+      console.warn('Unable to read the saved graph view', error)
+      return { ...DEFAULT_GRAPH_VIEW, fileScope: null, expansions: [] }
+    }
+  })
+  const [expansionRequest, setExpansionRequest] = useState<{ node: GraphNode; sequence: number } | null>(null)
   const [selectionHistory, setSelectionHistory] = useState<SelectionHistory>(EMPTY_SELECTION_HISTORY)
+  const canvasViewRef = useRef(canvasView)
+  canvasViewRef.current = canvasView
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set())
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(new Set())
   const [hiddenNodeTypes, setHiddenNodeTypes] = useState<Set<string>>(new Set())
   const [showQuery, setShowQuery] = useState(false)
   const [references, setReferences] = useState<SymbolReferences | null>(null)
+  const [detailedSelectedNode, setDetailedSelectedNode] = useState<GraphNode | null>(null)
   const [referencesLoading, setReferencesLoading] = useState(false)
   const [fileRelationshipsState, setFileRelationshipsState] = useState<FileRelationshipsState>({ status: 'idle' })
 
   const selectedNode = selectionHistory.index >= 0
-    ? selectionHistory.entries[selectionHistory.index] ?? null
+    ? selectionHistory.entries[selectionHistory.index]?.node ?? null
     : null
 
+  useEffect(() => {
+    try {
+      persistGraphViewState(canvasView, window.location, window.history, window.localStorage)
+    } catch (error) {
+      console.warn('Unable to persist the graph view', error)
+    }
+  }, [canvasView])
+
   const handleNodeSelect = useCallback((node: GraphNode | null) => {
-    setSelectionHistory((history) => pushSelectionHistory(history, node))
+    setSelectionHistory((history) => pushSelectionHistory(history, node, canvasViewRef.current))
   }, [])
 
   useEffect(() => {
     if (externalSelection) handleNodeSelect(externalSelection)
   }, [externalSelection, handleNodeSelect])
 
+  useEffect(() => {
+    setDetailedSelectedNode(selectedNode)
+    if (!selectedNode || typeof selectedNode.properties.filePath !== 'string') return
+
+    const controller = new AbortController()
+    fetchGraphNodeDetail(API_URL, selectedNode, controller.signal)
+      .then((detail) => setDetailedSelectedNode(detail))
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        console.error('Failed to load graph node detail', error)
+        setDetailedSelectedNode(selectedNode)
+      })
+
+    return () => controller.abort()
+  }, [selectedNode])
+
   const handleBack = useCallback(() => {
-    setSelectionHistory((history) => moveSelectionHistory(history, -1))
-  }, [])
+    const moved = moveSelectionHistory(selectionHistory, -1)
+    const entry = moved.entries[moved.index]
+    if (moved === selectionHistory || !entry) return
+    setSelectionHistory(moved)
+    setCanvasView(entry.view)
+  }, [selectionHistory])
 
   const handleForward = useCallback(() => {
-    setSelectionHistory((history) => moveSelectionHistory(history, 1))
+    const moved = moveSelectionHistory(selectionHistory, 1)
+    const entry = moved.entries[moved.index]
+    if (moved === selectionHistory || !entry) return
+    setSelectionHistory(moved)
+    setCanvasView(entry.view)
+  }, [selectionHistory])
+
+  const recordCanvasView = useCallback((view: GraphCanvasViewState, node?: GraphNode | null) => {
+    setCanvasView(view)
+    setSelectionHistory((history) => pushSelectionHistory(
+      history,
+      node === undefined ? currentHistoryNode(history) : node,
+      view,
+      { force: true },
+    ))
   }, [])
+
+  const handleModeChange = useCallback((mode: GraphViewMode) => {
+    recordCanvasView({ ...canvasView, mode, fileScope: null, expansions: [] })
+  }, [canvasView, recordCanvasView])
+
+  const handleWindowLimitChange = useCallback((limit: GraphWindowLimit) => {
+    recordCanvasView({ ...canvasView, limit })
+  }, [canvasView, recordCanvasView])
+
+  const handleOpenSymbols = useCallback((node: GraphNode) => {
+    recordCanvasView({
+      ...canvasView,
+      mode: 'symbols',
+      fileScope: node,
+      expansions: [],
+    }, node)
+  }, [canvasView, recordCanvasView])
+
+  const handleExpandRequest = useCallback((node: GraphNode) => {
+    setExpansionRequest((current) => ({ node, sequence: (current?.sequence ?? 0) + 1 }))
+  }, [])
+
+  const handleExpanded = useCallback((node: GraphNode) => {
+    recordCanvasView(appendGraphExpansion(canvasViewRef.current, node), node)
+  }, [recordCanvasView])
+
+  const handleResetView = useCallback(() => {
+    recordCanvasView(resetGraphExpansions(canvasViewRef.current))
+  }, [recordCanvasView])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -342,6 +454,15 @@ export function AppShell({
                 hiddenNodeTypes={hiddenNodeTypes}
                 projectId={projectId}
                 referenceNodeIds={referenceNodeIds}
+                mode={canvasView.mode}
+                windowLimit={canvasView.limit}
+                fileScope={canvasView.fileScope}
+                restoredExpansions={canvasView.expansions}
+                onModeChange={handleModeChange}
+                onWindowLimitChange={handleWindowLimitChange}
+                expansionRequest={expansionRequest}
+                onExpanded={handleExpanded}
+                onResetView={handleResetView}
               />
               {/* Toolbar: Query toggle + Legend */}
               <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'start', gap: 8 }}>
@@ -399,11 +520,13 @@ export function AppShell({
       {/* Right: Detail Panel */}
       <ResizablePanel defaultSize={25} minSize={15} maxSize={35}>
         <EntityDetail
-          node={selectedNode}
+          node={detailedSelectedNode}
           references={references}
           referencesLoading={referencesLoading}
           onSelectReference={handleNodeSelect}
           fileRelationshipsState={fileRelationshipsState}
+          onOpenSymbols={handleOpenSymbols}
+          onExpand={handleExpandRequest}
         />
       </ResizablePanel>
     </ResizablePanelGroup>

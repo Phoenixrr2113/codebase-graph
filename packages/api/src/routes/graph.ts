@@ -7,7 +7,9 @@ import { readBlockedSetupStatus } from '../storage-state.js';
 export const graphRoutes = new Hono();
 
 const FULL_GRAPH_LIMIT_MAX = 1000;
-const FILE_RELATIONSHIP_LIMIT_MAX = 500;
+const FILE_GRAPH_LIMIT_MAX = 1000;
+const NEIGHBOR_LIMIT_MAX = 1000;
+const FILE_RELATIONSHIP_LIMIT_MAX = 1000;
 const REFERENCE_LIMIT_MAX = 1000;
 const DEPENDENCY_DEPTH_MAX = 10;
 const SYMBOL_ID_PATTERN = /^sym:v1:[a-f0-9]{64}$/;
@@ -29,7 +31,27 @@ function boundedPositiveInteger(
   return { valid: true, value };
 }
 
-/** GET /api/graph/full?limit=N&projectId=X — returns { nodes, edges } optionally filtered by project */
+async function resolveProjectRootPath(projectId: string): Promise<string | null> {
+  const client = await getGraphClient();
+  const projectResult = await client.roQuery<{ rootPath: string | null }>(
+    'MATCH (p:Project {id: $id}) RETURN p.rootPath AS rootPath',
+    { params: { id: projectId } },
+  );
+  return projectResult.data[0]?.rootPath ?? null;
+}
+
+function projectFullGraphResponse<T extends {
+  edges: Array<{ source: string; target: string; label: string }>;
+}>(data: T): Omit<T, 'edges'> & {
+  edges: Array<{ source: string; target: string; label: string }>;
+} {
+  return {
+    ...data,
+    edges: data.edges.map(({ source, target, label }) => ({ source, target, label })),
+  };
+}
+
+/** GET /api/graph/full?limit=N&projectId=X returns a degree-ordered window with scoped totals. */
 graphRoutes.get('/api/graph/full', async (c) => {
   try {
     const parsedLimit = boundedPositiveInteger(c.req.query('limit'), 'limit', FULL_GRAPH_LIMIT_MAX);
@@ -37,34 +59,76 @@ graphRoutes.get('/api/graph/full', async (c) => {
     const limit = parsedLimit.value ?? 100;
     const projectId = c.req.query('projectId');
 
-    // If projectId given, resolve rootPath and filter
     if (projectId) {
-      const client = await getGraphClient();
-
-      // Get project rootPath
-      const projectResult = await client.roQuery<{ rootPath: string | null }>(
-        `MATCH (p:Project {id: $id}) RETURN p.rootPath AS rootPath`,
-        { params: { id: projectId } },
-      );
-      const rootPath = projectResult.data[0]?.rootPath;
-
-      if (rootPath) {
-        // Fetch only nodes belonging to this project (by file path prefix)
-        const data = await codeGraphService.getFullGraph(limit, rootPath);
-        return c.json({ nodes: data.nodes, edges: data.edges });
-      }
+      const rootPath = await resolveProjectRootPath(projectId);
+      if (!rootPath) return c.json({ error: 'Project not found' }, 404);
+      const data = await codeGraphService.getFullGraph(limit, rootPath);
+      return c.json(projectFullGraphResponse(data));
     }
 
     // No project filter — return all
     const rootPath = c.req.query('rootPath') ?? undefined;
     const data = await codeGraphService.getFullGraph(limit, rootPath);
-    return c.json({ nodes: data.nodes, edges: data.edges });
+    return c.json(projectFullGraphResponse(data));
   } catch (error) {
     const setup = await readBlockedSetupStatus();
     if (setup !== null) {
-      return c.json({ nodes: [], edges: [], storage: setup.storage });
+      return c.json({
+        nodes: [],
+        edges: [],
+        totalNodes: 0,
+        totalEdges: 0,
+        windowOrder: 'degree-desc,id-asc',
+        degreeScope: 'global',
+        truncated: false,
+        storage: setup.storage,
+      });
     }
     return c.json({ error: safeErrorMessage('GET /api/graph/full', error, 'Failed to fetch graph.') }, 500);
+  }
+});
+
+/** GET /api/graph/files?projectId=X&limit=N - bounded File-to-File IMPORTS graph. */
+graphRoutes.get('/api/graph/files', async (c) => {
+  try {
+    const parsedLimit = boundedPositiveInteger(c.req.query('limit'), 'limit', FILE_GRAPH_LIMIT_MAX);
+    if (!parsedLimit.valid) return c.json({ error: parsedLimit.error }, 400);
+
+    const projectId = c.req.query('projectId');
+    let rootPath: string | undefined;
+    if (projectId) {
+      const resolvedRootPath = await resolveProjectRootPath(projectId);
+      if (!resolvedRootPath) return c.json({ error: 'Project not found' }, 404);
+      rootPath = resolvedRootPath;
+    }
+
+    const client = await getGraphClient();
+    const data = await createQueries(client).getFileGraph(parsedLimit.value ?? 100, rootPath);
+    return c.json(data);
+  } catch (error) {
+    return c.json({
+      error: safeErrorMessage('GET /api/graph/files', error, 'Failed to fetch file graph.'),
+    }, 500);
+  }
+});
+
+/** GET /api/graph/neighbors?id=X&limit=N - direct neighbors and their induced graph. */
+graphRoutes.get('/api/graph/neighbors', async (c) => {
+  try {
+    const parsedLimit = boundedPositiveInteger(c.req.query('limit'), 'limit', NEIGHBOR_LIMIT_MAX);
+    if (!parsedLimit.valid) return c.json({ error: parsedLimit.error }, 400);
+
+    const id = c.req.query('id');
+    if (!id) return c.json({ error: 'id parameter is required' }, 400);
+
+    const client = await getGraphClient();
+    const data = await createQueries(client).getNodeNeighbors(id, parsedLimit.value ?? 100);
+    if (!data) return c.json({ error: 'Graph node not found' }, 404);
+    return c.json(data);
+  } catch (error) {
+    return c.json({
+      error: safeErrorMessage('GET /api/graph/neighbors', error, 'Failed to fetch node neighbors.'),
+    }, 500);
   }
 });
 
@@ -72,7 +136,7 @@ graphRoutes.get('/api/graph/full', async (c) => {
  * GET /api/graph/file-relationships?path=X&limit=N
  *
  * Returns the four relationship collections consumed by the File detail panel.
- * Each collection is independently bounded to 1..500 items; the default is 100.
+ * Each collection is independently bounded to 1..1000 items; the default is 100.
  */
 graphRoutes.get('/api/graph/file-relationships', async (c) => {
   try {

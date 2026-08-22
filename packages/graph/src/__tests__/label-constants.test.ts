@@ -22,23 +22,43 @@ import type { GraphClient, QueryOptions, QueryResult } from '../client';
  * mistake, is what each site is actually using.
  */
 
-function makeFakeClient(): GraphClient & { calls: string[] } {
+interface QueryInvocation {
+  cypher: string;
+  options?: QueryOptions;
+}
+
+function makeFakeClient(): GraphClient & { calls: string[]; invocations: QueryInvocation[] } {
   const calls: string[] = [];
+  const invocations: QueryInvocation[] = [];
   return {
     graph: null,
     graphName: 'test',
     dialect: falkorDialect,
     calls,
-    async query<T>(cypher: string, _options?: QueryOptions): Promise<QueryResult<T>> {
+    invocations,
+    async query<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
       calls.push(cypher);
+      invocations.push({ cypher, ...(options ? { options } : {}) });
       return { data: [] as T[], metadata: [] };
     },
-    async roQuery<T>(cypher: string, _options?: QueryOptions): Promise<QueryResult<T>> {
+    async roQuery<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
       calls.push(cypher);
+      invocations.push({ cypher, ...(options ? { options } : {}) });
+      if (cypher.includes('RETURN n,') && cypher.includes('nodeIdentity')) {
+        return {
+          data: [{
+            n: { properties: { filePath: '/repo/a.ts', name: 'a.ts', degree: 1 } },
+            labels: ['File'],
+            nodeIdentity: 1,
+            degree: 1,
+          }] as T[],
+          metadata: [],
+        };
+      }
       return { data: [] as T[], metadata: [] };
     },
     async ensureIndexes(): Promise<void> {},
-  } as unknown as GraphClient & { calls: string[] };
+  } as unknown as GraphClient & { calls: string[]; invocations: QueryInvocation[] };
 }
 
 /** Every label the falkordb dialect would check for, as `alias:Label` tokens. */
@@ -63,16 +83,31 @@ describe('queries.ts label sets (GET_FULL_GRAPH_NODES / GET_FULL_GRAPH_EDGES)', 
     expect(new Set(matches)).toEqual(new Set(expectedLabels));
   });
 
-  it('GET_FULL_GRAPH_EDGES scopes both endpoints to the fetched node identities', async () => {
+  it('GET_FULL_GRAPH_WINDOW_EDGES starts from selected label-indexed sources', async () => {
     const client = makeFakeClient();
     await createQueries(client).getFullGraph();
 
-    const edgesQuery = client.calls.find((c) => c.includes('RETURN a, r, b,'));
+    const edgesQuery = client.calls.find((c) => c.includes('AS source,') && c.includes('AS target,'));
     expect(edgesQuery).toBeDefined();
 
-    expect(edgesQuery).toContain('id(a) IN $nodeIdentities');
-    expect(edgesQuery).toContain('id(b) IN $nodeIdentities');
+    expect(edgesQuery).toContain('MATCH (a:File)');
+    expect(edgesQuery).toContain('a.filePath IN $sourceIds');
+    expect(edgesQuery).toContain('b.filePath IN $filePaths');
+    expect(edgesQuery).toContain('b.id IN $persistedIds');
+    expect(edgesQuery).not.toContain('$nodeIdentities');
     expect(edgesQuery).not.toContain('LIMIT $limit');
+  });
+
+  it('counts scoped edges without sending every scoped node identity back to FalkorDB', async () => {
+    const client = makeFakeClient();
+    await createQueries(client).getFullGraph(1000, '/repo');
+
+    const edgeTotal = client.invocations.find(({ cypher }) => cypher.includes('AS totalEdges'));
+
+    expect(edgeTotal).toBeDefined();
+    expect(edgeTotal?.cypher).toContain('a.filePath STARTS WITH $rootPathPrefix');
+    expect(edgeTotal?.cypher).toContain('b.filePath STARTS WITH $rootPathPrefix');
+    expect(edgeTotal?.options?.params).not.toHaveProperty('nodeIdentities');
   });
 });
 

@@ -847,6 +847,7 @@ function collectImportsSymbolEdges(
       edges.push(edge);
     }
   }
+
   return edges;
 }
 
@@ -960,6 +961,18 @@ export function buildParsedFileEntities(
         specifiers: imp.specifiers.map((s) => s.name),
       });
     }
+  }
+
+  // Re-export sources are dependencies of the barrel itself. The batch
+  // pre-pass has already resolved each source path, so record the File hop
+  // directly instead of treating re-exports only as symbol-resolution data.
+  for (const reExport of barrelIndex?.get(file.path) ?? []) {
+    if (!reExport.sourceResolvedPath) continue;
+    importsEdges.push({
+      fromFilePath: file.path,
+      toFilePath: reExport.sourceResolvedPath,
+      specifiers: [reExport.localName ?? reExport.exportedName],
+    });
   }
 
   // --- Extends / Implements edges ---
