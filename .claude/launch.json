@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "codegraph-api",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@codegraph/api", "dev"],
+      "port": 3001
+    },
+    {
+      "name": "codegraph-dashboard",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@codegraph/dashboard", "dev", "--", "--port", "5173", "--strictPort"],
+      "port": 5173
+    }
+  ]
+}

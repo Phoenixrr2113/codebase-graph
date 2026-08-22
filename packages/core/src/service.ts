@@ -44,6 +44,15 @@ import {
   getNeighborsImpl,
 } from './services/graph-data-service';
 
+import {
+  getBlastRadiusImpl,
+  getImportCyclesImpl,
+  getCallHierarchyImpl,
+  getUnreferencedExportsImpl,
+  getHotspotsImpl,
+  getChangeCouplingImpl,
+} from './services/analysis-service';
+
 // Import types needed for method signatures
 import type {
   EntityWithConnections,
@@ -60,6 +69,18 @@ import type {
   FileTreeOptions,
   SymbolReferenceQuery,
   SymbolReferencesResult,
+  BlastRadiusInput,
+  BlastRadiusResult,
+  ImportCyclesInput,
+  ImportCyclesResult,
+  CallHierarchyInput,
+  CallHierarchyResult,
+  UnreferencedExportsInput,
+  UnreferencedExportsResult,
+  HotspotsInput,
+  HotspotsResult,
+  ChangeCouplingInput,
+  ChangeCouplingResult,
 } from '@codegraph/graph';
 import type { ProjectEntity } from '@codegraph/types';
 
@@ -99,6 +120,32 @@ class CodeGraphServiceImpl {
 
   async getDependencyTree(filePath: string, depth?: number): Promise<GraphData> {
     return getDependencyTreeImpl(filePath, depth);
+  }
+
+  // --- Analysis ---
+
+  async getBlastRadius(input: BlastRadiusInput): Promise<BlastRadiusResult> {
+    return getBlastRadiusImpl(input);
+  }
+
+  async getImportCycles(input: ImportCyclesInput): Promise<ImportCyclesResult> {
+    return getImportCyclesImpl(input);
+  }
+
+  async getCallHierarchy(input: CallHierarchyInput): Promise<CallHierarchyResult> {
+    return getCallHierarchyImpl(input);
+  }
+
+  async getUnreferencedExports(input: UnreferencedExportsInput): Promise<UnreferencedExportsResult> {
+    return getUnreferencedExportsImpl(input);
+  }
+
+  async getHotspots(input: HotspotsInput): Promise<HotspotsResult> {
+    return getHotspotsImpl(input);
+  }
+
+  async getChangeCoupling(input: ChangeCouplingInput): Promise<ChangeCouplingResult> {
+    return getChangeCouplingImpl(input);
   }
 
   // --- Context Building ---

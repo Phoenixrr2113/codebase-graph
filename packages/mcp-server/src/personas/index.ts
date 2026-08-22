@@ -1,7 +1,7 @@
 /**
  * Persona Registry
  *
- * Consolidates raw MCP tools into 4 high-level persona tools.
+ * Consolidates raw MCP tools into 5 high-level persona tools.
  * Controlled by CODEGRAPH_RAW_TOOLS env var:
  *   - unset/false: Only persona tools exposed (default)
  *   - true: Raw tools exposed alongside personas
@@ -12,6 +12,7 @@ import { searchPersonaDefinition, handleSearch } from './search';
 import { knowledgePersonaDefinition, handleKnowledge } from './knowledge';
 import { indexPersonaDefinition, handleIndex } from './codebase';
 import { queryPersonaDefinition, handleQuery } from './query';
+import { analyzePersonaDefinition, handleAnalyze } from './analyze';
 
 // ============================================================================
 // Persona Tool Definitions
@@ -22,6 +23,7 @@ export const personaToolDefinitions: ToolDefinition[] = [
   knowledgePersonaDefinition,
   indexPersonaDefinition,
   queryPersonaDefinition,
+  analyzePersonaDefinition,
 ];
 
 // ============================================================================
@@ -33,6 +35,7 @@ export const personaHandlers: Record<string, (args: Record<string, unknown>) => 
   knowledge: handleKnowledge,
   codebase: handleIndex,
   query: handleQuery,
+  analyze: handleAnalyze,
 };
 
 // ============================================================================
@@ -48,3 +51,4 @@ export { searchPersonaDefinition, handleSearch } from './search';
 export { knowledgePersonaDefinition, handleKnowledge } from './knowledge';
 export { indexPersonaDefinition, handleIndex } from './codebase';
 export { queryPersonaDefinition, handleQuery } from './query';
+export { analyzePersonaDefinition, handleAnalyze } from './analyze';

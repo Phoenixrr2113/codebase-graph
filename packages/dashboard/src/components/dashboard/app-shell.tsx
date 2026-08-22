@@ -164,7 +164,15 @@ export function ExplorerNavigation({
   )
 }
 
-export function AppShell({ projectId, projectName }: { projectId?: string | null; projectName?: string }) {
+export function AppShell({
+  projectId,
+  projectName,
+  externalSelection,
+}: {
+  projectId?: string | null
+  projectName?: string
+  externalSelection?: GraphNode | null
+}) {
   const [selectionHistory, setSelectionHistory] = useState<SelectionHistory>(EMPTY_SELECTION_HISTORY)
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set())
   const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(new Set())
@@ -181,6 +189,10 @@ export function AppShell({ projectId, projectName }: { projectId?: string | null
   const handleNodeSelect = useCallback((node: GraphNode | null) => {
     setSelectionHistory((history) => pushSelectionHistory(history, node))
   }, [])
+
+  useEffect(() => {
+    if (externalSelection) handleNodeSelect(externalSelection)
+  }, [externalSelection, handleNodeSelect])
 
   const handleBack = useCallback(() => {
     setSelectionHistory((history) => moveSelectionHistory(history, -1))

@@ -8,6 +8,7 @@ import {
   pushSelectionHistory,
   searchResultToGraphNode,
 } from './app-shell'
+import { analysisSymbolToGraphNode } from '@/lib/analysis'
 import { symbolReferenceToGraphNode } from './entity-detail'
 import type { GraphNode } from './graph-canvas'
 import type { SymbolReference } from '@/lib/references'
@@ -59,6 +60,13 @@ describe('explorer selection history', () => {
 
     expect(searchResultToGraphNode(searchResult).id).toBe(canonicalNode.id)
     expect(symbolReferenceToGraphNode(referenceRow).id).toBe(canonicalNode.id)
+    expect(analysisSymbolToGraphNode({
+      id: canonicalNode.id,
+      name: 'run',
+      nodeType: 'Function',
+      filePath: '/repo/src/main.ts',
+      startLine: 5,
+    }).id).toBe(canonicalNode.id)
 
     expect(searchResultToGraphNode({
       id: 'File:/repo/src/needle-file.ts',

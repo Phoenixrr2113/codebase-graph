@@ -1,7 +1,7 @@
 /**
  * MCP Tool Router
  *
- * Default mode (4 persona tools): search, knowledge, codebase, query
+ * Default mode (5 persona tools): search, knowledge, codebase, query, analyze
  * Raw mode (CODEGRAPH_RAW_TOOLS=true): adds individual tools for power users
  */
 
@@ -450,8 +450,8 @@ export async function handleToolCall(
   // Track lastUsed for staleness detection
   updateLastUsed().catch(() => {}); // Non-blocking
 
-  // On query/search/get_context calls, check for staleness and trigger background re-index
-  if (['search', 'get_context', 'query'].includes(name)) {
+  // On graph-reading calls, check for staleness and trigger background re-index
+  if (['search', 'get_context', 'query', 'analyze'].includes(name)) {
     checkAndTriggerStalenessReindex(); // Non-blocking
   }
 

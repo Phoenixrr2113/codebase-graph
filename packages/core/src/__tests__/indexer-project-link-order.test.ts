@@ -62,9 +62,23 @@ const opsMocks = vi.hoisted(() => {
   };
 });
 
+const gitSyncMock = vi.hoisted(() => vi.fn().mockResolvedValue({
+  commitsProcessed: 2,
+  edgesCreated: 2,
+  lastCommitHash: 'newest',
+  totalCommits: 3,
+  historyWindowSize: 2,
+  historyTruncated: true,
+  historyComplete: false,
+  durationMs: 1,
+  errors: [],
+}));
+
 vi.mock('@codegraph/graph', () => ({
   createOperations: vi.fn().mockReturnValue(opsMocks),
 }));
+
+vi.mock('../gitSync', () => ({ syncGitHistory: gitSyncMock }));
 
 vi.mock('../pipeline', () => ({
   initParser: vi.fn().mockResolvedValue(undefined),
@@ -210,5 +224,24 @@ describe('indexProject: Project node must exist before linkProjectFiles', () => 
     expect(deleteIdx).toBeGreaterThanOrEqual(0);
     expect(upsertAfterDeleteIdx).toBeGreaterThan(deleteIdx);
     expect(upsertAfterDeleteIdx).toBeLessThan(linkIdx);
+  });
+
+  it('persists git history coverage on the final Project upsert', async () => {
+    opsMocks.getProjectByRoot.mockResolvedValue(null);
+
+    const result = await indexProject(projectDir, {
+      client: fakeClient,
+      includePatterns: ['*.ts'],
+      embeddings: false,
+      gitSync: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(opsMocks.upsertProject).toHaveBeenLastCalledWith(expect.objectContaining({
+      gitHistoryTotalCommits: 3,
+      gitHistoryWindowSize: 2,
+      gitHistoryTruncated: true,
+      gitHistoryComplete: false,
+    }));
   });
 });

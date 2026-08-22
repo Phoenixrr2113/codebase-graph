@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { NODE_COLORS } from '@/lib/cytoscape-config'
 import { API_URL } from '@/lib/api'
+import { ImpactSection } from './impact-section'
+import { CallHierarchySection } from './call-hierarchy-section'
 import type {
   FileRelationshipNode,
   FileRelationships,
@@ -82,6 +84,7 @@ export function EntityDetail({
   const bodySnippet = props.bodySnippet as string | undefined
   const params = props.params
   const returnType = props.returnType as string | undefined
+  const hasPersistedSymbolId = /^sym:v1:[a-f0-9]{64}$/.test(node.id)
 
   return (
     <div className="entity-detail flex h-full min-h-0 flex-col border-l border-border bg-card overflow-y-auto" data-testid="entity-detail">
@@ -178,6 +181,13 @@ export function EntityDetail({
               onSelect={onSelectReference}
             />
           </Section>
+        )}
+
+        {hasPersistedSymbolId && (
+          <>
+            <ImpactSection symbolId={node.id} onSelect={onSelectReference} />
+            <CallHierarchySection symbolId={node.id} onSelect={onSelectReference} />
+          </>
         )}
 
         {node.type === 'File' && fileRelationshipsState && fileRelationshipsState.status !== 'idle' && (

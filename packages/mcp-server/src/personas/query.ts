@@ -24,7 +24,7 @@ Use search and analyze for most tasks. This tool is for custom graph queries whe
 - Results capped at returned data
 
 **Schema reference:**
-Node labels: File, Function, Class, Interface, Variable, Type, Component, Entity
+Node labels: File, Function, Class, Interface, Variable, Type, Component, TypeRef, Entity, Project, Commit, Metadata, MarkdownDocument, Section, CodeBlock, Link
 Edge types: CONTAINS, IMPORTS, IMPORTS_SYMBOL, CALLS, EXTENDS, IMPLEMENTS, USES_TYPE, RETURNS, HAS_PARAM, HAS_METHOD, HAS_PROPERTY, RENDERS, INTRODUCED_IN, MODIFIED_IN, DELETED_IN, EXPORTS, PARENT_SECTION, ABOUT
 SAID is not a separate edge label: it's a RELATES_TO edge with a \`type\` property set to "SAID" (deliberate design, same as every other relationship kind RELATES_TO carries via its \`type\` property).
 

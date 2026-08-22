@@ -156,6 +156,30 @@ describeIfAvailable('FalkorDBLite Driver', () => {
     expect(result.data[0]!.fn).toBe('add');
   });
 
+  it('round-trips Project git history coverage metadata', async () => {
+    const now = new Date().toISOString();
+    await ops.upsertProject({
+      id: 'coverage-project',
+      name: 'coverage-project',
+      rootPath: '/coverage-project',
+      createdAt: now,
+      lastParsed: now,
+      gitHistoryTotalCommits: 240,
+      gitHistoryWindowSize: 200,
+      gitHistoryTruncated: true,
+      gitHistoryComplete: false,
+    });
+
+    const project = await ops.getProjectByRoot('/coverage-project');
+
+    expect(project).toMatchObject({
+      gitHistoryTotalCommits: 240,
+      gitHistoryWindowSize: 200,
+      gitHistoryTruncated: true,
+      gitHistoryComplete: false,
+    });
+  });
+
   // ---------- Vector Search ----------
 
   it('should store and query vector embeddings', async () => {

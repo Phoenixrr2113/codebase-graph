@@ -350,6 +350,14 @@ export interface ProjectEntity extends ProvenanceFields {
   lastParsed: string;
   /** Number of files in the project */
   fileCount?: number;
+  /** Total commits reachable from the synced branch at the last history sync */
+  gitHistoryTotalCommits?: number;
+  /** Maximum commits selected by one history sync */
+  gitHistoryWindowSize?: number;
+  /** Whether at least one history sync was capped by its configured window */
+  gitHistoryTruncated?: boolean;
+  /** Whether the indexed history covered every commit reachable from the synced branch */
+  gitHistoryComplete?: boolean;
 }
 
 // ============================================================================
