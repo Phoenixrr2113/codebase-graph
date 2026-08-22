@@ -22,8 +22,9 @@ import {
   type EmbeddingConfig,
 } from '@codegraph/plugin-nlp';
 import type { ParsedFileEntities } from '@codegraph/types';
-import type { GraphOperations } from '@codegraph/graph';
+import type { GraphClient, GraphOperations, QueryOptions, QueryResult } from '@codegraph/graph';
 import { createLogger } from '@codegraph/logger';
+import { embedAllNodes, type EmbedNodesResult } from './embed-nodes';
 
 const logger = createLogger({ namespace: 'Core:EmbedPass' });
 
@@ -40,6 +41,25 @@ export interface EmbedPassResult {
   durationMs: number;
 }
 
+export type EmbeddingPassScope =
+  | { type: 'global' }
+  | { type: 'project'; projectId: string; rootPath: string };
+
+export interface EmbeddingPassState {
+  running: boolean;
+  scope: EmbeddingPassScope | null;
+  startedAt: string | null;
+}
+
+export interface ScheduleEmbeddingPassOptions {
+  client: GraphClient;
+  force?: boolean;
+  projectId?: string;
+  rootPath?: string;
+  /** Work that must settle before the remaining-node pass starts. */
+  after?: Promise<unknown>;
+}
+
 /** Internal: an entity ready for embedding */
 interface EmbeddableItem {
   nodeType: 'Function' | 'Class' | 'Interface' | 'Type' | 'Component';
@@ -54,6 +74,140 @@ interface EmbeddableItem {
 
 function hashText(text: string): string {
   return createHash('sha256').update(text).digest('hex');
+}
+
+const EMBEDDABLE_MATCH = /MATCH \(([A-Za-z_][A-Za-z0-9_]*):(File|Function|Class|Interface|Variable|Type|Component)\)/;
+
+function normalizeProjectRoot(rootPath: string): string {
+  let normalized = rootPath;
+  while (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized || '/';
+}
+
+/**
+ * Restrict embedAllNodes() reads to one project without changing its write
+ * behavior. Updates still target the stable identifiers returned by these
+ * scoped reads.
+ */
+function createProjectScopedClient(client: GraphClient, rootPath: string): GraphClient {
+  const projectPath = normalizeProjectRoot(rootPath);
+  const projectPathPrefix = projectPath === '/' ? '/' : `${projectPath}/`;
+
+  return {
+    graph: client.graph,
+    graphName: client.graphName,
+    dialect: client.dialect,
+    query<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
+      return client.query<T>(cypher, options);
+    },
+    roQuery<T>(cypher: string, options?: QueryOptions): Promise<QueryResult<T>> {
+      const match = EMBEDDABLE_MATCH.exec(cypher);
+      if (!match) {
+        throw new Error('Cannot scope an embedding query without an embeddable node match');
+      }
+      const variable = match[1]!;
+      const pathFilter = `(${variable}.filePath = $projectPath OR ${variable}.filePath STARTS WITH $projectPathPrefix)`;
+      const scopedCypher = cypher.includes('WHERE')
+        ? cypher.replace('WHERE', `WHERE ${pathFilter} AND`)
+        : cypher.replace(match[0], `${match[0]}\n    WHERE ${pathFilter}`);
+      return client.roQuery<T>(scopedCypher, {
+        ...options,
+        params: {
+          ...(options?.params ?? {}),
+          projectPath,
+          projectPathPrefix,
+        },
+      });
+    },
+    ensureIndexes(options?: { embeddingDim?: number }): Promise<void> {
+      return client.ensureIndexes(options);
+    },
+    close(): Promise<void> {
+      return client.close();
+    },
+  };
+}
+
+const scheduledPasses = new Map<string, Promise<EmbedNodesResult>>();
+const scheduledPassStates = new Map<string, { key: string; scope: EmbeddingPassScope; startedAt: string }>();
+let passTail: Promise<void> = Promise.resolve();
+let activePass: { key: string; scope: EmbeddingPassScope; startedAt: string } | null = null;
+
+/**
+ * Schedule one serialized remaining-node pass. Calls for the same scope share
+ * one promise, so post-index continuation and a concurrent Generate request
+ * cannot perform duplicate work.
+ */
+export function scheduleEmbeddingPass(
+  options: ScheduleEmbeddingPassOptions,
+): Promise<EmbedNodesResult> {
+  if ((options.projectId === undefined) !== (options.rootPath === undefined)) {
+    return Promise.reject(new Error('projectId and rootPath must be provided together'));
+  }
+
+  const key = options.projectId ?? 'global';
+  const existing = scheduledPasses.get(key);
+  if (existing) return existing;
+
+  const scope: EmbeddingPassScope = options.projectId && options.rootPath
+    ? {
+        type: 'project',
+        projectId: options.projectId,
+        rootPath: normalizeProjectRoot(options.rootPath),
+      }
+    : { type: 'global' };
+  const scheduledState = { key, scope, startedAt: new Date().toISOString() };
+  scheduledPassStates.set(key, scheduledState);
+
+  const run = passTail
+    .catch(() => undefined)
+    .then(async () => {
+      activePass = scheduledState;
+
+      if (options.after) {
+        try {
+          await options.after;
+        } catch (error) {
+          logger.warn(`Initial embedding work failed before continuation: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      const passClient = scope.type === 'project'
+        ? createProjectScopedClient(options.client, scope.rootPath)
+        : options.client;
+      return embedAllNodes({
+        client: passClient,
+        force: options.force ?? false,
+      });
+    })
+    .catch((error: unknown) => {
+      logger.warn(`Embedding continuation failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    })
+    .finally(() => {
+      if (activePass?.key === key) activePass = null;
+      scheduledPasses.delete(key);
+      scheduledPassStates.delete(key);
+    });
+
+  scheduledPasses.set(key, run);
+  passTail = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+/** Return the active pass relevant to a global or project-scoped status call. */
+export function getEmbeddingPassState(projectId?: string): EmbeddingPassState {
+  const projectPass = projectId === undefined ? undefined : scheduledPassStates.get(projectId);
+  const globalPass = scheduledPassStates.get('global');
+  const relevant = projectPass ?? globalPass ?? (
+    projectId === undefined ? activePass ?? scheduledPassStates.values().next().value : undefined
+  ) ?? null;
+
+  return relevant
+    ? { running: true, scope: relevant.scope, startedAt: relevant.startedAt }
+    : { running: false, scope: null, startedAt: null };
 }
 
 /** Track filtered entity counts for logging */
