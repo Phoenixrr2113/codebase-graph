@@ -5,7 +5,8 @@
 
 import Parser from 'tree-sitter';
 import type { ComponentEntity, ComponentProp } from '@codegraph/types';
-import { findNodesOfTypes, getLocation, generateEntityId } from './types';
+import { findNodesOfTypes, getLocation, symbolIdentityForNode } from './types';
+import { buildLexicalScopeKey, occurrenceDisambiguator } from '@codegraph/plugin-common';
 
 /**
  * Extract all React component entities from a syntax tree
@@ -14,8 +15,6 @@ export function extractComponents(
   rootNode: Parser.SyntaxNode,
   filePath: string
 ): ComponentEntity[] {
-  const components: ComponentEntity[] = [];
-  
   // Find function declarations/expressions that return JSX
   const functionNodes = findNodesOfTypes(rootNode, [
     'function_declaration',
@@ -23,16 +22,7 @@ export function extractComponents(
     'function_expression',
   ]);
   
-  for (const node of functionNodes) {
-    if (isReactComponent(node)) {
-      const component = parseComponent(node, filePath);
-      if (component) {
-        components.push(component);
-      }
-    }
-  }
-  
-  return components;
+  return extractComponentsFromNodes(functionNodes, filePath);
 }
 
 /**
@@ -42,13 +32,29 @@ export function extractComponentsFromNodes(
   functionNodes: Parser.SyntaxNode[],
   filePath: string
 ): ComponentEntity[] {
+  const candidates = functionNodes.flatMap((node) => {
+    if (!isReactComponent(node)) return [];
+    const name = getComponentName(node);
+    if (!name || !/^[A-Z]/.test(name)) return [];
+    return [{ node, name, scopeKey: buildLexicalScopeKey(node) }];
+  });
+  const groupSizes = new Map<string, number>();
+  for (const candidate of candidates) {
+    const key = `${candidate.scopeKey}\u0000${candidate.name}`;
+    groupSizes.set(key, (groupSizes.get(key) ?? 0) + 1);
+  }
+  const occurrences = new Map<string, number>();
   const components: ComponentEntity[] = [];
-  for (const node of functionNodes) {
-    if (isReactComponent(node)) {
-      const component = parseComponent(node, filePath);
-      if (component) {
-        components.push(component);
-      }
+  for (const candidate of candidates) {
+    const key = `${candidate.scopeKey}\u0000${candidate.name}`;
+    const occurrence = (occurrences.get(key) ?? 0) + 1;
+    occurrences.set(key, occurrence);
+    const disambiguator = (groupSizes.get(key) ?? 0) > 1
+      ? occurrenceDisambiguator(occurrence)
+      : '';
+    const component = parseComponent(candidate.node, filePath, disambiguator);
+    if (component) {
+      components.push(component);
     }
   }
   return components;
@@ -116,7 +122,8 @@ function isJsxNode(node: Parser.SyntaxNode): boolean {
  */
 function parseComponent(
   node: Parser.SyntaxNode,
-  filePath: string
+  filePath: string,
+  disambiguator: string,
 ): ComponentEntity | null {
   const name = getComponentName(node);
   if (!name) return null;
@@ -128,11 +135,17 @@ function parseComponent(
   const isExported = checkIsExported(node);
   const propsInfo = extractPropsInfo(node);
   
-  const id = generateEntityId(filePath, 'component', name, location.startLine);
+  const identity = symbolIdentityForNode({
+    node,
+    filePath,
+    label: 'Component',
+    declaredName: name,
+    disambiguator,
+  });
   
   // Build entity with optional properties only when defined
   const entity: ComponentEntity = {
-    id,
+    ...identity,
     name,
     filePath,
     startLine: location.startLine,

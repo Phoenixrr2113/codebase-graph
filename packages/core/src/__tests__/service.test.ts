@@ -254,7 +254,7 @@ describe('CodeGraphService', () => {
       // Should NOT contain elementId (removed)
       expect(cypher).not.toContain('elementId');
       // Should use property-based matching
-      expect(cypher).toContain('n.filePath = $id');
+      expect(cypher).toContain('n.id = $id');
     });
   });
 
@@ -290,7 +290,7 @@ describe('CodeGraphService', () => {
         .mockResolvedValueOnce({
           data: [
             { n: { filePath: '/src/app.ts' }, labels: ['File'] },
-            { n: { name: 'render', filePath: '/src/app.ts', startLine: 5 }, labels: ['Function'] },
+            { n: { id: 'sym:v1:render', name: 'render', filePath: '/src/app.ts', startLine: 5 }, labels: ['Function'] },
           ],
           metadata: null,
         });
@@ -298,7 +298,7 @@ describe('CodeGraphService', () => {
       const result = await codeGraphService.getNodesPaginated();
 
       expect(result.nodes[0]!.id).toBe('File:/src/app.ts');
-      expect(result.nodes[1]!.id).toBe('Function:/src/app.ts:render:5');
+      expect(result.nodes[1]!.id).toBe('sym:v1:render');
     });
 
     it('applies type filtering with dialect labelCheckExpr', async () => {
@@ -374,36 +374,34 @@ describe('CodeGraphService', () => {
       expect(result.direction).toBe('both');
     });
 
-    it('parses File: IDs correctly using path match', async () => {
+    it('matches opaque IDs without parsing them', async () => {
       mockClient.roQuery.mockResolvedValueOnce({ data: [], metadata: null });
 
-      await codeGraphService.getNeighbors('File:/src/index.ts');
+      await codeGraphService.getNeighbors('sym:v1:opaque');
 
       const cypher: string = mockClient.roQuery.mock.calls[0][0];
-      expect(cypher).toContain('center.filePath = $actualPath');
+      expect(cypher).toContain('center.id = $id');
       const params = mockClient.roQuery.mock.calls[0][1];
-      expect(params.params.actualPath).toBe('/src/index.ts');
+      expect(params.params.id).toBe('sym:v1:opaque');
     });
 
-    it('parses composite IDs (Label:filePath:name:line)', async () => {
+    it('does not derive source coordinates from opaque IDs', async () => {
       mockClient.roQuery.mockResolvedValueOnce({ data: [], metadata: null });
 
-      await codeGraphService.getNeighbors('Function:/src/app.ts:render:15');
+      await codeGraphService.getNeighbors('sym:v1:opaque');
 
       const params = mockClient.roQuery.mock.calls[0][1];
-      expect(params.params.filePath).toBe('/src/app.ts');
-      expect(params.params.name).toBe('render');
-      expect(params.params.line).toBe(15);
+      expect(params.params).toEqual({ id: 'sym:v1:opaque', limit: 50 });
     });
 
-    it('falls back to simple name/path match for simple IDs', async () => {
+    it('does not fall back to symbol name or path matching', async () => {
       mockClient.roQuery.mockResolvedValueOnce({ data: [], metadata: null });
 
       await codeGraphService.getNeighbors('myFunction');
 
       const cypher: string = mockClient.roQuery.mock.calls[0][0];
-      expect(cypher).toContain('center.name = $simpleId');
-      expect(cypher).toContain('center.filePath = $simpleId');
+      expect(cypher).not.toContain('center.name =');
+      expect(cypher).not.toContain('center.filePath = $id');
     });
 
     it('uses correct match pattern for direction=in', async () => {
@@ -450,7 +448,7 @@ describe('CodeGraphService', () => {
       mockClient.roQuery.mockResolvedValueOnce({
         data: [
           {
-            neighbor: { name: 'helper', filePath: '/src/util.ts', startLine: 5 },
+            neighbor: { id: 'sym:v1:helper', name: 'helper', filePath: '/src/util.ts', startLine: 5 },
             neighborLabels: ['Function'],
             r: { weight: 1 },
             rType: 'CALLS',
@@ -462,7 +460,7 @@ describe('CodeGraphService', () => {
       const result = await codeGraphService.getNeighbors('File:/src/index.ts', 'out');
 
       expect(result.nodes).toHaveLength(1);
-      expect(result.nodes[0]!.id).toBe('Function:/src/util.ts:helper:5');
+      expect(result.nodes[0]!.id).toBe('sym:v1:helper');
       expect(result.nodes[0]!.label).toBe('Function');
       expect(result.nodes[0]!.displayName).toBe('helper');
 

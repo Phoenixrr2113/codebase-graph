@@ -40,7 +40,7 @@ describe('SearchPanel latest request behavior', () => {
     const newer = deferred<Response>()
     const visibleNames: string[][] = []
     const visibleTotals: number[] = []
-    const highlightedNames: string[][] = []
+    const highlightedNodeIds: string[][] = []
     const signals: AbortSignal[] = []
     const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.signal) signals.push(init.signal)
@@ -56,7 +56,7 @@ describe('SearchPanel latest request behavior', () => {
       fetchImpl: fetchMock,
       onResults: (results) => visibleNames.push(results.map((result) => result.name)),
       onTotal: (total) => visibleTotals.push(total),
-      onHighlight: (names) => highlightedNames.push(names),
+      onHighlight: (nodeIds) => highlightedNodeIds.push(nodeIds),
       onSearching: vi.fn(),
       onError: vi.fn(),
     })
@@ -67,15 +67,17 @@ describe('SearchPanel latest request behavior', () => {
     expect(signals[0]?.aborted).toBe(true)
     await vi.advanceTimersByTimeAsync(250)
 
-    newer.resolve(jsonResponse({ results: [{ name: 'newerResult', nodeType: 'Function' }], total: 1 }))
-    await vi.waitFor(() => expect(visibleNames.at(-1)).toEqual(['newerResult']))
-    older.resolve(jsonResponse({ results: [{ name: 'olderResult', nodeType: 'Class' }], total: 99 }))
+    const newerId = `sym:v1:${'a'.repeat(64)}`
+    const olderId = `sym:v1:${'b'.repeat(64)}`
+    newer.resolve(jsonResponse({ results: [{ id: newerId, name: 'sharedName', nodeType: 'Function' }], total: 1 }))
+    await vi.waitFor(() => expect(visibleNames.at(-1)).toEqual(['sharedName']))
+    older.resolve(jsonResponse({ results: [{ id: olderId, name: 'sharedName', nodeType: 'Class' }], total: 99 }))
     await Promise.resolve()
     await Promise.resolve()
 
-    expect(visibleNames.at(-1)).toEqual(['newerResult'])
+    expect(visibleNames.at(-1)).toEqual(['sharedName'])
     expect(visibleTotals.at(-1)).toBe(1)
-    expect(highlightedNames.at(-1)).toEqual(['newerResult'])
+    expect(highlightedNodeIds.at(-1)).toEqual([newerId])
   })
 
   it('does not report an aborted request as an error', async () => {

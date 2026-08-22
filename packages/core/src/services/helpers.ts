@@ -103,10 +103,7 @@ export function generateNodeId(label: NodeLabel | 'Entity', props: Record<string
     case 'Variable':
     case 'Type':
     case 'Component': {
-      const name = stringProp(props, 'name') ?? '';
-      const filePath = stringProp(props, 'filePath') ?? '';
-      const line = numberProp(props, 'startLine') ?? numberProp(props, 'line') ?? 0;
-      return `${label}:${filePath}:${name}:${line}`;
+      return stringProp(props, 'id') ?? `${label}:unknown`;
     }
 
     case 'Commit': {

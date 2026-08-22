@@ -89,7 +89,7 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
       nodeType: 'Function',
       text,
       textHash: hashText(text),
-      identifier: { name: fn.name, filePath: fn.filePath, startLine: fn.startLine },
+      identifier: { id: fn.id },
     });
   }
 
@@ -100,7 +100,7 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
       nodeType: 'Class',
       text,
       textHash: hashText(text),
-      identifier: { name: cls.name, filePath: cls.filePath, startLine: cls.startLine },
+      identifier: { id: cls.id },
     });
   }
 
@@ -111,7 +111,7 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
       nodeType: 'Interface',
       text,
       textHash: hashText(text),
-      identifier: { name: iface.name, filePath: iface.filePath, startLine: iface.startLine },
+      identifier: { id: iface.id },
     });
   }
 
@@ -129,7 +129,7 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
       nodeType: 'Type',
       text,
       textHash: hashText(text),
-      identifier: { name: t.name, filePath: t.filePath, startLine: t.startLine },
+      identifier: { id: t.id },
     });
   }
 
@@ -140,7 +140,7 @@ function collectEmbeddableItems(parsed: ParsedFileEntities): EmbeddableItem[] {
       nodeType: 'Component',
       text,
       textHash: hashText(text),
-      identifier: { name: comp.name, filePath: comp.filePath, startLine: comp.startLine },
+      identifier: { id: comp.id },
     });
   }
 
@@ -239,8 +239,11 @@ export async function embedParsedEntities(
  * Build a cache key for an embeddable item (matches the format used by getEmbeddingHashesForFiles).
  */
 function itemCacheKey(item: EmbeddableItem): string {
-  const startLine = item.identifier['startLine'];
-  return `${item.nodeType}:${item.identifier['name']}:${item.identifier['filePath']}:${startLine}`;
+  const id = item.identifier['id'];
+  if (typeof id !== 'string' || id.length === 0) {
+    throw new Error(`Missing persisted id for ${item.nodeType} embedding`);
+  }
+  return id;
 }
 
 /**

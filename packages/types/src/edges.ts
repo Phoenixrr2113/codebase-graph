@@ -72,6 +72,10 @@ export interface ImportsSymbolEdge extends BaseEdge {
  * both declaration nodes.
  */
 export interface ImportsSymbolEdgeDescriptor {
+  /** Canonical importing File id once resolved by the pipeline. */
+  fromId?: string;
+  /** Canonical imported symbol id once resolved by the pipeline. */
+  toId?: string;
   /** Importing file's path (File node). */
   fromFilePath: string;
   /** File path where the imported symbol is actually declared. */
@@ -112,6 +116,10 @@ export interface ExportsEdge extends BaseEdge {
  * @codegraph/graph's operations.ts).
  */
 export interface ExportsEdgeDescriptor {
+  /** Canonical exporting File id once resolved by the pipeline. */
+  fromId?: string;
+  /** Canonical exported symbol id once resolved by the pipeline. */
+  toId?: string;
   /** Exporting file's path (File node). */
   filePath: string;
   /** Exported symbol's name. */

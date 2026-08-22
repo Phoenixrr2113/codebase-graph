@@ -32,7 +32,16 @@ import type {
   ExtractedEntities,
   LanguagePlugin,
 } from '@codegraph/types';
-import { findNodesOfType, generateEntityId, createGrammarHelpers } from '@codegraph/plugin-common';
+import {
+  buildLexicalScopeKey,
+  buildSymbolIdentity,
+  createGrammarHelpers,
+  findNodesOfType,
+  generateEntityId,
+  occurrenceDisambiguator,
+  signatureDisambiguator,
+  type SourceSymbolLabel,
+} from '@codegraph/plugin-common';
 
 // ============================================================================
 // Config Types
@@ -580,10 +589,32 @@ function genericExtractFunctions(
 
     const docstring = extractDocstringByConfig(node, config);
 
-    const id = generateEntityId(filePath, 'function', name, startLine);
+    const scopeKey = buildLexicalScopeKey(node);
+    const sameScope = nodes.filter((candidate) =>
+      candidate.childForFieldName(nameField)?.text === name &&
+      buildLexicalScopeKey(candidate) === scopeKey
+    );
+    let disambiguator = '';
+    if (sameScope.length > 1) {
+      const signature = signatureDisambiguator(genericFunctionSignature(params, returnType));
+      const sameSignature = sameScope.filter((candidate) => {
+        const candidateParams = config.overrides?.extractParameters
+          ? config.overrides.extractParameters(candidate)
+          : genericExtractParams(candidate, config);
+        const candidateReturn = config.overrides?.extractReturnType
+          ? config.overrides.extractReturnType(candidate)
+          : candidate.childForFieldName(config.fields?.returnType ?? 'return_type')?.text;
+        return signatureDisambiguator(genericFunctionSignature(candidateParams, candidateReturn)) === signature;
+      });
+      const occurrence = sameSignature.findIndex((candidate) => candidate.startIndex === node.startIndex) + 1;
+      disambiguator = sameSignature.length > 1
+        ? `${signature}/${occurrenceDisambiguator(occurrence)}`
+        : signature;
+    }
+    const identity = sourceIdentity(node, filePath, 'Function', name, disambiguator);
 
     const entity: FunctionEntity = {
-      id,
+      ...identity,
       name,
       filePath,
       startLine,
@@ -601,6 +632,10 @@ function genericExtractFunctions(
   }
 
   return functions;
+}
+
+function genericFunctionSignature(params: ParamInfo[], returnType: string | undefined): string {
+  return `(${params.map((param) => `${param.type ?? '_'}${param.optional ? '?' : ''}`).join(',')})=>${returnType ?? '_'}`;
 }
 
 /**
@@ -709,10 +744,16 @@ function genericExtractClasses(
 
     const docstring = extractDocstringByConfig(node, config);
 
-    const id = generateEntityId(filePath, 'class', name, startLine);
+    const identity = sourceIdentity(
+      node,
+      filePath,
+      'Class',
+      name,
+      sameScopeOccurrence(node, nodes, name, nameField),
+    );
 
     const entity: ClassEntity = {
-      id,
+      ...identity,
       name,
       filePath,
       startLine,
@@ -783,10 +824,16 @@ function genericExtractInterfaces(
 
     const docstring = extractDocstringByConfig(node, config);
 
-    const id = generateEntityId(filePath, 'interface', name, startLine);
+    const identity = sourceIdentity(
+      node,
+      filePath,
+      'Interface',
+      name,
+      sameScopeOccurrence(node, nodes, name, nameField),
+    );
 
     const entity: InterfaceEntity = {
-      id,
+      ...identity,
       name,
       filePath,
       startLine,
@@ -826,10 +873,17 @@ function genericExtractVariables(
       ? config.overrides.isExported(node, name)
       : isExportedByConfig(node, name, config);
 
-    const id = generateEntityId(filePath, 'variable', name, line);
+    const identity = sourceIdentity(
+      node,
+      filePath,
+      'Variable',
+      name,
+      sameScopeOccurrence(node, nodes, name, nameField, true),
+      true,
+    );
 
     variables.push({
-      id,
+      ...identity,
       name,
       filePath,
       line,
@@ -839,6 +893,40 @@ function genericExtractVariables(
   }
 
   return variables;
+}
+
+function sourceIdentity(
+  node: SyntaxNode,
+  filePath: string,
+  label: SourceSymbolLabel,
+  declaredName: string,
+  disambiguator = '',
+  includeBlockScopes = false,
+) {
+  return buildSymbolIdentity({
+    label,
+    filePath,
+    scopeKey: buildLexicalScopeKey(node, { includeBlockScopes }),
+    declaredName,
+    disambiguator,
+  });
+}
+
+function sameScopeOccurrence(
+  node: SyntaxNode,
+  nodes: SyntaxNode[],
+  name: string,
+  nameField: string,
+  includeBlockScopes = false,
+): string {
+  const scopeKey = buildLexicalScopeKey(node, { includeBlockScopes });
+  const peers = nodes.filter((candidate) =>
+    candidate.childForFieldName(nameField)?.text === name &&
+    buildLexicalScopeKey(candidate, { includeBlockScopes }) === scopeKey
+  );
+  if (peers.length <= 1) return '';
+  const occurrence = peers.findIndex((candidate) => candidate.startIndex === node.startIndex) + 1;
+  return occurrenceDisambiguator(occurrence);
 }
 
 /**

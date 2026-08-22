@@ -49,6 +49,9 @@ function makeFile(overrides?: Partial<FileEntity>): FileEntity {
 
 function makeFunction(overrides?: Partial<FunctionEntity>): FunctionEntity {
   return {
+    id: 'sym:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    scopeKey: '',
+    disambiguator: '',
     name: 'myFunction',
     filePath: '/src/index.ts',
     startLine: 10,

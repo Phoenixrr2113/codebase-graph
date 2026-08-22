@@ -824,14 +824,16 @@ pub struct User {
       );
       expect(fieldEdges).toHaveLength(2);
 
+      const propertyIds = new Set(fieldEdges.map((edge) => edge.toId));
       const nameField = result.variables.find(
-        (v) => v.name === 'name' && v.id.includes('::prop::'),
+        (variable) => variable.name === 'name' && propertyIds.has(variable.id),
       );
       const ageField = result.variables.find(
-        (v) => v.name === 'age' && v.id.includes('::prop::'),
+        (variable) => variable.name === 'age' && propertyIds.has(variable.id),
       );
       expect(nameField).toBeDefined();
       expect(ageField).toBeDefined();
+      expect(nameField!.scopeKey).toBe('Class:User');
 
       const nameEdge = fieldEdges.find((e) => e.toId === nameField!.id);
       const ageEdge = fieldEdges.find((e) => e.toId === ageField!.id);

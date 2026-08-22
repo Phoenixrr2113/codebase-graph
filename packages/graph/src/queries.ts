@@ -6,6 +6,7 @@
 
 import type { GraphClient } from './client';
 import type { CypherDialect } from './driver';
+import { deriveEntityId } from './knowledge-operations';
 import { trace } from '@codegraph/logger';
 import { REFERENCEABLE_LABELS, SYMBOL_LABELS, resolveNodeLabel } from '@codegraph/types';
 import type {
@@ -95,11 +96,28 @@ function projectDashboardProperties(props: Record<string, unknown>): Record<stri
   return projectDashboardValue(props) as Record<string, unknown>;
 }
 
+function persistedNodeId(props: Record<string, unknown>, label?: DashboardNodeLabel): string {
+  const id = props['id'];
+  if (typeof id === 'string' && id.length > 0) {
+    return id;
+  }
+  if (label === 'Entity') {
+    const text = typeof props['text'] === 'string' ? props['text'] : '';
+    const type = typeof props['type'] === 'string' ? props['type'] : '';
+    return deriveEntityId(text, type);
+  }
+  if (label === 'File') {
+    const filePath = typeof props['filePath'] === 'string' ? props['filePath'] : '';
+    return `File:${filePath}`;
+  }
+  throw new Error('Graph node is missing a persisted id');
+}
+
 function nodeToGraphNode(node: Record<string, unknown>, labels: string[], dialect?: CypherDialect): GraphNode {
   const actualLabels = extractLabels(node, labels, dialect);
   const props = extractNodeProps(node, dialect);
   const label = getLabelFromLabels(actualLabels);
-  const id = generateNodeIdFromProps(label, props);
+  const id = persistedNodeId(props, label);
   const dashboardProps = projectDashboardProperties(props);
 
   return {
@@ -111,34 +129,20 @@ function nodeToGraphNode(node: Record<string, unknown>, labels: string[], dialec
   } as unknown as GraphNode;
 }
 
-function generateNodeIdFromProps(label: DashboardNodeLabel, node: Record<string, unknown>): string {
-  if (label === 'File') {
-    return `File:${node['filePath'] ?? ''}`;
-  }
-  if (label === 'Entity') {
-    return `Entity:${node['type'] ?? ''}:${node['text'] ?? ''}`;
-  }
-  const name = node['name'] ?? '';
-  const filePath = node['filePath'] ?? '';
-  const line = node['startLine'] ?? node['line'] ?? 0;
-  return `${label}:${filePath}:${name}:${line}`;
-}
-
-
 function edgeToGraphEdge(
   fromNode: Record<string, unknown>,
   toNode: Record<string, unknown>,
   edgeType: string,
   edgeProps: Record<string, unknown>,
   fromLabels: string[],
-  toLabels: string[]
+  toLabels: string[],
 ): GraphEdge {
-  const fromId = generateNodeIdFromProps(getLabelFromLabels(fromLabels), fromNode);
-  const toId = generateNodeIdFromProps(getLabelFromLabels(toLabels), toNode);
+  const fromId = persistedNodeId(fromNode, getLabelFromLabels(fromLabels));
+  const toId = persistedNodeId(toNode, getLabelFromLabels(toLabels));
   const dashboardProps = projectDashboardProperties(edgeProps);
 
   return {
-    id: `${edgeType}:${fromId}->${toId}`,
+    id: JSON.stringify([edgeType, fromId, toId]),
     source: fromId,
     target: toId,
     label: edgeType as EdgeLabel,
@@ -291,6 +295,8 @@ export type ReferenceEdgeType = (typeof REFERENCE_EDGE_TYPES)[number];
 
 /** One place a symbol is used, and how. */
 export interface SymbolReference {
+  /** Persisted opaque id of the referencing symbol. */
+  id: string;
   /** Name of the referencing symbol. */
   name: string;
   nodeType: string;
@@ -310,10 +316,8 @@ export interface SymbolReferencesResult {
 }
 
 export interface SymbolReferenceQuery {
-  name: string;
-  /** Declaring file, used to disambiguate symbols that share a name. */
-  filePath?: string | undefined;
-  startLine?: number | undefined;
+  /** Persisted opaque id of the declaration being referenced. */
+  id: string;
   limit?: number | undefined;
 }
 
@@ -381,6 +385,23 @@ function rowsToGraphNodes(
   return [...nodes.values()];
 }
 
+function pathNodes(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) {
+    return value.filter((node): node is Record<string, unknown> => (
+      node !== null && typeof node === 'object' && !Array.isArray(node)
+    ));
+  }
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    const nodes = (value as Record<string, unknown>)['nodes'];
+    if (Array.isArray(nodes)) {
+      return nodes.filter((node): node is Record<string, unknown> => (
+        node !== null && typeof node === 'object' && !Array.isArray(node)
+      ));
+    }
+  }
+  return [];
+}
+
 class GraphQueriesImpl implements GraphQueries {
   private readonly dialect: CypherDialect;
   private readonly templates: ReturnType<typeof buildCypherTemplates>;
@@ -439,16 +460,13 @@ class GraphQueriesImpl implements GraphQueries {
     for (const row of edgesResult.data ?? []) {
       const fromProps = extractNodeProps(row.a, this.dialect);
       const toProps = extractNodeProps(row.b, this.dialect);
-      const fromLabels = row.fromLabels ?? extractLabels(row.a, [], this.dialect);
-      const toLabels = row.toLabels ?? extractLabels(row.b, [], this.dialect);
-
       const edge = edgeToGraphEdge(
         fromProps,
         toProps,
         row.edgeType,
         row.r,
-        fromLabels,
-        toLabels,
+        row.fromLabels,
+        row.toLabels,
       );
       if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
         edges.push(edge);
@@ -495,7 +513,7 @@ class GraphQueriesImpl implements GraphQueries {
 
         // Add CONTAINS edge
         edges.push({
-          id: `CONTAINS:${fileNode.id}->${entityNode.id}`,
+          id: JSON.stringify(['CONTAINS', fileNode.id, entityNode.id]),
           source: fileNode.id,
           target: entityNode.id,
           label: 'CONTAINS',
@@ -519,7 +537,7 @@ class GraphQueriesImpl implements GraphQueries {
           row.edgeType,
           row.r,
           row.labels,
-          row.relatedLabels
+          row.relatedLabels,
         );
 
         // Avoid duplicate edges
@@ -564,16 +582,15 @@ class GraphQueriesImpl implements GraphQueries {
     // FalkorDB doesn't support variable-length path parameters
     const depthParam = Math.min(depth, 10);
 
-    const result = await this.client.roQuery<{
-      path: Array<Record<string, unknown>>;
-    }>(this.templates.GET_DEPENDENCY_TREE.replace('$depth', String(depthParam)), {
+    const result = await this.client.roQuery<{ path: unknown }>(
+      this.templates.GET_DEPENDENCY_TREE.replace('$depth', String(depthParam)), {
       params: { filePath },
     });
 
     for (const row of result.data ?? []) {
-      const pathNodes = row.path;
-      for (let i = 0; i < pathNodes.length; i++) {
-        const node = pathNodes[i]!;
+      const nodesInPath = pathNodes(row.path);
+      for (let i = 0; i < nodesInPath.length; i++) {
+        const node = nodesInPath[i]!;
         const graphNode = nodeToGraphNode(node, ['File'], this.dialect);
         if (!nodeIds.has(graphNode.id)) {
           nodes.push(graphNode);
@@ -581,12 +598,12 @@ class GraphQueriesImpl implements GraphQueries {
         }
 
         // Create edge to next node in path
-        if (i < pathNodes.length - 1) {
-          const nextNode = pathNodes[i + 1]!;
+        if (i < nodesInPath.length - 1) {
+          const nextNode = nodesInPath[i + 1]!;
           const nextProps = extractNodeProps(nextNode, this.dialect);
           const fromId = graphNode.id;
-          const toId = generateNodeIdFromProps('File', nextProps);
-          const edgeId = `IMPORTS:${fromId}->${toId}`;
+          const toId = persistedNodeId(nextProps);
+          const edgeId = JSON.stringify(['IMPORTS', fromId, toId]);
 
           if (!edges.some((e) => e.id === edgeId)) {
             edges.push({
@@ -713,102 +730,47 @@ class GraphQueriesImpl implements GraphQueries {
   @trace()
   async getSymbolReferences(query: SymbolReferenceQuery): Promise<SymbolReferencesResult> {
     const limit = Math.min(Math.max(query.limit ?? 200, 1), 1000);
-
-    // An empty `?path=` query string arrives as '', not undefined. Treated as
-    // a real value it becomes `filePath = ''`, which no real node ever
-    // matches, so normalize it to "not supplied" up front.
-    const filePath = query.filePath === '' ? undefined : query.filePath;
-
-    // A symbol can be represented by more than one node: a declaration
-    // (Interface/Class/Type/Function/...) with a real filePath, and a TypeRef
-    // proxy node with filePath = null that USES_TYPE/HAS_PARAM/RETURNS edges
-    // actually land on. Matching every node with this name, rather than
-    // pinning to a single one, means references landing on either kind of
-    // node are found. The expansion still starts from named nodes, not the
-    // edge side, so it does not scan every relationship of these types in
-    // the graph.
-    //
-    // A node with no filePath has nothing for filePath/startLine to
-    // disambiguate against, so those filters only ever exclude a node that
-    // carries a location that disagrees with the request. That keeps this
-    // correct today (TypeRef's filePath is always null) and later, once
-    // TypeRef nodes carry a real filePath, when the plain equality check
-    // starts doing the disambiguation on its own.
-
-    const targetFilters = ['target.name = $name'];
-    if (filePath !== undefined) {
-      targetFilters.push('(target.filePath IS NULL OR target.filePath = $filePath)');
-    }
-    if (query.startLine !== undefined) {
-      targetFilters.push('(target.filePath IS NULL OR target.startLine = $startLine)');
-    }
-
-    // "Same file" is a property of the edge, not of the query. Two genuine
-    // declarations can share this name in different files, each with its own
-    // same-file caller, so the file to compare against must come from the
-    // specific target that row's own edge points at (target.filePath), never
-    // from a single value chosen once for the whole batch.
-    //
-    // A TypeRef proxy node breaks that plan: its filePath is always null, so
-    // a reference landing there carries no location of its own. matchedFilePath
-    // is the fallback for exactly that row shape, computed once up front. It
-    // is only safe to use when the matched target set implies exactly one
-    // real declaring file: with two or more distinct non-null filePaths among
-    // the matched targets (two genuine declarations sharing this name in
-    // different files), picking "whichever one Cypher returned first" is the
-    // same batch-wide misattribution this whole rewrite exists to remove, so
-    // matchedFilePath comes back null instead and the proxy row's sameFile
-    // honestly reports "cannot tell" rather than guessing. filePath, when the
-    // caller supplied it, is preferred over that inference since it is the
-    // caller's own assertion of which declaration it means.
     const cypher = `
+      MATCH (selected)
+      WHERE selected.id = $id AND (${REFERENCEABLE_LABELS.map((label) => this.dialect.labelCheckExpr('selected', label)).join(' OR ')})
       MATCH (target)
-      WHERE ${targetFilters.join(' AND ')}
-      WITH collect(DISTINCT target) AS targets, collect(DISTINCT target.filePath) AS filePaths
-      WITH targets, [fp IN filePaths WHERE fp IS NOT NULL] AS realFilePaths
-      WITH targets, CASE WHEN size(realFilePaths) = 1 THEN realFilePaths[0] ELSE null END AS matchedFilePath
-      UNWIND targets AS target
+      WHERE target.id = selected.id
       MATCH (source)-[r:${REFERENCE_EDGE_TYPES.join('|')}]->(target)
-      WHERE source.name IS NOT NULL
+      WHERE source.id IS NOT NULL AND source.name IS NOT NULL
       RETURN DISTINCT
+        source.id AS id,
         source.name AS name,
         labels(source)[0] AS nodeType,
         source.filePath AS filePath,
         source.startLine AS startLine,
         type(r) AS edgeType,
-        target.filePath AS targetFilePath,
-        matchedFilePath
+        selected.filePath AS declaringFilePath
       LIMIT ${limit + 1}
     `;
 
-    const params: Record<string, unknown> = { name: query.name };
-    if (filePath !== undefined) params['filePath'] = filePath;
-    if (query.startLine !== undefined) params['startLine'] = query.startLine;
-
     const result = await this.client.roQuery<{
+      id: string;
       name: string;
       nodeType: string;
       filePath: string | null;
       startLine: number | null;
       edgeType: ReferenceEdgeType;
-      targetFilePath: string | null;
-      matchedFilePath: string | null;
-    }>(cypher, { params: params as never });
+      declaringFilePath: string | null;
+    }>(cypher, { params: { id: query.id } });
 
     const rows = result.data ?? [];
     const truncated = rows.length > limit;
-    const fallbackFilePath = filePath ?? rows[0]?.matchedFilePath ?? undefined;
-    const references: SymbolReference[] = rows.slice(0, limit).map((row) => {
-      const declaringFilePath = row.targetFilePath ?? fallbackFilePath;
-      return {
-        name: row.name,
-        nodeType: row.nodeType,
-        filePath: row.filePath ?? '',
-        startLine: row.startLine ?? undefined,
-        edgeType: row.edgeType,
-        sameFile: row.filePath != null && declaringFilePath != null && row.filePath === declaringFilePath,
-      };
-    });
+    const references: SymbolReference[] = rows.slice(0, limit).map((row) => ({
+      id: row.id,
+      name: row.name,
+      nodeType: row.nodeType,
+      filePath: row.filePath ?? '',
+      startLine: row.startLine ?? undefined,
+      edgeType: row.edgeType,
+      sameFile: row.filePath != null
+        && row.declaringFilePath != null
+        && row.filePath === row.declaringFilePath,
+    }));
 
     const referencingFiles = Array.from(
       new Set(references.filter((r) => !r.sameFile && r.filePath !== '').map((r) => r.filePath)),

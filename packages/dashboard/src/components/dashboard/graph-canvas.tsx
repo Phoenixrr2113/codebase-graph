@@ -36,23 +36,6 @@ export interface CanvasSelectionPlan {
   nodeToAdd: CanvasNodeElement | null
 }
 
-function graphNodeIdentityMatches(candidate: GraphNode, requested: GraphNode): boolean {
-  if (candidate.id === requested.id) return true
-  if (candidate.type !== requested.type) return false
-
-  const candidatePath = candidate.properties.filePath
-  const requestedPath = requested.properties.filePath
-  if (typeof candidatePath !== 'string' || candidatePath !== requestedPath) return false
-
-  const candidateName = candidate.properties.name ?? candidate.label
-  const requestedName = requested.properties.name ?? requested.label
-  if (candidateName !== requestedName) return false
-
-  const candidateLine = candidate.properties.startLine
-  const requestedLine = requested.properties.startLine
-  return candidateLine === undefined || requestedLine === undefined || candidateLine === requestedLine
-}
-
 function graphNodeToCanvasElement(node: GraphNode): CanvasNodeElement {
   const filePath = typeof node.properties.filePath === 'string'
     ? node.properties.filePath
@@ -72,7 +55,7 @@ export function planCanvasSelection(
   loadedNodes: readonly GraphNode[],
   requestedNode: GraphNode,
 ): CanvasSelectionPlan {
-  const existingNode = loadedNodes.find((node) => graphNodeIdentityMatches(node, requestedNode))
+  const existingNode = loadedNodes.find((node) => node.id === requestedNode.id)
   const nodeId = existingNode?.id ?? requestedNode.id
 
   return {
@@ -85,15 +68,15 @@ interface GraphCanvasProps {
   apiUrl: string
   onNodeSelect: (node: GraphNode | null) => void
   selectedNode?: GraphNode | null
-  highlightedNames: Set<string>
-  /** `filePath::name` of every symbol that uses the selected one. */
-  referenceKeys?: Set<string>
+  highlightedNodeIds: Set<string>
+  /** Persisted ids of every symbol that uses the selected one. */
+  referenceNodeIds?: Set<string>
   hiddenEdgeTypes: Set<string>
   hiddenNodeTypes: Set<string>
   projectId?: string | null
 }
 
-export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNames, referenceKeys, hiddenEdgeTypes, hiddenNodeTypes, projectId }: GraphCanvasProps) {
+export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNodeIds, referenceNodeIds, hiddenEdgeTypes, hiddenNodeTypes, projectId }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<cytoscape.Core | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
@@ -287,9 +270,9 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNam
 
     cy.nodes().removeClass('highlighted dimmed')
     cy.edges().removeClass('dimmed')
-    if (highlightedNames.size > 0) {
+    if (highlightedNodeIds.size > 0) {
       cy.nodes().forEach((node) => {
-        if (highlightedNames.has(node.data('label'))) {
+        if (highlightedNodeIds.has(node.id())) {
           node.addClass('highlighted')
         } else {
           node.addClass('dimmed')
@@ -297,7 +280,7 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNam
       })
       cy.edges().addClass('dimmed')
     }
-  }, [highlightedNames])
+  }, [highlightedNodeIds])
 
   // Mark the symbols that use the selected one.
   //
@@ -309,17 +292,12 @@ export function GraphCanvas({ apiUrl, onNodeSelect, selectedNode, highlightedNam
     if (!cy) return
 
     cy.nodes().removeClass('reference')
-    if (!referenceKeys || referenceKeys.size === 0) return
+    if (!referenceNodeIds || referenceNodeIds.size === 0) return
 
     cy.nodes().forEach((node) => {
-      const key = [
-        (node.data('filePath') as string | undefined) ?? '',
-        node.data('label') as string,
-        (node.data('startLine') as number | undefined) ?? '',
-      ].join('::')
-      if (referenceKeys.has(key)) node.addClass('reference')
+      if (referenceNodeIds.has(node.id())) node.addClass('reference')
     })
-  }, [referenceKeys])
+  }, [referenceNodeIds])
 
   // Handle edge type filter changes
   useEffect(() => {

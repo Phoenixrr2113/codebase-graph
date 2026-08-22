@@ -19,6 +19,7 @@ import type {
   SyntaxNode,
 } from '@codegraph/types';
 import { findNodesOfType, generateEntityId, calculateComplexity } from '@codegraph/plugin-common';
+import { identityForNode } from './symbolIdentity';
 
 // ============================================================================
 // Helpers
@@ -51,6 +52,22 @@ function isInsideClassLikeBody(node: SyntaxNode): boolean {
     parent = parent.parent;
   }
   return false;
+}
+
+function phpOwnerScopeKey(node: SyntaxNode): string | undefined {
+  let current = node.parent;
+  while (current) {
+    const name = current.childForFieldName('name')?.text;
+    if (name) {
+      if (current.type === 'class_declaration') return `Class:${name}`;
+      if (current.type === 'trait_declaration' || current.type === 'interface_declaration') {
+        return `Interface:${name}`;
+      }
+      if (current.type === 'enum_declaration') return `Type:${name}`;
+    }
+    current = current.parent;
+  }
+  return undefined;
 }
 
 function extractPhpParams(funcNode: SyntaxNode): { name: string; type?: string; optional?: boolean }[] {
@@ -97,7 +114,7 @@ function extractClasses(root: SyntaxNode, filePath: string): ClassEntity[] {
     const name = nameNode.text;
     const startLine = node.startPosition.row + 1;
     const entity: ClassEntity = {
-      id: generateEntityId(filePath, 'class', name, startLine),
+      ...identityForNode({ node, filePath, label: 'Class', declaredName: name }),
       name, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: true,
       isAbstract: node.children.some((c: SyntaxNode) => c.type === 'abstract_modifier'),
@@ -124,7 +141,7 @@ function extractInterfaces(root: SyntaxNode, filePath: string): InterfaceEntity[
       }
     }
     const entity: InterfaceEntity = {
-      id: generateEntityId(filePath, 'interface', name, startLine),
+      ...identityForNode({ node, filePath, label: 'Interface', declaredName: name }),
       name, filePath, startLine, endLine: node.endPosition.row + 1, isExported: true,
     };
     if (extendsList.length > 0) entity.extends = extendsList;
@@ -139,7 +156,7 @@ function extractInterfaces(root: SyntaxNode, filePath: string): InterfaceEntity[
     const name = nameNode.text;
     const startLine = node.startPosition.row + 1;
     const entity: InterfaceEntity = {
-      id: generateEntityId(filePath, 'interface', name, startLine),
+      ...identityForNode({ node, filePath, label: 'Interface', declaredName: name }),
       name, filePath, startLine, endLine: node.endPosition.row + 1, isExported: true,
     };
     const doc = extractDocComment(node);
@@ -160,7 +177,7 @@ function extractFunctions(root: SyntaxNode, filePath: string): FunctionEntity[] 
     const name = nameNode.text;
     const startLine = node.startPosition.row + 1;
     const entity: FunctionEntity = {
-      id: generateEntityId(filePath, 'function', name, startLine),
+      ...identityForNode({ node, filePath, label: 'Function', declaredName: name }),
       name, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: true, isAsync: false, isArrow: false,
       params: extractPhpParams(node),
@@ -189,9 +206,19 @@ function extractFunctions(root: SyntaxNode, filePath: string): FunctionEntity[] 
       const name = nameNode.text;
       const startLine = child.startPosition.row + 1;
       const vis = getVisibility(child);
-      const qualifiedName = className ? `${className}.${name}` : name;
+      const ownerLabel = classNode.type === 'class_declaration'
+        ? 'Class'
+        : classNode.type === 'trait_declaration'
+          ? 'Interface'
+          : 'Type';
       const entity: FunctionEntity = {
-        id: generateEntityId(filePath, 'function', qualifiedName, startLine),
+        ...identityForNode({
+          node: child,
+          filePath,
+          label: 'Function',
+          declaredName: name,
+          scopeKeyOverride: className ? `${ownerLabel}:${className}` : '',
+        }),
         name, filePath, startLine, endLine: child.endPosition.row + 1,
         isExported: vis === 'public' || vis === undefined,
         isAsync: false, isArrow: false, params: extractPhpParams(child),
@@ -223,7 +250,13 @@ function extractVariables(root: SyntaxNode, filePath: string): VariableEntity[] 
     const vis = getVisibility(node);
     const typeNode = node.children.find((c: SyntaxNode) => PHP_TYPE_NODES.includes(c.type));
     const entity: VariableEntity = {
-      id: generateEntityId(filePath, 'variable', name, line),
+      ...identityForNode({
+        node,
+        filePath,
+        label: 'Variable',
+        declaredName: name,
+        scopeKeyOverride: phpOwnerScopeKey(node),
+      }),
       name, filePath, line, kind: 'let',
       isExported: vis === 'public' || vis === undefined,
     };
@@ -237,7 +270,13 @@ function extractVariables(root: SyntaxNode, filePath: string): VariableEntity[] 
     if (!nameNode) continue;
     const line = node.startPosition.row + 1;
     variables.push({
-      id: generateEntityId(filePath, 'variable', nameNode.text, line),
+      ...identityForNode({
+        node,
+        filePath,
+        label: 'Variable',
+        declaredName: nameNode.text,
+        scopeKeyOverride: phpOwnerScopeKey(node),
+      }),
       name: nameNode.text, filePath, line, kind: 'const', isExported: true,
     });
   }
@@ -301,7 +340,7 @@ function extractTypes(root: SyntaxNode, filePath: string): TypeEntity[] {
     if (!nameNode) continue;
     const startLine = node.startPosition.row + 1;
     const entity: TypeEntity = {
-      id: generateEntityId(filePath, 'type', nameNode.text, startLine),
+      ...identityForNode({ node, filePath, label: 'Type', declaredName: nameNode.text }),
       name: nameNode.text, filePath, startLine, endLine: node.endPosition.row + 1,
       isExported: true, kind: 'enum',
     };

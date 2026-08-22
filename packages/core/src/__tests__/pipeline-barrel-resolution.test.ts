@@ -49,6 +49,10 @@ import {
   resolveReExportChain,
 } from '../pipeline';
 import type { ImportEntity } from '@codegraph/types';
+import {
+  buildProjectSymbolCatalog,
+  resolveProjectSymbolEdges,
+} from '../pipeline/pipeline';
 
 describe('resolveReExportChain', () => {
   it('resolves a two-level named re-export chain to the origin file and name', () => {
@@ -413,15 +417,10 @@ describe('buildParsedFileEntities: barrel-aware CALL edges (end-to-end)', () => 
       main.rootNode,
       { deepAnalysis: true, includeExternals: false },
     );
+    resolveProjectSymbolEdges([built], buildProjectSymbolCatalog([built]));
 
-    const methodCall = built.callEdges.find((e) => e.calleeId.includes(':method'));
-    // Bug 1's receiver binding resolves `s.method()` to *some* file for
-    // `Service` (the barrel, since that's what the import's resolvedPath
-    // says) but without barrel-chain resolution, that's the barrel file,
-    // which has no `method` Function node, so this callee id names a file
-    // that doesn't define `method`.
-    expect(methodCall).toBeDefined();
-    expect(methodCall!.calleeId).toBe(`Function:${join(dir, 'barrel.ts')}:method`);
+    const callerId = built.functions.find((fn) => fn.name === 'run')?.id;
+    expect(built.callEdges.find((edge) => edge.callerId === callerId)).toBeUndefined();
   });
 
   it('with a barrelIndex, the receiver call resolves through the two-level barrel chain to service.ts', () => {
@@ -442,10 +441,19 @@ describe('buildParsedFileEntities: barrel-aware CALL edges (end-to-end)', () => 
       main.rootNode,
       { deepAnalysis: true, includeExternals: false, barrelIndex },
     );
+    const serviceBuilt = buildParsedFileEntities(
+      service.fileEntity,
+      service.extracted,
+      service.rootNode,
+      { deepAnalysis: true, includeExternals: false, barrelIndex },
+    );
+    const files = [built, serviceBuilt];
+    resolveProjectSymbolEdges(files, buildProjectSymbolCatalog(files));
 
-    const methodCall = built.callEdges.find((e) => e.calleeId.includes(':method'));
+    const callerId = built.functions.find((fn) => fn.name === 'run')?.id;
+    const methodCall = built.callEdges.find((edge) => edge.callerId === callerId);
     expect(methodCall).toBeDefined();
-    expect(methodCall!.calleeId).toBe(`Function:${join(dir, 'service.ts')}:method`);
+    expect(methodCall!.calleeId).toBe(serviceBuilt.functions.find((fn) => fn.name === 'method')?.id);
 
     // The File-to-File IMPORTS edge stays pointing at the barrel: that edge
     // describes what main.ts actually imports from, which is genuinely the
@@ -470,13 +478,22 @@ describe('buildParsedFileEntities: barrel-aware CALL edges (end-to-end)', () => 
       consumer.rootNode,
       { deepAnalysis: true, includeExternals: false, barrelIndex },
     );
+    const originBuilt = buildParsedFileEntities(
+      origin.fileEntity,
+      origin.extracted,
+      origin.rootNode,
+      { deepAnalysis: true, includeExternals: false, barrelIndex },
+    );
+    const files = [built, originBuilt];
+    resolveProjectSymbolEdges(files, buildProjectSymbolCatalog(files));
 
-    const call = built.callEdges.find((e) => e.callerId.includes(':useAlias'));
+    const callerId = built.functions.find((fn) => fn.name === 'useAlias')?.id;
+    const call = built.callEdges.find((edge) => edge.callerId === callerId);
     expect(call).toBeDefined();
     // The real Function node at origin.ts is named aliasedFn, not renamedFn
     // (the call site's local alias). The callee id must search for the
     // origin-declared name, or this edge silently drops at graph-write time.
-    expect(call!.calleeId).toBe(`Function:${join(dir, 'origin.ts')}:aliasedFn`);
+    expect(call!.calleeId).toBe(originBuilt.functions.find((fn) => fn.name === 'aliasedFn')?.id);
   });
 
   it('reviewer blocker 5 (end-to-end): a mixed barrel resolves its own local export to itself, not the unrelated star target', () => {
@@ -498,10 +515,19 @@ describe('buildParsedFileEntities: barrel-aware CALL edges (end-to-end)', () => 
       consumer.rootNode,
       { deepAnalysis: true, includeExternals: false, barrelIndex, localExportsIndex },
     );
+    const targetBuilt = buildParsedFileEntities(
+      mixedBarrel.fileEntity,
+      mixedBarrel.extracted,
+      mixedBarrel.rootNode,
+      { deepAnalysis: true, includeExternals: false, barrelIndex, localExportsIndex },
+    );
+    const files = [built, targetBuilt];
+    resolveProjectSymbolEdges(files, buildProjectSymbolCatalog(files));
 
-    const call = built.callEdges.find((e) => e.callerId.includes(':useMixed'));
+    const callerId = built.functions.find((fn) => fn.name === 'useMixed')?.id;
+    const call = built.callEdges.find((edge) => edge.callerId === callerId);
     expect(call).toBeDefined();
-    expect(call!.calleeId).toBe(`Function:${join(dir, 'mixedBarrel.ts')}:localOnly`);
+    expect(call!.calleeId).toBe(targetBuilt.functions.find((fn) => fn.name === 'localOnly')?.id);
   });
 
   it('without localExportsIndex, the mixed-barrel local export can be mis-resolved through the unrelated star hop (documents the degraded case)', () => {
@@ -521,13 +547,11 @@ describe('buildParsedFileEntities: barrel-aware CALL edges (end-to-end)', () => 
       consumer.rootNode,
       { deepAnalysis: true, includeExternals: false, barrelIndex },
     );
+    const files = [built];
+    resolveProjectSymbolEdges(files, buildProjectSymbolCatalog(files));
 
-    const call = built.callEdges.find((e) => e.callerId.includes(':useMixed'));
-    expect(call).toBeDefined();
-    // Without the local-exports base case, the chain follows mixedBarrel's
-    // star re-export and searches for `localOnly` at otherThing.ts, where it
-    // doesn't exist, so this callee id names a file that doesn't define it.
-    expect(call!.calleeId).toBe(`Function:${join(dir, 'otherThing.ts')}:localOnly`);
+    const callerId = built.functions.find((fn) => fn.name === 'useMixed')?.id;
+    expect(built.callEdges.find((edge) => edge.callerId === callerId)).toBeUndefined();
   });
 });
 
@@ -734,15 +758,30 @@ describe('buildParsedFileEntities: multi-star barrel end-to-end (reviewer follow
       consumer.rootNode,
       { deepAnalysis: true, includeExternals: false, barrelIndex, localExportsIndex },
     );
+    const moduleABuilt = buildParsedFileEntities(
+      moduleA.fileEntity,
+      moduleA.extracted,
+      moduleA.rootNode,
+      { deepAnalysis: true, includeExternals: false, barrelIndex, localExportsIndex },
+    );
+    const moduleBBuilt = buildParsedFileEntities(
+      moduleB.fileEntity,
+      moduleB.extracted,
+      moduleB.rootNode,
+      { deepAnalysis: true, includeExternals: false, barrelIndex, localExportsIndex },
+    );
+    const files = [built, moduleABuilt, moduleBBuilt];
+    resolveProjectSymbolEdges(files, buildProjectSymbolCatalog(files));
 
+    const callerId = built.functions.find((fn) => fn.name === 'useMultiStar')?.id;
     const callees = built.callEdges
-      .filter((e) => e.callerId.includes(':useMultiStar'))
+      .filter((edge) => edge.callerId === callerId)
       .map((e) => e.calleeId)
       .sort();
     expect(callees).toEqual([
-      `Function:${join(dir, 'moduleA.ts')}:fnA`,
-      `Function:${join(dir, 'moduleB.ts')}:fnB`,
-    ]);
+      moduleABuilt.functions.find((fn) => fn.name === 'fnA')?.id,
+      moduleBBuilt.functions.find((fn) => fn.name === 'fnB')?.id,
+    ].sort());
   });
 
   it('(b) useMultiStarTypes() TypeRefs: TypeA keys on typeA.ts and TypeB keys on typeB.ts', () => {

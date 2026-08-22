@@ -10,7 +10,7 @@ import { ConstraintType, EntityType } from 'falkordb';
 import type { QueryOptions as FalkorQueryOptions } from 'falkordb/dist/src/commands';
 import type { QueryParams } from '../client';
 import { createLogger } from '@codegraph/logger';
-import { ALL_GRAPH_LABELS, EMBEDDABLE_LABELS } from '@codegraph/types';
+import { ALL_GRAPH_LABELS, EMBEDDABLE_LABELS, SYMBOL_LABELS } from '@codegraph/types';
 
 const logger = createLogger({ namespace: 'graph:schema' });
 
@@ -102,6 +102,13 @@ export async function ensureSchemaImpl(
 
   // --- Range indexes (lookup by exact value) ---
   await safeIndex(`CREATE INDEX FOR (f:File) ON (f.filePath)`);
+  for (const label of SYMBOL_LABELS) {
+    if (label === 'File') continue;
+    await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.id)`);
+    await safeIndex(`CREATE INDEX FOR (n:${label}) ON (n.projectId)`);
+  }
+  await safeIndex(`CREATE INDEX FOR (f:File) ON (f.projectId)`);
+  await safeIndex(`CREATE INDEX FOR (d:MarkdownDocument) ON (d.projectId)`);
 
   // --- Commit & Metadata range indexes (git history / state tracking) ---
   await safeIndex(`CREATE INDEX FOR (c:Commit) ON (c.hash)`);

@@ -26,7 +26,6 @@ import {
   extractComponents,
   extractInheritance,
   extractRenders,
-  generateEntityId,
 } from '../src/extractors';
 
 const TEST_FILE = 'user.ts';
@@ -111,9 +110,12 @@ export class User {
 
     const userClass = result.classes.find(c => c.name === 'User')!;
 
-    const props = result.propertyEntities.filter(
-      p => p.id?.startsWith(`${userClass.id}::prop`),
+    const propertyIds = new Set(
+      result.hasPropertyEdges
+        .filter((edge) => edge.fromId === userClass.id)
+        .map((edge) => edge.toId),
     );
+    const props = result.propertyEntities.filter((property) => propertyIds.has(property.id));
     expect(props.map(p => p.name).sort()).toEqual(['defaultCount', 'id', 'name']);
 
     const hasPropEdges = result.hasPropertyEdges.filter(r => r.fromId === userClass.id);
@@ -140,9 +142,9 @@ export class User {
     const userClass = result.classes.find(c => c.name === 'User')!;
     const greetMethod = result.methodEntities.find(m => m.name === 'greet')!;
 
-    // Method entity id uses generateEntityId format (same as extractFunctions would produce)
-    const expectedGreetId = generateEntityId(TEST_FILE, 'function', 'greet', greetMethod.startLine);
-    expect(greetMethod.id).toBe(expectedGreetId);
+    expect(greetMethod.id).toMatch(/^sym:v1:[a-f0-9]{64}$/);
+    expect(greetMethod.scopeKey).toBe('Class:User');
+    expect(greetMethod.disambiguator).toBe('');
 
     // Edge connects class to method using fromId/toId
     const edge = result.hasMethodEdges.find(e => e.toId === greetMethod.id);
@@ -232,8 +234,9 @@ export class Service {
     expect(methodNames).toEqual(['connect', 'create', 'init']);
 
     // Property entities appear in the top-level variables array
+    const propEdgeToIds = new Set(propEdges.map((edge) => edge.toId));
     const propNames = result.variables
-      .filter(v => v.id?.startsWith(`${classId}::prop`))
+      .filter((variable) => propEdgeToIds.has(variable.id))
       .map(v => v.name)
       .sort();
     expect(propNames).toEqual(['instances', 'name', 'version']);
@@ -1180,5 +1183,168 @@ type B = number;
     expect(result.functions).toHaveLength(0);
     expect(result.classes).toHaveLength(0);
     expect(result.types.map(t => t.name).sort()).toEqual(['A', 'B']);
+  });
+});
+
+describe('TypeScript canonical symbol identity', () => {
+  beforeAll(() => {
+    parser = new Parser();
+    parser.setLanguage(grammars.typescript as Parameters<Parser['setLanguage']>[0]);
+    tsxParser = new Parser();
+    tsxParser.setLanguage(grammars.tsx as Parameters<Parser['setLanguage']>[0]);
+  });
+
+  it('gives same-named methods in different classes distinct owner-qualified ids', () => {
+    const result = runTSExtraction(`
+class First { work(): void {} }
+class Second { work(): void {} }
+`, '/project/src/services.ts');
+    const methods = result.functions.filter((entity) => entity.name === 'work');
+
+    expect(methods).toHaveLength(2);
+    expect(new Set(methods.map((entity) => entity.id)).size).toBe(2);
+    expect(methods.map((entity) => entity.scopeKey).sort()).toEqual([
+      'Class:First',
+      'Class:Second',
+    ]);
+    expect(methods.every((entity) => entity.disambiguator === '')).toBe(true);
+  });
+
+  it('uses normalized signature hashes for same-scope overloads', () => {
+    const result = runTSExtraction(`
+function parse(value: string): string;
+function parse(value: number): number;
+function parse(value: string | number): string | number { return value; }
+`, '/project/src/parse.ts');
+    const overloads = result.functions.filter((entity) => entity.name === 'parse');
+
+    expect(overloads).toHaveLength(3);
+    expect(new Set(overloads.map((entity) => entity.id)).size).toBe(3);
+    expect(overloads.every((entity) => entity.scopeKey === '')).toBe(true);
+    expect(overloads.every((entity) => entity.disambiguator.startsWith('sig:'))).toBe(true);
+    expect(overloads.map((entity) => Reflect.get(entity, 'isOverloadSignature'))).toEqual([
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it('qualifies nested functions by their full lexical owner chain', () => {
+    const result = runTSExtraction(`
+function outerA() { function helper() {} }
+function outerB() { function helper() {} }
+`, '/project/src/nested.ts');
+    const helpers = result.functions.filter((entity) => entity.name === 'helper');
+
+    expect(helpers).toHaveLength(2);
+    expect(new Set(helpers.map((entity) => entity.id)).size).toBe(2);
+    expect(helpers.map((entity) => entity.scopeKey).sort()).toEqual([
+      'Function:outerA',
+      'Function:outerB',
+    ]);
+  });
+
+  it('distinguishes a block-scoped variable from its top-level shadowed name', () => {
+    const result = runTSExtraction(`
+const state = 'top';
+if (enabled) {
+  const state = 'block';
+}
+`, '/project/src/shadow.ts');
+    const states = result.variables.filter((entity) => entity.name === 'state');
+
+    expect(states).toHaveLength(2);
+    expect(new Set(states.map((entity) => entity.id)).size).toBe(2);
+    expect(states.some((entity) => entity.scopeKey === '')).toBe(true);
+    expect(states.some((entity) => entity.scopeKey.includes('Block:if_statement'))).toBe(true);
+  });
+
+  it('collapses TypeScript interface declaration merging to one symbol id', () => {
+    const result = runTSExtraction(`
+interface Registry { first: string }
+interface Registry { second: number }
+`, '/project/src/registry.ts');
+    const declarations = result.interfaces.filter((entity) => entity.name === 'Registry');
+
+    expect(declarations).toHaveLength(1);
+    expect(declarations[0]).toMatchObject({
+      scopeKey: '',
+      disambiguator: '',
+      startLine: 2,
+      endLine: 3,
+    });
+  });
+
+  it('keeps ids stable when inserted lines shift source ranges', () => {
+    const before = runTSExtraction(
+      `function stable(value: string): string { return value; }`,
+      '/project/src/stable.ts',
+    ).functions.find((entity) => entity.name === 'stable');
+    const after = runTSExtraction(
+      `// inserted\n\nfunction stable(value: string): string { return value; }`,
+      '/project/src/stable.ts',
+    ).functions.find((entity) => entity.name === 'stable');
+
+    expect(before).toBeDefined();
+    expect(after).toBeDefined();
+    expect(before!.id).toBe(after!.id);
+    expect(before!.startLine).not.toBe(after!.startLine);
+  });
+
+  it('adds identity fields to every extracted source-symbol label', () => {
+    const ts = runTSExtraction(`
+class Service {}
+interface Contract {}
+function run(): void {}
+const value = 1;
+type Alias = string;
+`, '/project/src/all.ts');
+    const component = extractComponents(
+      parseTsx(`const Panel = (): JSX.Element => <section />;`),
+      '/project/src/panel.tsx',
+    )[0];
+    const symbols = [
+      ts.classes[0],
+      ts.interfaces[0],
+      ts.functions[0],
+      ts.variables[0],
+      ts.types[0],
+      component,
+    ];
+
+    for (const symbol of symbols) {
+      expect(symbol).toBeDefined();
+      expect(symbol!.id).toMatch(/^sym:v1:[a-f0-9]{64}$/);
+      expect(typeof symbol!.scopeKey).toBe('string');
+      expect(typeof symbol!.disambiguator).toBe('string');
+    }
+  });
+
+  it('uses occurrence ordinals only after scope and signature still collide', () => {
+    const result = runTSExtraction(`
+function duplicate(value: string): string { return value; }
+function duplicate(value: string): string { return value; }
+`, '/project/src/duplicates.ts');
+    const duplicates = result.functions.filter((entity) => entity.name === 'duplicate');
+
+    expect(duplicates).toHaveLength(2);
+    expect(duplicates.map((entity) => entity.disambiguator)).toEqual([
+      expect.stringMatching(/^sig:[a-f0-9]{16}\/occ:1$/),
+      expect.stringMatching(/^sig:[a-f0-9]{16}\/occ:2$/),
+    ]);
+    expect(new Set(duplicates.map((entity) => entity.id)).size).toBe(2);
+  });
+
+  it('keeps members distinct when duplicate owner declarations require the fallback', () => {
+    const result = runTSExtraction(`
+class Duplicate { work(): void {} }
+class Duplicate { work(): void {} }
+`, '/project/src/duplicate-owners.ts');
+    const classes = result.classes.filter((entity) => entity.name === 'Duplicate');
+    const methods = result.functions.filter((entity) => entity.name === 'work');
+
+    expect(classes.map((entity) => entity.disambiguator)).toEqual(['occ:1', 'occ:2']);
+    expect(new Set(classes.map((entity) => entity.id)).size).toBe(2);
+    expect(new Set(methods.map((entity) => entity.id)).size).toBe(2);
   });
 });

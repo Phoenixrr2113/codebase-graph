@@ -265,6 +265,212 @@ export interface PipelineOptions {
   localExportsIndex?: ReadonlyMap<string, readonly string[]>;
 }
 
+type SourceSymbolLabel = 'Function' | 'Class' | 'Interface' | 'Variable' | 'Type' | 'Component';
+
+interface CatalogSymbol {
+  id: string;
+  label: SourceSymbolLabel;
+  filePath: string;
+  name: string;
+  scopeKey: string;
+  disambiguator: string;
+  isOverloadSignature?: boolean;
+  isExported: boolean;
+  startLine: number;
+}
+
+export interface PersistedCatalogSymbol extends CatalogSymbol {}
+
+export interface ProjectSymbolCatalog {
+  readonly byId: ReadonlyMap<string, CatalogSymbol>;
+  readonly byDeclaration: ReadonlyMap<string, readonly CatalogSymbol[]>;
+  readonly byExport: ReadonlyMap<string, readonly CatalogSymbol[]>;
+}
+
+interface SymbolLookup {
+  labels: readonly SourceSymbolLabel[];
+  filePath: string;
+  name: string;
+  startLine?: number;
+  ownerName?: string;
+  exportedOnly?: boolean;
+}
+
+interface EdgeResolutionHint {
+  from?: SymbolLookup;
+  to?: SymbolLookup;
+}
+
+const edgeResolutionHints = new WeakMap<object, EdgeResolutionHint>();
+
+const SYMBOL_COLLECTIONS = [
+  ['Function', 'functions'],
+  ['Class', 'classes'],
+  ['Interface', 'interfaces'],
+  ['Variable', 'variables'],
+  ['Type', 'types'],
+  ['Component', 'components'],
+] as const;
+
+function declarationKey(label: SourceSymbolLabel, filePath: string, name: string): string {
+  return `${label}\u0000${filePath}\u0000${name}`;
+}
+
+function exportKey(filePath: string, name: string): string {
+  return `${filePath}\u0000${name}`;
+}
+
+function symbolStartLine(symbol: { startLine?: number; line?: number }): number {
+  return symbol.startLine ?? symbol.line ?? 0;
+}
+
+function symbolsFromParsed(parsed: ParsedFileEntities): CatalogSymbol[] {
+  const symbols: CatalogSymbol[] = [];
+  for (const [label, collection] of SYMBOL_COLLECTIONS) {
+    for (const symbol of parsed[collection]) {
+      symbols.push({
+        id: symbol.id,
+        label,
+        filePath: symbol.filePath,
+        name: symbol.name,
+        scopeKey: symbol.scopeKey,
+        disambiguator: symbol.disambiguator,
+        isOverloadSignature: label === 'Function'
+          && 'isOverloadSignature' in symbol
+          && symbol.isOverloadSignature === true,
+        isExported: symbol.isExported,
+        startLine: symbolStartLine(symbol),
+      });
+    }
+  }
+  return symbols;
+}
+
+export function currentSymbolIds(parsed: ParsedFileEntities): string[] {
+  return symbolsFromParsed(parsed).map(symbol => symbol.id);
+}
+
+export function buildProjectSymbolCatalog(
+  parsedList: readonly ParsedFileEntities[],
+  persistedSymbols: readonly PersistedCatalogSymbol[] = [],
+): ProjectSymbolCatalog {
+  const changedFiles = new Set(parsedList.map(parsed => parsed.file.path));
+  const symbols = [
+    ...persistedSymbols.filter(symbol => !changedFiles.has(symbol.filePath)),
+    ...parsedList.flatMap(symbolsFromParsed),
+  ];
+  const byId = new Map<string, CatalogSymbol>();
+  const byDeclaration = new Map<string, CatalogSymbol[]>();
+  const byExport = new Map<string, CatalogSymbol[]>();
+
+  for (const symbol of symbols) {
+    byId.set(symbol.id, symbol);
+    if (symbol.isOverloadSignature === true) continue;
+    const declared = declarationKey(symbol.label, symbol.filePath, symbol.name);
+    const declarationMatches = byDeclaration.get(declared) ?? [];
+    declarationMatches.push(symbol);
+    byDeclaration.set(declared, declarationMatches);
+    if (symbol.isExported && symbol.scopeKey.length === 0) {
+      const exported = exportKey(symbol.filePath, symbol.name);
+      const exportMatches = byExport.get(exported) ?? [];
+      exportMatches.push(symbol);
+      byExport.set(exported, exportMatches);
+    }
+  }
+
+  return { byId, byDeclaration, byExport };
+}
+
+function resolveLookup(catalog: ProjectSymbolCatalog, lookup: SymbolLookup): CatalogSymbol[] {
+  let matches = lookup.exportedOnly
+    ? [...(catalog.byExport.get(exportKey(lookup.filePath, lookup.name)) ?? [])]
+    : lookup.labels.flatMap(label => catalog.byDeclaration.get(
+      declarationKey(label, lookup.filePath, lookup.name),
+    ) ?? []);
+  matches = matches.filter(symbol => lookup.labels.includes(symbol.label));
+  if (lookup.ownerName) {
+    const owner = `Class:${lookup.ownerName}`;
+    matches = matches.filter(symbol =>
+      symbol.scopeKey === owner || symbol.scopeKey.endsWith(`/${owner}`),
+    );
+  }
+  if (lookup.startLine !== undefined) {
+    const atLine = matches.filter(symbol => symbol.startLine === lookup.startLine);
+    if (atLine.length > 0) matches = atLine;
+  }
+  return matches;
+}
+
+function resolveSingleEndpoint(
+  currentId: string,
+  lookup: SymbolLookup | undefined,
+  catalog: ProjectSymbolCatalog,
+): string | undefined {
+  if (currentId && catalog.byId.has(currentId)) return currentId;
+  if (!lookup) return undefined;
+  const matches = resolveLookup(catalog, lookup);
+  return matches.length === 1 ? matches[0]?.id : undefined;
+}
+
+export function resolveProjectSymbolEdges(
+  parsedList: readonly ParsedFileEntities[],
+  catalog: ProjectSymbolCatalog,
+): void {
+  for (const parsed of parsedList) {
+    parsed.callEdges = parsed.callEdges.flatMap(edge => {
+      const hint = edgeResolutionHints.get(edge);
+      const callerId = resolveSingleEndpoint(edge.callerId, hint?.from, catalog);
+      const calleeMatches = edge.calleeId && catalog.byId.has(edge.calleeId)
+        ? [catalog.byId.get(edge.calleeId)!]
+        : hint?.to ? resolveLookup(catalog, hint.to) : [];
+      const implementationMatches = calleeMatches.filter(
+        target => target.isOverloadSignature !== true,
+      );
+      if (!callerId || implementationMatches.length === 0) return [];
+      return implementationMatches.map(target => ({ ...edge, callerId, calleeId: target.id }));
+    });
+
+    parsed.importsSymbolEdges = parsed.importsSymbolEdges.flatMap(edge => {
+      const hint = edgeResolutionHints.get(edge);
+      const targets = edge.toId && catalog.byId.has(edge.toId)
+        ? [catalog.byId.get(edge.toId)!]
+        : hint?.to ? resolveLookup(catalog, hint.to) : [];
+      return targets.map(target => ({
+        ...edge,
+        fromId: edge.fromId ?? `File:${edge.fromFilePath}`,
+        toId: target.id,
+      }));
+    });
+
+    parsed.extendsEdges = parsed.extendsEdges.flatMap(edge => {
+      const hint = edgeResolutionHints.get(edge);
+      const childId = resolveSingleEndpoint(edge.childId, hint?.from, catalog);
+      const parentId = resolveSingleEndpoint(edge.parentId, hint?.to, catalog);
+      return childId && parentId ? [{ childId, parentId }] : [];
+    });
+
+    parsed.implementsEdges = parsed.implementsEdges.flatMap(edge => {
+      const hint = edgeResolutionHints.get(edge);
+      const classId = resolveSingleEndpoint(edge.classId, hint?.from, catalog);
+      const interfaceId = resolveSingleEndpoint(edge.interfaceId, hint?.to, catalog);
+      return classId && interfaceId ? [{ classId, interfaceId }] : [];
+    });
+
+    parsed.rendersEdges = parsed.rendersEdges.flatMap(edge => {
+      const hint = edgeResolutionHints.get(edge);
+      const parentId = resolveSingleEndpoint(edge.parentId, hint?.from, catalog);
+      const childId = resolveSingleEndpoint(edge.childId, hint?.to, catalog);
+      return parentId && childId ? [{ ...edge, parentId, childId }] : [];
+    });
+
+    parsed.exportsEdges = parsed.exportsEdges.flatMap(edge => {
+      const hint = edgeResolutionHints.get(edge);
+      const toId = resolveSingleEndpoint(edge.toId ?? '', hint?.to, catalog);
+      return toId ? [{ ...edge, fromId: edge.fromId ?? `File:${edge.filePath}`, toId }] : [];
+    });
+  }
+}
+
 // ============================================================================
 // Barrel re-export chain resolution (batch/full-index only)
 // ============================================================================
@@ -529,21 +735,27 @@ function buildInheritanceEdgesFromRefs(
 
     if (ref.type === 'extends') {
       if (cls) {
-        extendsEdges.push({
-          childId: `Class:${filePath}:${cls.name}:${cls.startLine}`,
-          parentId: `Class:external:${ref.parentName}`,
+        const edge = { childId: ref.fromId ?? cls.id, parentId: ref.toId ?? '' };
+        edgeResolutionHints.set(edge, {
+          from: { labels: ['Class'], filePath, name: cls.name, startLine: cls.startLine },
+          to: { labels: ['Class'], filePath, name: ref.parentName },
         });
+        extendsEdges.push(edge);
       } else if (iface) {
-        extendsEdges.push({
-          childId: `Interface:${filePath}:${iface.name}:${iface.startLine}`,
-          parentId: `Interface:external:${ref.parentName}`,
+        const edge = { childId: ref.fromId ?? iface.id, parentId: ref.toId ?? '' };
+        edgeResolutionHints.set(edge, {
+          from: { labels: ['Interface'], filePath, name: iface.name, startLine: iface.startLine },
+          to: { labels: ['Interface'], filePath, name: ref.parentName },
         });
+        extendsEdges.push(edge);
       }
     } else if (ref.type === 'implements' && cls) {
-      implementsEdges.push({
-        classId: `Class:${filePath}:${cls.name}:${cls.startLine}`,
-        interfaceId: `Interface:external:${ref.parentName}`,
+      const edge = { classId: ref.fromId ?? cls.id, interfaceId: ref.toId ?? '' };
+      edgeResolutionHints.set(edge, {
+        from: { labels: ['Class'], filePath, name: cls.name, startLine: cls.startLine },
+        to: { labels: ['Interface'], filePath, name: ref.parentName },
       });
+      implementsEdges.push(edge);
     }
   }
 
@@ -563,13 +775,23 @@ function collectExportsEdges(file: FileEntity, extracted: ExtractedEntities): Pa
     ...(extracted.hasPropertyEdges ?? []).map((edge) => edge.toId),
   ]);
   const push = (
-    id: string | undefined,
+    id: string,
     name: string,
     isExported: boolean,
     symbolKind: ParsedFileEntities['exportsEdges'][number]['symbolKind'],
   ): void => {
-    if (isExported && (!id || !memberIds.has(id))) {
-      edges.push({ filePath: file.path, symbolName: name, symbolKind });
+    if (isExported && !memberIds.has(id)) {
+      const edge = {
+        fromId: `File:${file.path}`,
+        toId: id,
+        filePath: file.path,
+        symbolName: name,
+        symbolKind,
+      };
+      edgeResolutionHints.set(edge, {
+        to: { labels: [symbolKind], filePath: file.path, name, exportedOnly: true },
+      });
+      edges.push(edge);
     }
   };
   for (const fn of extracted.functions) push(fn.id, fn.name, fn.isExported, 'Function');
@@ -607,12 +829,21 @@ function collectImportsSymbolEdges(
       const localName = spec.alias ?? spec.name;
       const resolved = resolvedImportMap?.get(localName);
       const edge: ParsedFileEntities['importsSymbolEdges'][number] = {
+        fromId: `File:${file.path}`,
         fromFilePath: file.path,
         toFilePath: resolved?.filePath ?? resolvedPath,
         symbolName: resolved?.exportedName ?? spec.name,
         isDefault: false,
       };
       if (spec.alias) edge.alias = spec.alias;
+      edgeResolutionHints.set(edge, {
+        to: {
+          labels: ['Function', 'Class', 'Interface', 'Variable', 'Type', 'Component'],
+          filePath: edge.toFilePath,
+          name: edge.symbolName,
+          exportedOnly: true,
+        },
+      });
       edges.push(edge);
     }
   }
@@ -622,22 +853,34 @@ function collectImportsSymbolEdges(
 /**
  * Build call edges from CallReference[] (non-TS languages).
  */
-function buildCallEdgesFromRefs(refs: CallReference[]): ParsedFileEntities['callEdges'] {
+function buildCallEdgesFromRefs(
+  refs: CallReference[],
+  extracted: ExtractedEntities,
+): ParsedFileEntities['callEdges'] {
   // Non-TS plugins haven't been migrated to attribution-aware extraction yet.
   // They produce CallReferences with `callerName` only (no kind), defaulting
   // to Function caller and via='direct': the same defaults the old
   // TypeScript path used, so behavior is unchanged for those plugins.
-  return refs.map((call) => ({
-    callerId: `Function:${call.filePath}:${call.callerName}`,
-    // When the extractor resolved the callee to another file (via import
-    // analysis, see CallExtractionContext), key the edge on that file
-    // instead of unconditionally assuming the callee lives in the same file
-    // as the caller. Absent calleeFilePath still means same-file.
-    calleeId: `Function:${call.calleeFilePath ?? call.filePath}:${call.calleeName}`,
-    line: call.line,
-    callerKind: 'Function' as const,
-    via: 'direct' as const,
-  }));
+  return refs.map((call) => {
+    const caller = extracted.functions.find(fn => fn.name === call.callerName);
+    const edge = {
+      callerId: call.fromId ?? caller?.id ?? '',
+      calleeId: call.toId ?? '',
+      line: call.line,
+      callerKind: 'Function' as const,
+      via: 'direct' as const,
+    };
+    edgeResolutionHints.set(edge, {
+      from: { labels: ['Function'], filePath: call.filePath, name: call.callerName },
+      to: {
+        labels: ['Function'],
+        filePath: call.calleeFilePath ?? call.filePath,
+        name: call.calleeName,
+        exportedOnly: call.calleeFilePath !== undefined && call.calleeFilePath !== call.filePath,
+      },
+    });
+    return edge;
+  });
 }
 
 /**
@@ -736,19 +979,43 @@ export function buildParsedFileEntities(
       includeExternals,
     );
 
-    extendsEdges = inheritance.extends.map((ext) => ({
-      childId: `Class:${ext.childFilePath}:${ext.childName}:${ext.childStartLine}`,
-      parentId: ext.parentFilePath
-        ? `Class:${ext.parentFilePath}:${ext.parentName}`
-        : `Class:external:${ext.parentName}`,
-    }));
+    extendsEdges = inheritance.extends.map((ext) => {
+      const child = extracted.classes.find(cls =>
+        cls.name === ext.childName && cls.startLine === ext.childStartLine,
+      );
+      const edge = { childId: ext.fromId ?? child?.id ?? '', parentId: ext.toId ?? '' };
+      if (ext.parentFilePath) {
+        edgeResolutionHints.set(edge, {
+          from: {
+            labels: ['Class'],
+            filePath: ext.childFilePath,
+            name: ext.childName,
+            startLine: ext.childStartLine,
+          },
+          to: { labels: ['Class'], filePath: ext.parentFilePath, name: ext.parentName },
+        });
+      }
+      return edge;
+    });
 
-    implementsEdges = inheritance.implements.map((impl) => ({
-      classId: `Class:${impl.classFilePath}:${impl.className}:${impl.classStartLine}`,
-      interfaceId: impl.interfaceFilePath
-        ? `Interface:${impl.interfaceFilePath}:${impl.interfaceName}`
-        : `Interface:external:${impl.interfaceName}`,
-    }));
+    implementsEdges = inheritance.implements.map((impl) => {
+      const child = extracted.classes.find(cls =>
+        cls.name === impl.className && cls.startLine === impl.classStartLine,
+      );
+      const edge = { classId: impl.fromId ?? child?.id ?? '', interfaceId: impl.toId ?? '' };
+      if (impl.interfaceFilePath) {
+        edgeResolutionHints.set(edge, {
+          from: {
+            labels: ['Class'],
+            filePath: impl.classFilePath,
+            name: impl.className,
+            startLine: impl.classStartLine,
+          },
+          to: { labels: ['Interface'], filePath: impl.interfaceFilePath, name: impl.interfaceName },
+        });
+      }
+      return edge;
+    });
   } else if (plugin?.extractors.extractInheritance && rootNode) {
     // All other languages: use registry-dispatched extractInheritance
     const refs = plugin.extractors.extractInheritance(rootNode as unknown as GenericSyntaxNode, file.path);
@@ -793,18 +1060,41 @@ export function buildParsedFileEntities(
         resolvedImportMap,
       );
       callEdges = calls.map((call) => {
+        const callerCollection = call.callerKind === 'Function'
+          ? extracted.functions
+          : call.callerKind === 'Variable'
+            ? extracted.variables
+            : call.callerKind === 'Class'
+              ? extracted.classes
+              : extracted.interfaces;
+        const caller = callerCollection.find(candidate =>
+          candidate.name === call.callerName && symbolStartLine(candidate) === call.callerStartLine,
+        );
         const edge: ParsedFileEntities['callEdges'][number] = {
-          // Caller id encodes its kind so cross-label disambiguation works
-          // downstream, see graph operations.ts CALLS upsert.
-          callerId: `${call.callerKind}:${call.callerFilePath}:${call.callerName}`,
-          calleeId: call.calleeFilePath
-            ? `Function:${call.calleeFilePath}:${call.calleeName}`
-            : `Function:external:${call.calleeName}`,
+          callerId: call.fromId ?? caller?.id ?? '',
+          calleeId: call.toId ?? '',
           line: call.line,
           callerKind: call.callerKind,
           via: call.via,
         };
         if (call.calleeClassName) edge.calleeClassName = call.calleeClassName;
+        if (call.calleeFilePath) {
+          edgeResolutionHints.set(edge, {
+            from: {
+              labels: [call.callerKind],
+              filePath: call.callerFilePath,
+              name: call.callerName,
+              startLine: call.callerStartLine,
+            },
+            to: {
+              labels: ['Function'],
+              filePath: call.calleeFilePath,
+              name: call.calleeName,
+              ...(call.calleeClassName ? { ownerName: call.calleeClassName } : {}),
+              exportedOnly: call.calleeFilePath !== call.callerFilePath && !call.calleeClassName,
+            },
+          });
+        }
         return edge;
       });
     } else if (plugin?.extractors.extractCalls) {
@@ -820,7 +1110,7 @@ export function buildParsedFileEntities(
       const refs = plugin.extractors.extractCalls(rootNode as unknown as GenericSyntaxNode, file.path, {
         imports: extracted.imports,
       });
-      callEdges = buildCallEdgesFromRefs(refs);
+      callEdges = buildCallEdgesFromRefs(refs, extracted);
     }
   }
 
@@ -834,13 +1124,26 @@ export function buildParsedFileEntities(
       extracted.imports,
       includeExternals,
     );
-    rendersEdges = renders.map((render) => ({
-      parentId: `Component:${render.parentFilePath}:${render.parentName}`,
-      childId: render.childFilePath
-        ? `Component:${render.childFilePath}:${render.childName}`
-        : `Component:external:${render.childName}`,
-      line: render.line,
-    }));
+    rendersEdges = renders.map((render) => {
+      const parent = extracted.components.find(component => component.name === render.parentName);
+      const edge = {
+        parentId: render.fromId ?? parent?.id ?? '',
+        childId: render.toId ?? '',
+        line: render.line,
+      };
+      if (render.childFilePath) {
+        edgeResolutionHints.set(edge, {
+          from: { labels: ['Component'], filePath: render.parentFilePath, name: render.parentName },
+          to: {
+            labels: ['Component'],
+            filePath: render.childFilePath,
+            name: render.childName,
+            exportedOnly: render.childFilePath !== render.parentFilePath,
+          },
+        });
+      }
+      return edge;
+    });
   }
 
   // --- TypeRefs / HAS_PARAM / RETURNS / USES_TYPE, re-resolved through the barrel chain ---

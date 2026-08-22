@@ -20,7 +20,7 @@ const fileNode: GraphNode = {
 }
 
 const symbolNode: GraphNode = {
-  id: 'Function:/repo/src/main.ts:run:5',
+  id: 'sym:v1:1111111111111111111111111111111111111111111111111111111111111111',
   label: 'run',
   type: 'Function',
   properties: { filePath: '/repo/src/main.ts', name: 'run', startLine: 5 },
@@ -29,7 +29,7 @@ const symbolNode: GraphNode = {
 describe('explorer selection history', () => {
   it('uses canonical graph identity for real search and reference payloads', () => {
     const canonicalNode: GraphNode = {
-      id: 'Function:/repo/src/main.ts:run:5',
+      id: 'sym:v1:1111111111111111111111111111111111111111111111111111111111111111',
       label: 'run',
       type: 'Function',
       properties: {
@@ -39,6 +39,7 @@ describe('explorer selection history', () => {
       },
     }
     const searchResult = {
+      id: canonicalNode.id,
       name: 'run',
       nodeType: 'Function',
       filePath: '/repo/src/main.ts',
@@ -47,6 +48,7 @@ describe('explorer selection history', () => {
       isExported: true,
     }
     const referenceRow: SymbolReference = {
+      id: canonicalNode.id,
       name: 'run',
       nodeType: 'Function',
       filePath: '/repo/src/main.ts',
@@ -59,20 +61,36 @@ describe('explorer selection history', () => {
     expect(symbolReferenceToGraphNode(referenceRow).id).toBe(canonicalNode.id)
 
     expect(searchResultToGraphNode({
+      id: 'File:/repo/src/needle-file.ts',
+      name: 'needle-file.ts',
+      nodeType: 'File',
+      filePath: '/repo/src/needle-file.ts',
+      startLine: null,
+      endLine: null,
+      isExported: null,
+    })).toEqual({
+      id: 'File:/repo/src/needle-file.ts',
+      label: 'needle-file.ts',
+      type: 'File',
+      properties: {
+        id: 'File:/repo/src/needle-file.ts',
+        name: 'needle-file.ts',
+        nodeType: 'File',
+        filePath: '/repo/src/needle-file.ts',
+        startLine: null,
+        endLine: null,
+        isExported: null,
+      },
+    })
+
+    expect(() => searchResultToGraphNode({
       name: 'run',
       nodeType: 'Function',
       filePath: '/repo/src/main.ts',
       startLine: null,
       endLine: null,
       isExported: null,
-    }).id).toBe('Function:/repo/src/main.ts:run:0')
-    expect(symbolReferenceToGraphNode({
-      name: 'run',
-      nodeType: 'Function',
-      filePath: '/repo/src/main.ts',
-      edgeType: 'CALLS',
-      sameFile: false,
-    }).id).toBe('Function:/repo/src/main.ts:run:0')
+    })).toThrow('Search result is missing a persisted id')
   })
 
   it('deduplicates consecutive selections and truncates Forward after a new branch', () => {
@@ -82,7 +100,7 @@ describe('explorer selection history', () => {
 
     expect(history.entries.map((node) => node?.id ?? null)).toEqual([
       'File:/repo/src/main.ts',
-      'Function:/repo/src/main.ts:run:5',
+      symbolNode.id,
     ])
     expect(history.index).toBe(1)
 
@@ -114,7 +132,7 @@ describe('explorer breadcrumbs', () => {
 
     expect(crumbs.map((crumb) => [crumb.level, crumb.label, crumb.node?.id ?? null])).toEqual([
       ['project', 'CodeGraph', null],
-      ['file', 'main.ts', 'File:/repo/src/main.ts'],
+      ['file', 'main.ts', null],
       ['symbol', 'run', symbolNode.id],
     ])
   })

@@ -11,7 +11,7 @@ import { GraphControls } from './graph-controls'
 import { GraphLegend, buildNodeLegend } from './graph-legend'
 
 const selectedNode: GraphNode = {
-  id: 'Function:/repo/main.ts:run:4',
+  id: 'sym:v1:4444444444444444444444444444444444444444444444444444444444444444',
   label: 'run',
   type: 'Function',
   properties: { name: 'run', filePath: '/repo/main.ts', startLine: 4 },
@@ -63,7 +63,7 @@ describe('graph explorer accessibility', () => {
         apiUrl="http://dashboard.test"
         onNodeSelect={vi.fn()}
         selectedNode={null}
-        highlightedNames={new Set()}
+        highlightedNodeIds={new Set()}
         hiddenEdgeTypes={new Set()}
         hiddenNodeTypes={new Set()}
       />,

@@ -86,7 +86,7 @@ const ALL_ENTITY_NODE_TYPES = [
   'import_statement',
   // Functions
   'function_declaration', 'function_expression', 'arrow_function',
-  'method_definition', 'generator_function_declaration',
+  'method_definition', 'method_signature', 'generator_function_declaration', 'function_signature',
   // Classes
   'class_declaration', 'abstract_class_declaration', 'class',
   // Variables
@@ -108,7 +108,7 @@ export function extractAllEntities(
   filePath: string,
   resolvedImports?: ResolvedImportMap,
 ): ExtractedEntities {
-  // Single walk — collect all relevant nodes by type
+  // Single walk: collect all relevant nodes by type.
   const nodesByType = collectNodesByType(rootNode, ALL_ENTITY_NODE_TYPES);
 
   // Process each bucket with the appropriate extractor (no additional tree walking)
@@ -116,17 +116,22 @@ export function extractAllEntities(
     nodesByType.get('import_statement') ?? [], filePath
   );
 
-  // method_definition nodes are excluded from the function extractor — class methods
-  // are owned by extractClassesWithEdgesFromNodes, which emits them with
-  // generateEntityId-format ids that match this extractor's id format. Adding
-  // method_definition here would produce duplicate Function entities for the same
-  // source method (same name/filePath/startLine natural key) and cause HAS_METHOD
-  // edge toIds to mismatch the persisted node id after MERGE.
+  // Class method definitions and signatures are owned by class extraction.
+  // Interface method signatures remain in the general function extractor.
+  const classMethodSignatures = new Set(
+    (nodesByType.get('method_signature') ?? []).filter(
+      (node) => node.parent?.type === 'class_body',
+    ),
+  );
   const functionNodes = [
     ...(nodesByType.get('function_declaration') ?? []),
     ...(nodesByType.get('function_expression') ?? []),
     ...(nodesByType.get('arrow_function') ?? []),
     ...(nodesByType.get('generator_function_declaration') ?? []),
+    ...(nodesByType.get('function_signature') ?? []),
+    ...(nodesByType.get('method_signature') ?? []).filter(
+      (node) => !classMethodSignatures.has(node),
+    ),
   ];
 
   const functions = extractFunctionsFromNodes(functionNodes, filePath);
@@ -239,11 +244,14 @@ export function extractAllEntities(
     accumulateTypeRefs(node, entity.id);
   }
 
-  // Class methods: match AST nodes from the already-collected method_definition bucket.
-  const methodDefinitionNodes = nodesByType.get('method_definition') ?? [];
+  // Class methods: match runtime definitions and overload signatures collected in the single walk.
+  const classMethodNodes = [
+    ...(nodesByType.get('method_definition') ?? []),
+    ...classMethodSignatures,
+  ];
   for (const methodEntity of classExtraction.methodEntities) {
     if (!methodEntity.id) continue;
-    const astNode = methodDefinitionNodes.find(
+    const astNode = classMethodNodes.find(
       n =>
         n.startPosition.row + 1 === methodEntity.startLine &&
         n.childForFieldName('name')?.text === methodEntity.name,

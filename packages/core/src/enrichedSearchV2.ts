@@ -46,6 +46,7 @@ export interface LinkedKnowledgeEntry {
 }
 
 export interface SiblingSymbol {
+  id: string;
   name: string;
   startLine: number;
   endLine: number;
@@ -54,6 +55,7 @@ export interface SiblingSymbol {
 }
 
 export interface EnrichedV2Hit {
+  id: string;
   name: string;
   nodeType: string;
   filePath?: string;
@@ -220,10 +222,10 @@ const ENRICHMENT_TIMEOUT_MS = 5_000;
  * and the rewrite dropped the batch from 240s to 0.4s.
  */
 export const DEPENDENCY_DEPTH_CYPHER = `
-  UNWIND $names AS symbolName
-  MATCH path = (entry:File)-[:CONTAINS|CALLS*1..6]->(n {name: symbolName})
+  UNWIND $ids AS symbolId
+  MATCH path = (entry:File)-[:CONTAINS|CALLS*1..6]->(n {id: symbolId})
   WHERE NOT ()-[:IMPORTS]->(entry)
-  RETURN symbolName, min(length(path)) AS minDepth
+  RETURN symbolId, min(length(path)) AS minDepth
 `;
 
 interface GraphEnrichment {
@@ -236,23 +238,9 @@ interface GraphEnrichment {
   commitCount: number;
 }
 
-/**
- * Composite key for the map `enrichFromGraph` returns, and for looking a hit
- * up in it. Symbol names collide constantly in real codebases (many classes
- * each declare a "constructor", many modules each export a "GraphClient"),
- * so a map keyed on name alone lets one declaration's numbers silently
- * overwrite another's. filePath narrows to one file, startLine narrows
- * further to one declaration for files that declare more than one symbol
- * under the same name (overloads). File nodes carry no startLine, and
- * `Candidate.startLine` is `undefined` for them; the query side normalizes
- * the same way, so both sides still agree on the key.
- */
-export function enrichmentKey(
-  filePath: string | undefined,
-  name: string,
-  startLine: number | undefined | null,
-): string {
-  return `${filePath ?? ''}\x00${name}\x00${startLine ?? ''}`;
+/** Use the persisted opaque identity for enrichment lookups. */
+export function enrichmentKey(id: string): string {
+  return id;
 }
 
 export async function enrichFromGraph(
@@ -261,13 +249,13 @@ export async function enrichFromGraph(
 ): Promise<Map<string, GraphEnrichment>> {
   if (hits.length === 0) return new Map();
 
-  const names = hits.map(h => h.name);
-  const items = hits.map(h => ({ name: h.name, filePath: h.filePath ?? '' }));
+  const ids = hits.map(hit => hit.id);
+  const items = hits.map(hit => ({ id: hit.id }));
 
   // Single batch query: for each hit, count callers, callees, importers,
   // test references (files with test/spec in path), and dependency depth.
   //
-  // `n` is bound by its own MATCH, on (name, filePath), before any OPTIONAL
+  // `n` is bound by its own persisted ID before any OPTIONAL
   // expansion runs. It used to be bound inside the first OPTIONAL MATCH,
   // alongside the caller edge: `OPTIONAL MATCH (n {name: symbolName})<-[:CALLS]-(caller)`.
   // When a symbol had no callers that whole pattern failed to match, so `n`
@@ -278,7 +266,7 @@ export async function enrichFromGraph(
   // A plain MATCH can't hang the way the one in DEPENDENCY_DEPTH_CYPHER
   // could: this is a single-hop exact-property lookup, not a bounded path
   // search over a densely connected hub, so there's no enumeration to blow
-  // up. The one behavior change is that a name with no matching node now
+  // up. The one behavior change is that an ID with no matching node now
   // produces no row at all, instead of a row of zeros. Every call site below
   // that reads this map already treats a missing entry as "no enrichment for
   // this hit" (see the `.get(...)` calls in enrichedSearchV2Impl), so that's
@@ -286,7 +274,7 @@ export async function enrichFromGraph(
   // unreachable symbol.
   const cypher = `
     UNWIND $items AS item
-    MATCH (n {name: item.name, filePath: item.filePath})
+    MATCH (n {id: item.id})
     OPTIONAL MATCH (n)<-[:CALLS]-(caller)
     WITH item, n, count(DISTINCT caller) AS callers
     OPTIONAL MATCH (n)-[:CALLS]->(callee)
@@ -297,9 +285,9 @@ export async function enrichFromGraph(
       WHERE (testFile.filePath CONTAINS '.test.' OR testFile.filePath CONTAINS '.spec.' OR testFile.filePath CONTAINS '__tests__')
         AND ((testFile)-[:CONTAINS]->()-[:CALLS]->(n)
           OR (testFile)-[:IMPORTS]->()-[:CONTAINS]->(n))
-    WITH item.name AS symbolName, n.filePath AS filePath, coalesce(n.startLine, n.line) AS startLine,
+    WITH item.id AS symbolId,
          callers, calleeNames, importers, count(DISTINCT testFile) AS testRefs
-    RETURN symbolName, filePath, startLine, callers, calleeNames, importers, testRefs
+    RETURN symbolId, callers, calleeNames, importers, testRefs
   `;
 
   try {
@@ -310,11 +298,7 @@ export async function enrichFromGraph(
 
     const map = new Map<string, GraphEnrichment>();
     for (const row of result.data) {
-      const key = enrichmentKey(
-        row['filePath'] as string | undefined,
-        row['symbolName'] as string,
-        row['startLine'] as number | null | undefined,
-      );
+      const key = enrichmentKey(row['symbolId'] as string);
       map.set(key, {
         callerCount: (row['callers'] as number) ?? 0,
         callees: (row['calleeNames'] as string[]) ?? [],
@@ -326,25 +310,22 @@ export async function enrichFromGraph(
       });
     }
 
-    // Dependency depth: see DEPENDENCY_DEPTH_CYPHER. That query answers by
-    // name alone (it has no filePath or startLine to key on), so a depth
-    // found for a name applies to every hit sharing that name in this batch,
-    // and gets folded into each hit's own composite-keyed entry below.
+    // Dependency depth is keyed by the same persisted ID as the hit.
     try {
       const depthResult = await client.roQuery<Record<string, unknown>>(DEPENDENCY_DEPTH_CYPHER, {
-        params: { names },
+        params: { ids },
         timeout: ENRICHMENT_TIMEOUT_MS,
       });
-      const depthByName = new Map<string, number>();
+      const depthById = new Map<string, number>();
       for (const row of depthResult.data) {
         if (row['minDepth'] != null) {
-          depthByName.set(row['symbolName'] as string, row['minDepth'] as number);
+          depthById.set(row['symbolId'] as string, row['minDepth'] as number);
         }
       }
       for (const hit of hits) {
-        const depth = depthByName.get(hit.name);
+        const depth = depthById.get(hit.id);
         if (depth == null) continue;
-        const enrichment = map.get(enrichmentKey(hit.filePath, hit.name, hit.startLine));
+        const enrichment = map.get(enrichmentKey(hit.id));
         if (enrichment) enrichment.dependencyDepth = depth;
       }
     } catch (err) {
@@ -377,7 +358,7 @@ export async function enrichFromGraph(
         for (const hit of hits) {
           if (hit.filePath) {
             const gitData = gitByFile.get(hit.filePath);
-            const enrichment = map.get(enrichmentKey(hit.filePath, hit.name, hit.startLine));
+            const enrichment = map.get(enrichmentKey(hit.id));
             if (gitData && enrichment) {
               enrichment.lastModified = gitData.lastModified;
               enrichment.commitCount = gitData.commitCount;
@@ -405,6 +386,7 @@ function distanceToScore(distance: number): number {
 }
 
 export interface Candidate {
+  id: string;
   name: string;
   nodeType: string;
   filePath?: string | undefined;
@@ -416,7 +398,7 @@ export interface Candidate {
 
 /** Key function for rrfFuse when combining retrieval sources */
 export function candidateKey(c: Candidate): string {
-  return `${c.nodeType}:${c.filePath}:${c.name}`;
+  return c.id;
 }
 
 /**
@@ -510,14 +492,14 @@ async function retrieveCandidates(
     for (const r of results) {
       if (!matchesScope(r.filePath, scope, scopePaths)) continue;
 
-      const key = `${r.nodeType}:${r.filePath}:${r.name}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
 
       const vScore = distanceToScore(r.distance);
       // r.properties contains the full row from searchByVector (all node fields)
       const props = r.properties ?? {};
       candidates.push({
+        id: r.id,
         name: r.name,
         nodeType: r.nodeType,
         filePath: r.filePath,
@@ -542,43 +524,43 @@ async function retrieveCandidates(
  */
 async function getLinkedKnowledge(
   client: GraphClient,
-  names: string[],
+  ids: string[],
 ): Promise<Map<string, LinkedKnowledgeEntry[]>> {
   const result = new Map<string, LinkedKnowledgeEntry[]>();
-  if (names.length === 0) return result;
+  if (ids.length === 0) return result;
 
   try {
     // Reverse ABOUT: (Entity)-[ABOUT]->(CodeNode) — find entities pointing at these code nodes
     const rows = await client.roQuery<{
-      targetName: string;
+      targetId: string;
       entityText: string;
       entityType: string;
       confidence: number;
       fact: string | null;
     }>(
-      `UNWIND $names AS targetName
+      `UNWIND $ids AS targetId
        MATCH (e:Entity)-[r:ABOUT]->(t)
-       WHERE t.name = targetName
+       WHERE t.id = targetId
        OPTIONAL MATCH (e)-[rel:RELATES_TO]-()
        WHERE rel.invalid_at IS NULL
-       RETURN targetName, e.text AS entityText, e.type AS entityType,
+       RETURN targetId, e.text AS entityText, e.type AS entityType,
               r.confidence AS confidence, rel.fact AS fact
        LIMIT 100`,
-      { params: { names }, timeout: ENRICHMENT_TIMEOUT_MS },
+      { params: { ids }, timeout: ENRICHMENT_TIMEOUT_MS },
     );
 
     for (const row of rows.data) {
-      const existing = result.get(row.targetName) ?? [];
+      const existing = result.get(row.targetId) ?? [];
       existing.push({
         entityText: row.entityText,
         entityType: row.entityType,
         confidence: row.confidence,
         ...(row.fact != null ? { fact: row.fact } : {}),
       });
-      result.set(row.targetName, existing);
+      result.set(row.targetId, existing);
     }
-  } catch {
-    // ABOUT edges may not exist — non-fatal
+  } catch (error) {
+    logger.debug(`Linked knowledge query failed (non-fatal): ${error}`);
   }
 
   return result;
@@ -596,20 +578,19 @@ const SIBLING_AGGREGATE_CAP = 10_000; // bytes aggregate siblings JSON per hit
  * within the same file, using CONTAINS edges from the File node.
  *
  * Returns an array of 0–2 siblings. Empty when the file has only one symbol
- * or the target isn't found by name+startLine.
+ * or the target ID is not found.
  *
  * NOTE: File nodes use `filePath` as the property key (not `path`).
  */
 export async function fetchSiblingSymbols(
   client: GraphClient,
   filePath: string,
-  symbolName: string,
-  symbolStartLine: number,
+  symbolId: string,
 ): Promise<SiblingSymbol[]> {
   const cypher = `
     MATCH (f:File)-[:CONTAINS]->(s)
     WHERE f.filePath = $filePath AND s.startLine IS NOT NULL
-    RETURN s.name AS name, s.startLine AS startLine, s.endLine AS endLine,
+    RETURN s.id AS id, s.name AS name, s.startLine AS startLine, s.endLine AS endLine,
            s.signature AS signature, labels(s)[0] AS nodeType
     ORDER BY s.startLine
   `;
@@ -626,7 +607,7 @@ export async function fetchSiblingSymbols(
   }
 
   const idx = data.findIndex(
-    s => s['name'] === symbolName && s['startLine'] === symbolStartLine,
+    symbol => symbol['id'] === symbolId,
   );
   if (idx === -1) return [];
 
@@ -641,6 +622,7 @@ export async function fetchSiblingSymbols(
       sig = sig.slice(0, SIBLING_SIGNATURE_CAP);
     }
     out.push({
+      id: row['id'] as string,
       name: row['name'] as string,
       startLine: row['startLine'] as number,
       endLine: row['endLine'] as number,
@@ -654,25 +636,24 @@ export async function fetchSiblingSymbols(
 
 /**
  * Batch-fetch siblings for multiple hits, grouping by unique filePath to
- * minimize graph round-trips. Returns a map of `filePath:name:startLine` → siblings.
+ * minimize graph round-trips. Returns a map of persisted symbol ID to siblings.
  */
 async function fetchSiblingsForHits(
   client: GraphClient,
-  hits: Array<{ name: string; filePath?: string | undefined; startLine?: number | undefined }>,
+  hits: Array<{ id: string; filePath?: string | undefined }>,
 ): Promise<Map<string, SiblingSymbol[]>> {
   const result = new Map<string, SiblingSymbol[]>();
   if (hits.length === 0) return result;
 
   // Group hits by unique filePath
-  const byFile = new Map<string, Array<{ name: string; startLine: number; key: string }>>();
+  const byFile = new Map<string, Array<{ id: string }>>();
   for (const hit of hits) {
-    if (!hit.filePath || hit.startLine == null) continue;
-    const key = `${hit.filePath}:${hit.name}:${hit.startLine}`;
+    if (!hit.filePath) continue;
     const existing = byFile.get(hit.filePath);
     if (existing) {
-      existing.push({ name: hit.name, startLine: hit.startLine, key });
+      existing.push({ id: hit.id });
     } else {
-      byFile.set(hit.filePath, [{ name: hit.name, startLine: hit.startLine, key }]);
+      byFile.set(hit.filePath, [{ id: hit.id }]);
     }
   }
 
@@ -684,7 +665,7 @@ async function fetchSiblingsForHits(
       const cypher = `
         MATCH (f:File)-[:CONTAINS]->(s)
         WHERE f.filePath = $filePath AND s.startLine IS NOT NULL
-        RETURN s.name AS name, s.startLine AS startLine, s.endLine AS endLine,
+        RETURN s.id AS id, s.name AS name, s.startLine AS startLine, s.endLine AS endLine,
                s.signature AS signature, labels(s)[0] AS nodeType
         ORDER BY s.startLine
       `;
@@ -700,10 +681,10 @@ async function fetchSiblingsForHits(
         return;
       }
 
-      for (const { name, startLine, key } of hitsInFile) {
-        const idx = rows.findIndex(r => r['name'] === name && r['startLine'] === startLine);
+      for (const { id } of hitsInFile) {
+        const idx = rows.findIndex(row => row['id'] === id);
         if (idx === -1) {
-          result.set(key, []);
+          result.set(id, []);
           continue;
         }
 
@@ -713,6 +694,7 @@ async function fetchSiblingsForHits(
           let sig = row['signature'] as string | undefined;
           if (sig && sig.length > SIBLING_SIGNATURE_CAP) sig = sig.slice(0, SIBLING_SIGNATURE_CAP);
           siblings.push({
+            id: row['id'] as string,
             name: row['name'] as string,
             startLine: row['startLine'] as number,
             endLine: row['endLine'] as number,
@@ -724,9 +706,9 @@ async function fetchSiblingsForHits(
         // Cap aggregate size
         if (JSON.stringify(siblings).length > SIBLING_AGGREGATE_CAP) {
           // Keep only the first sibling if both together exceed the cap
-          result.set(key, siblings.slice(0, 1));
+          result.set(id, siblings.slice(0, 1));
         } else {
-          result.set(key, siblings);
+          result.set(id, siblings);
         }
       }
     }),
@@ -857,7 +839,7 @@ async function enrichedSearchV2Impl(
       if (c.properties.signature) parts.push(`Signature: ${String(c.properties.signature).slice(0, 200)}`);
       if (c.properties.docstring) parts.push(String(c.properties.docstring).slice(0, 300));
       // Graph signals help the reranker distinguish core code from leaf/UI code
-      const ge = prerankEnrichments.get(enrichmentKey(c.filePath, c.name, c.startLine));
+      const ge = prerankEnrichments.get(enrichmentKey(c.id));
       if (ge) {
         const signals: string[] = [];
         if (ge.callerCount > 0) signals.push(`called by ${ge.callerCount} functions`);
@@ -905,14 +887,14 @@ async function enrichedSearchV2Impl(
 
   // Reuse pre-rank enrichments; fetch any missing (e.g., if reranker was skipped)
   let enrichments = prerankEnrichments;
-  const missingHits = topHits.filter(h => !enrichments.has(enrichmentKey(h.filePath, h.name, h.startLine)));
+  const missingHits = topHits.filter(hit => !enrichments.has(enrichmentKey(hit.id)));
   if (missingHits.length > 0) {
     const extra = await enrichFromGraph(client, missingHits);
     for (const [k, v] of extra) enrichments.set(k, v);
   }
 
   // Enrich with linked knowledge (ABOUT edges: knowledge → code)
-  const knowledgeLinks = await getLinkedKnowledge(client, topHits.map(h => h.name));
+  const knowledgeLinks = await getLinkedKnowledge(client, topHits.map(hit => hit.id));
 
   // Drawer-grep: fetch ±1 sibling symbols per hit, batched by unique filePath
   const siblingMap = await fetchSiblingsForHits(client, topHits);
@@ -929,9 +911,10 @@ async function enrichedSearchV2Impl(
 
   const result: EnrichedV2Result = {
     hits: topHits.map(c => {
-      const graphData = enrichments.get(enrichmentKey(c.filePath, c.name, c.startLine));
+      const graphData = enrichments.get(enrichmentKey(c.id));
       const props = c.properties;
       return {
+        id: c.id,
         name: c.name,
         nodeType: c.nodeType,
         ...(c.filePath && { filePath: c.filePath }),
@@ -958,11 +941,10 @@ async function enrichedSearchV2Impl(
           ...(graphData.commitCount > 0 && { commitCount: graphData.commitCount }),
         }),
         // Knowledge graph enrichment (ABOUT edges)
-        ...(knowledgeLinks.has(c.name) ? { linkedKnowledge: knowledgeLinks.get(c.name)! } : {}),
+        ...(knowledgeLinks.has(c.id) ? { linkedKnowledge: knowledgeLinks.get(c.id)! } : {}),
         // Drawer-grep: ±1 sibling symbols in the same file
         ...((): { siblings?: SiblingSymbol[] } => {
-          const key = `${c.filePath}:${c.name}:${c.startLine}`;
-          const sibs = siblingMap.get(key);
+          const sibs = siblingMap.get(c.id);
           return sibs && sibs.length > 0 ? { siblings: sibs } : {};
         })(),
       };

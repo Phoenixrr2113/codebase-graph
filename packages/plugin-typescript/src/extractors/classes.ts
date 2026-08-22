@@ -12,8 +12,13 @@ import type {
   HasMethodEdgeDescriptor,
   HasPropertyEdgeDescriptor,
 } from '@codegraph/types';
-import { findNodesOfType, getLocation, generateEntityId } from './types';
-import { calculateComplexity } from '@codegraph/plugin-common';
+import { findNodesOfType, getLocation, symbolIdentityForNode } from './types';
+import {
+  buildLexicalScopeKey,
+  calculateComplexity,
+  occurrenceDisambiguator,
+  signatureDisambiguator,
+} from '@codegraph/plugin-common';
 
 /** Visibility modifier */
 export type Visibility = 'public' | 'private' | 'protected';
@@ -86,47 +91,101 @@ export function extractClassesWithEdgesFromNodes(
   const propertyEntities: VariableEntity[] = [];
   const hasMethodEdges: HasMethodEdgeDescriptor[] = [];
   const hasPropertyEdges: HasPropertyEdgeDescriptor[] = [];
+  const classGroupSizes = new Map<string, number>();
+  for (const node of classNodes) {
+    const name = node.childForFieldName('name')?.text;
+    if (!name) continue;
+    const key = `${buildLexicalScopeKey(node)}\u0000${name}`;
+    classGroupSizes.set(key, (classGroupSizes.get(key) ?? 0) + 1);
+  }
+  const classOccurrences = new Map<string, number>();
 
   for (const node of classNodes) {
-    const classEntity = parseClassNode(node, filePath);
+    const className = node.childForFieldName('name')?.text;
+    if (!className) continue;
+    const classKey = `${buildLexicalScopeKey(node)}\u0000${className}`;
+    const classOccurrence = (classOccurrences.get(classKey) ?? 0) + 1;
+    classOccurrences.set(classKey, classOccurrence);
+    const classDisambiguator = (classGroupSizes.get(classKey) ?? 0) > 1
+      ? occurrenceDisambiguator(classOccurrence)
+      : '';
+    const classEntity = parseClassNode(node, filePath, classDisambiguator);
     if (!classEntity) continue;
     classes.push(classEntity);
 
-    // id is always set by parseClassNode via generateEntityId — guard for type safety
     const classId = classEntity.id;
-    if (!classId) continue;
+    const memberScopeKey = [
+      classEntity.scopeKey,
+      `Class:${className}${classDisambiguator ? `[${classDisambiguator}]` : ''}`,
+    ].filter(Boolean).join('/');
 
-    // Walk the class body for method_definition and public_field_definition nodes
+    // Walk the class body for runtime methods, overload declarations, and fields.
     const bodyNode = node.childForFieldName('body');
     if (!bodyNode) continue;
 
-    // Track property name counts for duplicate overload detection
+    const methodGroups = new Map<string, Parser.SyntaxNode[]>();
+    for (const member of bodyNode.children) {
+      if (member.type !== 'method_definition' && member.type !== 'method_signature') continue;
+      const methodName = member.childForFieldName('name')?.text;
+      if (!methodName) continue;
+      const group = methodGroups.get(methodName) ?? [];
+      group.push(member);
+      methodGroups.set(methodName, group);
+    }
+    const methodSignatureCounts = new Map<string, number>();
+    const methodSignatureTotals = new Map<string, number>();
+    for (const [methodName, members] of methodGroups) {
+      for (const member of members) {
+        const signatureKey = signatureDisambiguator(methodSignature(
+          extractMethodParameters(member),
+          getMethodReturnType(member),
+          member,
+        ));
+        const countKey = `${methodName}\u0000${signatureKey}`;
+        methodSignatureTotals.set(countKey, (methodSignatureTotals.get(countKey) ?? 0) + 1);
+      }
+    }
     const propNameCount = new Map<string, number>();
 
     for (const member of bodyNode.children) {
-      if (member.type === 'method_definition') {
+      if (member.type === 'method_definition' || member.type === 'method_signature') {
         const methodName = member.childForFieldName('name')?.text;
         if (!methodName) continue;
 
         const location = getLocation(member);
-        // Use generateEntityId format so the id matches what extractFunctions
-        // would produce for the same source node. Both paths use {filePath,
-        // startLine, name} as the natural graph key; using the same id format
-        // means HAS_METHOD edge toIds resolve correctly after MERGE.
-        const methodId = generateEntityId(filePath, 'function', methodName, location.startLine);
         const isStatic = hasMemberModifier(member, 'static');
         const visibility = getMemberVisibility(member);
         const isAsync = hasMemberModifier(member, 'async');
         const params = extractMethodParameters(member);
         const returnType = getMethodReturnType(member);
+        const methodGroup = methodGroups.get(methodName) ?? [];
+        let disambiguator = '';
+        if (methodGroup.length > 1) {
+          const signatureKey = signatureDisambiguator(methodSignature(params, returnType, member));
+          const countKey = `${methodName}\u0000${signatureKey}`;
+          const occurrence = (methodSignatureCounts.get(countKey) ?? 0) + 1;
+          methodSignatureCounts.set(countKey, occurrence);
+          disambiguator = (methodSignatureTotals.get(countKey) ?? 0) > 1
+            ? `${signatureKey}/${occurrenceDisambiguator(occurrence)}`
+            : signatureKey;
+        }
+        const methodIdentity = symbolIdentityForNode({
+          node: member,
+          filePath,
+          label: 'Function',
+          declaredName: methodName,
+          disambiguator,
+          scopeKeyOverride: memberScopeKey,
+        });
         const metrics = calculateComplexity(member);
 
         const methodEntity: FunctionEntity = {
-          id: methodId,
+          ...methodIdentity,
           name: methodName,
           filePath,
           startLine: location.startLine,
           endLine: location.endLine,
+          isOverloadSignature: member.type === 'method_signature',
           isExported: classEntity.isExported,
           isAsync,
           isArrow: false,
@@ -138,12 +197,14 @@ export function extractClassesWithEdgesFromNodes(
         if (returnType) methodEntity.returnType = returnType;
 
         methodEntities.push(methodEntity);
-        hasMethodEdges.push({
-          fromId: classId,
-          toId: methodId,
-          isStatic,
-          visibility,
-        });
+        if (member.type === 'method_definition' && member.childForFieldName('body')) {
+          hasMethodEdges.push({
+            fromId: classId,
+            toId: methodIdentity.id,
+            isStatic,
+            visibility,
+          });
+        }
 
       } else if (member.type === 'public_field_definition') {
         const propName = member.childForFieldName('name')?.text;
@@ -151,9 +212,15 @@ export function extractClassesWithEdgesFromNodes(
 
         const count = propNameCount.get(propName) ?? 0;
         propNameCount.set(propName, count + 1);
-        const suffix = count > 0 ? `:${count}` : '';
-
-        const propId = `${classId}::prop::${propName}${suffix}`;
+        const disambiguator = count > 0 ? occurrenceDisambiguator(count + 1) : '';
+        const propIdentity = symbolIdentityForNode({
+          node: member,
+          filePath,
+          label: 'Variable',
+          declaredName: propName,
+          disambiguator,
+          scopeKeyOverride: memberScopeKey,
+        });
         const line = member.startPosition.row + 1;
         const isStatic = hasMemberModifier(member, 'static');
         const visibility = getMemberVisibility(member);
@@ -164,7 +231,7 @@ export function extractClassesWithEdgesFromNodes(
         const type = typeAnnotation?.text?.replace(/^:\s*/, '') ?? '';
 
         const propEntity: VariableEntity = {
-          id: propId,
+          ...propIdentity,
           name: propName,
           filePath,
           line,
@@ -176,7 +243,7 @@ export function extractClassesWithEdgesFromNodes(
         propertyEntities.push(propEntity);
         hasPropertyEdges.push({
           fromId: classId,
-          toId: propId,
+          toId: propIdentity.id,
           isStatic,
           visibility,
           isReadonly,
@@ -186,6 +253,23 @@ export function extractClassesWithEdgesFromNodes(
   }
 
   return { classes, methodEntities, propertyEntities, hasMethodEdges, hasPropertyEdges };
+}
+
+function methodSignature(
+  params: FunctionParam[],
+  returnType: string | undefined,
+  node: Parser.SyntaxNode,
+): string {
+  const parameterTypes = params.map((param) => {
+    const rest = param.isRest ? '...' : '';
+    const optional = param.optional ? '?' : '';
+    return `${rest}${param.type ?? '_'}${optional}`;
+  });
+  const typeParameters = node.childForFieldName('type_parameters');
+  const genericArity = typeParameters
+    ? typeParameters.namedChildren.filter((child) => child.type === 'type_parameter').length
+    : 0;
+  return `<${genericArity}>(${parameterTypes.join(',')})=>${returnType ?? '_'}`;
 }
 
 // ============================================================================
@@ -213,7 +297,7 @@ function getMemberVisibility(node: Parser.SyntaxNode): Visibility {
   return 'public';
 }
 
-/** Extract parameters from a method_definition node */
+/** Extract parameters from a method definition or overload signature. */
 function extractMethodParameters(node: Parser.SyntaxNode): FunctionParam[] {
   const params: FunctionParam[] = [];
   const parametersNode = node.childForFieldName('parameters');
@@ -247,7 +331,7 @@ function extractMethodParameters(node: Parser.SyntaxNode): FunctionParam[] {
   return params;
 }
 
-/** Get return type annotation from a method_definition node */
+/** Get return type annotation from a method definition or overload signature. */
 function getMethodReturnType(node: Parser.SyntaxNode): string | undefined {
   return node.childForFieldName('return_type')?.text?.replace(/^:\s*/, '');
 }
@@ -257,7 +341,8 @@ function getMethodReturnType(node: Parser.SyntaxNode): string | undefined {
  */
 function parseClassNode(
   node: Parser.SyntaxNode,
-  filePath: string
+  filePath: string,
+  disambiguator: string,
 ): ClassEntity | null {
   // Get class name
   const nameNode = node.childForFieldName('name');
@@ -271,11 +356,17 @@ function parseClassNode(
   const implementsList = getImplementsList(node);
   const docstring = getDocstring(node);
   
-  const id = generateEntityId(filePath, 'class', name, location.startLine);
+  const identity = symbolIdentityForNode({
+    node,
+    filePath,
+    label: 'Class',
+    declaredName: name,
+    disambiguator,
+  });
   
   // Build entity with optional properties only when defined
   const entity: ClassEntity = {
-    id,
+    ...identity,
     name,
     filePath,
     startLine: location.startLine,

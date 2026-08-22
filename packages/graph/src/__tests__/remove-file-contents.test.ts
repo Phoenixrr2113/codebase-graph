@@ -66,15 +66,15 @@ describeIfAvailable('removeFileContents vs removeFileAndCleanup', () => {
     }
   }, 15_000);
 
-  it('removeFileContents() clears CONTAINS/orphans but leaves the File node and its other edges intact', async () => {
+  it('removeFileContents() stages a stale-id sweep while preserving the File and stable inbound edges', async () => {
     await client.query(`
       CREATE (p:Project {id: 'proj1', name: 'test', rootPath: '/repo', createdAt: '2025-01-01T00:00:00Z', lastParsed: '2025-01-01T00:00:00Z', fileCount: 1})
       CREATE (f:File {filePath: '/repo/foo.ts', name: 'foo.ts', extension: 'ts', loc: 10, lastModified: '2025-01-01T00:00:00Z', hash: 'oldhash'})
       CREATE (c:Commit {hash: 'commitA', message: 'a', author: 'x', email: 'x@x.com', date: '2025-01-01T00:00:00Z'})
       CREATE (p)-[:HAS_FILE]->(f)
       CREATE (f)-[:MODIFIED_IN]->(c)
-      CREATE (kept:Function {name: 'kept', filePath: '/repo/foo.ts', startLine: 1, endLine: 2, isExported: true, isAsync: false, isArrow: false, params: []})
-      CREATE (dropped:Function {name: 'dropped', filePath: '/repo/foo.ts', startLine: 5, endLine: 6, isExported: true, isAsync: false, isArrow: false, params: []})
+      CREATE (kept:Function {id: 'sym:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', scopeKey: '', disambiguator: '', name: 'kept', filePath: '/repo/foo.ts', startLine: 1, endLine: 2, isExported: true, isAsync: false, isArrow: false, params: []})
+      CREATE (dropped:Function {id: 'sym:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', scopeKey: '', disambiguator: '', name: 'dropped', filePath: '/repo/foo.ts', startLine: 5, endLine: 6, isExported: true, isAsync: false, isArrow: false, params: []})
       CREATE (f)-[:CONTAINS]->(kept)
       CREATE (f)-[:CONTAINS]->(dropped)
       CREATE (other:File {filePath: '/repo/other.ts', name: 'other.ts', extension: 'ts', loc: 5, lastModified: '2025-01-01T00:00:00Z', hash: 'h2'})
@@ -103,25 +103,43 @@ describeIfAvailable('removeFileContents vs removeFileAndCleanup', () => {
     );
     expect(hasFile.data).toHaveLength(1);
 
-    // CONTAINS edges from this file must be gone.
+    // Ownership stays attached until the current-ID upsert finishes.
     const contains = await client.roQuery<{ n: number }>(
       `MATCH (:File {filePath: '/repo/foo.ts'})-[:CONTAINS]->() RETURN count(*) AS n`,
     );
-    expect(contains.data[0]?.n).toBe(0);
+    expect(contains.data[0]?.n).toBe(2);
 
-    // 'dropped' had no incoming cross-file edge, so it is genuinely orphaned
-    // once CONTAINS is gone, and gets cleaned up (same as removeFileAndCleanup()).
-    const droppedRows = await client.roQuery(
-      `MATCH (fn:Function {name: 'dropped', filePath: '/repo/foo.ts'}) RETURN fn`,
-    );
-    expect(droppedRows.data).toHaveLength(0);
-
-    // 'kept' is referenced from another file's CALLS edge, so it (and that
-    // edge) must be preserved instead of leaking a dangling reference.
+    // The stable inbound edge remains present during the refresh window.
     const keptRows = await client.roQuery(
       `MATCH (:Function {name: 'caller', filePath: '/repo/other.ts'})-[:CALLS]->(fn:Function {name: 'kept', filePath: '/repo/foo.ts'}) RETURN fn`,
     );
     expect(keptRows.data).toHaveLength(1);
+
+    await ops.batchUpsert({
+      file: {
+        path: '/repo/foo.ts', name: 'foo.ts', extension: 'ts', loc: 12,
+        lastModified: '2025-01-02T00:00:00Z', hash: 'newhash',
+      },
+      functions: [{
+        id: 'sym:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        scopeKey: '', disambiguator: '', name: 'kept', filePath: '/repo/foo.ts',
+        startLine: 10, endLine: 11, isExported: true, isAsync: false, isArrow: false, params: [],
+      }],
+      classes: [], interfaces: [], variables: [], types: [], components: [], imports: [],
+      callEdges: [], importsEdges: [], extendsEdges: [], implementsEdges: [], rendersEdges: [],
+      hasMethodEdges: [], hasPropertyEdges: [], typeRefs: [], hasParamEdges: [], returnsEdges: [],
+      usesTypeEdges: [], exportsEdges: [], importsSymbolEdges: [],
+    });
+
+    const droppedRows = await client.roQuery(
+      `MATCH (fn:Function {name: 'dropped', filePath: '/repo/foo.ts'}) RETURN fn`,
+    );
+    expect(droppedRows.data).toHaveLength(0);
+    const shifted = await client.roQuery<{ startLine: number }>(
+      `MATCH (:Function {name: 'caller', filePath: '/repo/other.ts'})-[:CALLS]->(fn:Function {id: 'sym:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'})
+       RETURN fn.startLine AS startLine`,
+    );
+    expect(shifted.data).toEqual([{ startLine: 10 }]);
   });
 
   it('removeFileAndCleanup() still fully removes the File node and its symbols (true deletion path)', async () => {

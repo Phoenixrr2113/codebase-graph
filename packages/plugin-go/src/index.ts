@@ -35,7 +35,16 @@ import type {
   TypeRefEntity,
   Visibility,
 } from '@codegraph/types';
-import { findNodesOfType, generateEntityId, calculateComplexity, resolveTypeIdentity } from '@codegraph/plugin-common';
+import {
+  buildLexicalScopeKey,
+  buildSymbolIdentity,
+  calculateComplexity,
+  findNodesOfType,
+  generateEntityId,
+  occurrenceDisambiguator,
+  resolveTypeIdentity,
+  type SourceSymbolLabel,
+} from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 /** Get the tree-sitter grammar for Go */
@@ -50,6 +59,24 @@ function isGoExported(name: string): boolean {
   if (name.length === 0) return false;
   const first = name.charAt(0);
   return first === first.toUpperCase() && first !== first.toLowerCase();
+}
+
+function sourceIdentity(
+  node: SyntaxNode,
+  filePath: string,
+  label: SourceSymbolLabel,
+  declaredName: string,
+  disambiguator = '',
+  includeBlockScopes = false,
+  scopeKeyOverride?: string,
+) {
+  return buildSymbolIdentity({
+    label,
+    filePath,
+    scopeKey: scopeKeyOverride ?? buildLexicalScopeKey(node, { includeBlockScopes }),
+    declaredName,
+    disambiguator,
+  });
 }
 
 // ============================================================================
@@ -163,10 +190,10 @@ export function extractClasses(root: SyntaxNode, filePath: string): ClassEntity[
       }
 
       const docstring = extractDocComment(decl);
-      const id = generateEntityId(filePath, 'class', name, startLine);
+      const identity = sourceIdentity(decl, filePath, 'Class', name);
 
       const entity: ClassEntity = {
-        id,
+        ...identity,
         name,
         filePath,
         startLine,
@@ -307,11 +334,12 @@ export function extractStructsWithEdges(
       }
 
       const docstring = extractDocComment(decl);
-      const classId = generateEntityId(filePath, 'class', name, startLine);
+      const classIdentity = sourceIdentity(decl, filePath, 'Class', name);
+      const classId = classIdentity.id;
       structIdByName.set(name, classId);
 
       const entity: ClassEntity = {
-        id: classId,
+        ...classIdentity,
         name,
         filePath,
         startLine,
@@ -359,14 +387,21 @@ export function extractStructsWithEdges(
           const fieldName = fieldIdent.text;
           const count = propNameCount.get(fieldName) ?? 0;
           propNameCount.set(fieldName, count + 1);
-          const suffix = count > 0 ? `:${count}` : '';
-
-          const propId = `${classId}::prop::${fieldName}${suffix}`;
+          const disambiguator = count > 0 ? occurrenceDisambiguator(count + 1) : '';
+          const propIdentity = sourceIdentity(
+            field,
+            filePath,
+            'Variable',
+            fieldName,
+            disambiguator,
+            false,
+            `Class:${name}`,
+          );
           const line = field.startPosition.row + 1;
           const visibility = goVisibility(fieldName);
 
           const propEntity: VariableEntity = {
-            id: propId,
+            ...propIdentity,
             name: fieldName,
             filePath,
             line,
@@ -378,7 +413,7 @@ export function extractStructsWithEdges(
           propertyEntities.push(propEntity);
           hasPropertyEdges.push({
             fromId: classId,
-            toId: propId,
+            toId: propIdentity.id,
             isStatic: false, // Go has no static fields
             visibility,
             isReadonly: false,
@@ -417,7 +452,15 @@ export function extractStructsWithEdges(
     // receiverTypeName qualifies the id just as extractFunctions does.
     // Go doesn't allow two methods with the same name on the same receiver type,
     // so no overload suffix is needed.
-    const methodId = generateEntityId(filePath, 'function', `${receiverTypeName}.${methodName}`, startLine);
+    const methodIdentity = sourceIdentity(
+      node,
+      filePath,
+      'Function',
+      methodName,
+      '',
+      false,
+      `Receiver:${receiverTypeName}`,
+    );
 
     const params = extractGoParams(node);
     const returnType = extractGoReturnType(node);
@@ -425,7 +468,7 @@ export function extractStructsWithEdges(
     const metrics = calculateComplexity(node);
 
     const methodEntity: FunctionEntity = {
-      id: methodId,
+      ...methodIdentity,
       name: methodName,
       filePath,
       startLine,
@@ -444,7 +487,7 @@ export function extractStructsWithEdges(
     methodEntities.push(methodEntity);
     hasMethodEdges.push({
       fromId: classId,
-      toId: methodId,
+      toId: methodIdentity.id,
       isStatic: false, // Go has no static methods
       visibility,
     });
@@ -506,10 +549,10 @@ export function extractInterfaces(root: SyntaxNode, filePath: string): Interface
       }
 
       const docstring = extractDocComment(decl);
-      const id = generateEntityId(filePath, 'interface', name, startLine);
+      const identity = sourceIdentity(decl, filePath, 'Interface', name);
 
       const entity: InterfaceEntity = {
-        id,
+        ...identity,
         name,
         filePath,
         startLine,
@@ -565,10 +608,10 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
     const params = extractGoParams(node);
     const returnType = extractGoReturnType(node);
     const docstring = extractDocComment(node);
-    const id = generateEntityId(filePath, 'function', name, startLine);
+    const identity = sourceIdentity(node, filePath, 'Function', name);
 
     const entity: FunctionEntity = {
-      id,
+      ...identity,
       name,
       filePath,
       startLine,
@@ -614,10 +657,18 @@ export function extractFunctions(root: SyntaxNode, filePath: string): FunctionEn
     // Extract receiver type for parentClass
     const receiverType = extractReceiverType(node);
 
-    const id = generateEntityId(filePath, 'function', `${receiverType || ''}.${name}`, startLine);
+    const identity = sourceIdentity(
+      node,
+      filePath,
+      'Function',
+      name,
+      '',
+      false,
+      receiverType ? `Receiver:${receiverType}` : '',
+    );
 
     const entity: FunctionEntity = {
-      id,
+      ...identity,
       name,
       filePath,
       startLine,
@@ -790,10 +841,10 @@ function extractVarSpec(
       const name = n.text;
       const line = spec.startPosition.row + 1;
       const isExported = isGoExported(name);
-      const id = generateEntityId(filePath, 'variable', name, line);
+      const identity = sourceIdentity(spec, filePath, 'Variable', name, '', true);
 
       const entity: VariableEntity = {
-        id,
+        ...identity,
         name,
         filePath,
         line,
@@ -809,10 +860,10 @@ function extractVarSpec(
   const name = nameNode.text;
   const line = spec.startPosition.row + 1;
   const isExported = isGoExported(name);
-  const id = generateEntityId(filePath, 'variable', name, line);
+  const identity = sourceIdentity(spec, filePath, 'Variable', name, '', true);
 
   const entity: VariableEntity = {
-    id,
+    ...identity,
     name,
     filePath,
     line,
@@ -927,12 +978,12 @@ export function extractTypes(root: SyntaxNode, filePath: string): TypeEntity[] {
       const isExported = isGoExported(name);
 
       const docstring = extractDocComment(decl);
-      const id = generateEntityId(filePath, 'type', name, startLine);
+      const identity = sourceIdentity(decl, filePath, 'Type', name);
 
       // Both type definitions and type aliases map to kind 'type'
       // (TypeKind only supports 'type' | 'enum')
       const entity: TypeEntity = {
-        id,
+        ...identity,
         name,
         filePath,
         startLine,
@@ -1499,9 +1550,9 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
     if (!nameNode) continue;
     const name = nameNode.text;
     const startLine = funcNode.startPosition.row + 1;
-    const entityId = generateEntityId(filePath, 'function', name, startLine);
-
-    const matchedEntity = functionById.get(entityId);
+    const matchedEntity = mergedFunctions.find(
+      (entity) => entity.name === name && entity.startLine === startLine,
+    );
     if (matchedEntity?.id) {
       accumulateTypeRefs(funcNode, matchedEntity.id);
     }
@@ -1516,9 +1567,11 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
     const receiverTypeName = extractReceiverType(methodNode);
     const startLine = methodNode.startPosition.row + 1;
 
-    // Compute the id that both extractFunctions and extractStructsWithEdges now use
-    const entityId = generateEntityId(filePath, 'function', `${receiverTypeName || ''}.${methodName}`, startLine);
-    const matchedMethod = functionById.get(entityId);
+    const matchedMethod = mergedFunctions.find(
+      (entity) => entity.name === methodName &&
+        entity.startLine === startLine &&
+        entity.scopeKey === (receiverTypeName ? `Receiver:${receiverTypeName}` : ''),
+    );
     if (matchedMethod?.id) {
       accumulateTypeRefs(methodNode, matchedMethod.id);
     }

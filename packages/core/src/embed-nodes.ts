@@ -85,14 +85,14 @@ const QUERIES = {
   FUNCTIONS_NEEDING_EMBEDDING: `
     MATCH (fn:Function)
     WHERE fn.embedding IS NULL
-    RETURN fn.name as name, fn.filePath as filePath, fn.startLine as startLine,
+    RETURN fn.id as id, fn.name as name, fn.filePath as filePath, fn.startLine as startLine,
            fn.endLine as endLine, fn.isExported as isExported, fn.isAsync as isAsync,
            fn.isArrow as isArrow, fn.params as params, fn.returnType as returnType,
            fn.docstring as docstring
   `,
   ALL_FUNCTIONS: `
     MATCH (fn:Function)
-    RETURN fn.name as name, fn.filePath as filePath, fn.startLine as startLine,
+    RETURN fn.id as id, fn.name as name, fn.filePath as filePath, fn.startLine as startLine,
            fn.endLine as endLine, fn.isExported as isExported, fn.isAsync as isAsync,
            fn.isArrow as isArrow, fn.params as params, fn.returnType as returnType,
            fn.docstring as docstring
@@ -102,13 +102,13 @@ const QUERIES = {
   CLASSES_NEEDING_EMBEDDING: `
     MATCH (c:Class)
     WHERE c.embedding IS NULL
-    RETURN c.name as name, c.filePath as filePath, c.startLine as startLine,
+    RETURN c.id as id, c.name as name, c.filePath as filePath, c.startLine as startLine,
            c.endLine as endLine, c.isExported as isExported, c.isAbstract as isAbstract,
            c.extends as extends_, c.implements as implements_, c.docstring as docstring
   `,
   ALL_CLASSES: `
     MATCH (c:Class)
-    RETURN c.name as name, c.filePath as filePath, c.startLine as startLine,
+    RETURN c.id as id, c.name as name, c.filePath as filePath, c.startLine as startLine,
            c.endLine as endLine, c.isExported as isExported, c.isAbstract as isAbstract,
            c.extends as extends_, c.implements as implements_, c.docstring as docstring
   `,
@@ -117,13 +117,13 @@ const QUERIES = {
   INTERFACES_NEEDING_EMBEDDING: `
     MATCH (i:Interface)
     WHERE i.embedding IS NULL
-    RETURN i.name as name, i.filePath as filePath, i.startLine as startLine,
+    RETURN i.id as id, i.name as name, i.filePath as filePath, i.startLine as startLine,
            i.endLine as endLine, i.isExported as isExported,
            i.extends as extends_, i.docstring as docstring
   `,
   ALL_INTERFACES: `
     MATCH (i:Interface)
-    RETURN i.name as name, i.filePath as filePath, i.startLine as startLine,
+    RETURN i.id as id, i.name as name, i.filePath as filePath, i.startLine as startLine,
            i.endLine as endLine, i.isExported as isExported,
            i.extends as extends_, i.docstring as docstring
   `,
@@ -132,12 +132,12 @@ const QUERIES = {
   VARIABLES_NEEDING_EMBEDDING: `
     MATCH (v:Variable)
     WHERE v.embedding IS NULL
-    RETURN v.name as name, v.filePath as filePath, v.line as line,
+    RETURN v.id as id, v.name as name, v.filePath as filePath, v.line as line,
            v.kind as kind, v.type as type_, v.isExported as isExported
   `,
   ALL_VARIABLES: `
     MATCH (v:Variable)
-    RETURN v.name as name, v.filePath as filePath, v.line as line,
+    RETURN v.id as id, v.name as name, v.filePath as filePath, v.line as line,
            v.kind as kind, v.type as type_, v.isExported as isExported
   `,
 
@@ -145,13 +145,13 @@ const QUERIES = {
   TYPES_NEEDING_EMBEDDING: `
     MATCH (t:Type)
     WHERE t.embedding IS NULL
-    RETURN t.name as name, t.filePath as filePath, t.startLine as startLine,
+    RETURN t.id as id, t.name as name, t.filePath as filePath, t.startLine as startLine,
            t.endLine as endLine, t.kind as kind, t.isExported as isExported,
            t.docstring as docstring
   `,
   ALL_TYPES: `
     MATCH (t:Type)
-    RETURN t.name as name, t.filePath as filePath, t.startLine as startLine,
+    RETURN t.id as id, t.name as name, t.filePath as filePath, t.startLine as startLine,
            t.endLine as endLine, t.kind as kind, t.isExported as isExported,
            t.docstring as docstring
   `,
@@ -160,13 +160,13 @@ const QUERIES = {
   COMPONENTS_NEEDING_EMBEDDING: `
     MATCH (comp:Component)
     WHERE comp.embedding IS NULL
-    RETURN comp.name as name, comp.filePath as filePath, comp.startLine as startLine,
+    RETURN comp.id as id, comp.name as name, comp.filePath as filePath, comp.startLine as startLine,
            comp.endLine as endLine, comp.isExported as isExported,
            comp.propsType as propsType, comp.props as props
   `,
   ALL_COMPONENTS: `
     MATCH (comp:Component)
-    RETURN comp.name as name, comp.filePath as filePath, comp.startLine as startLine,
+    RETURN comp.id as id, comp.name as name, comp.filePath as filePath, comp.startLine as startLine,
            comp.endLine as endLine, comp.isExported as isExported,
            comp.propsType as propsType, comp.props as props
   `,
@@ -222,6 +222,7 @@ const rowMappers = {
     loc: r.loc as number,
   }),
   Function: (r: Record<string, unknown>) => ({
+    id: r.id as string,
     name: r.name as string,
     filePath: r.filePath as string,
     startLine: r.startLine as number,
@@ -235,6 +236,7 @@ const rowMappers = {
     docstring: (r.docstring as string) ?? null,
   }),
   Class: (r: Record<string, unknown>) => ({
+    id: r.id as string,
     name: r.name as string,
     filePath: r.filePath as string,
     startLine: r.startLine as number,
@@ -246,6 +248,7 @@ const rowMappers = {
     docstring: (r.docstring as string) ?? null,
   }),
   Interface: (r: Record<string, unknown>) => ({
+    id: r.id as string,
     name: r.name as string,
     filePath: r.filePath as string,
     startLine: r.startLine as number,
@@ -255,6 +258,7 @@ const rowMappers = {
     docstring: (r.docstring as string) ?? null,
   }),
   Variable: (r: Record<string, unknown>) => ({
+    id: r.id as string,
     name: r.name as string,
     filePath: r.filePath as string,
     line: r.line as number,
@@ -263,6 +267,7 @@ const rowMappers = {
     isExported: r.isExported as boolean,
   }),
   Type: (r: Record<string, unknown>) => ({
+    id: r.id as string,
     name: r.name as string,
     filePath: r.filePath as string,
     startLine: r.startLine as number,
@@ -272,6 +277,7 @@ const rowMappers = {
     docstring: (r.docstring as string) ?? null,
   }),
   Component: (r: Record<string, unknown>) => ({
+    id: r.id as string,
     name: r.name as string,
     filePath: r.filePath as string,
     startLine: r.startLine as number,
@@ -285,12 +291,12 @@ const rowMappers = {
 /** Identifier extractors for each node type */
 const identifierExtractors: Record<EmbeddableNodeType, (e: Record<string, unknown>) => Record<string, unknown>> = {
   File: (e) => ({ filePath: e.path }),
-  Function: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
-  Class: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
-  Interface: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
-  Variable: (e) => ({ name: e.name, filePath: e.filePath, line: e.line }),
-  Type: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
-  Component: (e) => ({ name: e.name, filePath: e.filePath, startLine: e.startLine }),
+  Function: (e) => ({ id: e.id }),
+  Class: (e) => ({ id: e.id }),
+  Interface: (e) => ({ id: e.id }),
+  Variable: (e) => ({ id: e.id }),
+  Type: (e) => ({ id: e.id }),
+  Component: (e) => ({ id: e.id }),
 };
 
 /** Embedding text builders for each node type — row mappers produce matching shapes */

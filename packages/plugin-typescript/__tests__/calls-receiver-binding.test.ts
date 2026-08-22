@@ -17,6 +17,7 @@ import { extractCalls } from '../src/extractors/calls';
 import { extractFunctions } from '../src/extractors/functions';
 import { extractClasses } from '../src/extractors/classes';
 import { extractImports } from '../src/extractors/imports';
+import { extractAllEntities } from '../src/extractors';
 import type { ResolvedImportTarget } from '../src/extractors/imports';
 import type { ImportEntity } from '@codegraph/types';
 
@@ -215,6 +216,77 @@ function runBasic() {
     expect(ref).toBeDefined();
     expect(ref!.calleeFilePath).toBe('/project/service.ts');
     expect(ref!.calleeClassName).toBe('Service');
+  });
+
+  it('keeps class overload identities distinct and binds a cross-file receiver call only to the implementation', () => {
+    const declarationRoot = parseCode(`export class Over {
+  work(value: string): string;
+  work(value: number): number;
+  work(value: string | number): string | number { return value; }
+}`);
+    const declarationFile = '/project/over.ts';
+    const extracted = extractAllEntities(declarationRoot, declarationFile);
+    const overClass = extracted.classes.find((entity) => entity.name === 'Over');
+    const workFunctions = extracted.functions.filter((entity) => entity.name === 'work');
+
+    expect(overClass).toBeDefined();
+    expect(workFunctions).toHaveLength(3);
+    expect(new Set(workFunctions.map((entity) => entity.id)).size).toBe(3);
+    expect(workFunctions.every((entity) => entity.scopeKey === 'Class:Over')).toBe(true);
+    expect(workFunctions.map((entity) => entity.disambiguator)).toEqual([
+      expect.stringMatching(/^sig:[a-f0-9]{16}$/),
+      expect.stringMatching(/^sig:[a-f0-9]{16}$/),
+      expect.stringMatching(/^sig:[a-f0-9]{16}$/),
+    ]);
+    expect(new Set(workFunctions.map((entity) => entity.disambiguator)).size).toBe(3);
+    expect(workFunctions.map((entity) => Reflect.get(entity, 'isOverloadSignature'))).toEqual([
+      true,
+      true,
+      false,
+    ]);
+
+    const implementation = workFunctions.find((entity) => entity.startLine === 4);
+    expect(implementation).toBeDefined();
+    const methodEdges = extracted.hasMethodEdges.filter(
+      (edge) => edge.fromId === overClass!.id,
+    );
+    expect(methodEdges).toEqual([
+      expect.objectContaining({ toId: implementation!.id }),
+    ]);
+
+    const callerRoot = parseCode(`import { Over } from './over';
+
+export function run(over: Over): string {
+  return over.work('value');
+}`);
+    const callerFunctions = extractFunctions(callerRoot, '/project/caller.ts');
+    const overImport: ImportEntity = {
+      id: 'imp-over',
+      source: './over',
+      filePath: '/project/caller.ts',
+      isDefault: false,
+      isNamespace: false,
+      specifiers: [{ name: 'Over' }],
+      resolvedPath: declarationFile,
+    };
+    const calls = extractCalls(
+      callerRoot,
+      '/project/caller.ts',
+      callerFunctions,
+      [overImport],
+      false,
+      [],
+    );
+    const receiverCall = calls.find((call) => call.calleeName === 'work');
+
+    expect(receiverCall).toMatchObject({
+      calleeClassName: 'Over',
+      calleeFilePath: declarationFile,
+    });
+    const classQualifiedTargets = methodEdges
+      .map((edge) => workFunctions.find((entity) => entity.id === edge.toId))
+      .filter((entity) => entity?.name === receiverCall!.calleeName);
+    expect(classQualifiedTargets).toEqual([implementation]);
   });
 
   it('receiver call to a locally declared class also carries calleeClassName', () => {

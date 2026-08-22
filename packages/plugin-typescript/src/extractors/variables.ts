@@ -5,7 +5,8 @@
 
 import Parser from 'tree-sitter';
 import type { VariableEntity, VariableKind } from '@codegraph/types';
-import { findNodesOfTypes, generateEntityId } from './types';
+import { findNodesOfTypes, symbolIdentityForNode } from './types';
+import { buildLexicalScopeKey, occurrenceDisambiguator } from '@codegraph/plugin-common';
 
 /** Node types for variable declarations */
 const VARIABLE_TYPES = [
@@ -20,16 +21,8 @@ export function extractVariables(
   rootNode: Parser.SyntaxNode,
   filePath: string
 ): VariableEntity[] {
-  const variables: VariableEntity[] = [];
-  
   const declarationNodes = findNodesOfTypes(rootNode, VARIABLE_TYPES);
-  
-  for (const node of declarationNodes) {
-    const extracted = parseVariableDeclaration(node, filePath);
-    variables.push(...extracted);
-  }
-  
-  return variables;
+  return extractVariablesFromNodes(declarationNodes, filePath);
 }
 
 /**
@@ -39,39 +32,56 @@ export function extractVariablesFromNodes(
   declarationNodes: Parser.SyntaxNode[],
   filePath: string
 ): VariableEntity[] {
-  const variables: VariableEntity[] = [];
-  for (const node of declarationNodes) {
-    const extracted = parseVariableDeclaration(node, filePath);
-    variables.push(...extracted);
-  }
-  return variables;
-}
+  const candidates: Array<{
+    node: Parser.SyntaxNode;
+    name: string;
+    kind: VariableKind;
+    isExported: boolean;
+    scopeKey: string;
+  }> = [];
 
-/**
- * Parse a variable declaration node
- * Returns multiple entities since one declaration can have multiple declarators
- */
-function parseVariableDeclaration(
-  node: Parser.SyntaxNode,
-  filePath: string
-): VariableEntity[] {
-  const variables: VariableEntity[] = [];
-  
-  // Determine the kind (const, let, var)
-  const kind = getVariableKind(node);
-  const isExported = checkIsExported(node);
-  
-  // Find all variable_declarator children
-  for (const child of node.children) {
-    if (child.type === 'variable_declarator') {
-      const varEntity = parseVariableDeclarator(child, filePath, kind, isExported);
-      if (varEntity) {
-        variables.push(varEntity);
+  for (const node of declarationNodes) {
+    const kind = getVariableKind(node);
+    const isExported = checkIsExported(node);
+    for (const child of node.children) {
+      if (child.type !== 'variable_declarator') continue;
+      const nameNode = child.childForFieldName('name');
+      if (!nameNode || nameNode.type === 'object_pattern' || nameNode.type === 'array_pattern') {
+        continue;
       }
+      candidates.push({
+        node: child,
+        name: nameNode.text,
+        kind,
+        isExported,
+        scopeKey: buildLexicalScopeKey(child, { includeBlockScopes: true }),
+      });
     }
   }
-  
-  return variables;
+
+  const groupSizes = new Map<string, number>();
+  for (const candidate of candidates) {
+    const key = `${candidate.scopeKey}\u0000${candidate.name}`;
+    groupSizes.set(key, (groupSizes.get(key) ?? 0) + 1);
+  }
+  const occurrences = new Map<string, number>();
+
+  return candidates.flatMap((candidate) => {
+    const key = `${candidate.scopeKey}\u0000${candidate.name}`;
+    const occurrence = (occurrences.get(key) ?? 0) + 1;
+    occurrences.set(key, occurrence);
+    const disambiguator = (groupSizes.get(key) ?? 0) > 1
+      ? occurrenceDisambiguator(occurrence)
+      : '';
+    const entity = parseVariableDeclarator(
+      candidate.node,
+      filePath,
+      candidate.kind,
+      candidate.isExported,
+      disambiguator,
+    );
+    return entity ? [entity] : [];
+  });
 }
 
 /**
@@ -107,7 +117,8 @@ function parseVariableDeclarator(
   node: Parser.SyntaxNode,
   filePath: string,
   kind: VariableKind,
-  isExported: boolean
+  isExported: boolean,
+  disambiguator: string,
 ): VariableEntity | null {
   // Get the variable name
   const nameNode = node.childForFieldName('name');
@@ -125,11 +136,18 @@ function parseVariableDeclarator(
   const typeAnnotation = node.childForFieldName('type');
   const type = typeAnnotation?.text?.replace(/^:\s*/, '');
   
-  const id = generateEntityId(filePath, 'variable', name, line);
+  const identity = symbolIdentityForNode({
+    node,
+    filePath,
+    label: 'Variable',
+    declaredName: name,
+    disambiguator,
+    includeBlockScopes: true,
+  });
   
   // Build entity with optional properties only when defined
   const entity: VariableEntity = {
-    id,
+    ...identity,
     name,
     filePath,
     line,

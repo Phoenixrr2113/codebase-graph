@@ -644,7 +644,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       expect(afterFn.data[0]?.count).toBe(0);
     });
 
-    it('preserves entities with incoming cross-file CALLS edges', async () => {
+    it('removes owned entities and incoming cross-file CALLS edges with the deleted file', async () => {
       // Setup: File A has fnA, File B has fnB, fnA CALLS fnB
       await ops.upsertFile(makeFile({ path: '/src/perf4-caller.ts', name: 'perf4-caller.ts' }));
       await ops.upsertFunction(makeFunction({ name: 'fnCaller', filePath: '/src/perf4-caller.ts', startLine: 1 }));
@@ -661,7 +661,7 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       );
       expect(edgeBefore.data[0]?.count).toBe(1);
 
-      // Remove the CALLEE file: the function should be preserved because fnCaller still points to it
+      // Removing a source file detach-deletes every declaration owned by it.
       await ops.removeFileAndCleanup('/src/perf4-callee.ts');
 
       // File node should be gone
@@ -670,20 +670,19 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       );
       expect(afterFile.data[0]?.count).toBe(0);
 
-      // fnCallee should STILL exist (preserved by incoming CALLS edge)
+      // fnCallee and its incoming CALLS edge should both be gone.
       const afterFn = await client.roQuery<{ count: number }>(
         `MATCH (fn:Function {name: 'fnCallee', filePath: '/src/perf4-callee.ts'}) RETURN count(fn) as count`
       );
-      expect(afterFn.data[0]?.count).toBe(1);
+      expect(afterFn.data[0]?.count).toBe(0);
 
-      // CALLS edge should still be intact
       const edgeAfter = await client.roQuery<{ count: number }>(
         `MATCH (a:Function {name: 'fnCaller'})-[:CALLS]->(b:Function {name: 'fnCallee'}) RETURN count(*) as count`
       );
-      expect(edgeAfter.data[0]?.count).toBe(1);
+      expect(edgeAfter.data[0]?.count).toBe(0);
     });
 
-    it('preserves entities with incoming cross-file EXTENDS edges', async () => {
+    it('removes owned entities and incoming cross-file EXTENDS edges with the deleted file', async () => {
       // Setup: File A has ClassChild, File B has ClassBase, ClassChild EXTENDS ClassBase
       await ops.upsertFile(makeFile({ path: '/src/perf4-child.ts', name: 'perf4-child.ts' }));
       await ops.upsertClass(makeClass({ name: 'ClassChild', filePath: '/src/perf4-child.ts', startLine: 1 }));
@@ -694,20 +693,18 @@ describe('Graph CRUD Operations (FalkorDB)', () => {
       // Create cross-file EXTENDS edge: ClassChild → ClassBase
       await ops.createExtendsEdge('ClassChild', '/src/perf4-child.ts', 'ClassBase', '/src/perf4-base.ts');
 
-      // Remove the BASE file: ClassBase should be preserved due to incoming EXTENDS
+      // Removing the base file also removes its owned ClassBase declaration.
       await ops.removeFileAndCleanup('/src/perf4-base.ts');
 
-      // ClassBase should still exist
       const afterCls = await client.roQuery<{ count: number }>(
         `MATCH (c:Class {name: 'ClassBase', filePath: '/src/perf4-base.ts'}) RETURN count(c) as count`
       );
-      expect(afterCls.data[0]?.count).toBe(1);
+      expect(afterCls.data[0]?.count).toBe(0);
 
-      // EXTENDS edge should still be intact
       const edgeAfter = await client.roQuery<{ count: number }>(
         `MATCH (a:Class {name: 'ClassChild'})-[:EXTENDS]->(b:Class {name: 'ClassBase'}) RETURN count(*) as count`
       );
-      expect(edgeAfter.data[0]?.count).toBe(1);
+      expect(edgeAfter.data[0]?.count).toBe(0);
     });
 
     it('removes entities from caller file without affecting callee file', async () => {
@@ -774,6 +771,9 @@ describe('Vector Search (FalkorDB)', () => {
   let ops: GraphOperations;
 
   const DIM = 768; // matches EMBEDDING_DIM (nomic-embed-text-v1.5)
+  const processPaymentId = `sym:v1:${'1'.repeat(64)}`;
+  const validateCardId = `sym:v1:${'2'.repeat(64)}`;
+  const renderChartId = `sym:v1:${'3'.repeat(64)}`;
 
   /** Create a simple vector with weight on specific dimensions */
   function makeVec(weights: Record<number, number>): number[] {
@@ -811,14 +811,17 @@ describe('Vector Search (FalkorDB)', () => {
     });
 
     await ops.upsertFunction({
+      id: processPaymentId, scopeKey: '', disambiguator: '',
       name: 'processPayment', filePath, startLine: 1, endLine: 10,
       isExported: true, isAsync: true, isArrow: false, params: [],
     });
     await ops.upsertFunction({
+      id: validateCardId, scopeKey: '', disambiguator: '',
       name: 'validateCard', filePath, startLine: 15, endLine: 25,
       isExported: true, isAsync: false, isArrow: false, params: [],
     });
     await ops.upsertFunction({
+      id: renderChartId, scopeKey: '', disambiguator: '',
       name: 'renderChart', filePath, startLine: 30, endLine: 40,
       isExported: true, isAsync: false, isArrow: false, params: [],
     });
@@ -827,19 +830,19 @@ describe('Vector Search (FalkorDB)', () => {
     // paymentVec and cardVec are close together; chartVec is far away
     await ops.updateEmbedding(
       'Function',
-      { name: 'processPayment', filePath, startLine: 1 },
+      { id: processPaymentId },
       makeVec({ 0: 1.0, 1: 0.0, 2: 0.1 }),
       'hash-payment',
     );
     await ops.updateEmbedding(
       'Function',
-      { name: 'validateCard', filePath, startLine: 15 },
+      { id: validateCardId },
       makeVec({ 0: 0.9, 1: 0.1, 2: 0.1 }),
       'hash-card',
     );
     await ops.updateEmbedding(
       'Function',
-      { name: 'renderChart', filePath, startLine: 30 },
+      { id: renderChartId },
       makeVec({ 0: 0.1, 1: 0.9, 2: 0.0 }),
       'hash-chart',
     );

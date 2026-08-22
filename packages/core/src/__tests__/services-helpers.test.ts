@@ -140,10 +140,21 @@ describe('generateNodeId: Entity uses text + type (its real MERGE key), reachabl
   });
 });
 
-describe('generateNodeId: symbol labels keep the existing name/filePath/startLine-or-line scheme', () => {
-  it('still builds ids from name, filePath and startLine for Function/Class/etc.', () => {
+describe('generateNodeId: symbol labels expose persisted opaque ids', () => {
+  it('returns the persisted id without rebuilding it from mutable location fields', () => {
+    const persistedId = `sym:v1:${'a'.repeat(64)}`;
+    const id = generateNodeId('Function', {
+      id: persistedId,
+      name: 'doThing',
+      filePath: '/src/a.ts',
+      startLine: 10,
+    });
+    expect(id).toBe(persistedId);
+  });
+
+  it('does not synthesize a location-based id when persisted identity is absent', () => {
     const id = generateNodeId('Function', { name: 'doThing', filePath: '/src/a.ts', startLine: 10 });
-    expect(id).toBe('Function:/src/a.ts:doThing:10');
+    expect(id).toBe('Function:unknown');
   });
 
   it('still builds the single-key File id', () => {

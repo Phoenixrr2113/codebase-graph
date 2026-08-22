@@ -3,6 +3,12 @@
  */
 
 import Parser from 'tree-sitter';
+import {
+  buildLexicalScopeKey,
+  buildSymbolIdentity,
+  type SourceSymbolLabel,
+  type SymbolIdentity,
+} from '@codegraph/plugin-common';
 
 /** Location information in source code */
 export interface SourceLocation {
@@ -140,4 +146,25 @@ export function generateEntityId(filePath: string, kind: string, name: string, l
   const base = `${filePath}:${kind}:${name}:${line}`;
   // Simple hash-like ID
   return base.replace(/[^a-zA-Z0-9:_-]/g, '_');
+}
+
+/** Build the canonical identity fields for a TypeScript source symbol node. */
+export function symbolIdentityForNode(options: {
+  node: Parser.SyntaxNode;
+  filePath: string;
+  label: SourceSymbolLabel;
+  declaredName: string;
+  disambiguator?: string;
+  includeBlockScopes?: boolean;
+  scopeKeyOverride?: string;
+}): SymbolIdentity {
+  return buildSymbolIdentity({
+    label: options.label,
+    filePath: options.filePath,
+    scopeKey: options.scopeKeyOverride ?? buildLexicalScopeKey(options.node, {
+      includeBlockScopes: options.includeBlockScopes ?? false,
+    }),
+    declaredName: options.declaredName,
+    disambiguator: options.disambiguator ?? '',
+  });
 }

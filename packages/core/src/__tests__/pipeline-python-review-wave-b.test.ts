@@ -40,6 +40,10 @@ import {
   createFileEntityFromContent,
   buildParsedFileEntities,
 } from '../pipeline';
+import {
+  buildProjectSymbolCatalog,
+  resolveProjectSymbolEdges,
+} from '../pipeline/pipeline';
 
 function parseAndExtract(filePath: string) {
   const content = readFileSync(filePath, 'utf-8');
@@ -47,6 +51,23 @@ function parseAndExtract(filePath: string) {
   const extracted = extractEntitiesForFile(syntaxTree.rootNode, filePath);
   const fileEntity = createFileEntityFromContent(filePath, content, new Date());
   return { rootNode: syntaxTree.rootNode, extracted, fileEntity };
+}
+
+function buildFile(filePath: string, projectRoot: string) {
+  const parsed = parseAndExtract(filePath);
+  return buildParsedFileEntities(
+    parsed.fileEntity,
+    parsed.extracted,
+    parsed.rootNode,
+    { deepAnalysis: true, includeExternals: false },
+    projectRoot,
+  );
+}
+
+function resolveFiles(filePaths: string[], projectRoot: string) {
+  const built = filePaths.map((filePath) => buildFile(filePath, projectRoot));
+  resolveProjectSymbolEdges(built, buildProjectSymbolCatalog(built));
+  return built;
 }
 
 describe('BLOCKER: aliased cross-file import resolves to the DECLARED name, not the local alias', () => {
@@ -75,23 +96,16 @@ describe('BLOCKER: aliased cross-file import resolves to the DECLARED name, not 
     expect(realFn).toBeDefined();
     expect(realFn!.name).toBe('fn'); // NOT 'f' -- the target has no idea it was aliased on import
 
-    const consumer = parseAndExtract(join(dir, 'pkg', 'consumer_alias.py'));
-    const built = buildParsedFileEntities(
-      consumer.fileEntity,
-      consumer.extracted,
-      consumer.rootNode,
-      { deepAnalysis: true, includeExternals: false },
-      dir,
-    );
+    const [built, target] = resolveFiles([
+      join(dir, 'pkg', 'consumer_alias.py'),
+      join(dir, 'pkg', 'mod.py'),
+    ], dir);
 
-    const call = built.callEdges.find((e) => e.callerId.includes(':caller_alias'));
+    const callerId = built?.functions.find((fn) => fn.name === 'caller_alias')?.id;
+    const call = built?.callEdges.find((e) => e.callerId === callerId);
     expect(call).toBeDefined();
-    // packages/graph/src/operations.ts's CREATE_CALLS_EDGE MATCHes the callee
-    // by {name, filePath} parsed out of this exact string (parseEntityId
-    // splits on ':'). It must name mod.py's REAL function ('fn'), or the
-    // MATCH finds nothing and the edge silently drops at write time.
-    expect(call!.calleeId).toBe(`Function:${join(dir, 'pkg', 'mod.py')}:${realFn!.name}`);
-    expect(call!.calleeId).not.toBe(`Function:${join(dir, 'pkg', 'mod.py')}:f`);
+    const targetId = target?.functions.find((fn) => fn.name === realFn!.name)?.id;
+    expect(call!.calleeId).toBe(targetId);
   });
 
   it('a plain (non-aliased) cross-file import still resolves to the same declared name (regression check)', () => {
@@ -99,18 +113,15 @@ describe('BLOCKER: aliased cross-file import resolves to the DECLARED name, not 
       join(dir, 'pkg', 'consumer_rel.py'),
       ['from .mod import fn', '', 'def caller_rel():', '    return fn()', ''].join('\n'),
     );
-    const consumer = parseAndExtract(join(dir, 'pkg', 'consumer_rel.py'));
-    const built = buildParsedFileEntities(
-      consumer.fileEntity,
-      consumer.extracted,
-      consumer.rootNode,
-      { deepAnalysis: true, includeExternals: false },
-      dir,
-    );
+    const [built, target] = resolveFiles([
+      join(dir, 'pkg', 'consumer_rel.py'),
+      join(dir, 'pkg', 'mod.py'),
+    ], dir);
 
-    const call = built.callEdges.find((e) => e.callerId.includes(':caller_rel'));
+    const callerId = built?.functions.find((fn) => fn.name === 'caller_rel')?.id;
+    const call = built?.callEdges.find((e) => e.callerId === callerId);
     expect(call).toBeDefined();
-    expect(call!.calleeId).toBe(`Function:${join(dir, 'pkg', 'mod.py')}:fn`);
+    expect(call!.calleeId).toBe(target?.functions.find((fn) => fn.name === 'fn')?.id);
   });
 });
 
@@ -143,18 +154,15 @@ describe('ADJACENT BUG 1: `import pkgns as p` resolves an attribute call through
   });
 
   it('p.init_fn() resolves to a CALLS edge into pkgns/__init__.py (was zero edges before this fix)', () => {
-    const consumer = parseAndExtract(join(dir, 'consumer.py'));
-    const built = buildParsedFileEntities(
-      consumer.fileEntity,
-      consumer.extracted,
-      consumer.rootNode,
-      { deepAnalysis: true, includeExternals: false },
-      dir,
-    );
+    const [built, target] = resolveFiles([
+      join(dir, 'consumer.py'),
+      join(dir, 'pkgns', '__init__.py'),
+    ], dir);
 
-    const call = built.callEdges.find((e) => e.callerId.includes(':caller'));
+    const callerId = built?.functions.find((fn) => fn.name === 'caller')?.id;
+    const call = built?.callEdges.find((e) => e.callerId === callerId);
     expect(call).toBeDefined();
-    expect(call!.calleeId).toBe(`Function:${join(dir, 'pkgns', '__init__.py')}:init_fn`);
+    expect(call!.calleeId).toBe(target?.functions.find((fn) => fn.name === 'init_fn')?.id);
   });
 });
 

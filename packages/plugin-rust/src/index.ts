@@ -41,7 +41,15 @@ import type {
   Visibility,
 } from '@codegraph/types';
 import type { TypeRefEntity } from '@codegraph/types';
-import { findNodesOfType, generateEntityId, calculateComplexity, resolveTypeIdentity } from '@codegraph/plugin-common';
+import {
+  buildLexicalScopeKey,
+  buildSymbolIdentity,
+  calculateComplexity,
+  findNodesOfType,
+  generateEntityId,
+  resolveTypeIdentity,
+  type SourceSymbolLabel,
+} from '@codegraph/plugin-common';
 import { createLanguagePlugin } from '@codegraph/plugin-generic';
 
 export function getGrammar(): unknown {
@@ -53,6 +61,22 @@ export function getGrammar(): unknown {
  */
 function isPublic(node: SyntaxNode): boolean {
   return node.children.some((c: SyntaxNode) => c.type === 'visibility_modifier');
+}
+
+function sourceIdentity(
+  node: SyntaxNode,
+  filePath: string,
+  label: SourceSymbolLabel,
+  declaredName: string,
+  scopeKeyOverride?: string,
+) {
+  return buildSymbolIdentity({
+    label,
+    filePath,
+    scopeKey: scopeKeyOverride ?? buildLexicalScopeKey(node),
+    declaredName,
+    disambiguator: '',
+  });
 }
 
 // ============================================================================
@@ -126,10 +150,10 @@ export function extractClasses(root: SyntaxNode, filePath: string): ClassEntity[
     const endLine = node.endPosition.row + 1;
     const isExported = isPublic(node);
     const docstring = extractDocComment(node);
-    const id = generateEntityId(filePath, 'class', name, startLine);
+    const identity = sourceIdentity(node, filePath, 'Class', name);
 
     const entity: ClassEntity = {
-      id,
+      ...identity,
       name,
       filePath,
       startLine,
@@ -172,7 +196,7 @@ export function extractInterfaces(root: SyntaxNode, filePath: string): Interface
     const endLine = node.endPosition.row + 1;
     const isExported = isPublic(node);
     const docstring = extractDocComment(node);
-    const id = generateEntityId(filePath, 'interface', name, startLine);
+    const identity = sourceIdentity(node, filePath, 'Interface', name);
 
     // Extract supertraits (trait bounds)
     const extendsList: string[] = [];
@@ -186,7 +210,7 @@ export function extractInterfaces(root: SyntaxNode, filePath: string): Interface
     }
 
     const entity: InterfaceEntity = {
-      id,
+      ...identity,
       name,
       filePath,
       startLine,
@@ -269,11 +293,16 @@ function extractFunctionFromNode(
   const returnType = extractRustReturnType(node);
   const docstring = extractDocComment(node);
 
-  const qualifiedName = implType ? `${implType}.${name}` : name;
-  const id = generateEntityId(filePath, 'function', qualifiedName, startLine);
+  const identity = sourceIdentity(
+    node,
+    filePath,
+    'Function',
+    name,
+    implType ? `Impl:${implType}` : undefined,
+  );
 
   const entity: FunctionEntity = {
-    id,
+    ...identity,
     name,
     filePath,
     startLine,
@@ -382,7 +411,7 @@ function extractVarFromNode(
   const name = nameNode.text;
   const line = node.startPosition.row + 1;
   const isExported = isPublic(node);
-  const id = generateEntityId(filePath, 'variable', name, line);
+  const identity = sourceIdentity(node, filePath, 'Variable', name);
 
   // Find type annotation (the node after ':')
   const colonIndex = node.children.findIndex((c: SyntaxNode) => c.type === ':');
@@ -395,7 +424,7 @@ function extractVarFromNode(
   }
 
   const entity: VariableEntity = {
-    id,
+    ...identity,
     name,
     filePath,
     line,
@@ -596,10 +625,10 @@ export function extractTypes(root: SyntaxNode, filePath: string): TypeEntity[] {
     const endLine = node.endPosition.row + 1;
     const isExported = isPublic(node);
     const docstring = extractDocComment(node);
-    const id = generateEntityId(filePath, 'type', name, startLine);
+    const identity = sourceIdentity(node, filePath, 'Type', name);
 
     const entity: TypeEntity = {
-      id,
+      ...identity,
       name,
       filePath,
       startLine,
@@ -624,10 +653,10 @@ export function extractTypes(root: SyntaxNode, filePath: string): TypeEntity[] {
     const endLine = node.endPosition.row + 1;
     const isExported = isPublic(node);
     const docstring = extractDocComment(node);
-    const id = generateEntityId(filePath, 'type', name, startLine);
+    const identity = sourceIdentity(node, filePath, 'Type', name);
 
     const entity: TypeEntity = {
-      id,
+      ...identity,
       name,
       filePath,
       startLine,
@@ -1267,11 +1296,12 @@ export function extractStructsWithEdges(
     const endLine = node.endPosition.row + 1;
     const isExported = isPublic(node);
     const docstring = extractDocComment(node);
-    const classId = generateEntityId(filePath, 'class', name, startLine);
+    const classIdentity = sourceIdentity(node, filePath, 'Class', name);
+    const classId = classIdentity.id;
     structIdByName.set(name, classId);
 
     const entity: ClassEntity = {
-      id: classId,
+      ...classIdentity,
       name,
       filePath,
       startLine,
@@ -1310,10 +1340,16 @@ export function extractStructsWithEdges(
         }
       }
 
-      const propId = `${classId}::prop::${fieldName}`;
+      const propIdentity = sourceIdentity(
+        field,
+        filePath,
+        'Variable',
+        fieldName,
+        `Class:${name}`,
+      );
 
       const propEntity: VariableEntity = {
-        id: propId,
+        ...propIdentity,
         name: fieldName,
         filePath,
         line: fieldLine,
@@ -1325,7 +1361,7 @@ export function extractStructsWithEdges(
       propertyEntities.push(propEntity);
       hasPropertyEdges.push({
         fromId: classId,
-        toId: propId,
+        toId: propIdentity.id,
         isStatic: false,
         visibility: fieldVisibility,
         isReadonly: false,
@@ -1360,7 +1396,13 @@ export function extractStructsWithEdges(
 
       // Use generateEntityId format matching extractFunctions (which uses implType.methodName).
       // This ensures HAS_METHOD edge toIds match the persisted node id after natural-key MERGE.
-      const methodId = generateEntityId(filePath, 'function', `${targetName}.${methodName}`, child.startPosition.row + 1);
+      const methodIdentity = sourceIdentity(
+        child,
+        filePath,
+        'Function',
+        methodName,
+        `Impl:${targetName}`,
+      );
       const startLine = child.startPosition.row + 1;
       const endLine = child.endPosition.row + 1;
       const isExported = isPublic(child);
@@ -1373,7 +1415,7 @@ export function extractStructsWithEdges(
       const metrics = calculateComplexity(child);
 
       const methodEntity: FunctionEntity = {
-        id: methodId,
+        ...methodIdentity,
         name: methodName,
         filePath,
         startLine,
@@ -1394,7 +1436,7 @@ export function extractStructsWithEdges(
       methodEntities.push(methodEntity);
       hasMethodEdges.push({
         fromId: classId,
-        toId: methodId,
+        toId: methodIdentity.id,
         isStatic,
         visibility,
       });
@@ -1659,8 +1701,9 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
     if (!nameNode) continue;
     const name = nameNode.text;
     const startLine = funcNode.startPosition.row + 1;
-    const entityId = generateEntityId(filePath, 'function', name, startLine);
-    const matched = functionById.get(entityId);
+    const matched = mergedFunctions.find(
+      (entity) => entity.name === name && entity.startLine === startLine,
+    );
     if (matched?.id) {
       accumulateTypeRefs(funcNode, matched.id);
     }
@@ -1682,9 +1725,11 @@ export function extractAllEntities(root: SyntaxNode, filePath: string) {
       const methodName = nameNode.text;
       const startLine = child.startPosition.row + 1;
 
-      const qualifiedName = implTypeName ? `${implTypeName}.${methodName}` : methodName;
-      const entityId = generateEntityId(filePath, 'function', qualifiedName, startLine);
-      const matched = functionById.get(entityId);
+      const matched = mergedFunctions.find(
+        (entity) => entity.name === methodName &&
+          entity.startLine === startLine &&
+          entity.scopeKey === (implTypeName ? `Impl:${implTypeName}` : ''),
+      );
       if (matched?.id) {
         accumulateTypeRefs(child, matched.id);
       }

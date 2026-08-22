@@ -6,13 +6,13 @@ describe('fetchSiblingSymbols', () => {
     const mockClient = {
       roQuery: vi.fn().mockResolvedValue({
         data: [
-          { name: 'fnA', startLine: 10, endLine: 20, signature: 'fnA sig', nodeType: 'Function' },
-          { name: 'fnB', startLine: 30, endLine: 40, signature: 'fnB sig', nodeType: 'Function' },
-          { name: 'fnC', startLine: 50, endLine: 60, signature: 'fnC sig', nodeType: 'Function' },
+          { id: 'id-a', name: 'fnA', startLine: 10, endLine: 20, signature: 'fnA sig', nodeType: 'Function' },
+          { id: 'id-b', name: 'fnB', startLine: 30, endLine: 40, signature: 'fnB sig', nodeType: 'Function' },
+          { id: 'id-c', name: 'fnC', startLine: 50, endLine: 60, signature: 'fnC sig', nodeType: 'Function' },
         ],
       }),
     };
-    const siblings = await fetchSiblingSymbols(mockClient as never, '/file.ts', 'fnB', 30);
+    const siblings = await fetchSiblingSymbols(mockClient as never, '/file.ts', 'id-b');
     expect(siblings).toHaveLength(2);
     expect(siblings.map(s => s.name)).toEqual(['fnA', 'fnC']);
   });
@@ -21,12 +21,12 @@ describe('fetchSiblingSymbols', () => {
     const mockClient = {
       roQuery: vi.fn().mockResolvedValue({
         data: [
-          { name: 'fnA', startLine: 10, endLine: 20, nodeType: 'Function' },
-          { name: 'fnB', startLine: 30, endLine: 40, nodeType: 'Function' },
+          { id: 'id-a', name: 'fnA', startLine: 10, endLine: 20, nodeType: 'Function' },
+          { id: 'id-b', name: 'fnB', startLine: 30, endLine: 40, nodeType: 'Function' },
         ],
       }),
     };
-    const siblings = await fetchSiblingSymbols(mockClient as never, '/file.ts', 'fnA', 10);
+    const siblings = await fetchSiblingSymbols(mockClient as never, '/file.ts', 'id-a');
     expect(siblings).toHaveLength(1);
     expect(siblings[0]?.name).toBe('fnB');
   });
@@ -35,12 +35,12 @@ describe('fetchSiblingSymbols', () => {
     const mockClient = {
       roQuery: vi.fn().mockResolvedValue({
         data: [
-          { name: 'fnA', startLine: 10, endLine: 20, nodeType: 'Function' },
-          { name: 'fnB', startLine: 30, endLine: 40, nodeType: 'Function' },
+          { id: 'id-a', name: 'fnA', startLine: 10, endLine: 20, nodeType: 'Function' },
+          { id: 'id-b', name: 'fnB', startLine: 30, endLine: 40, nodeType: 'Function' },
         ],
       }),
     };
-    const siblings = await fetchSiblingSymbols(mockClient as never, '/file.ts', 'fnB', 30);
+    const siblings = await fetchSiblingSymbols(mockClient as never, '/file.ts', 'id-b');
     expect(siblings).toHaveLength(1);
     expect(siblings[0]?.name).toBe('fnA');
   });
@@ -48,10 +48,10 @@ describe('fetchSiblingSymbols', () => {
   it('returns empty array for files with only one symbol', async () => {
     const mockClient = {
       roQuery: vi.fn().mockResolvedValue({
-        data: [{ name: 'lonelyFn', startLine: 10, endLine: 20, nodeType: 'Function' }],
+        data: [{ id: 'id-lonely', name: 'lonelyFn', startLine: 10, endLine: 20, nodeType: 'Function' }],
       }),
     };
-    const siblings = await fetchSiblingSymbols(mockClient as never, '/file.ts', 'lonelyFn', 10);
+    const siblings = await fetchSiblingSymbols(mockClient as never, '/file.ts', 'id-lonely');
     expect(siblings).toEqual([]);
   });
 });

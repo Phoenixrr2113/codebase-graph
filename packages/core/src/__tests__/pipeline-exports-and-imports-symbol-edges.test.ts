@@ -103,11 +103,14 @@ describe('buildParsedFileEntities: exportsEdges (end-to-end)', () => {
 
     const byName = new Map(built.exportsEdges.map((e) => [e.symbolName, e]));
 
-    expect(byName.get('exportedFn')).toEqual({ filePath, symbolName: 'exportedFn', symbolKind: 'Function' });
-    expect(byName.get('ExportedClass')).toEqual({ filePath, symbolName: 'ExportedClass', symbolKind: 'Class' });
-    expect(byName.get('ExportedInterface')).toEqual({ filePath, symbolName: 'ExportedInterface', symbolKind: 'Interface' });
-    expect(byName.get('exportedVar')).toEqual({ filePath, symbolName: 'exportedVar', symbolKind: 'Variable' });
-    expect(byName.get('ExportedType')).toEqual({ filePath, symbolName: 'ExportedType', symbolKind: 'Type' });
+    expect(byName.get('exportedFn')).toMatchObject({ filePath, symbolName: 'exportedFn', symbolKind: 'Function' });
+    expect(byName.get('ExportedClass')).toMatchObject({ filePath, symbolName: 'ExportedClass', symbolKind: 'Class' });
+    expect(byName.get('ExportedInterface')).toMatchObject({ filePath, symbolName: 'ExportedInterface', symbolKind: 'Interface' });
+    expect(byName.get('exportedVar')).toMatchObject({ filePath, symbolName: 'exportedVar', symbolKind: 'Variable' });
+    expect(byName.get('ExportedType')).toMatchObject({ filePath, symbolName: 'ExportedType', symbolKind: 'Type' });
+    expect(byName.get('exportedFn')?.toId).toBe(
+      built.functions.find((fn) => fn.name === 'exportedFn')?.id,
+    );
 
     // Unexported siblings must not produce an EXPORTS edge.
     expect(byName.has('localFn')).toBe(false);
@@ -201,7 +204,7 @@ describe('buildParsedFileEntities: importsSymbolEdges (end-to-end)', () => {
 
     const edge = built.importsSymbolEdges.find((e) => e.symbolName === 'targetFn' && !e.alias);
     expect(edge).toBeDefined();
-    expect(edge).toEqual({
+    expect(edge).toMatchObject({
       fromFilePath: join(dir, 'consumer.ts'),
       toFilePath: join(dir, 'target.ts'),
       symbolName: 'targetFn',
@@ -219,7 +222,7 @@ describe('buildParsedFileEntities: importsSymbolEdges (end-to-end)', () => {
     // named renamedFn at target.ts, which doesn't exist there).
     const edge = built.importsSymbolEdges.find((e) => e.alias === 'renamedFn');
     expect(edge).toBeDefined();
-    expect(edge).toEqual({
+    expect(edge).toMatchObject({
       fromFilePath: join(dir, 'consumer.ts'),
       toFilePath: join(dir, 'target.ts'),
       symbolName: 'otherFn',

@@ -169,7 +169,19 @@ describeIfAvailable('CALLS edge creation: class-qualified matching', () => {
 
     const appParsed = emptyParsed(makeFile(APP_FILE));
     appParsed.functions = [
-      { name: 'runBasic', filePath: APP_FILE, startLine: 1, endLine: 4, isExported: true, isAsync: false, isArrow: false, params: [] },
+      {
+        id: 'sym:v1:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        scopeKey: '',
+        disambiguator: '',
+        name: 'runBasic',
+        filePath: APP_FILE,
+        startLine: 1,
+        endLine: 4,
+        isExported: true,
+        isAsync: false,
+        isArrow: false,
+        params: [],
+      },
     ];
 
     await ops.batchUpsert(serviceParsed);
@@ -296,7 +308,9 @@ describeIfAvailable('CALLS edge creation: class-qualified matching', () => {
       params: [],
     };
     const runBasic: FunctionEntity = {
-      name: 'runBasic', filePath: APP_FILE, startLine: 1, endLine: 4, isExported: true, isAsync: false, isArrow: false, params: [],
+      id: 'sym:v1:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      scopeKey: '', disambiguator: '', name: 'runBasic', filePath: APP_FILE,
+      startLine: 1, endLine: 4, isExported: true, isAsync: false, isArrow: false, params: [],
     };
 
     const serviceParsed = emptyParsed(makeFile(SERVICE_FILE));

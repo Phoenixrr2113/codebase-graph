@@ -51,7 +51,7 @@ describeIfAvailable('dependency depth enrichment', () => {
     await client.query(
       `UNWIND range(0, $hub - 1) AS i
        MATCH (lib:File {filePath: '/x/lib.ts'})
-       CREATE (f:Function {name: '_parse', filePath: '/x/lib.ts', startLine: i + 1})
+       CREATE (f:Function {id: 'hub-' + toString(i), name: '_parse', filePath: '/x/lib.ts', startLine: i + 1})
        CREATE (lib)-[:CONTAINS]->(f)`,
       { params: { hub: HUB_SIZE } },
     );
@@ -65,7 +65,7 @@ describeIfAvailable('dependency depth enrichment', () => {
     // A genuinely reachable symbol, to pin the values the query returns.
     await client.query(`
       MATCH (other:File {filePath: '/x/other.ts'})
-      CREATE (r:Function {name: 'reachable', filePath: '/x/other.ts', startLine: 1})
+      CREATE (r:Function {id: 'id-reachable', name: 'reachable', filePath: '/x/other.ts', startLine: 1})
       CREATE (other)-[:CONTAINS]->(r)
     `);
   }, 60_000);
@@ -77,9 +77,9 @@ describeIfAvailable('dependency depth enrichment', () => {
 
   it('answers for an unreachable hub symbol well inside the budget', async () => {
     const started = Date.now();
-    const result = await client.roQuery<{ symbolName: string; minDepth: number | null }>(
+    const result = await client.roQuery<{ symbolId: string; minDepth: number | null }>(
       DEPENDENCY_DEPTH_CYPHER,
-      { params: { names: ['_parse'] }, timeout: BUDGET_MS },
+      { params: { ids: ['hub-0'] }, timeout: BUDGET_MS },
     );
     expect(Date.now() - started).toBeLessThan(BUDGET_MS);
     // Unreachable symbols yield no row, which the caller reads as "depth unknown".
@@ -87,9 +87,9 @@ describeIfAvailable('dependency depth enrichment', () => {
   });
 
   it('reports the depth of a reachable symbol', async () => {
-    const result = await client.roQuery<{ symbolName: string; minDepth: number | null }>(
+    const result = await client.roQuery<{ symbolId: string; minDepth: number | null }>(
       DEPENDENCY_DEPTH_CYPHER,
-      { params: { names: ['reachable'] }, timeout: BUDGET_MS },
+      { params: { ids: ['id-reachable'] }, timeout: BUDGET_MS },
     );
     expect(result.data).toHaveLength(1);
     expect(result.data[0]?.minDepth).toBe(1);
@@ -97,11 +97,11 @@ describeIfAvailable('dependency depth enrichment', () => {
 
   it('stays fast when a hub symbol is batched with ordinary ones', async () => {
     const started = Date.now();
-    const result = await client.roQuery<{ symbolName: string; minDepth: number | null }>(
+    const result = await client.roQuery<{ symbolId: string; minDepth: number | null }>(
       DEPENDENCY_DEPTH_CYPHER,
-      { params: { names: ['reachable', '_parse', 'missing'] }, timeout: BUDGET_MS },
+      { params: { ids: ['id-reachable', 'hub-0', 'id-missing'] }, timeout: BUDGET_MS },
     );
     expect(Date.now() - started).toBeLessThan(BUDGET_MS);
-    expect(result.data.map((r) => r.symbolName)).toEqual(['reachable']);
+    expect(result.data.map((r) => r.symbolId)).toEqual(['id-reachable']);
   });
 });

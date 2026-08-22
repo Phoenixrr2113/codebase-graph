@@ -28,6 +28,12 @@ import {
   getSupportedExtensions,
   DEFAULT_IGNORE_PATTERNS,
 } from './pipeline';
+import {
+  buildProjectSymbolCatalog,
+  currentSymbolIds,
+  resolveProjectSymbolEdges,
+  type PersistedCatalogSymbol,
+} from './pipeline/pipeline';
 import { extractReExports, extractLocalExportedNames, type ReExportEntity } from '@codegraph/plugin-typescript';
 import { parseMarkdownContent } from '@codegraph/plugin-markdown';
 import { createOperations, type GraphClient } from '@codegraph/graph';
@@ -49,6 +55,81 @@ import { glob } from 'glob';
 
 const execFileAsync = promisify(execFile);
 const logger = createLogger({ namespace: 'Core:Indexer' });
+
+const SOURCE_SYMBOL_LABELS = new Set<PersistedCatalogSymbol['label']>([
+  'Function',
+  'Class',
+  'Interface',
+  'Variable',
+  'Type',
+  'Component',
+]);
+
+async function loadPersistedCatalogSymbols(
+  client: GraphClient,
+  projectId: string,
+): Promise<PersistedCatalogSymbol[]> {
+  const labelExpression = client.dialect.labelsExpr('symbol');
+  try {
+    const result = await client.roQuery<Record<string, unknown>>(
+      `MATCH (:Project {id: $projectId})-[:HAS_FILE]->(:File)-[:CONTAINS]->(symbol)
+       WHERE symbol.id IS NOT NULL
+       RETURN symbol.id AS id, ${labelExpression} AS labels,
+              symbol.filePath AS filePath, symbol.name AS name,
+              symbol.scopeKey AS scopeKey, symbol.disambiguator AS disambiguator,
+              symbol.isExported AS isExported,
+              coalesce(symbol.startLine, symbol.line, 0) AS startLine`,
+      { params: { projectId } },
+    );
+    const symbols: PersistedCatalogSymbol[] = [];
+    for (const row of result.data ?? []) {
+      const rawLabels = row['labels'];
+      const labels = Array.isArray(rawLabels)
+        ? rawLabels.filter((label): label is string => typeof label === 'string')
+        : typeof rawLabels === 'string' ? [rawLabels] : [];
+      const label = labels.find((candidate): candidate is PersistedCatalogSymbol['label'] =>
+        SOURCE_SYMBOL_LABELS.has(candidate as PersistedCatalogSymbol['label']),
+      );
+      const id = row['id'];
+      const filePath = row['filePath'];
+      const name = row['name'];
+      if (!label || typeof id !== 'string' || typeof filePath !== 'string' || typeof name !== 'string') {
+        continue;
+      }
+      symbols.push({
+        id,
+        label,
+        filePath,
+        name,
+        scopeKey: typeof row['scopeKey'] === 'string' ? row['scopeKey'] : '',
+        disambiguator: typeof row['disambiguator'] === 'string' ? row['disambiguator'] : '',
+        isExported: row['isExported'] === true,
+        startLine: typeof row['startLine'] === 'number' ? row['startLine'] : 0,
+      });
+    }
+    return symbols;
+  } catch (error) {
+    logger.warn(`Could not preload persisted symbol catalog: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
+}
+
+interface SymbolSweepOperations {
+  sweepStaleFileSymbols(filePath: string, currentIds: readonly string[]): Promise<void>;
+}
+
+function supportsSymbolSweep(ops: object): ops is SymbolSweepOperations {
+  return 'sweepStaleFileSymbols' in ops && typeof ops.sweepStaleFileSymbols === 'function';
+}
+
+async function sweepStaleSymbols(
+  ops: object,
+  parsed: ReturnType<typeof buildParsedFileEntities>,
+): Promise<void> {
+  if (supportsSymbolSweep(ops)) {
+    await ops.sweepStaleFileSymbols(parsed.file.path, currentSymbolIds(parsed));
+  }
+}
 
 /** Skip files larger than 512 KB — they stall the parser and are usually generated/bundled */
 const MAX_FILE_SIZE_BYTES = 512 * 1024;
@@ -443,16 +524,6 @@ export async function indexProject(
 
     logger.info(`Indexing ${rootPath}: found ${files.length} source files`);
 
-    if (files.length === 0) {
-      return {
-        success: true,
-        projectId: '',
-        projectName: basename(rootPath),
-        stats: { files: 0, entities: 0, edges: 0, errors: 0, durationMs: Date.now() - startTime },
-        errorMessages: [],
-      };
-    }
-
     // Get graph operations
     const graphClient = options.client ?? await getGraphClient();
     // Ensure schema/indexes exist before any writes (also pre-creates labels
@@ -478,7 +549,6 @@ export async function indexProject(
     // created. The final upsertProject() call further down still runs, to
     // persist fileCount/lastParsed once those are known.
     await ops.upsertProject(project);
-
     // ----------------------------------------------------------------
     // Incremental: build hash map of previously indexed files
     // ----------------------------------------------------------------
@@ -492,6 +562,17 @@ export async function indexProject(
         logger.warn('Could not load stored hashes — falling back to full index');
       }
     }
+
+    const discoveredPaths = new Set(files);
+    const vanishedPaths = [...storedHashes.keys()].filter(path => !discoveredPaths.has(path));
+    if (vanishedPaths.length > 0) {
+      await Promise.all(vanishedPaths.map(path => ops.removeFileAndCleanup(path)));
+      logger.info(`Incremental: removed ${vanishedPaths.length} vanished file${vanishedPaths.length === 1 ? '' : 's'}`);
+    }
+
+    const persistedCatalogSymbols = !force && existingProject
+      ? await loadPersistedCatalogSymbols(graphClient, project.id)
+      : [];
 
     // ----------------------------------------------------------------
     // Compute content hashes for all files, determine which need processing
@@ -636,6 +717,7 @@ export async function indexProject(
           // (MERGE), instead of a fresh node replacing a deleted one.
           await Promise.all(chunk.map(r => ops.removeFileContents(r.file)));
           await ops.batchUpsertBulk(chunk.map(r => r.built));
+          await Promise.all(chunk.map(r => sweepStaleSymbols(ops, r.built)));
         }
         await ops.linkProjectFiles(project.id, chunk.map(r => r.file));
 
@@ -650,6 +732,7 @@ export async function indexProject(
         for (const { file, built, extracted } of chunk) {
           try {
             await ops.batchUpsert(built);
+            if (!useCreatePath) await sweepStaleSymbols(ops, built);
             await ops.linkProjectFile(project.id, file);
             totalFiles++;
             totalEntities += 1 + countEntities(extracted);
@@ -664,9 +747,6 @@ export async function indexProject(
       }
     };
 
-    // Pipeline: parse batch N while upserting batch N-1
-    let pendingUpsert: Promise<void> | null = null;
-    let pendingBatch: ParsedResult[] = [];
     const UPSERT_CHUNK_SIZE = 50;
 
     for (let i = 0; i < codeFiles.length; i += concurrency) {
@@ -708,15 +788,6 @@ export async function indexProject(
           continue;
         }
         allParsed.push(result.value);
-        pendingBatch.push(result.value);
-      }
-
-      // When pending batch reaches upsert chunk size, fire upsert (with backpressure)
-      if (pendingBatch.length >= UPSERT_CHUNK_SIZE) {
-        if (pendingUpsert) await pendingUpsert; // Backpressure: wait for previous upsert
-        const chunk = pendingBatch;
-        pendingBatch = [];
-        pendingUpsert = upsertChunk(chunk);
       }
 
       // Progress logging
@@ -727,11 +798,14 @@ export async function indexProject(
       }
     }
 
-    // Flush remaining parsed results
-    if (pendingUpsert) await pendingUpsert;
-    if (pendingBatch.length > 0) {
-      await upsertChunk(pendingBatch);
-      pendingBatch = [];
+    const symbolCatalog = buildProjectSymbolCatalog(
+      allParsed.map(result => result.built),
+      persistedCatalogSymbols,
+    );
+    resolveProjectSymbolEdges(allParsed.map(result => result.built), symbolCatalog);
+
+    for (let i = 0; i < allParsed.length; i += UPSERT_CHUNK_SIZE) {
+      await upsertChunk(allParsed.slice(i, i + UPSERT_CHUNK_SIZE));
     }
 
     // Parse markdown files (typically few, no pipeline needed)
@@ -949,6 +1023,13 @@ export async function indexSingleFile(
     // Skip non-exported variables
     parsed.variables = parsed.variables.filter(v => v.isExported);
 
+    const existingProject = projectRoot ? await ops.getProjectByRoot(projectRoot) : null;
+    const persistedCatalogSymbols = existingProject
+      ? await loadPersistedCatalogSymbols(graphClient, existingProject.id)
+      : [];
+    const symbolCatalog = buildProjectSymbolCatalog([parsed], persistedCatalogSymbols);
+    resolveProjectSymbolEdges([parsed], symbolCatalog);
+
     // Clean up old entities before re-upserting (prevents stale nodes when
     // code moves/deletes). This path re-indexes a file whose content
     // changed (see onFileChanged in the watcher integrations) -- it was not
@@ -958,6 +1039,7 @@ export async function indexSingleFile(
     // go through removeFileAndCleanup() directly, from onFileRemoved.
     await ops.removeFileContents(filePath);
     await ops.batchUpsert(parsed);
+    await sweepStaleSymbols(ops, parsed);
 
     // Embedding pass — deferred (background) or blocking
     let embedded = 0;
