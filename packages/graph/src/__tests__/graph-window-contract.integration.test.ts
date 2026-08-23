@@ -247,3 +247,82 @@ describeIfAvailable('graph window frozen contract', () => {
     expect(result).toBeUndefined();
   });
 });
+
+describeIfAvailable('file graph external visibility contract', () => {
+  let client: GraphClient;
+  let queries: GraphQueries;
+  let dataDir: string;
+
+  beforeAll(async () => {
+    dataDir = await mkdtemp(join('/tmp', 'cgwc-externals-'));
+    client = await createClient({
+      driver: 'falkordblite',
+      databasePath: dataDir,
+      graphName: 'file-graph-externals',
+    } as never);
+    queries = createQueries(client);
+
+    await client.query(`
+      CREATE (a:File {name: 'a.ts', filePath: '/repo/app/a.ts'})
+      CREATE (b:File {name: 'b.ts', filePath: '/repo/app/b.ts'})
+      CREATE (c:File {name: 'c.ts', filePath: '/repo/app/c.ts'})
+      CREATE (externalA:File:External {name: 'pkg-a', filePath: 'external:pkg-a'})
+      CREATE (externalB:File:External {name: 'pkg-b', filePath: 'external:pkg-b'})
+      CREATE (a)-[:IMPORTS]->(b)
+      CREATE (a)-[:IMPORTS]->(externalA)
+      CREATE (externalA)-[:IMPORTS]->(b)
+      CREATE (externalA)-[:IMPORTS]->(externalB)
+    `);
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+    if (dataDir) await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('filters external Files before totals, induced degree, ordering, and edge selection', async () => {
+    const included = await queries.getFileGraph(10, undefined, 0, true);
+    const excluded = await queries.getFileGraph(10, undefined, 0, false);
+
+    expect(included).toMatchObject({ totalNodes: 5, totalEdges: 4 });
+    expect(excluded.nodes.map((node) => node.id)).toEqual([
+      'File:/repo/app/a.ts',
+      'File:/repo/app/b.ts',
+      'File:/repo/app/c.ts',
+    ]);
+    expect(excluded).toMatchObject({ totalNodes: 3, totalEdges: 1 });
+    expect(excluded.edges).toEqual([
+      expect.objectContaining({
+        source: 'File:/repo/app/a.ts',
+        target: 'File:/repo/app/b.ts',
+        label: 'IMPORTS',
+      }),
+    ]);
+  });
+
+  it('keeps external-free pages deterministic with exact totals and no gaps', async () => {
+    const first = await queries.getFileGraph(2, undefined, 0, false);
+    const second = await queries.getFileGraph(2, undefined, first.nextOffset ?? 0, false);
+    const combined = await queries.getFileGraph(3, undefined, 0, false);
+
+    expect([...first.nodes, ...second.nodes].map((node) => node.id)).toEqual(
+      combined.nodes.map((node) => node.id),
+    );
+    expect(first).toMatchObject({
+      totalNodes: 3,
+      totalEdges: 1,
+      offset: 0,
+      returned: 2,
+      hasMore: true,
+      nextOffset: 2,
+    });
+    expect(second).toMatchObject({
+      totalNodes: 3,
+      totalEdges: 1,
+      offset: 2,
+      returned: 1,
+      hasMore: false,
+      nextOffset: null,
+    });
+  });
+});

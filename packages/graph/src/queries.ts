@@ -367,19 +367,22 @@ function buildCypherTemplates(dialect: CypherDialect) {
       `;
     },
 
-    GET_FILE_GRAPH_NODES: (rootPath?: string) => {
+    GET_FILE_GRAPH_NODES: (rootPath?: string, includeExternals = true) => {
       const fileScope = (alias: string) => rootPath
         ? `(${alias}.filePath = $rootPath OR ${alias}.filePath STARTS WITH $rootPathPrefix)`
         : 'true';
+      const visibleFile = (alias: string) => includeExternals
+        ? fileScope(alias)
+        : `(${fileScope(alias)}) AND NOT (${lc(alias, 'External')})`;
 
       return `
         MATCH (f:File)
-        WHERE ${fileScope('f')}
+        WHERE ${visibleFile('f')}
         OPTIONAL MATCH (f)-[:CONTAINS]->(symbol)
         WHERE (${labelOr('symbol', [...SYMBOL_LABELS])})
         WITH f, count(DISTINCT symbol) AS symbolCount
         OPTIONAL MATCH (f)-[degreeEdge:IMPORTS]-(connected:File)
-        WHERE ${fileScope('connected')}
+        WHERE ${visibleFile('connected')}
         WITH f, symbolCount, count(DISTINCT degreeEdge) AS degree,
              'File:' + f.filePath AS stableId
         ORDER BY CASE WHEN ${lc('f', 'External')} THEN 1 ELSE 0 END
@@ -432,18 +435,26 @@ function buildCypherTemplates(dialect: CypherDialect) {
       `;
     },
 
-    GET_FILE_GRAPH_NODE_TOTAL: (rootPath?: string) => {
-      const where = rootPath
-        ? 'WHERE f.filePath = $rootPath OR f.filePath STARTS WITH $rootPathPrefix'
-        : '';
+    GET_FILE_GRAPH_NODE_TOTAL: (rootPath?: string, includeExternals = true) => {
+      const predicates = rootPath
+        ? ['(f.filePath = $rootPath OR f.filePath STARTS WITH $rootPathPrefix)']
+        : [];
+      if (!includeExternals) predicates.push(`NOT (${lc('f', 'External')})`);
+      const where = predicates.length > 0 ? `WHERE ${predicates.join(' AND ')}` : '';
       return `MATCH (f:File) ${where} RETURN count(DISTINCT f.filePath) AS totalNodes`;
     },
 
-    GET_FILE_GRAPH_EDGE_TOTAL: (rootPath?: string) => {
-      const where = rootPath
-        ? `WHERE (a.filePath = $rootPath OR a.filePath STARTS WITH $rootPathPrefix)
-             AND (b.filePath = $rootPath OR b.filePath STARTS WITH $rootPathPrefix)`
-        : '';
+    GET_FILE_GRAPH_EDGE_TOTAL: (rootPath?: string, includeExternals = true) => {
+      const predicates = rootPath
+        ? [
+          '(a.filePath = $rootPath OR a.filePath STARTS WITH $rootPathPrefix)',
+          '(b.filePath = $rootPath OR b.filePath STARTS WITH $rootPathPrefix)',
+        ]
+        : [];
+      if (!includeExternals) {
+        predicates.push(`NOT (${lc('a', 'External')})`, `NOT (${lc('b', 'External')})`);
+      }
+      const where = predicates.length > 0 ? `WHERE ${predicates.join(' AND ')}` : '';
       return `MATCH (a:File)-[r:IMPORTS]->(b:File) ${where} RETURN count(r) AS totalEdges`;
     },
 
@@ -734,7 +745,12 @@ export interface GraphQueries {
   getFullGraph(limit?: number, rootPath?: string, offset?: number): Promise<GraphWindowResult>;
 
   /** Get the bounded File-to-File IMPORTS graph, optionally scoped by root path. */
-  getFileGraph(limit?: number, rootPath?: string, offset?: number): Promise<FileGraphResult>;
+  getFileGraph(
+    limit?: number,
+    rootPath?: string,
+    offset?: number,
+    includeExternals?: boolean,
+  ): Promise<FileGraphResult>;
 
   /** Return edges induced among persisted ids, optionally scoped by root path. */
   getInducedEdges(ids: string[], rootPath?: string): Promise<GraphWindowEdge[]>;
@@ -929,7 +945,12 @@ class GraphQueriesImpl implements GraphQueries {
   }
 
   @trace()
-  async getFileGraph(limit = 1000, rootPath?: string, offset = 0): Promise<FileGraphResult> {
+  async getFileGraph(
+    limit = 1000,
+    rootPath?: string,
+    offset = 0,
+    includeExternals = true,
+  ): Promise<FileGraphResult> {
     let normalizedRootPath = rootPath || undefined;
     while (normalizedRootPath && normalizedRootPath.endsWith('/')) {
       normalizedRootPath = normalizedRootPath.slice(0, -1) || undefined;
@@ -941,18 +962,18 @@ class GraphQueriesImpl implements GraphQueries {
 
     const [nodeTotalResult, edgeTotalResult, nodesResult] = await Promise.all([
       this.client.roQuery<{ totalNodes: number }>(
-        this.templates.GET_FILE_GRAPH_NODE_TOTAL(normalizedRootPath),
+        this.templates.GET_FILE_GRAPH_NODE_TOTAL(normalizedRootPath, includeExternals),
         { params: scopeParams },
       ),
       this.client.roQuery<{ totalEdges: number }>(
-        this.templates.GET_FILE_GRAPH_EDGE_TOTAL(normalizedRootPath),
+        this.templates.GET_FILE_GRAPH_EDGE_TOTAL(normalizedRootPath, includeExternals),
         { params: scopeParams },
       ),
       this.client.roQuery<{
         f: Record<string, unknown>;
         symbolCount: number;
         nodeIdentity: number;
-      }>(this.templates.GET_FILE_GRAPH_NODES(normalizedRootPath), {
+      }>(this.templates.GET_FILE_GRAPH_NODES(normalizedRootPath, includeExternals), {
         params: { ...scopeParams, limit, offset },
       }),
     ]);

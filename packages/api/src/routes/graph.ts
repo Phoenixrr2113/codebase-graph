@@ -19,6 +19,14 @@ type BoundedIntegerResult =
   | { valid: true; value?: number }
   | { valid: false; error: string };
 
+type IndexedEdgeFormat = 'indexed-v1';
+type CompactEdgeTuple = [sourceNodeIndex: number, targetNodeIndex: number, edgeTypeIndex: number];
+type EdgeTransport = { source: string; target: string; label: string };
+
+type EdgeFormatResult =
+  | { valid: true; value?: IndexedEdgeFormat }
+  | { valid: false; error: string };
+
 function boundedPositiveInteger(
   raw: string | undefined,
   name: string,
@@ -41,6 +49,22 @@ function nonNegativeInteger(raw: string | undefined, name: string): BoundedInteg
   return { valid: true, value };
 }
 
+function parseEdgeFormat(raw: unknown): EdgeFormatResult {
+  if (raw === undefined) return { valid: true };
+  if (raw === 'indexed-v1') return { valid: true, value: raw };
+  return { valid: false, error: 'edgeFormat must be indexed-v1' };
+}
+
+function parseIncludeExternals(raw: string | undefined): boolean | null {
+  if (raw === undefined || raw === 'true') return true;
+  if (raw === 'false') return false;
+  return null;
+}
+
+function hasRepeatedQueryValue(values: readonly string[] | undefined): boolean {
+  return values !== undefined && values.length > 1;
+}
+
 async function resolveProjectRootPath(projectId: string): Promise<string | null> {
   const client = await getGraphClient();
   const projectResult = await client.roQuery<{ rootPath: string | null }>(
@@ -51,9 +75,9 @@ async function resolveProjectRootPath(projectId: string): Promise<string | null>
 }
 
 function projectFullGraphResponse<T extends {
-  edges: Array<{ source: string; target: string; label: string }>;
+  edges: EdgeTransport[];
 }>(data: T): Omit<T, 'edges'> & {
-  edges: Array<{ source: string; target: string; label: string }>;
+  edges: EdgeTransport[];
 } {
   return {
     ...data,
@@ -61,11 +85,88 @@ function projectFullGraphResponse<T extends {
   };
 }
 
+function requiredTableIndex(indexes: ReadonlyMap<string, number>, value: string): number {
+  const index = indexes.get(value);
+  if (index === undefined) throw new Error(`Compact edge endpoint is absent from its node table: ${value}`);
+  return index;
+}
+
+function compactEdges(
+  edges: readonly EdgeTransport[],
+  nodeIds: readonly string[],
+): { edgeTypes: string[]; edges: CompactEdgeTuple[] } {
+  const nodeIndexes = new Map(nodeIds.map((id, index) => [id, index]));
+  const edgeTypes: string[] = [];
+  const edgeTypeIndexes = new Map<string, number>();
+  const compact = edges.map((edge): CompactEdgeTuple => {
+    let edgeTypeIndex = edgeTypeIndexes.get(edge.label);
+    if (edgeTypeIndex === undefined) {
+      edgeTypeIndex = edgeTypes.length;
+      edgeTypes.push(edge.label);
+      edgeTypeIndexes.set(edge.label, edgeTypeIndex);
+    }
+    return [
+      requiredTableIndex(nodeIndexes, edge.source),
+      requiredTableIndex(nodeIndexes, edge.target),
+      edgeTypeIndex,
+    ];
+  });
+  return { edgeTypes, edges: compact };
+}
+
+function projectIndexedNodeEdges<T extends {
+  nodes: Array<{ id: string }>;
+  edges: EdgeTransport[];
+}>(data: T): Omit<T, 'edges'> & {
+  edgeFormat: IndexedEdgeFormat;
+  edgeTypes: string[];
+  edges: CompactEdgeTuple[];
+} {
+  const compact = compactEdges(data.edges, data.nodes.map((node) => node.id));
+  return {
+    ...data,
+    edgeFormat: 'indexed-v1',
+    edgeTypes: compact.edgeTypes,
+    edges: compact.edges,
+  };
+}
+
+function projectIndexedInducedEdges(edges: EdgeTransport[]): {
+  edgeFormat: IndexedEdgeFormat;
+  nodeIds: string[];
+  edgeTypes: string[];
+  edges: CompactEdgeTuple[];
+} {
+  const nodeIds: string[] = [];
+  const seenNodeIds = new Set<string>();
+  for (const edge of edges) {
+    for (const nodeId of [edge.source, edge.target]) {
+      if (seenNodeIds.has(nodeId)) continue;
+      seenNodeIds.add(nodeId);
+      nodeIds.push(nodeId);
+    }
+  }
+  const compact = compactEdges(edges, nodeIds);
+  return {
+    edgeFormat: 'indexed-v1',
+    nodeIds,
+    edgeTypes: compact.edgeTypes,
+    edges: compact.edges,
+  };
+}
+
 /** GET /api/graph/full?limit=N&offset=N&projectId=X returns a degree-ordered page with scoped totals. */
 graphRoutes.get('/api/graph/full', async (c) => {
   let limit = 100;
   let offset = 0;
+  let edgeFormat: IndexedEdgeFormat | undefined;
   try {
+    if (hasRepeatedQueryValue(c.req.queries('edgeFormat'))) {
+      return c.json({ error: 'edgeFormat must be supplied once' }, 400);
+    }
+    const parsedEdgeFormat = parseEdgeFormat(c.req.query('edgeFormat'));
+    if (!parsedEdgeFormat.valid) return c.json({ error: parsedEdgeFormat.error }, 400);
+    edgeFormat = parsedEdgeFormat.value;
     const parsedLimit = boundedPositiveInteger(c.req.query('limit'), 'limit', FULL_GRAPH_LIMIT_MAX);
     if (!parsedLimit.valid) return c.json({ error: parsedLimit.error }, 400);
     const parsedOffset = nonNegativeInteger(c.req.query('offset'), 'offset');
@@ -78,18 +179,21 @@ graphRoutes.get('/api/graph/full', async (c) => {
       const rootPath = await resolveProjectRootPath(projectId);
       if (!rootPath) return c.json({ error: 'Project not found' }, 404);
       const data = await codeGraphService.getFullGraph(limit, rootPath, offset);
-      return c.json(projectFullGraphResponse(data));
+      const projected = projectFullGraphResponse(data);
+      return c.json(edgeFormat ? projectIndexedNodeEdges(projected) : projected);
     }
 
     // No project filter — return all
     const rootPath = c.req.query('rootPath') ?? undefined;
     const data = await codeGraphService.getFullGraph(limit, rootPath, offset);
-    return c.json(projectFullGraphResponse(data));
+    const projected = projectFullGraphResponse(data);
+    return c.json(edgeFormat ? projectIndexedNodeEdges(projected) : projected);
   } catch (error) {
     const setup = await readBlockedSetupStatus();
     if (setup !== null) {
       return c.json({
         nodes: [],
+        ...(edgeFormat ? { edgeFormat, edgeTypes: [] } : {}),
         edges: [],
         totalNodes: 0,
         totalEdges: 0,
@@ -111,6 +215,18 @@ graphRoutes.get('/api/graph/full', async (c) => {
 /** GET /api/graph/files?projectId=X&limit=N&offset=N - bounded File-to-File IMPORTS graph. */
 graphRoutes.get('/api/graph/files', async (c) => {
   try {
+    if (hasRepeatedQueryValue(c.req.queries('edgeFormat'))) {
+      return c.json({ error: 'edgeFormat must be supplied once' }, 400);
+    }
+    if (hasRepeatedQueryValue(c.req.queries('includeExternals'))) {
+      return c.json({ error: 'includeExternals must be supplied once' }, 400);
+    }
+    const parsedEdgeFormat = parseEdgeFormat(c.req.query('edgeFormat'));
+    if (!parsedEdgeFormat.valid) return c.json({ error: parsedEdgeFormat.error }, 400);
+    const includeExternals = parseIncludeExternals(c.req.query('includeExternals'));
+    if (includeExternals === null) {
+      return c.json({ error: 'includeExternals must be true or false' }, 400);
+    }
     const parsedLimit = boundedPositiveInteger(c.req.query('limit'), 'limit', FILE_GRAPH_LIMIT_MAX);
     if (!parsedLimit.valid) return c.json({ error: parsedLimit.error }, 400);
     const parsedOffset = nonNegativeInteger(c.req.query('offset'), 'offset');
@@ -127,8 +243,8 @@ graphRoutes.get('/api/graph/files', async (c) => {
     }
 
     const client = await getGraphClient();
-    const data = await createQueries(client).getFileGraph(limit, rootPath, offset);
-    return c.json(data);
+    const data = await createQueries(client).getFileGraph(limit, rootPath, offset, includeExternals);
+    return c.json(parsedEdgeFormat.value ? projectIndexedNodeEdges(data) : data);
   } catch (error) {
     return c.json({
       error: safeErrorMessage('GET /api/graph/files', error, 'Failed to fetch file graph.'),
@@ -152,6 +268,8 @@ graphRoutes.post('/api/graph/induced-edges', async (c) => {
     if (body.ids.length > INDUCED_EDGE_IDS_MAX) {
       return c.json({ error: `ids must contain at most ${INDUCED_EDGE_IDS_MAX} items` }, 400);
     }
+    const parsedEdgeFormat = parseEdgeFormat('edgeFormat' in body ? body.edgeFormat : undefined);
+    if (!parsedEdgeFormat.valid) return c.json({ error: parsedEdgeFormat.error }, 400);
 
     const projectId = c.req.query('projectId');
     let rootPath: string | undefined;
@@ -163,9 +281,10 @@ graphRoutes.post('/api/graph/induced-edges', async (c) => {
 
     const client = await getGraphClient();
     const edges = await createQueries(client).getInducedEdges(body.ids, rootPath);
-    return c.json({
-      edges: edges.map(({ source, target, label }) => ({ source, target, label })),
-    });
+    const projected = edges.map(({ source, target, label }) => ({ source, target, label }));
+    return c.json(parsedEdgeFormat.value
+      ? projectIndexedInducedEdges(projected)
+      : { edges: projected });
   } catch (error) {
     return c.json({
       error: safeErrorMessage(
@@ -180,6 +299,11 @@ graphRoutes.post('/api/graph/induced-edges', async (c) => {
 /** GET /api/graph/neighbors?id=X&limit=N - direct neighbors and their induced graph. */
 graphRoutes.get('/api/graph/neighbors', async (c) => {
   try {
+    if (hasRepeatedQueryValue(c.req.queries('edgeFormat'))) {
+      return c.json({ error: 'edgeFormat must be supplied once' }, 400);
+    }
+    const parsedEdgeFormat = parseEdgeFormat(c.req.query('edgeFormat'));
+    if (!parsedEdgeFormat.valid) return c.json({ error: parsedEdgeFormat.error }, 400);
     const parsedLimit = boundedPositiveInteger(c.req.query('limit'), 'limit', NEIGHBOR_LIMIT_MAX);
     if (!parsedLimit.valid) return c.json({ error: parsedLimit.error }, 400);
 
@@ -189,7 +313,7 @@ graphRoutes.get('/api/graph/neighbors', async (c) => {
     const client = await getGraphClient();
     const data = await createQueries(client).getNodeNeighbors(id, parsedLimit.value ?? 100);
     if (!data) return c.json({ error: 'Graph node not found' }, 404);
-    return c.json(data);
+    return c.json(parsedEdgeFormat.value ? projectIndexedNodeEdges(data) : data);
   } catch (error) {
     return c.json({
       error: safeErrorMessage('GET /api/graph/neighbors', error, 'Failed to fetch node neighbors.'),

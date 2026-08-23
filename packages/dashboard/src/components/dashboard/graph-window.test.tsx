@@ -14,7 +14,9 @@ import {
   fetchGraphNodeDetail,
   mergeGraphWindow,
   planInducedEdgeRequests,
+  persistGraphExternalsState,
   persistGraphViewState,
+  readGraphExternalsState,
   readGraphViewState,
   resetGraphExpansions,
   resetGraphView,
@@ -212,6 +214,29 @@ describe('honest graph window', () => {
     })
   })
 
+  it('restores and persists the external visibility preference with URL precedence', () => {
+    expect(readGraphExternalsState(window.location, window.localStorage)).toBe(true)
+
+    window.localStorage.setItem('codegraph.graphIncludeExternals', 'false')
+    expect(readGraphExternalsState(window.location, window.localStorage)).toBe(false)
+
+    window.localStorage.setItem('codegraph.graphIncludeExternals', 'invalid')
+    expect(readGraphExternalsState(window.location, window.localStorage)).toBe(true)
+
+    window.localStorage.setItem('codegraph.graphIncludeExternals', 'false')
+    window.history.replaceState(null, '', '/?graphExternals=true')
+    expect(readGraphExternalsState(window.location, window.localStorage)).toBe(true)
+
+    persistGraphExternalsState(
+      false,
+      window.location,
+      window.history,
+      window.localStorage,
+    )
+    expect(new URL(window.location.href).searchParams.get('graphExternals')).toBe('false')
+    expect(window.localStorage.getItem('codegraph.graphIncludeExternals')).toBe('false')
+  })
+
   it('describes a file drill-down without claiming degree ordering', () => {
     const html = renderToStaticMarkup(
       <GraphControls
@@ -245,6 +270,8 @@ describe('graph level of detail', () => {
         degree: 9,
         symbolCount: 0,
       }],
+      edgeFormat: 'indexed-v1',
+      edgeTypes: [],
       edges: [],
       totalNodes: 1,
       totalEdges: 0,
@@ -318,6 +345,8 @@ describe('graph level of detail', () => {
   it('fetches the endpoint for the selected Files or Symbols mode', async () => {
     const fetcher = vi.fn<typeof fetch>(async () => response({
       nodes: [],
+      edgeFormat: 'indexed-v1',
+      edgeTypes: [],
       edges: [],
       totalNodes: 0,
       totalEdges: 0,
@@ -331,6 +360,7 @@ describe('graph level of detail', () => {
       limit: 500,
       projectId: 'project one',
       offset: 500,
+      includeExternals: false,
       fetchImpl: fetcher,
     })
     await fetchGraphWindow({
@@ -341,18 +371,141 @@ describe('graph level of detail', () => {
       offset: 2000,
       fetchImpl: fetcher,
     })
+    await fetchGraphWindow({
+      apiUrl: 'http://dashboard.test',
+      mode: 'files',
+      limit: 300,
+      fetchImpl: fetcher,
+    })
 
     expect(String(fetcher.mock.calls[0]?.[0])).toBe(
-      'http://dashboard.test/api/graph/files?projectId=project+one&limit=500&offset=500',
+      'http://dashboard.test/api/graph/files?projectId=project+one&limit=500&offset=500&edgeFormat=indexed-v1&includeExternals=false',
     )
     expect(String(fetcher.mock.calls[1]?.[0])).toBe(
-      'http://dashboard.test/api/graph/full?projectId=project+one&limit=1000&offset=2000',
+      'http://dashboard.test/api/graph/full?projectId=project+one&limit=1000&offset=2000&edgeFormat=indexed-v1',
     )
+    expect(String(fetcher.mock.calls[2]?.[0])).toBe(
+      'http://dashboard.test/api/graph/files?limit=300&offset=0&edgeFormat=indexed-v1&includeExternals=true',
+    )
+  })
+
+  it('decodes compact window tuples with the legacy fallback edge identity', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => response({
+      nodes: [
+        { id: 'node-a', label: 'Function', displayName: 'a', degree: 2 },
+        { id: 'node-b', label: 'Function', displayName: 'b', degree: 1 },
+      ],
+      edgeFormat: 'indexed-v1',
+      edgeTypes: ['CALLS'],
+      edges: [[0, 1, 0]],
+      totalNodes: 2,
+      totalEdges: 1,
+    }))
+
+    const result = await fetchGraphWindow({
+      apiUrl: 'http://dashboard.test',
+      mode: 'symbols',
+      limit: 300,
+      fetchImpl: fetcher,
+    })
+
+    expect(result.edges).toEqual([{
+      id: 'CALLS:node-a:node-b',
+      source: 'node-a',
+      target: 'node-b',
+      label: 'CALLS',
+    }])
+  })
+
+  it.each([
+    ['missing edgeFormat', { edgeFormat: undefined }],
+    ['wrong edgeFormat', { edgeFormat: 'indexed-v2' }],
+    ['non-array edgeTypes', { edgeTypes: {} }],
+    ['empty edge type', { edgeTypes: [''] }],
+    ['whitespace-only edge type', { edgeTypes: ['   '] }],
+    ['non-string edge type', { edgeTypes: [1] }],
+    ['duplicate edge type', { edgeTypes: ['CALLS', 'CALLS'] }],
+    ['non-array tuple', { edges: [{}] }],
+    ['short tuple', { edges: [[0, 1]] }],
+    ['negative tuple index', { edges: [[-1, 1, 0]] }],
+    ['fractional tuple index', { edges: [[0.5, 1, 0]] }],
+    ['unsafe tuple index', { edges: [[Number.MAX_SAFE_INTEGER + 1, 1, 0]] }],
+    ['source index outside table', { edges: [[2, 1, 0]] }],
+    ['target index outside table', { edges: [[0, 2, 0]] }],
+    ['type index outside table', { edges: [[0, 1, 1]] }],
+    ['duplicate response node id', {
+      nodes: [
+        { id: 'node-a', label: 'Function' },
+        { id: 'node-a', label: 'Function' },
+      ],
+    }],
+    ['non-string response node id', {
+      nodes: [
+        { id: 'node-a', label: 'Function' },
+        { id: 2, label: 'Function' },
+      ],
+    }],
+  ])('rejects compact windows with %s', async (_name, override) => {
+    const value = {
+      nodes: [
+        { id: 'node-a', label: 'Function' },
+        { id: 'node-b', label: 'Function' },
+      ],
+      edgeFormat: 'indexed-v1',
+      edgeTypes: ['CALLS'],
+      edges: [[0, 1, 0]],
+      ...override,
+    }
+    const fetcher = vi.fn<typeof fetch>(async () => response(value))
+
+    await expect(fetchGraphWindow({
+      apiUrl: 'http://dashboard.test',
+      mode: 'symbols',
+      limit: 300,
+      fetchImpl: fetcher,
+    })).rejects.toThrow('Invalid compact graph edges response')
+  })
+
+  it('rejects a negative-zero tuple index through the compact window fetch path', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(
+      '{"nodes":[{"id":"node-a"},{"id":"node-b"}],"edgeFormat":"indexed-v1","edgeTypes":["CALLS"],"edges":[[-0,1,0]]}',
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ))
+
+    await expect(fetchGraphWindow({
+      apiUrl: 'http://dashboard.test',
+      mode: 'symbols',
+      limit: 300,
+      fetchImpl: fetcher,
+    })).rejects.toThrow('Invalid compact graph edges response')
+  })
+
+  it.each([
+    ['duplicate node id', ['node-a', 'node-a']],
+    ['non-string node id', ['node-a', 2]],
+    ['empty node id', ['node-a', '']],
+    ['whitespace-only node id', ['node-a', '   ']],
+  ])('rejects induced compact edges with %s', async (_name, nodeIds) => {
+    const fetcher = vi.fn<typeof fetch>(async () => response({
+      edgeFormat: 'indexed-v1',
+      nodeIds,
+      edgeTypes: ['CALLS'],
+      edges: [[0, 1, 0]],
+    }))
+
+    await expect(fetchGraphInducedEdges(
+      'http://dashboard.test',
+      [['node-a', 'node-b']],
+      undefined,
+      fetcher,
+    )).rejects.toThrow('Invalid compact graph edges response')
   })
 
   it('parses page metadata from the frozen graph response', async () => {
     const fetcher = vi.fn<typeof fetch>(async () => response({
       nodes: [],
+      edgeFormat: 'indexed-v1',
+      edgeTypes: [],
       edges: [],
       totalNodes: 842,
       totalEdges: 1_204,
@@ -387,7 +540,10 @@ describe('graph level of detail', () => {
     expect(new Set(chunks.flat()).size).toBe(3_000)
 
     const fetcher = vi.fn<typeof fetch>(async () => response({
-      edges: [{ source: 'existing-0', target: 'new-0', label: 'CALLS' }],
+      edgeFormat: 'indexed-v1',
+      nodeIds: ['existing-0', 'new-0'],
+      edgeTypes: ['CALLS'],
+      edges: [[0, 1, 0]],
     }))
     const edges = await fetchGraphInducedEdges(
       'http://dashboard.test',
@@ -407,12 +563,18 @@ describe('graph level of detail', () => {
       expect(JSON.parse(String(init?.body))).toEqual({
         ids: chunks[index],
         projectId: 'project / one',
+        edgeFormat: 'indexed-v1',
       })
     })
   })
 
   it('omits project scope from an unscoped induced-edge request', async () => {
-    const fetcher = vi.fn<typeof fetch>(async () => response({ edges: [] }))
+    const fetcher = vi.fn<typeof fetch>(async () => response({
+      edgeFormat: 'indexed-v1',
+      nodeIds: [],
+      edgeTypes: [],
+      edges: [],
+    }))
 
     await fetchGraphInducedEdges(
       'http://dashboard.test',
@@ -426,6 +588,7 @@ describe('graph level of detail', () => {
     )
     expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({
       ids: ['node-1', 'node-2'],
+      edgeFormat: 'indexed-v1',
     })
   })
 
@@ -465,10 +628,9 @@ describe('graph level of detail', () => {
           { id: symbolA, label: 'Function', displayName: 'alpha', filePath: '/repo/src/main.ts', data: {} },
           { id: symbolB, label: 'Function', displayName: 'beta', filePath: '/repo/src/main.ts', data: {} },
         ],
-        edges: [
-          { id: 'contains-a', source: fileNode.id, target: symbolA, label: 'CONTAINS' },
-          { id: 'calls', source: symbolA, target: symbolB, label: 'CALLS' },
-        ],
+        edgeFormat: 'indexed-v1',
+        edgeTypes: ['CONTAINS', 'CALLS'],
+        edges: [[0, 1, 0], [1, 2, 1]],
         incomingTruncated: false,
         outgoingTruncated: false,
       })
@@ -484,7 +646,7 @@ describe('graph level of detail', () => {
     })
 
     expect(result.nodes.map((node) => node.id)).toEqual([symbolA, symbolB])
-    expect(result.edges.map((edge) => edge.id)).toEqual(['calls'])
+    expect(result.edges.map((edge) => edge.id)).toEqual([`CALLS:${symbolA}:${symbolB}`])
     expect(result.totalNodes).toBe(600)
     expect(result.truncation).toEqual({ incoming: false, outgoing: false, window: true })
     const controlsHtml = renderToStaticMarkup(
@@ -516,7 +678,7 @@ describe('graph level of detail', () => {
       'http://dashboard.test/api/graph/file-relationships?path=%2Frepo%2Fsrc%2Fmain.ts&limit=1000',
     )
     expect(requestedUrls).toContain(
-      `http://dashboard.test/api/graph/neighbors?id=${encodeURIComponent(fileNode.id)}&limit=1000`,
+      `http://dashboard.test/api/graph/neighbors?id=${encodeURIComponent(fileNode.id)}&limit=1000&edgeFormat=indexed-v1`,
     )
   })
 

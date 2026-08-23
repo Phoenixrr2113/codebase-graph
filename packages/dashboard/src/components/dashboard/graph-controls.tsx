@@ -16,6 +16,8 @@ interface GraphControlsProps {
   onWindowLimitChange?: (limit: GraphWindowLimit) => void
   mode?: GraphViewMode
   onModeChange?: (mode: GraphViewMode) => void
+  includeExternals?: boolean
+  onIncludeExternalsChange?: (value: boolean) => void
   canReset?: boolean
   pageOffset?: number
   pageReturned?: number
@@ -51,6 +53,8 @@ export function GraphControls({
   onWindowLimitChange,
   mode = 'symbols',
   onModeChange,
+  includeExternals = true,
+  onIncludeExternalsChange,
   canReset = false,
   pageOffset = 0,
   pageReturned = nodeCount,
@@ -92,6 +96,18 @@ export function GraphControls({
             </Button>
           ))}
         </div>
+        {mode === 'files' && (
+          <Button
+            variant={includeExternals ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => onIncludeExternalsChange?.(!includeExternals)}
+            aria-pressed={includeExternals}
+            aria-label="Show unresolved external modules"
+            className="h-7 px-2 text-xs"
+          >
+            Externals
+          </Button>
+        )}
         <label className="text-subtle flex h-8 items-center gap-1 rounded-md border border-border px-2 text-xs">
           Window
           <select

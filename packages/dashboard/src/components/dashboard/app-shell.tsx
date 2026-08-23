@@ -17,7 +17,9 @@ import {
   appendGraphExpansion,
   DEFAULT_GRAPH_VIEW,
   fetchGraphNodeDetail,
+  persistGraphExternalsState,
   persistGraphViewState,
+  readGraphExternalsState,
   readGraphViewState,
   resetGraphView,
   type GraphCanvasViewState,
@@ -230,6 +232,15 @@ export function AppShell({
       return { ...DEFAULT_GRAPH_VIEW, fileScope: null, expansions: [] }
     }
   })
+  const [includeExternals, setIncludeExternals] = useState(() => {
+    if (typeof window === 'undefined') return true
+    try {
+      return readGraphExternalsState(window.location, window.localStorage)
+    } catch (error) {
+      console.warn('Unable to read the saved graph externals preference', error)
+      return true
+    }
+  })
   const [expansionRequest, setExpansionRequest] = useState<{ node: GraphNode; sequence: number } | null>(null)
   const [selectionHistory, setSelectionHistory] = useState<SelectionHistory>(EMPTY_SELECTION_HISTORY)
   const canvasViewRef = useRef(canvasView)
@@ -254,6 +265,19 @@ export function AppShell({
       console.warn('Unable to persist the graph view', error)
     }
   }, [canvasView])
+
+  useEffect(() => {
+    try {
+      persistGraphExternalsState(
+        includeExternals,
+        window.location,
+        window.history,
+        window.localStorage,
+      )
+    } catch (error) {
+      console.warn('Unable to persist the graph externals preference', error)
+    }
+  }, [includeExternals])
 
   const handleNodeSelect = useCallback((node: GraphNode | null) => {
     setSelectionHistory((history) => pushSelectionHistory(history, node, canvasViewRef.current))
@@ -309,6 +333,11 @@ export function AppShell({
 
   const handleModeChange = useCallback((mode: GraphViewMode) => {
     recordCanvasView({ ...canvasView, mode, offset: 0, fileScope: null, expansions: [] })
+  }, [canvasView, recordCanvasView])
+
+  const handleIncludeExternalsChange = useCallback((value: boolean) => {
+    setIncludeExternals(value)
+    recordCanvasView({ ...canvasView, offset: 0, fileScope: null, expansions: [] })
   }, [canvasView, recordCanvasView])
 
   const handleWindowLimitChange = useCallback((limit: GraphWindowLimit) => {
@@ -474,11 +503,13 @@ export function AppShell({
                 projectId={projectId}
                 referenceNodeIds={referenceNodeIds}
                 mode={canvasView.mode}
+                includeExternals={includeExternals}
                 windowLimit={canvasView.limit}
                 pageOffset={canvasView.offset}
                 fileScope={canvasView.fileScope}
                 restoredExpansions={canvasView.expansions}
                 onModeChange={handleModeChange}
+                onIncludeExternalsChange={handleIncludeExternalsChange}
                 onWindowLimitChange={handleWindowLimitChange}
                 onPageChange={handlePageChange}
                 expansionRequest={expansionRequest}

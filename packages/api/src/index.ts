@@ -6,6 +6,7 @@
  */
 
 import { createAdaptorServer } from '@hono/node-server';
+import { getGraphClient } from '@codegraph/core';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { readFile } from 'node:fs/promises';
@@ -115,6 +116,11 @@ server.listen(port, API_BIND_HOST, () => {
     server.close();
     return;
   }
+  void getGraphClient()
+    .then((client) => client.roQuery('RETURN 1 AS warmup'))
+    .catch(() => {
+      console.warn('[codegraph] Graph warmup did not complete; graph requests will retry through storage state.');
+    });
   console.log(`CodeGraph API server running on http://localhost:${info.port}`);
   console.log(`  Config:     ${loadedEnvFile ?? 'process environment only (no .env found)'}`);
   console.log(

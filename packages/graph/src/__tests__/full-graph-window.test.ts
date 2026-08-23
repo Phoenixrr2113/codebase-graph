@@ -245,6 +245,7 @@ describeIfAvailable('full graph unique window selection', () => {
       CREATE (:File:External {filePath: '/repo/a.ts', degree: 9})
       CREATE (:File {filePath: '/repo/b.ts', name: 'b.ts', degree: 8})
       CREATE (:File {filePath: '/repo/c.ts', name: 'c.ts', degree: 7})
+      CREATE (:File:External {filePath: 'external:only-package', degree: 6})
     `);
   });
 
@@ -279,6 +280,16 @@ describeIfAvailable('full graph unique window selection', () => {
       'File:/repo/c.ts',
     ]);
     expect(combined.totalNodes).toBe(3);
+  });
+
+  it('keeps an external-only File by default and excludes it before totals when requested', async () => {
+    const included = await queries.getFileGraph(10);
+    const excluded = await queries.getFileGraph(10, undefined, 0, false);
+
+    expect(included.nodes.map((node) => node.id)).toContain('File:external:only-package');
+    expect(included.totalNodes).toBe(4);
+    expect(excluded.nodes.map((node) => node.id)).not.toContain('File:external:only-package');
+    expect(excluded.totalNodes).toBe(3);
   });
 });
 
