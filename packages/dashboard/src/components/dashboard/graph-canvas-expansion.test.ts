@@ -2,6 +2,7 @@ import cytoscape from 'cytoscape'
 import { describe, expect, it } from 'vitest'
 import { applyCanvasExpansion } from './graph-canvas'
 import {
+  planGraphPageAppend,
   planGraphExpansion,
   type GraphNodeData,
   type GraphWindow,
@@ -29,6 +30,11 @@ const baseWindow: GraphWindow = {
   totalEdges: 0,
   windowOrder: 'degree-desc,id-asc',
   truncation: { incoming: false, outgoing: false },
+  offset: 0,
+  limit: 300,
+  returned: 2,
+  hasMore: true,
+  nextOffset: 300,
 }
 
 const incoming: NeighborWindow = {
@@ -69,6 +75,38 @@ describe('incremental graph expansion', () => {
       Math.hypot(position.x - sourcePosition.x, position.y - sourcePosition.y) >= 96
     ))).toBe(true)
     expect(new Set(plan.newNodes.map(({ position }) => `${position.x},${position.y}`)).size).toBe(2)
+  })
+
+  it('appends a page without duplicates in a deterministic band beside existing content', () => {
+    const incomingPage: GraphWindow = {
+      ...baseWindow,
+      nodes: [existingNode, ...incoming.nodes.slice(1)],
+      edges: incoming.edges,
+      offset: 300,
+      returned: 3,
+      hasMore: false,
+      nextOffset: null,
+    }
+    const plan = planGraphPageAppend(
+      baseWindow,
+      incomingPage,
+      [{ id: 'cross', source: 'existing', target: 'neighbor-a', label: 'CALLS' }],
+      { x1: 100, y1: 150, x2: 500, y2: 450 },
+    )
+
+    expect(plan.preserveViewport).toBe(true)
+    expect(plan.fit).toBe(false)
+    expect(plan.runLayout).toBe(false)
+    expect(plan.newNodes.map(({ node }) => node.id)).toEqual(['neighbor-a', 'neighbor-b'])
+    expect(plan.newNodes.every(({ position }) => position.x > 500)).toBe(true)
+    expect(plan.newEdges.map((edge) => edge.id)).toEqual(['edge-a', 'edge-b', 'cross'])
+    expect(plan.window.nodes.map((node) => node.id)).toEqual([
+      'source',
+      'existing',
+      'neighbor-a',
+      'neighbor-b',
+    ])
+    expect(plan.window.hasMore).toBe(false)
   })
 
   it('keeps existing positions and the viewport unchanged while adding an expansion', () => {

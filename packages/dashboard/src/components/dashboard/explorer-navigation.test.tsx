@@ -5,6 +5,7 @@ import {
   ExplorerNavigation,
   deriveBreadcrumbs,
   moveSelectionHistory,
+  pushViewChangeHistory,
   pushSelectionHistory,
   searchResultToGraphNode,
 } from './app-shell'
@@ -31,6 +32,7 @@ const symbolNode: GraphNode = {
 const canvasView: GraphCanvasViewState = {
   mode: 'symbols',
   limit: 300,
+  offset: 0,
   fileScope: null,
   expansions: [],
 }
@@ -139,6 +141,28 @@ describe('explorer selection history', () => {
 
     history = moveSelectionHistory(history, 1)
     expect(history.entries[history.index]?.node?.id).toBe(symbolNode.id)
+  })
+
+  it('records page changes so Back restores the prior offset', () => {
+    const nextPage = { ...canvasView, offset: 300 }
+    let history = pushSelectionHistory(EMPTY_SELECTION_HISTORY, fileNode, canvasView)
+    history = pushSelectionHistory(history, null, nextPage, { force: true })
+
+    expect(history.entries[history.index]?.node).toBeNull()
+
+    history = moveSelectionHistory(history, -1)
+
+    expect(history.entries[history.index]?.view.offset).toBe(0)
+    expect(history.entries[history.index]?.node?.id).toBe(fileNode.id)
+  })
+
+  it('seeds page one when the first interaction is paging', () => {
+    const nextPage = { ...canvasView, offset: 300 }
+
+    const history = pushViewChangeHistory(EMPTY_SELECTION_HISTORY, null, canvasView, nextPage)
+
+    expect(history.entries.map((entry) => entry.view.offset)).toEqual([0, 300])
+    expect(moveSelectionHistory(history, -1).entries[0]?.view.offset).toBe(0)
   })
 })
 

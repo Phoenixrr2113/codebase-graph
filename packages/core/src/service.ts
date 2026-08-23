@@ -107,8 +107,8 @@ class CodeGraphServiceImpl {
 
   // --- Graph Traversal ---
 
-  async getFullGraph(limit?: number, rootPath?: string): Promise<GraphWindowResult> {
-    return getFullGraphImpl(limit, rootPath);
+  async getFullGraph(limit?: number, rootPath?: string, offset?: number): Promise<GraphWindowResult> {
+    return getFullGraphImpl(limit, rootPath, offset);
   }
 
   async getFileSubgraph(filePath: string): Promise<SubgraphData> {

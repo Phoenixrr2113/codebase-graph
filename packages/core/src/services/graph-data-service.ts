@@ -59,10 +59,14 @@ export async function getGraphStatsImpl(): Promise<GraphStats> {
 /**
  * Get the full graph (nodes + edges), optionally filtered by root path.
  */
-export async function getFullGraphImpl(limit?: number, rootPath?: string): Promise<GraphWindowResult> {
+export async function getFullGraphImpl(
+  limit?: number,
+  rootPath?: string,
+  offset?: number,
+): Promise<GraphWindowResult> {
   const client = await getGraphClient();
   const queries = createQueries(client);
-  return queries.getFullGraph(limit, rootPath);
+  return queries.getFullGraph(limit, rootPath, offset);
 }
 
 /**
