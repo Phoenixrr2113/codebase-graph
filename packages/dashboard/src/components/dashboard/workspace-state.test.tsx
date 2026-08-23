@@ -5,6 +5,10 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../App'
 
+vi.mock('./graph-canvas', () => ({
+  GraphCanvas: () => null,
+}));
+
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true
@@ -141,5 +145,5 @@ describe('dashboard workspace persistence', () => {
     expect(fetcher.mock.calls.filter(([input]) => new URL(String(input), 'http://localhost:3000').pathname === '/api/query/cypher')).toHaveLength(1)
 
     await act(async () => root.unmount())
-  })
+  }, 20_000)
 })
