@@ -4,7 +4,10 @@ import { GraphControls } from './graph-controls'
 import { cytoscapeStylesheet, LAYOUT_OPTIONS, type LayoutName } from '@/lib/cytoscape-config'
 import {
   fetchGraphWindow,
+  fetchGraphInducedEdges,
   fetchNeighbors,
+  planGraphPageAppend,
+  planInducedEdgeRequests,
   planGraphExpansion,
   resetGraphWindow,
   restoreGraphWindow,
@@ -109,9 +112,11 @@ interface GraphCanvasProps {
   projectId?: string | null
   mode?: GraphViewMode
   windowLimit?: GraphWindowLimit
+  pageOffset?: number
   fileScope?: GraphNode | null
   onModeChange?: (mode: GraphViewMode) => void
   onWindowLimitChange?: (limit: GraphWindowLimit) => void
+  onPageChange?: (offset: number) => void
   expansionRequest?: { node: GraphNode; sequence: number } | null
   restoredExpansions?: readonly GraphNode[]
   onExpanded?: (node: GraphNode) => void
@@ -129,9 +134,11 @@ export function GraphCanvas({
   projectId,
   mode = 'symbols',
   windowLimit = 300,
+  pageOffset = 0,
   fileScope = null,
   onModeChange,
   onWindowLimitChange,
+  onPageChange,
   expansionRequest = null,
   restoredExpansions = [],
   onExpanded,
@@ -145,6 +152,7 @@ export function GraphCanvas({
   const handledExpansionSequenceRef = useRef<number | null>(null)
   const expansionAbortRef = useRef<AbortController | null>(null)
   const restorationAbortRef = useRef<AbortController | null>(null)
+  const loadMoreAbortRef = useRef<AbortController | null>(null)
   const appliedExpansionIdsRef = useRef<string[]>([])
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const [loading, setLoading] = useState(true)
@@ -158,6 +166,8 @@ export function GraphCanvas({
   const [expansionError, setExpansionError] = useState<string | null>(null)
   const [layout, setLayout] = useState<LayoutName>('cose')
   const [renderRevision, setRenderRevision] = useState(0)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [liveAnnouncement, setLiveAnnouncement] = useState('')
 
   const expandNode = useCallback(async (node: GraphNode): Promise<void> => {
     if (expansionAbortRef.current !== null) return
@@ -222,6 +232,7 @@ export function GraphCanvas({
           apiUrl,
           mode,
           limit: windowLimit,
+          offset: pageOffset,
           projectId,
           fileScope,
         })
@@ -323,6 +334,9 @@ export function GraphCanvas({
         }
 
         setLoading(false)
+        const rangeStart = data.returned === 0 ? 0 : data.offset + 1
+        const rangeEnd = data.offset + data.returned
+        setLiveAnnouncement(`Loaded nodes ${rangeStart.toLocaleString()} to ${rangeEnd.toLocaleString()} of ${data.totalNodes.toLocaleString()}.`)
       } catch (err) {
         if (mounted) {
           setError(err instanceof Error ? err.message : 'Failed to load graph')
@@ -342,11 +356,13 @@ export function GraphCanvas({
       expansionAbortRef.current = null
       restorationAbortRef.current?.abort()
       restorationAbortRef.current = null
+      loadMoreAbortRef.current?.abort()
+      loadMoreAbortRef.current = null
       appliedExpansionIdsRef.current = []
       graphWindowRef.current = null
       baseWindowRef.current = null
     }
-  }, [apiUrl, fileScope, mode, onNodeSelect, projectId, windowLimit])
+  }, [apiUrl, fileScope, mode, onNodeSelect, pageOffset, projectId, windowLimit])
 
   useEffect(() => {
     if (
@@ -554,6 +570,87 @@ export function GraphCanvas({
     onResetView?.()
   }, [layout, onResetView])
 
+  const handlePreviousPage = useCallback(() => {
+    const current = graphWindowRef.current
+    if (!current || current.offset === 0 || loadingMore) return
+    onPageChange?.(Math.max(0, current.offset - current.limit))
+  }, [loadingMore, onPageChange])
+
+  const handleNextPage = useCallback(() => {
+    const current = graphWindowRef.current
+    if (!current || !current.hasMore || current.nextOffset === null || loadingMore) return
+    onPageChange?.(current.nextOffset)
+  }, [loadingMore, onPageChange])
+
+  const handleLoadMore = useCallback(async (): Promise<void> => {
+    const current = graphWindowRef.current
+    const cy = cyRef.current
+    if (
+      !current
+      || !cy
+      || cy.destroyed()
+      || !current.hasMore
+      || current.nextOffset === null
+      || loadMoreAbortRef.current !== null
+      || fileScope !== null
+    ) return
+
+    const viewport = { pan: { ...cy.pan() }, zoom: cy.zoom() }
+    const controller = new AbortController()
+    loadMoreAbortRef.current = controller
+    setLoadingMore(true)
+    setExpansionError(null)
+    try {
+      const incoming = await fetchGraphWindow({
+        apiUrl,
+        mode,
+        limit: windowLimit,
+        offset: current.nextOffset,
+        projectId,
+        signal: controller.signal,
+      })
+      const latest = graphWindowRef.current
+      const activeCy = cyRef.current
+      if (!latest || !activeCy || activeCy.destroyed() || controller.signal.aborted) return
+
+      const existingIds = latest.nodes.map((node) => node.id)
+      const existingIdSet = new Set(existingIds)
+      const newIds = incoming.nodes
+        .map((node) => node.id)
+        .filter((id) => !existingIdSet.has(id))
+      const inducedEdges = await fetchGraphInducedEdges(
+        apiUrl,
+        planInducedEdgeRequests(existingIds, newIds),
+        controller.signal,
+        undefined,
+        projectId,
+      )
+      if (controller.signal.aborted || activeCy.destroyed()) return
+
+      const bounds = activeCy.nodes().boundingBox({ includeLabels: false, includeOverlays: false })
+      const plan = planGraphPageAppend(latest, incoming, inducedEdges, bounds)
+      applyCanvasExpansion(activeCy, plan, viewport)
+      graphWindowRef.current = plan.window
+      setGraphWindow(plan.window)
+      setCanvasNodes(plan.window.nodes)
+      setNodeCount(plan.window.nodes.length)
+      setEdgeCount(plan.window.edges.length)
+      setRenderRevision((revision) => revision + 1)
+      setLiveAnnouncement(
+        `${plan.newNodes.length.toLocaleString()} nodes loaded.${plan.window.hasMore ? '' : ' All nodes loaded.'}`,
+      )
+    } catch (error) {
+      if (controller.signal.aborted) return
+      console.error('Failed to load the next graph page', error)
+      setExpansionError(error instanceof Error ? error.message : 'Failed to load the next graph page')
+    } finally {
+      if (loadMoreAbortRef.current === controller) {
+        loadMoreAbortRef.current = null
+        setLoadingMore(false)
+      }
+    }
+  }, [apiUrl, fileScope, mode, projectId, windowLimit])
+
   const handleRelayout = useCallback((newLayout?: LayoutName) => {
     const l = newLayout ?? layout
     if (newLayout) setLayout(l)
@@ -658,7 +755,16 @@ export function GraphCanvas({
         onWindowLimitChange={onWindowLimitChange}
         mode={mode}
         onModeChange={onModeChange}
-        canReset={graphWindow !== null && baseWindow !== null && graphWindow !== baseWindow}
+        canReset={graphWindow !== null && baseWindow !== null && (graphWindow !== baseWindow || pageOffset > 0)}
+        pageOffset={graphWindow?.offset ?? pageOffset}
+        pageReturned={graphWindow?.returned ?? nodeCount}
+        hasMore={graphWindow?.hasMore ?? false}
+        pagingEnabled={fileScope === null}
+        isLoadingMore={loadingMore}
+        onPreviousPage={handlePreviousPage}
+        onNextPage={handleNextPage}
+        onLoadMore={() => { void handleLoadMore() }}
+        liveAnnouncement={liveAnnouncement}
         truncation={graphWindow?.truncation}
         windowOrder={graphWindow?.windowOrder}
         layout={layout}

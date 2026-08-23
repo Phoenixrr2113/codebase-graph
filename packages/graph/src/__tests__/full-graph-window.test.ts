@@ -264,6 +264,22 @@ describeIfAvailable('full graph unique window selection', () => {
     expect(result.nodes).toHaveLength(3);
     expect(result.totalNodes).toBe(3);
   });
+
+  it('deduplicates file graph ids before paging and counting totals', async () => {
+    const first = await queries.getFileGraph(2, '/repo', 0);
+    const second = await queries.getFileGraph(2, '/repo', first.nextOffset ?? 0);
+    const combined = await queries.getFileGraph(3, '/repo', 0);
+
+    expect([...first.nodes, ...second.nodes].map((node) => node.id)).toEqual(
+      combined.nodes.map((node) => node.id),
+    );
+    expect(combined.nodes.map((node) => node.id)).toEqual([
+      'File:/repo/a.ts',
+      'File:/repo/b.ts',
+      'File:/repo/c.ts',
+    ]);
+    expect(combined.totalNodes).toBe(3);
+  });
 });
 
 describeIfAvailable('project-scoped dashboard full graph', () => {

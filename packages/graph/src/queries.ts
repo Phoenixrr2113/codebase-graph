@@ -257,6 +257,7 @@ function buildCypherTemplates(dialect: CypherDialect) {
           WITH n, stableId, coalesce(n.degree, 0) AS degree
           RETURN n, ${labelsExpr('n')} as labels, id(n) as nodeIdentity, degree
           ORDER BY degree DESC, stableId ASC
+          SKIP $offset
           LIMIT $limit
         `;
       }
@@ -270,6 +271,7 @@ function buildCypherTemplates(dialect: CypherDialect) {
         WITH n, stableId, coalesce(n.degree, 0) AS degree
         RETURN n, ${labelsExpr('n')} as labels, id(n) as nodeIdentity, degree
         ORDER BY degree DESC, stableId ASC
+        SKIP $offset
         LIMIT $limit
       `;
     },
@@ -380,9 +382,53 @@ function buildCypherTemplates(dialect: CypherDialect) {
         WHERE ${fileScope('connected')}
         WITH f, symbolCount, count(DISTINCT degreeEdge) AS degree,
              'File:' + f.filePath AS stableId
+        ORDER BY CASE WHEN ${lc('f', 'External')} THEN 1 ELSE 0 END
+        WITH stableId,
+             head(collect(f)) AS f,
+             head(collect(symbolCount)) AS symbolCount,
+             head(collect(degree)) AS degree
         RETURN f, symbolCount, id(f) AS nodeIdentity
         ORDER BY degree DESC, stableId ASC
+        SKIP $offset
         LIMIT $limit
+      `;
+    },
+
+    GET_SELECTED_GRAPH_NODES: (rootPath?: string) => {
+      const dashboardLabels = [...REFERENCEABLE_LABELS, 'Entity'];
+      const requestedId = (alias: string) => `(
+        (${lc(alias, 'File')} AND ('File:' + ${alias}.filePath) IN $ids)
+        OR (NOT (${lc(alias, 'File')}) AND ${alias}.id IN $ids)
+      )`;
+      if (rootPath) {
+        const withinRoot = (alias: string) =>
+          `(${alias}.filePath = $rootPath OR ${alias}.filePath STARTS WITH $rootPathPrefix)`;
+        return `
+          MATCH (n)
+          WHERE (${labelOr('n', dashboardLabels)}) AND ${requestedId('n')}
+          OPTIONAL MATCH (n)-[:ABOUT]->(aboutTarget)
+          OPTIONAL MATCH (n)-[:RELATES_TO]-(related:Entity)-[:ABOUT]->(relatedTarget)
+          WITH n, aboutTarget, relatedTarget
+          WHERE (
+            (NOT (${lc('n', 'Entity')}) AND ${withinRoot('n')})
+            OR (${lc('n', 'Entity')} AND (
+              ${withinRoot('aboutTarget')} OR ${withinRoot('relatedTarget')}
+            ))
+          )
+          WITH DISTINCT n, ${stableNodeId('n')} AS stableId
+          ORDER BY CASE WHEN ${lc('n', 'External')} THEN 1 ELSE 0 END
+          WITH stableId, head(collect(n)) AS n
+          RETURN n, ${labelsExpr('n')} AS labels
+        `;
+      }
+
+      return `
+        MATCH (n)
+        WHERE (${labelOr('n', dashboardLabels)}) AND ${requestedId('n')}
+        WITH n, ${stableNodeId('n')} AS stableId
+        ORDER BY CASE WHEN ${lc('n', 'External')} THEN 1 ELSE 0 END
+        WITH stableId, head(collect(n)) AS n
+        RETURN n, ${labelsExpr('n')} AS labels
       `;
     },
 
@@ -390,7 +436,7 @@ function buildCypherTemplates(dialect: CypherDialect) {
       const where = rootPath
         ? 'WHERE f.filePath = $rootPath OR f.filePath STARTS WITH $rootPathPrefix'
         : '';
-      return `MATCH (f:File) ${where} RETURN count(f) AS totalNodes`;
+      return `MATCH (f:File) ${where} RETURN count(DISTINCT f.filePath) AS totalNodes`;
     },
 
     GET_FILE_GRAPH_EDGE_TOTAL: (rootPath?: string) => {
@@ -625,6 +671,11 @@ export interface GraphWindowResult {
   totalEdges: number;
   windowOrder: 'degree-desc,id-asc';
   degreeScope: 'global';
+  offset: number;
+  limit: number;
+  returned: number;
+  hasMore: boolean;
+  nextOffset: number | null;
   truncated: boolean;
 }
 
@@ -652,6 +703,11 @@ export interface FileGraphResult {
   totalNodes: number;
   totalEdges: number;
   windowOrder: 'degree-desc,id-asc';
+  offset: number;
+  limit: number;
+  returned: number;
+  hasMore: boolean;
+  nextOffset: number | null;
   truncated: boolean;
 }
 
@@ -675,10 +731,13 @@ export interface GraphQueries {
    * @param limit - Maximum number of nodes to return
    * @param rootPath - Optional project root path to filter by
    */
-  getFullGraph(limit?: number, rootPath?: string): Promise<GraphWindowResult>;
+  getFullGraph(limit?: number, rootPath?: string, offset?: number): Promise<GraphWindowResult>;
 
   /** Get the bounded File-to-File IMPORTS graph, optionally scoped by root path. */
-  getFileGraph(limit?: number, rootPath?: string): Promise<FileGraphResult>;
+  getFileGraph(limit?: number, rootPath?: string, offset?: number): Promise<FileGraphResult>;
+
+  /** Return edges induced among persisted ids, optionally scoped by root path. */
+  getInducedEdges(ids: string[], rootPath?: string): Promise<GraphWindowEdge[]>;
 
   /** Get a node, its bounded direct neighbors, and their induced edges. */
   getNodeNeighbors(id: string, limit?: number): Promise<NodeNeighborsResult | undefined>;
@@ -751,7 +810,7 @@ class GraphQueriesImpl implements GraphQueries {
   }
 
   @trace()
-  async getFullGraph(limit = 1000, rootPath?: string): Promise<GraphWindowResult> {
+  async getFullGraph(limit = 1000, rootPath?: string, offset = 0): Promise<GraphWindowResult> {
     const nodes: GraphWindowNode[] = [];
     const edges: GraphWindowEdge[] = [];
     const nodeIds = new Set<string>();
@@ -775,7 +834,7 @@ class GraphQueriesImpl implements GraphQueries {
         nodeIdentity: number;
         degree: number;
       }>(this.templates.GET_FULL_GRAPH_NODES(normalizedRootPath), {
-        params: { limit, ...scopeParams },
+        params: { limit, offset, ...scopeParams },
       }),
       this.client.roQuery<{ nodeIdentities: number[] }>(
         this.templates.GET_SCOPED_ENTITY_IDENTITIES(normalizedRootPath),
@@ -851,6 +910,8 @@ class GraphQueriesImpl implements GraphQueries {
       }
     }
 
+    const returned = nodes.length;
+    const hasMore = offset + returned < totalNodes;
     return {
       nodes,
       edges,
@@ -858,12 +919,17 @@ class GraphQueriesImpl implements GraphQueries {
       totalEdges,
       windowOrder: 'degree-desc,id-asc',
       degreeScope: 'global',
+      offset,
+      limit,
+      returned,
+      hasMore,
+      nextOffset: hasMore ? offset + returned : null,
       truncated: nodes.length < totalNodes,
     };
   }
 
   @trace()
-  async getFileGraph(limit = 1000, rootPath?: string): Promise<FileGraphResult> {
+  async getFileGraph(limit = 1000, rootPath?: string, offset = 0): Promise<FileGraphResult> {
     let normalizedRootPath = rootPath || undefined;
     while (normalizedRootPath && normalizedRootPath.endsWith('/')) {
       normalizedRootPath = normalizedRootPath.slice(0, -1) || undefined;
@@ -887,7 +953,7 @@ class GraphQueriesImpl implements GraphQueries {
         symbolCount: number;
         nodeIdentity: number;
       }>(this.templates.GET_FILE_GRAPH_NODES(normalizedRootPath), {
-        params: { ...scopeParams, limit },
+        params: { ...scopeParams, limit, offset },
       }),
     ]);
 
@@ -924,14 +990,82 @@ class GraphQueriesImpl implements GraphQueries {
     ));
 
     const totalNodes = nodeTotalResult.data[0]?.totalNodes ?? 0;
+    const returned = nodes.length;
+    const hasMore = offset + returned < totalNodes;
     return {
       nodes,
       edges,
       totalNodes,
       totalEdges: edgeTotalResult.data[0]?.totalEdges ?? 0,
       windowOrder: 'degree-desc,id-asc',
+      offset,
+      limit,
+      returned,
+      hasMore,
+      nextOffset: hasMore ? offset + returned : null,
       truncated: nodes.length < totalNodes,
     };
+  }
+
+  @trace()
+  async getInducedEdges(ids: string[], rootPath?: string): Promise<GraphWindowEdge[]> {
+    const requestedIds = [...new Set(ids)];
+    if (requestedIds.length === 0) return [];
+
+    let normalizedRootPath = rootPath || undefined;
+    while (normalizedRootPath && normalizedRootPath.endsWith('/')) {
+      normalizedRootPath = normalizedRootPath.slice(0, -1) || undefined;
+    }
+    const rootPathPrefix = normalizedRootPath ? `${normalizedRootPath}/` : undefined;
+    const scopeParams = normalizedRootPath && rootPathPrefix
+      ? { rootPath: normalizedRootPath, rootPathPrefix }
+      : {};
+
+    const [nodesResult, excludedIdentitiesResult] = await Promise.all([
+      this.client.roQuery<{ n: Record<string, unknown>; labels: string[] }>(
+        this.templates.GET_SELECTED_GRAPH_NODES(normalizedRootPath),
+        { params: { ids: requestedIds, ...scopeParams } },
+      ),
+      this.client.roQuery<{ nodeIdentities: number[] }>(
+        this.templates.GET_SHADOWED_EXTERNAL_IDENTITIES(normalizedRootPath),
+        { params: scopeParams },
+      ),
+    ]);
+
+    const edgeSourceIds = new Map<string, string[]>();
+    const filePaths: string[] = [];
+    const persistedIds: string[] = [];
+    for (const row of nodesResult.data ?? []) {
+      const props = extractNodeProps(row.n, this.dialect);
+      const sourceLabel = row.labels.includes('File')
+        ? 'File'
+        : row.labels.includes('Entity')
+          ? 'Entity'
+          : REFERENCEABLE_LABELS.find((label) => row.labels.includes(label));
+      const sourceId = sourceLabel === 'File' ? props['filePath'] : props['id'];
+      if (!sourceLabel || typeof sourceId !== 'string') continue;
+
+      const sourceIds = edgeSourceIds.get(sourceLabel) ?? [];
+      sourceIds.push(sourceId);
+      edgeSourceIds.set(sourceLabel, sourceIds);
+      if (sourceLabel === 'File') {
+        filePaths.push(sourceId);
+      } else {
+        persistedIds.push(sourceId);
+      }
+    }
+
+    const excludedNodeIdentities = excludedIdentitiesResult.data[0]?.nodeIdentities ?? [];
+    const results = await Promise.all([...edgeSourceIds.entries()].map(([sourceLabel, sourceIds]) => (
+      this.client.roQuery<{ source: string; target: string; label: string }>(
+        this.templates.GET_FULL_GRAPH_WINDOW_EDGES(sourceLabel),
+        { params: { sourceIds, filePaths, persistedIds, excludedNodeIdentities } },
+      )
+    )));
+
+    return results.flatMap((result) => (result.data ?? []).map((row) => (
+      projectedWindowEdge(row.source, row.target, row.label)
+    )));
   }
 
   @trace()

@@ -53,6 +53,19 @@ describe('CodeGraphService', () => {
     mockClient.roQuery.mockResolvedValue({ data: [], metadata: null });
   });
 
+  describe('getFullGraph', () => {
+    it('forwards the requested offset into the ordered graph query', async () => {
+      await codeGraphService.getFullGraph(25, '/repo', 3000);
+
+      const nodeQuery = mockClient.roQuery.mock.calls.find(([cypher]) => (
+        typeof cypher === 'string' && cypher.includes('ORDER BY degree DESC, stableId ASC')
+      ));
+      expect(nodeQuery?.[1]).toEqual({
+        params: { limit: 25, offset: 3000, rootPath: '/repo', rootPathPrefix: '/repo/' },
+      });
+    });
+  });
+
   // =========================================================================
   // deleteProject
   // =========================================================================

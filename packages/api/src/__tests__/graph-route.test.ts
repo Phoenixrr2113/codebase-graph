@@ -77,6 +77,11 @@ describe('graph route numeric boundaries', () => {
       totalEdges: 0,
       windowOrder: 'degree-desc,id-asc',
       degreeScope: 'global',
+      offset: 0,
+      limit: 100,
+      returned: 0,
+      hasMore: false,
+      nextOffset: null,
       truncated: false,
     });
     mockedReferences.mockResolvedValue({ references: [], referencingFiles: [], truncated: false });
@@ -106,7 +111,23 @@ describe('graph route numeric boundaries', () => {
     const response = await graphRoutes.request('/api/graph/full?limit=1000');
 
     expect(response.status).toBe(200);
-    expect(mockedFullGraph).toHaveBeenCalledWith(1000, undefined);
+    expect(mockedFullGraph).toHaveBeenCalledWith(1000, undefined, 0);
+  });
+
+  it.each(['NaN', 'Infinity', '-1', '1.5'])(
+    'rejects full graph offset=%s before touching the graph',
+    async (offset) => {
+      const result = await errorFor(`/api/graph/full?offset=${offset}`);
+
+      expect(result).toEqual({ status: 400, error: 'offset must be a non-negative integer' });
+      expect(mockedFullGraph).not.toHaveBeenCalled();
+    },
+  );
+
+  it('forwards offset zero and positive offsets', async () => {
+    await graphRoutes.request('/api/graph/full?limit=25&offset=3000');
+
+    expect(mockedFullGraph).toHaveBeenCalledWith(25, undefined, 3000);
   });
 
   it('preserves full graph totals, ordering metadata, and truncation caveat', async () => {
@@ -117,6 +138,11 @@ describe('graph route numeric boundaries', () => {
       totalEdges: 40,
       windowOrder: 'degree-desc,id-asc',
       degreeScope: 'global',
+      offset: 0,
+      limit: 10,
+      returned: 0,
+      hasMore: true,
+      nextOffset: 10,
       truncated: true,
     });
 
@@ -130,6 +156,11 @@ describe('graph route numeric boundaries', () => {
       totalEdges: 40,
       windowOrder: 'degree-desc,id-asc',
       degreeScope: 'global',
+      offset: 0,
+      limit: 10,
+      returned: 0,
+      hasMore: true,
+      nextOffset: 10,
       truncated: true,
     });
   });
@@ -153,6 +184,11 @@ describe('graph route numeric boundaries', () => {
       totalEdges: 1,
       windowOrder: 'degree-desc,id-asc',
       degreeScope: 'global',
+      offset: 0,
+      limit: 10,
+      returned: 0,
+      hasMore: false,
+      nextOffset: null,
       truncated: false,
     });
 
@@ -173,7 +209,7 @@ describe('graph route numeric boundaries', () => {
     const response = await graphRoutes.request('/api/graph/full?projectId=project-app');
 
     expect(response.status).toBe(200);
-    expect(mockedFullGraph).toHaveBeenCalledWith(100, '/workspace/app');
+    expect(mockedFullGraph).toHaveBeenCalledWith(100, '/workspace/app', 0);
   });
 
   it('does not fall back to the global graph for an unknown projectId', async () => {
@@ -257,6 +293,11 @@ describe('GET /api/graph/full unavailable storage', () => {
       totalEdges: 0,
       windowOrder: 'degree-desc,id-asc',
       degreeScope: 'global',
+      offset: 0,
+      limit: 100,
+      returned: 0,
+      hasMore: false,
+      nextOffset: null,
       truncated: false,
       storage: blockedSetupStatus.storage,
     });
@@ -277,6 +318,11 @@ describe('GET /api/graph/files', () => {
     totalNodes: 4,
     totalEdges: 5,
     windowOrder: 'degree-desc,id-asc' as const,
+    offset: 0,
+    limit: 50,
+    returned: 1,
+    hasMore: true,
+    nextOffset: 1,
     truncated: true,
   };
 
@@ -305,7 +351,23 @@ describe('GET /api/graph/files', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(fileGraphResult);
-    expect(getFileGraph).toHaveBeenCalledWith(50, '/x');
+    expect(getFileGraph).toHaveBeenCalledWith(50, '/x', 0);
+  });
+
+  it.each(['NaN', 'Infinity', '-1', '1.5'])(
+    'rejects offset=%s before touching the graph',
+    async (offset) => {
+      const result = await errorFor(`/api/graph/files?offset=${offset}`);
+
+      expect(result).toEqual({ status: 400, error: 'offset must be a non-negative integer' });
+      expect(mockedGetGraphClient).not.toHaveBeenCalled();
+    },
+  );
+
+  it('forwards a positive file graph offset', async () => {
+    await graphRoutes.request('/api/graph/files?limit=50&offset=3000');
+
+    expect(getFileGraph).toHaveBeenCalledWith(50, undefined, 3000);
   });
 
   it('does not return the global file graph for an unknown projectId', async () => {
@@ -318,6 +380,98 @@ describe('GET /api/graph/files', () => {
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: 'Project not found' });
     expect(getFileGraph).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/graph/induced-edges', () => {
+  const getInducedEdges = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedGetGraphClient.mockResolvedValue({
+      roQuery: vi.fn().mockResolvedValue({ data: [{ rootPath: '/x' }], metadata: [] }),
+    } as never);
+    getInducedEdges.mockResolvedValue([{
+      source: 'File:/x/a.ts',
+      target: 'File:/x/b.ts',
+      label: 'IMPORTS',
+      id: 'hidden',
+      data: { embedding: [0.1] },
+    }]);
+    mockedCreateQueries.mockReturnValue({ getInducedEdges } as never);
+  });
+
+  it.each([
+    undefined,
+    null,
+    {},
+    { ids: 'File:/x/a.ts' },
+    { ids: [1] },
+  ])('rejects malformed body %j before touching the graph', async (body) => {
+    const response = await graphRoutes.request('/api/graph/induced-edges', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? '{' : JSON.stringify(body),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'body must be an object with an ids string array' });
+    expect(getInducedEdges).not.toHaveBeenCalled();
+  });
+
+  it('rejects more than 2000 ids before touching the graph', async () => {
+    const response = await graphRoutes.request('/api/graph/induced-edges', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from({ length: 2001 }, (_, index) => `node:${index}`) }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'ids must contain at most 2000 items' });
+    expect(getInducedEdges).not.toHaveBeenCalled();
+  });
+
+  it('accepts exactly 2000 ids', async () => {
+    const ids = Array.from({ length: 2000 }, (_, index) => `node:${index}`);
+    const response = await graphRoutes.request('/api/graph/induced-edges', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(getInducedEdges).toHaveBeenCalledWith(ids, undefined);
+  });
+
+  it('returns only the public window edge shape and forwards project scope', async () => {
+    const ids = ['File:/x/a.ts', 'File:/x/b.ts', 'File:/x/missing.ts'];
+    const response = await graphRoutes.request('/api/graph/induced-edges?projectId=project-x', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      edges: [{ source: 'File:/x/a.ts', target: 'File:/x/b.ts', label: 'IMPORTS' }],
+    });
+    expect(getInducedEdges).toHaveBeenCalledWith(ids, '/x');
+  });
+
+  it('does not fall back to global scope for an unknown project', async () => {
+    mockedGetGraphClient.mockResolvedValueOnce({
+      roQuery: vi.fn().mockResolvedValue({ data: [], metadata: [] }),
+    } as never);
+
+    const response = await graphRoutes.request('/api/graph/induced-edges?projectId=missing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [] }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Project not found' });
+    expect(getInducedEdges).not.toHaveBeenCalled();
   });
 });
 

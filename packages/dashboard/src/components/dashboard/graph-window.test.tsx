@@ -9,12 +9,15 @@ import { GraphControls } from './graph-controls'
 import { moveSelectionHistory, pushSelectionHistory, EMPTY_SELECTION_HISTORY } from './app-shell'
 import {
   appendGraphExpansion,
+  fetchGraphInducedEdges,
   fetchGraphWindow,
   fetchGraphNodeDetail,
   mergeGraphWindow,
+  planInducedEdgeRequests,
   persistGraphViewState,
   readGraphViewState,
   resetGraphExpansions,
+  resetGraphView,
   resetGraphWindow,
   restoreGraphWindow,
   type GraphCanvasViewState,
@@ -40,11 +43,17 @@ const baseWindow: GraphWindow = {
   totalEdges: 12,
   windowOrder: 'degree-desc,id-asc',
   truncation: { incoming: false, outgoing: false },
+  offset: 0,
+  limit: 300,
+  returned: 1,
+  hasMore: true,
+  nextOffset: 1,
 }
 
 const baseView: GraphCanvasViewState = {
   mode: 'symbols',
   limit: 300,
+  offset: 0,
   fileScope: null,
   expansions: [],
 }
@@ -66,7 +75,7 @@ afterEach(() => {
 })
 
 describe('honest graph window', () => {
-  it('renders loaded and total node and edge counts with the ordering explanation', () => {
+  it('renders exact page range math and accessible page actions', () => {
     const html = renderToStaticMarkup(
       <GraphControls
         onZoomIn={vi.fn()}
@@ -84,19 +93,103 @@ describe('honest graph window', () => {
         onModeChange={vi.fn()}
         layout="cose"
         canReset={false}
+        pageOffset={300}
+        pageReturned={300}
+        hasMore
+        onPreviousPage={vi.fn()}
+        onNextPage={vi.fn()}
+        onLoadMore={vi.fn()}
       />,
     )
 
-    expect(html).toContain('300 of 842 nodes')
+    expect(html).toContain('nodes 301 to 600 of 842')
     expect(html).toContain('417 of 1,204 edges')
     expect(html).toContain('Most connected first')
     expect(html).toContain('aria-label="Graph window size"')
     expect(html).toContain('aria-label="Graph level of detail"')
+    expect(html).toContain('aria-label="Previous graph page"')
+    expect(html).toContain('aria-label="Next graph page"')
+    expect(html).toContain('Load next 300')
+    expect(html).toContain('aria-live="polite"')
   })
 
-  it('persists mode and window size to the URL and storage, preferring valid URL values', () => {
+  it('disables Previous and Next at their respective ends', () => {
+    const firstPage = renderToStaticMarkup(
+      <GraphControls
+        onZoomIn={vi.fn()}
+        onZoomOut={vi.fn()}
+        onFit={vi.fn()}
+        onRelayout={vi.fn()}
+        nodeCount={300}
+        totalNodes={600}
+        pageOffset={0}
+        pageReturned={300}
+        hasMore
+        layout="cose"
+      />,
+    )
+    const lastPage = renderToStaticMarkup(
+      <GraphControls
+        onZoomIn={vi.fn()}
+        onZoomOut={vi.fn()}
+        onFit={vi.fn()}
+        onRelayout={vi.fn()}
+        nodeCount={300}
+        totalNodes={600}
+        pageOffset={300}
+        pageReturned={300}
+        hasMore={false}
+        layout="cose"
+      />,
+    )
+
+    expect(firstPage).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Previous graph page"/)
+    expect(firstPage).not.toMatch(/<button[^>]*disabled=""[^>]*aria-label="Next graph page"/)
+    expect(lastPage).not.toMatch(/<button[^>]*disabled=""[^>]*aria-label="Previous graph page"/)
+    expect(lastPage).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Next graph page"/)
+    expect(lastPage).toContain('All nodes loaded')
+  })
+
+  it('invokes labelled Previous, Next, and Load More controls from the keyboard-accessible chrome', async () => {
+    const onPreviousPage = vi.fn()
+    const onNextPage = vi.fn()
+    const onLoadMore = vi.fn()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    await act(async () => root.render(
+      <GraphControls
+        onZoomIn={vi.fn()}
+        onZoomOut={vi.fn()}
+        onFit={vi.fn()}
+        onRelayout={vi.fn()}
+        nodeCount={300}
+        totalNodes={900}
+        pageOffset={300}
+        pageReturned={300}
+        hasMore
+        onPreviousPage={onPreviousPage}
+        onNextPage={onNextPage}
+        onLoadMore={onLoadMore}
+        layout="cose"
+      />,
+    ))
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[aria-label="Previous graph page"]')?.click()
+      container.querySelector<HTMLButtonElement>('[aria-label="Next graph page"]')?.click()
+      container.querySelector<HTMLButtonElement>('[aria-label^="Load next"]')?.click()
+    })
+
+    expect(onPreviousPage).toHaveBeenCalledOnce()
+    expect(onNextPage).toHaveBeenCalledOnce()
+    expect(onLoadMore).toHaveBeenCalledOnce()
+    await act(async () => root.unmount())
+  })
+
+  it('persists mode, window size, and offset to URL and storage, preferring valid URL values', () => {
     persistGraphViewState(
-      { mode: 'files', limit: 500 },
+      { mode: 'files', limit: 500, offset: 1000 },
       window.location,
       window.history,
       window.localStorage,
@@ -104,12 +197,19 @@ describe('honest graph window', () => {
 
     expect(new URL(window.location.href).searchParams.get('graphMode')).toBe('files')
     expect(new URL(window.location.href).searchParams.get('graphLimit')).toBe('500')
+    expect(new URL(window.location.href).searchParams.get('graphOffset')).toBe('1000')
     expect(window.localStorage.getItem('codegraph.graphMode')).toBe('files')
     expect(window.localStorage.getItem('codegraph.graphLimit')).toBe('500')
+    expect(window.localStorage.getItem('codegraph.graphOffset')).toBe('1000')
 
     window.localStorage.setItem('codegraph.graphMode', 'symbols')
     window.localStorage.setItem('codegraph.graphLimit', '1000')
-    expect(readGraphViewState(window.location, window.localStorage)).toEqual({ mode: 'files', limit: 500 })
+    window.localStorage.setItem('codegraph.graphOffset', '300')
+    expect(readGraphViewState(window.location, window.localStorage)).toEqual({
+      mode: 'files',
+      limit: 500,
+      offset: 1000,
+    })
   })
 
   it('describes a file drill-down without claiming degree ordering', () => {
@@ -230,6 +330,7 @@ describe('graph level of detail', () => {
       mode: 'files',
       limit: 500,
       projectId: 'project one',
+      offset: 500,
       fetchImpl: fetcher,
     })
     await fetchGraphWindow({
@@ -237,15 +338,95 @@ describe('graph level of detail', () => {
       mode: 'symbols',
       limit: 1000,
       projectId: 'project one',
+      offset: 2000,
       fetchImpl: fetcher,
     })
 
     expect(String(fetcher.mock.calls[0]?.[0])).toBe(
-      'http://dashboard.test/api/graph/files?projectId=project+one&limit=500',
+      'http://dashboard.test/api/graph/files?projectId=project+one&limit=500&offset=500',
     )
     expect(String(fetcher.mock.calls[1]?.[0])).toBe(
-      'http://dashboard.test/api/graph/full?projectId=project+one&limit=1000',
+      'http://dashboard.test/api/graph/full?projectId=project+one&limit=1000&offset=2000',
     )
+  })
+
+  it('parses page metadata from the frozen graph response', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => response({
+      nodes: [],
+      edges: [],
+      totalNodes: 842,
+      totalEdges: 1_204,
+      windowOrder: 'degree-desc,id-asc',
+      offset: 300,
+      limit: 300,
+      returned: 0,
+      hasMore: true,
+      nextOffset: 600,
+    }))
+
+    const result = await fetchGraphWindow({
+      apiUrl: 'http://dashboard.test',
+      mode: 'symbols',
+      limit: 300,
+      offset: 300,
+      fetchImpl: fetcher,
+    })
+
+    expect(result).toMatchObject({ offset: 300, limit: 300, returned: 0, hasMore: true, nextOffset: 600 })
+  })
+
+  it('scopes every chunked induced-edge request to the selected project', async () => {
+    const existingIds = Array.from({ length: 2_500 }, (_, index) => `existing-${index}`)
+    const newIds = Array.from({ length: 500 }, (_, index) => `new-${index}`)
+
+    const chunks = planInducedEdgeRequests(existingIds, newIds)
+
+    expect(chunks).toHaveLength(2)
+    expect(chunks.every((ids) => ids.length <= 2_000)).toBe(true)
+    expect(chunks.every((ids) => newIds.every((id) => ids.includes(id)))).toBe(true)
+    expect(new Set(chunks.flat()).size).toBe(3_000)
+
+    const fetcher = vi.fn<typeof fetch>(async () => response({
+      edges: [{ source: 'existing-0', target: 'new-0', label: 'CALLS' }],
+    }))
+    const edges = await fetchGraphInducedEdges(
+      'http://dashboard.test',
+      chunks,
+      undefined,
+      fetcher,
+      'project / one',
+    )
+
+    expect(edges).toHaveLength(1)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    fetcher.mock.calls.forEach(([input, init], index) => {
+      expect(String(input)).toBe(
+        'http://dashboard.test/api/graph/induced-edges?projectId=project+%2F+one',
+      )
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({
+        ids: chunks[index],
+        projectId: 'project / one',
+      })
+    })
+  })
+
+  it('omits project scope from an unscoped induced-edge request', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => response({ edges: [] }))
+
+    await fetchGraphInducedEdges(
+      'http://dashboard.test',
+      [['node-1', 'node-2']],
+      undefined,
+      fetcher,
+    )
+
+    expect(String(fetcher.mock.calls[0]?.[0])).toBe(
+      'http://dashboard.test/api/graph/induced-edges',
+    )
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({
+      ids: ['node-1', 'node-2'],
+    })
   })
 
   it('opens a file as a symbol scope through file relationships and neighbors', async () => {
@@ -324,7 +505,7 @@ describe('graph level of detail', () => {
         windowOrder={result.windowOrder}
       />,
     )
-    expect(controlsHtml).toContain('2 of 600 nodes')
+    expect(controlsHtml).toContain('nodes 1 to 2 of 600')
     expect(controlsHtml).toContain('1 loaded edge')
     expect(controlsHtml).not.toContain('1 of 1 edges')
     expect(controlsHtml).toContain('Results truncated')
@@ -457,5 +638,14 @@ describe('expand on demand', () => {
     const resetView = resetGraphExpansions(expandedView)
     history = pushSelectionHistory(history, fileNode, resetView, { force: true })
     expect(history.entries[history.index]!.view).toEqual(baseView)
+  })
+
+  it('resets an appended later page to page one alone', () => {
+    const laterPage = {
+      ...appendGraphExpansion(baseView, fileNode),
+      offset: 600,
+    }
+
+    expect(resetGraphView(laterPage)).toEqual(baseView)
   })
 })

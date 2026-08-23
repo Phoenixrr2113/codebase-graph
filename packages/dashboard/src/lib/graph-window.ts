@@ -28,6 +28,11 @@ export interface GraphWindow {
   totalEdges: number
   windowOrder: string
   truncation: GraphTruncation
+  offset: number
+  limit: number
+  returned: number
+  hasMore: boolean
+  nextOffset: number | null
 }
 
 export interface NeighborWindow {
@@ -59,6 +64,7 @@ export interface GraphExpansionPlan {
 export interface GraphViewState {
   mode: GraphViewMode
   limit: GraphWindowLimit
+  offset: number
 }
 
 export interface GraphCanvasViewState extends GraphViewState {
@@ -70,6 +76,7 @@ interface GraphWindowRequest {
   apiUrl: string
   mode: GraphViewMode
   limit: GraphWindowLimit
+  offset?: number
   projectId?: string | null
   fileScope?: GraphNodeData | null
   signal?: AbortSignal
@@ -78,7 +85,8 @@ interface GraphWindowRequest {
 
 const MODE_STORAGE_KEY = 'codegraph.graphMode'
 const LIMIT_STORAGE_KEY = 'codegraph.graphLimit'
-export const DEFAULT_GRAPH_VIEW: GraphViewState = { mode: 'symbols', limit: 300 }
+const OFFSET_STORAGE_KEY = 'codegraph.graphOffset'
+export const DEFAULT_GRAPH_VIEW: GraphViewState = { mode: 'symbols', limit: 300, offset: 0 }
 const VALID_LIMITS = new Set<GraphWindowLimit>([300, 500, 1000])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -95,6 +103,12 @@ function parseLimit(value: string | null): GraphWindowLimit | null {
   return VALID_LIMITS.has(numeric as GraphWindowLimit) ? numeric as GraphWindowLimit : null
 }
 
+function parseOffset(value: string | null): number | null {
+  if (value === null) return null
+  const numeric = Number(value)
+  return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : null
+}
+
 export function readGraphViewState(
   location: Pick<Location, 'href'>,
   storage: Pick<Storage, 'getItem'>,
@@ -107,6 +121,9 @@ export function readGraphViewState(
     limit: parseLimit(url.searchParams.get('graphLimit'))
       ?? parseLimit(storage.getItem(LIMIT_STORAGE_KEY))
       ?? DEFAULT_GRAPH_VIEW.limit,
+    offset: parseOffset(url.searchParams.get('graphOffset'))
+      ?? parseOffset(storage.getItem(OFFSET_STORAGE_KEY))
+      ?? DEFAULT_GRAPH_VIEW.offset,
   }
 }
 
@@ -119,9 +136,11 @@ export function persistGraphViewState(
   const url = new URL(location.href)
   url.searchParams.set('graphMode', state.mode)
   url.searchParams.set('graphLimit', String(state.limit))
+  url.searchParams.set('graphOffset', String(state.offset))
   history.replaceState(null, '', url.href)
   storage.setItem(MODE_STORAGE_KEY, state.mode)
   storage.setItem(LIMIT_STORAGE_KEY, String(state.limit))
+  storage.setItem(OFFSET_STORAGE_KEY, String(state.offset))
 }
 
 function parseGraphNode(value: unknown): GraphNodeData {
@@ -162,7 +181,7 @@ function parseGraphNode(value: unknown): GraphNodeData {
   }
 }
 
-function parseGraphEdge(value: unknown, index: number): GraphEdgeData {
+function parseGraphEdge(value: unknown): GraphEdgeData {
   if (
     !isRecord(value)
     || typeof value.source !== 'string'
@@ -174,7 +193,7 @@ function parseGraphEdge(value: unknown, index: number): GraphEdgeData {
   return {
     id: typeof value.id === 'string'
       ? value.id
-      : `${value.label}:${value.source}:${value.target}:${index}`,
+      : `${value.label}:${value.source}:${value.target}`,
     source: value.source,
     target: value.target,
     label: value.label,
@@ -190,7 +209,10 @@ function parseTruncation(value: Record<string, unknown>): GraphTruncation {
   }
 }
 
-function parseGraphWindow(value: unknown): GraphWindow {
+function parseGraphWindow(
+  value: unknown,
+  fallback: { offset: number; limit: number } = { offset: 0, limit: 100 },
+): GraphWindow {
   if (!isRecord(value) || !Array.isArray(value.nodes) || !Array.isArray(value.edges)) {
     throw new Error('Invalid graph window response')
   }
@@ -200,6 +222,11 @@ function parseGraphWindow(value: unknown): GraphWindow {
     value.totalNodes !== undefined && typeof value.totalNodes !== 'number'
     || value.totalEdges !== undefined && typeof value.totalEdges !== 'number'
     || value.windowOrder !== undefined && typeof value.windowOrder !== 'string'
+    || value.offset !== undefined && typeof value.offset !== 'number'
+    || value.limit !== undefined && typeof value.limit !== 'number'
+    || value.returned !== undefined && typeof value.returned !== 'number'
+    || value.hasMore !== undefined && typeof value.hasMore !== 'boolean'
+    || value.nextOffset !== undefined && value.nextOffset !== null && typeof value.nextOffset !== 'number'
   ) {
     throw new Error('Invalid graph window totals')
   }
@@ -210,6 +237,17 @@ function parseGraphWindow(value: unknown): GraphWindow {
     totalEdges: value.totalEdges ?? edges.length,
     windowOrder: value.windowOrder ?? 'degree-descending',
     truncation: parseTruncation(value),
+    offset: value.offset ?? fallback.offset,
+    limit: value.limit ?? fallback.limit,
+    returned: value.returned ?? nodes.length,
+    hasMore: value.hasMore ?? (fallback.offset + nodes.length < (value.totalNodes ?? nodes.length)),
+    nextOffset: value.nextOffset === null
+      ? null
+      : value.nextOffset ?? (
+        fallback.offset + nodes.length < (value.totalNodes ?? nodes.length)
+          ? fallback.offset + nodes.length
+          : null
+      ),
   }
 }
 
@@ -335,6 +373,11 @@ async function fetchFileSymbolWindow(request: GraphWindowRequest): Promise<Graph
       outgoing: neighbors.outgoingTruncated,
       ...(relationshipsTruncated ? { window: true } : {}),
     },
+    offset: 0,
+    limit: request.limit,
+    returned: nodes.length,
+    hasMore: relationshipsTruncated,
+    nextOffset: null,
   }
 }
 
@@ -346,12 +389,63 @@ export async function fetchGraphWindow(request: GraphWindowRequest): Promise<Gra
   const params = new URLSearchParams()
   if (request.projectId) params.set('projectId', request.projectId)
   params.set('limit', String(request.limit))
+  params.set('offset', String(request.offset ?? 0))
   const endpoint = request.mode === 'files' ? 'files' : 'full'
   return parseGraphWindow(await fetchJson(
     `${request.apiUrl}/api/graph/${endpoint}?${params.toString()}`,
     request.signal,
     fetchImpl,
-  ))
+  ), { offset: request.offset ?? 0, limit: request.limit })
+}
+
+export function planInducedEdgeRequests(
+  existingIds: readonly string[],
+  newIds: readonly string[],
+  cap = 2_000,
+): string[][] {
+  const uniqueNewIds = [...new Set(newIds)]
+  if (uniqueNewIds.length === 0) return []
+  if (uniqueNewIds.length > cap) throw new Error(`New graph page exceeds induced-edge cap of ${cap}`)
+  const newIdSet = new Set(uniqueNewIds)
+  const uniqueExistingIds = [...new Set(existingIds)].filter((id) => !newIdSet.has(id))
+  const existingChunkSize = cap - uniqueNewIds.length
+  if (existingChunkSize === 0) return [uniqueNewIds]
+  if (uniqueExistingIds.length === 0) return [uniqueNewIds]
+
+  const requests: string[][] = []
+  for (let index = 0; index < uniqueExistingIds.length; index += existingChunkSize) {
+    requests.push([...uniqueNewIds, ...uniqueExistingIds.slice(index, index + existingChunkSize)])
+  }
+  return requests
+}
+
+export async function fetchGraphInducedEdges(
+  apiUrl: string,
+  idChunks: readonly (readonly string[])[],
+  signal?: AbortSignal,
+  fetchImpl: typeof fetch = fetch,
+  projectId?: string | null,
+): Promise<GraphEdgeData[]> {
+  const params = new URLSearchParams()
+  if (projectId) params.set('projectId', projectId)
+  const query = params.size > 0 ? `?${params.toString()}` : ''
+  const responses = await Promise.all(idChunks.map(async (ids) => {
+    const response = await fetchImpl(`${apiUrl}/api/graph/induced-edges${query}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, ...(projectId ? { projectId } : {}) }),
+      signal,
+    })
+    if (!response.ok) throw new Error(`Graph request failed with ${response.status}`)
+    const value: unknown = await response.json()
+    if (!isRecord(value) || !Array.isArray(value.edges)) {
+      throw new Error('Invalid induced graph edges response')
+    }
+    return value.edges.map(parseGraphEdge)
+  }))
+  const edges = new Map<string, GraphEdgeData>()
+  responses.flat().forEach((edge) => edges.set(edge.id, edges.get(edge.id) ?? edge))
+  return [...edges.values()]
 }
 
 export function mergeGraphWindow(base: GraphWindow, incoming: NeighborWindow): GraphWindow {
@@ -368,6 +462,63 @@ export function mergeGraphWindow(base: GraphWindow, incoming: NeighborWindow): G
       outgoing: base.truncation.outgoing || incoming.outgoingTruncated,
       ...(base.truncation.window ? { window: true } : {}),
     },
+  }
+}
+
+export interface GraphBounds {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
+export function planGraphPageAppend(
+  base: GraphWindow,
+  incoming: GraphWindow,
+  inducedEdges: readonly GraphEdgeData[],
+  bounds: GraphBounds,
+): GraphExpansionPlan {
+  const existingNodeIds = new Set(base.nodes.map((node) => node.id))
+  const newNodes = incoming.nodes.filter((node) => !existingNodeIds.has(node.id))
+  const columns = Math.max(1, Math.ceil(Math.sqrt(newNodes.length)))
+  const seededNodes = newNodes.map((node, index): SeededGraphNode => ({
+    node,
+    position: {
+      x: bounds.x2 + 120 + ((index % columns) * 84),
+      y: bounds.y1 + (Math.floor(index / columns) * 84),
+    },
+  }))
+  const nodes = new Map(base.nodes.map((node) => [node.id, node]))
+  incoming.nodes.forEach((node) => nodes.set(node.id, nodes.get(node.id) ?? node))
+  const nodeIds = new Set(nodes.keys())
+  const edges = new Map(base.edges.map((edge) => [edge.id, edge]))
+  const incomingEdges = [...incoming.edges, ...inducedEdges]
+  incomingEdges
+    .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
+    .forEach((edge) => edges.set(edge.id, edges.get(edge.id) ?? edge))
+  const existingEdgeIds = new Set(base.edges.map((edge) => edge.id))
+  const window: GraphWindow = {
+    ...base,
+    nodes: [...nodes.values()],
+    edges: [...edges.values()],
+    totalNodes: incoming.totalNodes,
+    totalEdges: incoming.totalEdges,
+    returned: Math.min(incoming.totalNodes, base.returned + incoming.returned),
+    hasMore: incoming.hasMore,
+    nextOffset: incoming.nextOffset,
+    truncation: {
+      incoming: base.truncation.incoming || incoming.truncation.incoming,
+      outgoing: base.truncation.outgoing || incoming.truncation.outgoing,
+      ...(incoming.hasMore ? { window: true } : {}),
+    },
+  }
+  return {
+    window,
+    newNodes: seededNodes,
+    newEdges: [...edges.values()].filter((edge) => !existingEdgeIds.has(edge.id)),
+    preserveViewport: true,
+    runLayout: false,
+    fit: false,
   }
 }
 
@@ -434,6 +585,11 @@ export function appendGraphExpansion(
 export function resetGraphExpansions(view: GraphCanvasViewState): GraphCanvasViewState {
   if (view.expansions.length === 0) return view
   return { ...view, expansions: [] }
+}
+
+export function resetGraphView(view: GraphCanvasViewState): GraphCanvasViewState {
+  if (view.offset === 0 && view.expansions.length === 0) return view
+  return { ...view, offset: 0, expansions: [] }
 }
 
 export async function restoreGraphWindow(

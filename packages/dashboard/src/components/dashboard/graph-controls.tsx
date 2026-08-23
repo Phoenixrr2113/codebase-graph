@@ -17,6 +17,15 @@ interface GraphControlsProps {
   mode?: GraphViewMode
   onModeChange?: (mode: GraphViewMode) => void
   canReset?: boolean
+  pageOffset?: number
+  pageReturned?: number
+  hasMore?: boolean
+  pagingEnabled?: boolean
+  isLoadingMore?: boolean
+  onPreviousPage?: () => void
+  onNextPage?: () => void
+  onLoadMore?: () => void
+  liveAnnouncement?: string
   truncation?: GraphTruncation
   windowOrder?: string
   layout: LayoutName
@@ -43,6 +52,15 @@ export function GraphControls({
   mode = 'symbols',
   onModeChange,
   canReset = false,
+  pageOffset = 0,
+  pageReturned = nodeCount,
+  hasMore = false,
+  pagingEnabled = true,
+  isLoadingMore = false,
+  onPreviousPage,
+  onNextPage,
+  onLoadMore,
+  liveAnnouncement = '',
   truncation = { incoming: false, outgoing: false },
   windowOrder = 'degree-desc,id-asc',
   layout,
@@ -50,7 +68,9 @@ export function GraphControls({
   const edgeCountLabel = windowOrder === 'file-contained' && truncation.window
     ? `${edgeCount.toLocaleString()} loaded edge${edgeCount === 1 ? '' : 's'}`
     : `${edgeCount.toLocaleString()} of ${totalEdges.toLocaleString()} edges`
-  const countLabel = `${nodeCount.toLocaleString()} of ${totalNodes.toLocaleString()} nodes, ${edgeCountLabel}`
+  const rangeStart = pageReturned === 0 ? 0 : pageOffset + 1
+  const rangeEnd = pageOffset + pageReturned
+  const countLabel = `nodes ${rangeStart.toLocaleString()} to ${rangeEnd.toLocaleString()} of ${totalNodes.toLocaleString()}, ${edgeCountLabel}`
   const orderLabel = windowOrder.startsWith('degree-desc')
     ? 'Most connected first'
     : 'Selected file symbols'
@@ -116,9 +136,41 @@ export function GraphControls({
         >
           Reset view
         </Button>
+        <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onPreviousPage}
+          disabled={!pagingEnabled || pageOffset === 0 || isLoadingMore}
+          aria-label="Previous graph page"
+          className="h-7 px-2 text-xs"
+        >
+          Previous
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onNextPage}
+          disabled={!pagingEnabled || !hasMore || isLoadingMore}
+          aria-label="Next graph page"
+          className="h-7 px-2 text-xs"
+        >
+          Next
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onLoadMore}
+          disabled={!pagingEnabled || !hasMore || isLoadingMore}
+          aria-label={`Load next ${windowLimit.toLocaleString()} graph nodes`}
+          className="h-7 px-2 text-xs"
+        >
+          {isLoadingMore ? 'Loading...' : `Load next ${windowLimit.toLocaleString()}`}
+        </Button>
       </div>
       <div className="text-subtle flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 px-1 text-[11px]">
         <span aria-live="polite" aria-atomic="true">{countLabel}</span>
+        {!hasMore && pageReturned > 0 && <span className="font-medium text-subtle">All nodes loaded</span>}
         <span>{orderLabel}</span>
         {truncation.window && (
           <span role="status" className="font-medium text-amber-300">
@@ -130,6 +182,9 @@ export function GraphControls({
         {truncation.incoming && <span className="font-medium">Incoming neighbors capped</span>}
         {truncation.outgoing && <span className="font-medium">Outgoing neighbors capped</span>}
       </div>
+      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {liveAnnouncement}
+      </span>
     </div>
   )
 }

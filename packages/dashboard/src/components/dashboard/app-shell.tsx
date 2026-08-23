@@ -19,7 +19,7 @@ import {
   fetchGraphNodeDetail,
   persistGraphViewState,
   readGraphViewState,
-  resetGraphExpansions,
+  resetGraphView,
   type GraphCanvasViewState,
   type GraphViewMode,
   type GraphWindowLimit,
@@ -65,6 +65,18 @@ export function moveSelectionHistory(
   if (history.entries.length === 0) return history
   const index = Math.max(0, Math.min(history.entries.length - 1, history.index + offset))
   return index === history.index ? history : { ...history, index }
+}
+
+export function pushViewChangeHistory(
+  history: SelectionHistory,
+  node: GraphNode | null,
+  currentView: GraphCanvasViewState,
+  nextView: GraphCanvasViewState,
+): SelectionHistory {
+  const seeded = history.index < 0
+    ? pushSelectionHistory(history, null, currentView, { force: true })
+    : history
+  return pushSelectionHistory(seeded, node, nextView, { force: true })
 }
 
 interface ExplorerBreadcrumb {
@@ -284,27 +296,34 @@ export function AppShell({
   }, [selectionHistory])
 
   const recordCanvasView = useCallback((view: GraphCanvasViewState, node?: GraphNode | null) => {
+    const previousView = canvasViewRef.current
+    canvasViewRef.current = view
     setCanvasView(view)
-    setSelectionHistory((history) => pushSelectionHistory(
+    setSelectionHistory((history) => pushViewChangeHistory(
       history,
       node === undefined ? currentHistoryNode(history) : node,
+      previousView,
       view,
-      { force: true },
     ))
   }, [])
 
   const handleModeChange = useCallback((mode: GraphViewMode) => {
-    recordCanvasView({ ...canvasView, mode, fileScope: null, expansions: [] })
+    recordCanvasView({ ...canvasView, mode, offset: 0, fileScope: null, expansions: [] })
   }, [canvasView, recordCanvasView])
 
   const handleWindowLimitChange = useCallback((limit: GraphWindowLimit) => {
-    recordCanvasView({ ...canvasView, limit })
+    recordCanvasView({ ...canvasView, limit, offset: 0, expansions: [] })
   }, [canvasView, recordCanvasView])
+
+  const handlePageChange = useCallback((offset: number) => {
+    recordCanvasView({ ...canvasViewRef.current, offset, expansions: [] }, null)
+  }, [recordCanvasView])
 
   const handleOpenSymbols = useCallback((node: GraphNode) => {
     recordCanvasView({
       ...canvasView,
       mode: 'symbols',
+      offset: 0,
       fileScope: node,
       expansions: [],
     }, node)
@@ -319,7 +338,7 @@ export function AppShell({
   }, [recordCanvasView])
 
   const handleResetView = useCallback(() => {
-    recordCanvasView(resetGraphExpansions(canvasViewRef.current))
+    recordCanvasView(resetGraphView(canvasViewRef.current))
   }, [recordCanvasView])
 
   useEffect(() => {
@@ -456,10 +475,12 @@ export function AppShell({
                 referenceNodeIds={referenceNodeIds}
                 mode={canvasView.mode}
                 windowLimit={canvasView.limit}
+                pageOffset={canvasView.offset}
                 fileScope={canvasView.fileScope}
                 restoredExpansions={canvasView.expansions}
                 onModeChange={handleModeChange}
                 onWindowLimitChange={handleWindowLimitChange}
+                onPageChange={handlePageChange}
                 expansionRequest={expansionRequest}
                 onExpanded={handleExpanded}
                 onResetView={handleResetView}

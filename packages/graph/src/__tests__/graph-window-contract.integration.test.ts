@@ -59,7 +59,7 @@ describeIfAvailable('graph window frozen contract', () => {
   });
 
   it('uses persisted global degree with scoped totals for the full graph window', async () => {
-    const result = await queries.getFullGraph(2, '/repo/app/');
+    const result = await queries.getFullGraph(2, '/repo/app/', 0);
     const nodeIds = new Set(result.nodes.map((node) => node.id));
 
     expect(result.nodes[0]?.id).toBe('File:/repo/app/hub.ts');
@@ -68,6 +68,11 @@ describeIfAvailable('graph window frozen contract', () => {
       totalNodes: 8,
       totalEdges: 8,
       windowOrder: 'degree-desc,id-asc',
+      offset: 0,
+      limit: 2,
+      returned: 2,
+      hasMore: true,
+      nextOffset: 2,
       truncated: true,
     });
     expect(JSON.stringify(result)).not.toContain('/repo/application');
@@ -78,7 +83,7 @@ describeIfAvailable('graph window frozen contract', () => {
   });
 
   it('returns a scoped file graph ordered by induced import degree with honest totals', async () => {
-    const result = await queries.getFileGraph(2, '/repo/app');
+    const result = await queries.getFileGraph(2, '/repo/app', 0);
 
     expect(result).toEqual({
       nodes: [
@@ -107,10 +112,82 @@ describeIfAvailable('graph window frozen contract', () => {
       totalNodes: 4,
       totalEdges: 2,
       windowOrder: 'degree-desc,id-asc',
+      offset: 0,
+      limit: 2,
+      returned: 2,
+      hasMore: true,
+      nextOffset: 2,
       truncated: true,
     });
     expect(result.nodes.every((node) => !('data' in node))).toBe(true);
     expect(JSON.stringify(result)).not.toContain('/repo/application');
+  });
+
+  it('walks full graph pages without duplicates or gaps relative to one large window', async () => {
+    const first = await queries.getFullGraph(2, '/repo/app', 0);
+    const second = await queries.getFullGraph(2, '/repo/app', first.nextOffset ?? 0);
+    const combined = await queries.getFullGraph(4, '/repo/app', 0);
+
+    expect([...first.nodes, ...second.nodes].map((node) => node.id)).toEqual(
+      combined.nodes.map((node) => node.id),
+    );
+    expect(new Set([...first.nodes, ...second.nodes].map((node) => node.id)).size).toBe(4);
+    expect(second).toMatchObject({ offset: 2, limit: 2, returned: 2, hasMore: true, nextOffset: 4 });
+  });
+
+  it('walks file graph pages without duplicates or gaps relative to one large window', async () => {
+    const first = await queries.getFileGraph(2, '/repo/app', 0);
+    const second = await queries.getFileGraph(2, '/repo/app', first.nextOffset ?? 0);
+    const combined = await queries.getFileGraph(4, '/repo/app', 0);
+
+    expect([...first.nodes, ...second.nodes].map((node) => node.id)).toEqual(
+      combined.nodes.map((node) => node.id),
+    );
+    expect(new Set([...first.nodes, ...second.nodes].map((node) => node.id)).size).toBe(4);
+  });
+
+  it('returns empty pages beyond the total with honest totals and terminal metadata', async () => {
+    const full = await queries.getFullGraph(2, '/repo/app', 100);
+    const files = await queries.getFileGraph(2, '/repo/app', 100);
+
+    expect(full).toMatchObject({
+      nodes: [],
+      edges: [],
+      totalNodes: 8,
+      totalEdges: 8,
+      offset: 100,
+      limit: 2,
+      returned: 0,
+      hasMore: false,
+      nextOffset: null,
+    });
+    expect(files).toMatchObject({
+      nodes: [],
+      edges: [],
+      totalNodes: 4,
+      totalEdges: 2,
+      offset: 100,
+      limit: 2,
+      returned: 0,
+      hasMore: false,
+      nextOffset: null,
+    });
+  });
+
+  it('returns induced edges for persisted ids while ignoring unknown and out-of-scope ids', async () => {
+    const edges = await queries.getInducedEdges([
+      'File:/repo/app/hub.ts',
+      'File:/repo/app/leaf.ts',
+      'File:/repo/other/other.ts',
+      'File:/repo/app/missing.ts',
+    ], '/repo/app');
+
+    expect(edges).toEqual([{
+      source: 'File:/repo/app/hub.ts',
+      target: 'File:/repo/app/leaf.ts',
+      label: 'IMPORTS',
+    }]);
+    expect(JSON.stringify(edges)).not.toContain('embedding');
   });
 
   it('reports zero symbols for a scoped File without contained symbols', async () => {

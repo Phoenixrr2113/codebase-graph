@@ -52,6 +52,7 @@ export {
   type GraphQueries,
   type GraphWindowResult,
   type GraphWindowNode,
+  type GraphWindowEdge,
   type FileGraphNode,
   type FileGraphResult,
   type NodeNeighborsResult,
