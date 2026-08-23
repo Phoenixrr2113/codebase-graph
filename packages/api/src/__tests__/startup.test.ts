@@ -74,9 +74,12 @@ describe('API server startup', () => {
 
     try {
       await new Promise<void>((resolvePromise, reject) => {
+        // CI Linux runners boot the tsx child roughly 10x slower than a local
+        // machine (the sibling occupied-port test measures ~5.4s there), so the
+        // ceiling asserts eventual behavior, not latency.
         const timeout = setTimeout(() => {
           reject(new Error('API server did not emit the graph warmup warning after listening'));
-        }, 10_000);
+        }, 30_000);
         const inspectOutput = (): void => {
           if (stdout.includes(listeningLine) && stderr.includes(warmupWarning)) {
             clearTimeout(timeout);
@@ -118,7 +121,7 @@ describe('API server startup', () => {
         child.once('exit', () => resolvePromise());
       });
     }
-  }, 15_000);
+  }, 45_000);
 
   it('reports an occupied API bind address without an unhandled stack trace', async () => {
     const blockingServer = createServer();
