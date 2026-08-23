@@ -2,7 +2,7 @@
  * Embedding Generation — Unit Tests
  *
  * Tests both tiers:
- *   - Local: Real nomic-embed-text-v1.5 model (~10ms/embedding, no API key needed)
+ *   - Local: Real nomic-embed-text-v1.5 model when CODEGRAPH_TEST_LOCAL_MODEL=1
  *   - Cloud: Mocked (requires OPENROUTER_API_KEY in production)
  *   - Config resolution: provider selection, dimensions, availability
  */
@@ -125,7 +125,15 @@ describe('Transformers.js response compatibility', () => {
 // Local embedding generation (real model, no mocking)
 // ============================================================================
 
-describe('Local embedding generation', () => {
+const runLocalModelTests = process.env['CODEGRAPH_TEST_LOCAL_MODEL'] === '1';
+
+if (!runLocalModelTests) {
+  console.info(
+    'SKIP Local embedding generation: set CODEGRAPH_TEST_LOCAL_MODEL=1 to run tests that download and execute the real Hugging Face model.',
+  );
+}
+
+describe.skipIf(!runLocalModelTests)('Local embedding generation', () => {
   afterAll(() => {
     _resetLocalModel();
   });

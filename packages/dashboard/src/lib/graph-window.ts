@@ -37,6 +37,25 @@ export interface NeighborWindow {
   outgoingTruncated: boolean
 }
 
+export interface GraphPosition {
+  x: number
+  y: number
+}
+
+export interface SeededGraphNode {
+  node: GraphNodeData
+  position: GraphPosition
+}
+
+export interface GraphExpansionPlan {
+  window: GraphWindow
+  newNodes: SeededGraphNode[]
+  newEdges: GraphEdgeData[]
+  preserveViewport: true
+  runLayout: false
+  fit: false
+}
+
 export interface GraphViewState {
   mode: GraphViewMode
   limit: GraphWindowLimit
@@ -349,6 +368,54 @@ export function mergeGraphWindow(base: GraphWindow, incoming: NeighborWindow): G
       outgoing: base.truncation.outgoing || incoming.outgoingTruncated,
       ...(base.truncation.window ? { window: true } : {}),
     },
+  }
+}
+
+function stableFraction(value: string): number {
+  let hash = 2_166_136_261
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16_777_619)
+  }
+  return (hash >>> 0) / 4_294_967_295
+}
+
+export function planGraphExpansion(
+  base: GraphWindow,
+  incoming: NeighborWindow,
+  sourceNodeId: string,
+  sourcePosition: GraphPosition,
+): GraphExpansionPlan {
+  const window = mergeGraphWindow(base, incoming)
+  const existingNodeIds = new Set(base.nodes.map((node) => node.id))
+  const existingEdgeIds = new Set(base.edges.map((edge) => edge.id))
+  const mergedNodeIds = new Set(window.nodes.map((node) => node.id))
+  const newNodes = incoming.nodes.filter((node) => !existingNodeIds.has(node.id))
+  const count = newNodes.length
+  const angleStep = count > 0 ? (Math.PI * 2) / count : 0
+  const radius = Math.max(96, (count * 72) / (Math.PI * 2))
+  const seededNodes = newNodes.map((node, index): SeededGraphNode => {
+    const jitter = (stableFraction(`${sourceNodeId}:${node.id}`) - 0.5)
+      * Math.min(angleStep * 0.2, 0.18)
+    const angle = (-Math.PI / 2) + (index * angleStep) + jitter
+    return {
+      node,
+      position: {
+        x: sourcePosition.x + (Math.cos(angle) * radius),
+        y: sourcePosition.y + (Math.sin(angle) * radius),
+      },
+    }
+  })
+
+  return {
+    window,
+    newNodes: seededNodes,
+    newEdges: incoming.edges
+      .filter((edge) => !existingEdgeIds.has(edge.id))
+      .filter((edge) => mergedNodeIds.has(edge.source) && mergedNodeIds.has(edge.target)),
+    preserveViewport: true,
+    runLayout: false,
+    fit: false,
   }
 }
 

@@ -5,10 +5,11 @@ import { cytoscapeStylesheet, LAYOUT_OPTIONS, type LayoutName } from '@/lib/cyto
 import {
   fetchGraphWindow,
   fetchNeighbors,
-  mergeGraphWindow,
+  planGraphExpansion,
   resetGraphWindow,
   restoreGraphWindow,
   type GraphEdgeData,
+  type GraphExpansionPlan,
   type GraphNodeData,
   type GraphViewMode,
   type GraphWindow,
@@ -33,6 +34,11 @@ interface CanvasEdgeElement {
   data: GraphWireEdge
 }
 
+export interface CanvasViewport {
+  pan: cytoscape.Position
+  zoom: number
+}
+
 export interface CanvasSelectionPlan {
   nodeId: string
   nodeToAdd: CanvasNodeElement | null
@@ -50,6 +56,31 @@ function graphNodeToCanvasElement(node: GraphNode): CanvasNodeElement {
       type: node.type,
       ...(filePath !== undefined ? { filePath } : {}),
     },
+  }
+}
+
+export function applyCanvasExpansion(
+  cy: cytoscape.Core,
+  plan: GraphExpansionPlan,
+  viewport: CanvasViewport = { pan: { ...cy.pan() }, zoom: cy.zoom() },
+): void {
+  const existingNodes = cy.nodes()
+  const previouslyUnlockedNodes = existingNodes.filter((element) => !element.locked())
+  existingNodes.lock()
+  try {
+    cy.batch(() => {
+      cy.add([
+        ...plan.newNodes.map(({ node, position }) => ({
+          ...graphNodeToCanvasElement(node),
+          position,
+        })),
+        ...plan.newEdges.map((edge) => ({ data: edge })),
+      ])
+    })
+  } finally {
+    previouslyUnlockedNodes.unlock()
+    cy.pan(viewport.pan)
+    cy.zoom(viewport.zoom)
   }
 }
 
@@ -130,6 +161,10 @@ export function GraphCanvas({
 
   const expandNode = useCallback(async (node: GraphNode): Promise<void> => {
     if (expansionAbortRef.current !== null) return
+    const initialCy = cyRef.current
+    const viewport = initialCy && !initialCy.destroyed()
+      ? { pan: { ...initialCy.pan() }, zoom: initialCy.zoom() }
+      : null
     const controller = new AbortController()
     expansionAbortRef.current = controller
     setExpandingNodeId(node.id)
@@ -140,34 +175,20 @@ export function GraphCanvas({
       const cy = cyRef.current
       if (!current || !cy || cy.destroyed()) return
 
-      const merged = mergeGraphWindow(current, incoming)
-      const existingNodeIds = new Set(current.nodes.map((entry) => entry.id))
-      const existingEdgeIds = new Set(current.edges.map((edge) => edge.id))
-      const nodesToAdd = incoming.nodes
-        .filter((entry) => !existingNodeIds.has(entry.id))
-        .map(graphNodeToCanvasElement)
-      const mergedNodeIds = new Set(merged.nodes.map((entry) => entry.id))
-      const edgesToAdd = incoming.edges
-        .filter((edge) => !existingEdgeIds.has(edge.id))
-        .filter((edge) => mergedNodeIds.has(edge.source) && mergedNodeIds.has(edge.target))
-        .map((edge) => ({ data: edge }))
+      const target = cy.getElementById(node.id)
+      if (target.length === 0) return
+      const plan = planGraphExpansion(current, incoming, node.id, target.position())
+      const merged = plan.window
 
-      if (nodesToAdd.length > 0 || edgesToAdd.length > 0) {
-        cy.add([...nodesToAdd, ...edgesToAdd])
-        cy.layout(LAYOUT_OPTIONS[layout]).run()
-      }
+      applyCanvasExpansion(cy, plan, viewport ?? undefined)
       graphWindowRef.current = merged
       appliedExpansionIdsRef.current = [...appliedExpansionIdsRef.current, node.id]
       setGraphWindow(merged)
       setCanvasNodes(merged.nodes)
       setNodeCount(merged.nodes.length)
       setEdgeCount(merged.edges.length)
-      const target = cy.getElementById(node.id)
-      if (target.length > 0) {
-        if (incoming.incomingTruncated || incoming.outgoingTruncated) {
-          target.addClass('truncated')
-        }
-        cy.animate({ fit: { eles: target.neighborhood().add(target), padding: 60 }, duration: 400 })
+      if (incoming.incomingTruncated || incoming.outgoingTruncated) {
+        target.addClass('truncated')
       }
       onExpanded?.(node)
     } catch (error) {
@@ -180,7 +201,7 @@ export function GraphCanvas({
         setExpandingNodeId(null)
       }
     }
-  }, [apiUrl, layout, onExpanded, windowLimit])
+  }, [apiUrl, onExpanded, windowLimit])
   expandNodeRef.current = expandNode
 
   // Initialize Cytoscape and load data

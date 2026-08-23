@@ -99,6 +99,7 @@ describe('extractConversation creates Person entities for speakers', () => {
 
     await extractConversation(chunkResult, ops, {
       extractor: { languageModel: mockModel },
+      embeddings: false,
     });
 
     const entityCalls = vi.mocked(ops.createEntity).mock.calls;
@@ -115,6 +116,7 @@ describe('extractConversation creates Person entities for speakers', () => {
 
     await extractConversation(chunkResult, ops, {
       extractor: { languageModel: mockModel },
+      embeddings: false,
     });
 
     const relCalls = vi.mocked(ops.createRelationship).mock.calls;
@@ -132,6 +134,7 @@ describe('extractConversation creates Person entities for speakers', () => {
 
     await extractConversation(chunkResult, ops, {
       extractor: { languageModel: mockModel },
+      embeddings: false,
     });
 
     const relCalls = vi.mocked(ops.createRelationship).mock.calls;
@@ -154,6 +157,7 @@ describe('extractConversation creates Person entities for speakers', () => {
 
     await extractConversation(chunkResult, ops, {
       extractor: { languageModel: mockModel },
+      embeddings: false,
     });
 
     const relCalls = vi.mocked(ops.createRelationship).mock.calls;
@@ -175,6 +179,7 @@ describe('extractConversation creates Person entities for speakers', () => {
 
     await extractConversation(chunkResult, ops, {
       extractor: { languageModel: mockModel },
+      embeddings: false,
     });
 
     const entityCalls = vi.mocked(ops.createEntity).mock.calls;

@@ -15,5 +15,8 @@ export default defineConfig({
       'src/__tests__/episodic-extraction.test.ts',
       'src/__tests__/ingest-conversation.test.ts',
     ],
+    env: {
+      CODEGRAPH_EMBEDDING_PROVIDER: 'none',
+    },
   },
 });
