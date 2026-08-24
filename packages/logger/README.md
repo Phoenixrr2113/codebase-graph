@@ -2,17 +2,7 @@
 
 Structured logging and function tracing for CodeGraph. Zero external dependencies.
 
-## Installation
-
-```
-pnpm add @codegraph/logger
-```
-
-## Build
-
-```
-pnpm build
-```
+This is a private workspace package consumed by the CodeGraph services.
 
 ## Usage
 
@@ -50,8 +40,8 @@ const log = createLogger({
 
 ### Environment Variables
 
-- `LOG_LEVEL` -- set minimum log level (e.g., `debug`, `info`, `warn`, `error`)
-- `CODEGRAPH_LOG_STDERR` -- set to `true` or `1` to route all log output to stderr (required when running as an MCP server over stdio, to keep stdout clean for JSON-RPC)
+- `LOG_LEVEL`: set minimum log level (e.g., `debug`, `info`, `warn`, `error`)
+- `CODEGRAPH_LOG_STDERR`: set to `true` or `1` to route all log output to stderr (required when running as an MCP server over stdio, to keep stdout clean for JSON-RPC)
 
 ### Function Tracing
 
@@ -79,10 +69,10 @@ const result = await withTrace('loadData', async () => {
 
 Tracing is controlled by environment variables:
 
-- `TRACE_ENABLED` -- set to `true` to enable tracing
-- `TRACE_LEVEL` -- `verbose` (args + result + duration), `minimal` (name + duration), or `off`
-- `TRACE_INCLUDE` -- comma-separated glob patterns to include (e.g., `API:*,DB:*`)
-- `TRACE_EXCLUDE` -- comma-separated glob patterns to exclude
+- `TRACE_ENABLED`: set to `true` to enable tracing
+- `TRACE_LEVEL`: `verbose` (args + result + duration), `minimal` (name + duration), or `off`
+- `TRACE_INCLUDE`: comma-separated glob patterns to include (e.g., `API:*,DB:*`)
+- `TRACE_EXCLUDE`: comma-separated glob patterns to exclude
 
 ### Error Utilities
 
@@ -96,25 +86,3 @@ try {
   console.error(toErrorMessage(err));
 }
 ```
-
-## Exports
-
-| Export | Description |
-|--------|-------------|
-| `createLogger(config?)` | Create a new logger instance |
-| `logger` | Default root logger singleton |
-| `trace()` | Method decorator for class methods |
-| `traced(name, fn)` | Wrap a standalone function with tracing |
-| `withTrace(name, fn)` | Trace an inline async block |
-| `toErrorMessage(err)` | Extract a human-readable message from any thrown value |
-| `LOG_LEVEL_ORDER` | Numeric ordering of log levels |
-
-### Types
-
-| Type | Description |
-|------|-------------|
-| `Logger` | Logger interface (debug, info, warn, error, child) |
-| `LoggerConfig` | Configuration options for createLogger |
-| `LogLevel` | `'debug' \| 'info' \| 'warn' \| 'error'` |
-| `TraceConfig` | Configuration for tracing (enabled, level, include/exclude) |
-| `TraceEntry` | Single trace record (name, args, result, error, durationMs) |

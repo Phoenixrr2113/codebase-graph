@@ -24,14 +24,14 @@ Rust language plugin for CodeGraph. Extracts code entities from Rust source file
 
 ## Extracted Features
 
-- **Functions & Methods** -- Parameters with types (including `self` parameter), return types, async detection via `function_modifiers`, doc comments (`///`), complexity metrics. Methods inside `impl` blocks have their impl type recorded in the entity ID.
-- **Structs** -- Visibility detection (`pub`), doc comments.
-- **Traits** -- Supertrait bounds extracted as `extends` relationships (e.g., `trait Handler: Send + Sync`). Visibility and doc comments.
-- **Variables** -- `const` and `static` items with type annotations.
-- **Imports** -- All `use` declaration forms: simple paths (`use std::io::Read`), grouped (`use std::io::{Read, Write}`), wildcards (`use std::io::*`), aliased (`use X as Y`), and single crate imports.
-- **Types** -- Type aliases and enums with visibility and doc comments.
-- **Calls** -- Function and method calls including direct (`helper()`), method (`self.method()`), and qualified (`Type::method()`). Filters Rust builtins and common trait methods (`clone`, `unwrap`, `map`, `into`, `collect`, etc.).
-- **Inheritance** -- `impl Trait for Type` creates implements edges. Trait supertrait bounds create extends edges.
+- **Functions & Methods**: Parameters with types (including `self` parameter), return types, async detection via `function_modifiers`, doc comments (`///`), complexity metrics. Methods inside `impl` blocks have their impl type recorded in the entity ID.
+- **Structs**: Visibility detection (`pub`), doc comments.
+- **Traits**: Supertrait bounds extracted as `extends` relationships (e.g., `trait Handler: Send + Sync`). Visibility and doc comments.
+- **Variables**: `const` and `static` items with type annotations.
+- **Imports**: All `use` declaration forms: simple paths (`use std::io::Read`), grouped (`use std::io::{Read, Write}`), wildcards (`use std::io::*`), aliased (`use X as Y`), and single crate imports.
+- **Types**: Type aliases and enums with visibility and doc comments.
+- **Calls**: Function and method calls including direct (`helper()`), method (`self.method()`), and qualified (`Type::method()`). Cross-file targets resolve through declared modules and `crate::`, `self::`, or `super::` imports. External-crate and otherwise unresolvable targets are omitted instead of guessed. Rust builtins and common trait methods are filtered.
+- **Inheritance**: `impl Trait for Type` creates implements edges. Trait supertrait bounds create extends edges.
 
 ## Visibility Detection
 

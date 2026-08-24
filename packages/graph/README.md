@@ -1,144 +1,35 @@
 # @codegraph/graph
 
-Driver-agnostic graph database client for CodeGraph. Supports **FalkorDB** (client-server, Docker) and **FalkorDBLite** (embedded, no Docker). Includes a pluggable driver registry for adding new backends.
+Private workspace package for CodeGraph storage drivers, graph operations, read queries, analysis queries, and knowledge operations.
 
-## Driver Abstraction
+## Driver selection
 
-The package provides a `DatabaseDriver` interface that allows all graph operations to work identically across backends. All drivers share the same Cypher dialect (FalkorDB-compatible).
+`createClient()` accepts an explicit `falkordblite` or `falkordb` driver. Without an explicit driver, configured external connection variables select FalkorDB. Otherwise CodeGraph selects embedded FalkorDBLite on Linux x64 and Apple silicon macOS when its native requirements and package are available, then falls back to external FalkorDB.
 
-```
-createClient()
-  ├── reads explicit config argument
-  ├── reads .codegraph/config.json (auto-detected up to 5 parent dirs)
-  ├── falls back to CODEGRAPH_DRIVER env var
-  └── defaults to FalkorDB
-```
+Embedded platform packages bundle both `redis-server` and the FalkorDB module binary. Users do not install a separate Redis server for FalkorDBLite. Apple silicon macOS requires Homebrew `libomp` and `openssl@3`; Linux x64 has no additional database runtime prerequisite.
 
-### Key Interfaces
+External FalkorDB remains available through `FALKORDB_URL` or host and port settings for unsupported embedded platforms and managed services.
 
-- **`DatabaseDriver`** — Connect, query, close. Implemented by `FalkorDBDriver` and `FalkorDBLiteDriver`. New drivers register via `registerDriver()`.
-- **`GraphClient`** — High-level client returned by `createClient()`. Exposes `query()`, `roQuery()`, `ensureIndexes()`, `close()`, and `dialect`.
-- **`GraphOperations`** — CRUD operations (upsert files, functions, classes, edges) + vector search.
-- **`GraphQueries`** — Read queries (search, subgraph, stats, dependency tree).
-- **`KnowledgeOperations`** — Entity/relationship/fact storage, temporal memory (decay/prune), semantic search.
+## Embedded lifecycle
 
-### Usage
+- One process acquires the data-path lease and owns the embedded server.
+- Later processes using the same data path attach through the published Unix socket.
+- Closing an attached process does not release the owner's lease or stop the server.
+- If a configured Unix data path is too long for the socket limit, it relocates deterministically to `~/.codegraph/graphs/<12-hex-digest>`.
+- The owner closes the embedded database, persists its final snapshot, and releases the lease.
 
-```typescript
-import { createClient, createOperations, createQueries, createKnowledgeOperations } from '@codegraph/graph';
+## Main interfaces
 
-// Auto-detect backend from config file / env vars
-const client = await createClient();
-const ops = createOperations(client);
-const queries = createQueries(client);
-const knowledgeOps = createKnowledgeOperations(client);
+- `GraphClient`: query, read-only query, schema setup, connection close, and dialect access.
+- `createOperations()`: graph writes, indexing primitives, vector search, and project cleanup.
+- `createQueries()`: graph windows, statistics, context, source relationships, and git-backed analysis.
+- `createKnowledgeOperations()`: temporal knowledge entities, relationships, facts, recall, and maintenance.
+- `createOwnershipQuery()`: per-file authorship ranking from indexed git history.
 
-// All queries are driver-agnostic
-await ops.upsertFile({ path: '/src/index.ts', name: 'index.ts', extension: 'ts', loc: 42 });
-const results = await queries.searchByName('createClient');
+## Embedding schema profile
 
-// Knowledge graph operations
-await knowledgeOps.upsertEntity({ text: 'Auth Service', type: 'SYSTEM', ... });
-const related = await knowledgeOps.recall('Auth Service');
+Schema setup persists the embedding provider, model, and dimension. A later request with a different profile is rejected unless an explicit migration path is used. `none` has dimension 0; the default local profile has dimension 768. This guard prevents vectors created for incompatible profiles from sharing one index.
 
-await client.close();
-```
+## Configuration inputs
 
-### Explicit Driver Selection
-
-```typescript
-// FalkorDBLite (embedded, no Docker)
-const client = await createClient({
-  driver: 'falkordblite',
-  databasePath: '.codegraph/falkordb',
-  graphName: 'codegraph',
-});
-
-// FalkorDB (Docker or cloud)
-const client = await createClient({
-  driver: 'falkordb',
-  host: 'localhost',
-  port: 6379,
-  graphName: 'codegraph',
-});
-```
-
-## Drivers
-
-### FalkorDB (`drivers/falkordb.ts`) — Primary
-
-- Client-server via Redis protocol
-- Requires Docker (`docker compose up -d falkordb`) or FalkorDB Cloud
-- Full Cypher support: `ON CREATE SET` / `ON MATCH SET`, `MERGE`, `UNWIND`
-- Native HNSW vector indexes on nodes and relationships
-- Vector search: `CALL db.idx.vector.queryNodes(label, property, k, vecf32(vec))`
-- Node results: `{ properties: { ... } }` (nested)
-
-### FalkorDBLite (`drivers/falkordblite.ts`) — Embedded
-
-- Embedded FalkorDB engine, spawns a Redis subprocess
-- No Docker, no external services (requires `redis-server` installed)
-- Same Cypher API as full FalkorDB
-- Platforms: macOS arm64, Linux x64
-- npm: `falkordblite` v0.2.0 (optional dependency)
-- API: `FalkorDB.open({ path })` → `db.selectGraph(name)` → same `Graph` type
-- Close: `db.close()` stops subprocess + saves RDB snapshot
-
-## Vector Search
-
-The graph layer supports native HNSW vector indexes for semantic search:
-
-```typescript
-// Vector indexes are created automatically by ensureSchema()
-// 8 node types + RELATES_TO edge, all 768-dimensional (cosine)
-
-// Search by vector similarity
-const results = await ops.searchByVector('Function', embedding, 10);
-// Returns: [{ node, score }]
-```
-
-**Important**: FalkorDB requires `vecf32()` to encode vectors. Raw JS arrays stored as embeddings become `List` type, not `Vectorf32`. The drivers handle this automatically.
-
-## Knowledge Operations
-
-The `KnowledgeOperations` module provides a full knowledge graph layer:
-
-- **Entities**: CRUD with deduplication, type classification, embeddings
-- **Relationships**: Typed edges between entities with temporal metadata
-- **ABOUT edges**: Link knowledge entities to code entities (Function, Class, File, etc.)
-- **Temporal memory**: `valid_at`/`invalid_at` timestamps, relevance decay, pruning
-- **Semantic search**: Vector similarity search over entity embeddings
-- **Conversation ingestion**: Episodic memory from multi-turn conversations
-
-## Config File
-
-Place `.codegraph/config.json` in your project root:
-
-```json
-{
-  "driver": "falkordblite",
-  "databasePath": ".codegraph/falkordb",
-  "graphName": "codegraph"
-}
-```
-
-Relative paths in `databasePath` are resolved against the directory containing the config file, so the MCP server works correctly regardless of which subdirectory it runs from.
-
-## Tests
-
-- **35 tests** — `falkordb-operations.test.ts` (CRUD, vector search, provenance against FalkorDB Docker)
-- **12 tests** — `falkordb-knowledge-operations.test.ts` (knowledge ops against FalkorDB Docker)
-- **9 tests** — `falkordblite.test.ts` (CRUD, vector search, knowledge ops against FalkorDBLite)
-- **9 tests** — `about-edges.test.ts` (ABOUT edge linking between knowledge and code entities)
-- **19 tests** — `falkordb-git-operations.test.ts` (git churn, commit history, file change tracking)
-
-All integration tests run against real databases (no mocks).
-
-```bash
-# Run graph tests (requires Docker FalkorDB on localhost:6379)
-cd packages/graph
-pnpm exec vitest run
-
-# Or from monorepo root
-pnpm test --filter=@codegraph/graph
-```
+The graph name defaults to `codegraph`. `CODEGRAPH_DB_PATH` selects embedded storage. `FALKORDB_URL`, `FALKORDB_HOST`, and `FALKORDB_PORT` configure an external service. A project `.codegraph/config.json` may also provide driver settings, and relative database paths in that file resolve from the config directory.

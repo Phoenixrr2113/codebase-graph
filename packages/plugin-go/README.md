@@ -23,13 +23,13 @@ Go concepts are mapped to the unified CodeGraph schema:
 
 ## Extracted Features
 
-- **Functions & Methods** -- Parameters with types, return types, doc comments, complexity metrics. Methods include receiver type extraction (e.g., `func (s *Server) Start()` records receiver as `Server`).
-- **Structs** -- Embedded types detected as `implements` relationships. Doc comments extracted.
-- **Interfaces** -- Embedded interfaces detected as `extends` relationships. Type constraint elements recognized.
-- **Variables** -- Grouped `var`/`const` declarations supported. Type annotations preserved.
-- **Imports** -- Single and grouped imports. Aliases, dot imports, and blank imports handled. Package name extracted from import path.
-- **Types** -- Type aliases and type definitions (excludes structs/interfaces handled separately).
-- **Calls** -- Function and method calls within function bodies. Filters Go builtins (`append`, `len`, `make`, `panic`, etc.) and common stdlib functions.
+- **Functions & Methods**: Parameters with types, return types, doc comments, complexity metrics. Methods include receiver type extraction (e.g., `func (s *Server) Start()` records receiver as `Server`).
+- **Structs**: Embedded types detected as `implements` relationships. Doc comments extracted.
+- **Interfaces**: Embedded interfaces detected as `extends` relationships. Type constraint elements recognized.
+- **Variables**: Grouped `var`/`const` declarations supported. Type annotations preserved.
+- **Imports**: Single and grouped imports. Aliases, dot imports, and blank imports handled. Package name extracted from import path.
+- **Types**: Type aliases and type definitions (excludes structs/interfaces handled separately).
+- **Calls**: Function and method calls within function bodies. Filters Go builtins (`append`, `len`, `make`, `panic`, etc.) and common stdlib functions. Only same-file calls resolve. Cross-package and same-package cross-file calls stay unresolved because the per-file extractor does not have the package-wide symbol catalog needed to attribute them safely.
 
 ## Export Detection
 

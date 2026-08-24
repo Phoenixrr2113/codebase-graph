@@ -1,4 +1,4 @@
-# CodeGraph — AI Assistant Skill Document
+# CodeGraph: AI Assistant Skill Document
 
 CodeGraph indexes codebases into a graph database (FalkorDB) and provides MCP tools for code search, context retrieval, repository analysis, knowledge management, and raw graph queries.
 
@@ -21,9 +21,9 @@ Configuration does not index the project. Reindexing parses structure first and 
 
 ## Tool Reference (5 tool groups, 25 actions)
 
-### 1. `search` — Find code and knowledge
+### 1. `search`: Find code and knowledge
 
-Vector search + cross-encoder reranking. Returns enriched results with complexity, callers, callees, importerCount, linkedKnowledge.
+Vector search with optional cross-encoder reranking when a supported provider key is configured. Without one, search keeps vector-search ordering. Local 768-dimension embeddings remain the no-key default. Results include complexity, callers, callees, importerCount, and linkedKnowledge.
 
 | Action | Use When | Required Params |
 |--------|----------|-----------------|
@@ -40,33 +40,33 @@ search({ action: "context", file: "src/service.ts", includeRelationships: true }
 search({ action: "context", symbol: "enrichedSearchV2" })
 ```
 
-**Multi-step questions:** for complex queries that need iterative refinement, chain `search` calls in your agent — examine results, refine the query, search again. CodeGraph stays focused on per-call retrieval quality; orchestration is the agent's job.
+**Multi-step questions:** for complex queries that need iterative refinement, chain `search` calls in your agent. Examine results, refine the query, and search again. CodeGraph stays focused on per-call retrieval quality; orchestration is the agent's job.
 
-### 2. `knowledge` — Knowledge graph (8 actions)
+### 2. `knowledge`: Knowledge graph (8 actions)
 
 | Action | Use When | Required Params |
 |--------|----------|-----------------|
 | `store` | Store entities, relationships, or extract facts from text | `text` |
 | `add` | Ingest a document (PDF, DOCX, HTML, CSV, URL, or raw text) | `input` |
-| `recall` | "What do I know about X?" — with temporal and speaker queries | `text` |
+| `recall` | "What do I know about X?", with temporal and speaker queries | `text` |
 | `query_knowledge` | Search entities by type, text, source, or fact meaning | (any filter) |
 | `ingest_conversation` | Ingest multi-turn conversation with speaker attribution | `text` |
 | `resolve_entities` | On-demand 3-tier entity deduplication | (none) |
-| `decay_and_prune` | Temporal maintenance — decay relevance, prune stale entities | (none) |
+| `decay_and_prune` | Temporal maintenance: decay relevance, prune stale entities | (none) |
 | `get_knowledge_stats` | Memory statistics | (none) |
 
 **Recall parameters (all optional):**
-- `at` — ISO timestamp for point-in-time: "what was true on March 1st?"
-- `from` / `to` — time range: "what changed this week?"
-- `timeline: true` — full chronological history including superseded facts
-- `minRelevance` — relevance-weighted search (0-1 threshold)
-- `speaker` — "what has Alice said?" (follows SAID relationships)
-- `includeHistory: true` — include invalidated/superseded facts
+- `at`: ISO timestamp for point-in-time: "what was true on March 1st?"
+- `from` / `to`: time range: "what changed this week?"
+- `timeline: true`: full chronological history including superseded facts
+- `minRelevance`: relevance-weighted search (0-1 threshold)
+- `speaker`: "what has Alice said?" (follows SAID relationships)
+- `includeHistory: true`: include invalidated/superseded facts
 
 **Query parameters (all optional):**
-- `semanticQuery` — find entities by meaning, not just text
-- `searchFacts` — search relationship explanations by meaning
-- `source` — filter by provenance/sampleId prefix
+- `semanticQuery`: find entities by meaning, not just text
+- `searchFacts`: search relationship explanations by meaning
+- `source`: filter by provenance/sampleId prefix
 
 **Examples:**
 ```
@@ -84,7 +84,7 @@ knowledge({ action: "ingest_conversation", text: "Alice: let's use Redis\nBob: a
 knowledge({ action: "resolve_entities" })
 ```
 
-### 3. `codebase` — Index management
+### 3. `codebase`: Index management
 
 | Action | Use When | Required Params |
 |--------|----------|-----------------|
@@ -95,6 +95,8 @@ knowledge({ action: "resolve_entities" })
 | `source` | Read source code | `path` |
 | `ping` | Test connectivity | (none) |
 | `profile` | Get a fast static and dynamic project snapshot | (none) |
+
+The `profile` handler is intended to accept an optional absolute `projectPath` filter and an optional `limit` (default 10). Its published input schema currently omits both properties, so clients that enforce the schema cannot reliably send them. Calling `profile` without either property remains schema-valid and returns the unfiltered snapshot.
 
 Widen the persisted git history window during reindexing when deeper history is needed:
 ```
@@ -141,17 +143,17 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 ## Workflow Guides
 
 ### Codebase Onboarding
-1. `codebase({ action: "stats" })` — get overview
-2. `search({ action: "find", query: "main index app" })` — find entry points
-3. `search({ action: "context", file: "<entry_point>", includeRelationships: true })` — understand architecture
+1. `codebase({ action: "stats" })`: get overview
+2. `search({ action: "find", query: "main index app" })`: find entry points
+3. `search({ action: "context", file: "<entry_point>", includeRelationships: true })`: understand architecture
 
 ### Find and Understand Code
-1. `search({ action: "find", query: "authentication" })` — find relevant symbols
-2. `search({ action: "context", symbol: "<result>" })` — see callers, imports, relationships
-3. `codebase({ action: "source", path: "<file>" })` — read the actual code
+1. `search({ action: "find", query: "authentication" })`: find relevant symbols
+2. `search({ action: "context", symbol: "<result>" })`: see callers, imports, relationships
+3. `codebase({ action: "source", path: "<file>" })`: read the actual code
 
 ### Unified Search (Code + Knowledge)
-1. `search({ action: "find", query: "retry logic", searchScope: "all" })` — search both code and knowledge
+1. `search({ action: "find", query: "retry logic", searchScope: "all" })`: search both code and knowledge
 2. Results include both code symbols and knowledge entities, ranked by RRF fusion
 
 ### Analyze Change Risk
@@ -164,27 +166,28 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 2. `analyze({ action: "dead_code", projectPath: "<absolute-project-path>" })`: review unreferenced export candidates
 3. `analyze({ action: "hotspots", projectPath: "<absolute-project-path>" })`: rank frequently changed files
 4. `analyze({ action: "change_coupling", projectPath: "<absolute-project-path>" })`: find correlated file changes
-5. Treat historyCoverage as the observed indexed window, not all-time repository history
+5. `analyze({ action: "ownership", projectPath: "<absolute-project-path>" })`: review inferred per-file authorship contributors
+6. Treat `historyCoverage` as the observed indexed window, not all-time repository history. Ownership reflects authorship inferred from that indexed history, not CODEOWNERS, review activity, expertise, or current team assignment.
 
 ### Ingest Documents
-1. `knowledge({ action: "add", input: "/path/to/spec.pdf" })` — auto-detects format, chunks, extracts entities
+1. `knowledge({ action: "add", input: "/path/to/spec.pdf" })`: auto-detects format, chunks, extracts entities
 2. Supported: PDF, DOCX, HTML, CSV, URLs, raw text
 
 ### Temporal Knowledge Queries
-1. `knowledge({ action: "recall", text: "auth system", at: "2026-01-15T00:00:00Z" })` — point-in-time reconstruction
-2. `knowledge({ action: "recall", text: "decisions", from: "2026-03-01", to: "2026-03-31" })` — what changed in March
-3. `knowledge({ action: "recall", text: "AuthModule", timeline: true })` — full entity history
+1. `knowledge({ action: "recall", text: "auth system", at: "2026-01-15T00:00:00Z" })`: point-in-time reconstruction
+2. `knowledge({ action: "recall", text: "decisions", from: "2026-03-01", to: "2026-03-31" })`: what changed in March
+3. `knowledge({ action: "recall", text: "AuthModule", timeline: true })`: full entity history
 
 ### Knowledge Capture
-1. `knowledge({ action: "store", text: "<conversation>" })` — extract and store entities
-2. `knowledge({ action: "recall", text: "<topic>" })` — retrieve what was captured
+1. `knowledge({ action: "store", text: "<conversation>" })`: extract and store entities
+2. `knowledge({ action: "recall", text: "<topic>" })`: retrieve what was captured
 
 ## Anti-Patterns
 
-- **Don't** pass raw user input to `query` — use parameterized queries with `params`
-- **Don't** fetch everything — always use `limit` and `scope` to constrain results
+- **Don't** pass raw user input to `query`. Use parameterized queries with `params`
+- **Don't** fetch everything. Always use `limit` and `scope` to constrain results
 - **Don't** use `query` for things `search` or `analyze` can do. The purpose-built tools have safer bounds and clearer caveats.
-- **Don't** call `codebase({ action: "reindex" })` repeatedly — use `mode: "incremental"` (the default)
+- **Don't** call `codebase({ action: "reindex" })` repeatedly. Use `mode: "incremental"` (the default)
 
 ## Environment
 
@@ -196,6 +199,6 @@ query({ cypher: "MATCH (f:Function) WHERE f.name CONTAINS $name RETURN f.name, f
 - **Build**: `pnpm build` (monorepo with Turbo)
 - **Test**: `pnpm test`
 
-## Public Benchmark — CGBench v1
+## Public Benchmark: CGBench v1
 
 Cross-system retrieval benchmark at `benchmarks/cgbench-v1/`. Compares CodeGraph against 7 named competitors on a uniform 6-task battery (NL→code, structural, multi-hop, bitemporal, linked code+knowledge, document ingestion). Results published in [`benchmarks/cgbench-v1/BENCHMARKS.md`](benchmarks/cgbench-v1/BENCHMARKS.md). Methodology: [`benchmarks/cgbench-v1/COMPETITORS.md`](benchmarks/cgbench-v1/COMPETITORS.md), [`benchmarks/cgbench-v1/questions/REVIEW.md`](benchmarks/cgbench-v1/questions/REVIEW.md).

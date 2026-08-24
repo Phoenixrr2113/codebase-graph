@@ -1,228 +1,131 @@
 # @codegraph/cli
 
-Command-line interface for CodeGraph. Parse codebases, populate the graph database, generate embeddings, run searches, and execute Cypher queries.
+Internal command-line interface for working from a CodeGraph source checkout. This workspace package is not published by the repository release workflow.
 
-## Installation
+## Build and inspect
 
-```
-pnpm add @codegraph/cli
-```
+From the repository root:
 
-## Binary Names
-
-```
-codegraph <command> [options]
-cg <command> [options]
+```bash
+pnpm --filter @codegraph/cli build
+pnpm --filter @codegraph/cli exec tsx src/index.ts --help
 ```
 
-## Build
-
-```
-pnpm build
-```
+The package manifest defines both `codegraph` and `cg` as aliases for `dist/index.js` inside the workspace.
 
 ## Commands
 
-### `extract` -- Parse source files and populate the code graph
+### `extract <path>`
 
-```
-codegraph extract <path> [options]
-```
+Parse source files and populate the graph. Git history sync is enabled unless `--no-git` is supplied.
 
-Parses source files using tree-sitter, extracts entities and relationships, and stores them in FalkorDB. Optionally syncs git history.
-
-| Option | Description | Default |
-|--------|-------------|---------|
+| Option | Meaning | Default |
+| --- | --- | --- |
 | `-g, --graph <name>` | Graph name | `codegraph` |
 | `-h, --host <host>` | FalkorDB host | `localhost` |
 | `-p, --port <port>` | FalkorDB port | `6379` |
-| `--include <patterns>` | Include glob patterns (comma-separated) | all supported extensions |
-| `--exclude <patterns>` | Exclude glob patterns (comma-separated) | default ignore patterns |
-| `--deep` | Enable deep analysis (call/render edges, complexity) | off |
-| `--no-git` | Skip git history sync | syncs git |
-| `--dry-run` | Parse without writing to database | off |
+| `--include <patterns>` | Comma-separated include globs | Supported extensions |
+| `--exclude <patterns>` | Comma-separated exclude globs | Core ignore patterns |
+| `--deep` | Extract call/render edges and complexity | Off |
+| `--no-git` | Skip git history sync | Git sync on |
+| `--history-since <iso>` | Inclusive ISO 8601 cutoff for persisted history | 365 days before initial sync |
+| `--history-max-commits <count>` | Initial-backfill ceiling from 1 through 100000 | `10000` |
+| `--dry-run` | Parse without graph writes | Off |
 
-```
-codegraph extract ./my-project
-codegraph extract ./src --deep --include "**/*.ts,**/*.tsx"
-codegraph extract ./my-project --dry-run
-```
+History dates use strict ISO calendar validation. Persisted history bounds widen but do not narrow on later indexing runs.
 
-### `search` -- Search the code graph
+### `search <query>`
 
-```
-codegraph search <query> [options]
-```
+Search indexed code. Vector retrieval uses the resolved embedding provider; reranking is optional.
 
-Runs vector search with cross-encoder reranking.
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `-l, --limit <n>` | Maximum results | `20` |
+| `-s, --scope <path>` | Path-prefix scope | None |
+| `--json` | JSON output | Off |
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-l, --limit <n>` | Max results | `20` |
-| `-s, --scope <path>` | Scope to path prefix | none |
-| `--json` | Output as JSON | off |
+### `status`
 
-```
-codegraph search "authentication middleware"
-codegraph search "parseProject" --limit 5 --json
-```
+Show graph statistics.
 
-### `status` -- Show graph database status and statistics
-
-```
-codegraph status [options]
-```
-
-Displays node/edge counts by type, largest files, and most connected entities.
-
-| Option | Description | Default |
-|--------|-------------|---------|
+| Option | Meaning | Default |
+| --- | --- | --- |
 | `-g, --graph <name>` | Graph name | `codegraph` |
-| `--json` | Output as JSON | off |
+| `--json` | JSON output | Off |
 
-### `query` -- Execute a Cypher query against the graph
+### `query <cypher>`
 
-```
-codegraph query <cypher> [options]
-```
+Execute read-only Cypher.
 
-Runs a read-only Cypher query and outputs results in JSON, table, or CSV format.
-
-| Option | Description | Default |
-|--------|-------------|---------|
+| Option | Meaning | Default |
+| --- | --- | --- |
 | `-g, --graph <name>` | Graph name | `codegraph` |
 | `-h, --host <host>` | FalkorDB host | `localhost` |
 | `-p, --port <port>` | FalkorDB port | `6379` |
-| `--params <json>` | Query parameters as JSON | `{}` |
-| `--format <type>` | Output format: `json`, `table`, `csv` | `json` |
+| `--params <json>` | Query parameters | None |
+| `--format <type>` | `json`, `table`, or `csv` | `json` |
 
-```
-codegraph query "MATCH (f:Function) RETURN f.name LIMIT 10"
-codegraph query "MATCH (f:Function) WHERE f.name CONTAINS \$name RETURN f.name" --params '{"name":"parse"}'
-codegraph query "MATCH (n) RETURN labels(n), count(*)" --format table
-```
+### `embed`
 
-### `embed` -- Generate embeddings for graph nodes
+Generate missing embeddings or refresh selected node types.
 
-```
-codegraph embed [options]
-```
-
-Generates vector embeddings for nodes that don't have them yet (or all nodes with `--force`).
-
-| Option | Description | Default |
-|--------|-------------|---------|
+| Option | Meaning | Default |
+| --- | --- | --- |
 | `-g, --graph <name>` | Graph name | `codegraph` |
 | `-h, --host <host>` | FalkorDB host | `localhost` |
 | `-p, --port <port>` | FalkorDB port | `6379` |
-| `--force` | Re-embed all nodes | only missing |
-| `--type <type>` | Only embed this node type (`File`, `Function`, `Class`, `Interface`, `Variable`, `Type`, `Component`) | all types |
-| `--batch-size <size>` | Batch size | `100` |
+| `--force` | Re-embed all selected nodes | Missing embeddings only |
+| `--type <type>` | `File`, `Function`, `Class`, `Interface`, `Variable`, `Type`, or `Component` | All supported types |
+| `--batch-size <size>` | Embedding batch size | `100` |
 
-```
-codegraph embed
-codegraph embed --force --type Function
-```
+### `analyze <type> <target>`
 
-### `analyze` -- Run analysis on the code graph
+The CLI analysis command currently accepts the `deps` type.
 
-```
-codegraph analyze <type> <target> [options]
-```
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `-g, --graph <name>` | Graph name | `codegraph` |
+| `-h, --host <host>` | FalkorDB host | `localhost` |
+| `-p, --port <port>` | FalkorDB port | `6379` |
+| `--depth <n>` | Dependency depth | `3` |
+| `--json` | JSON output | Off |
 
-Currently supports `deps` analysis type, which shows the dependency tree for a function or file.
+### `map [path]`
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--depth <n>` | Analysis depth | `3` |
-| `--json` | Output as JSON | off |
+Generate a repository map.
 
-```
-codegraph analyze deps parseProject --depth 5
-```
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `-g, --graph <name>` | Graph name | `codegraph` |
+| `-h, --host <host>` | FalkorDB host | `localhost` |
+| `-p, --port <port>` | FalkorDB port | `6379` |
+| `-l, --limit <n>` | Maximum nodes | `100` |
+| `-o, --output <file>` | Output file | Standard output |
+| `--json` | JSON output | Off |
 
-### `map` -- Generate a repository map
+### `link`
 
-```
-codegraph map [path] [options]
-```
+Create `ABOUT` edges by name matching or embedding similarity.
 
-Generates a tree-style repository map showing files and their contained entities.
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `-g, --graph <name>` | Graph name | `codegraph` |
+| `-h, --host <host>` | FalkorDB host | `localhost` |
+| `-p, --port <port>` | FalkorDB port | `6379` |
+| `--embedding` | Use embedding similarity | Name matching |
+| `--threshold <number>` | Similarity threshold from 0 through 1 | `0.8` |
+| `--force` | Re-link existing entities | Off |
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-l, --limit <n>` | Max nodes to include | `100` |
-| `-o, --output <file>` | Output file (defaults to stdout) | stdout |
-| `--json` | Output as JSON | off |
+### `serve`
 
-```
-codegraph map
-codegraph map packages/core/src --limit 50
-codegraph map --json -o repo-map.json
-```
+Print MCP server startup guidance.
 
-### `link` -- Link knowledge entities to code graph nodes
-
-```
-codegraph link [options]
-```
-
-Creates ABOUT edges between knowledge graph entities and code graph nodes. Supports name matching (default) and embedding similarity modes.
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--embedding` | Use embedding similarity instead of name matching | name matching |
-| `--threshold <number>` | Similarity threshold for embedding mode (0.0-1.0) | `0.8` |
-| `--force` | Re-link all entities (ignore existing ABOUT edges) | off |
-
-```
-codegraph link
-codegraph link --embedding --threshold 0.75
-codegraph link --force
-```
-
-### `serve` -- Start the MCP server
-
-```
-codegraph serve [options]
-```
-
-Prints instructions for starting the MCP server via the `@codegraph/mcp-server` package.
-
-| Option | Description | Default |
-|--------|-------------|---------|
+| Option | Meaning | Default |
+| --- | --- | --- |
 | `-g, --graph <name>` | Graph name | `codegraph` |
 | `--db-host <host>` | FalkorDB host | `localhost` |
 | `--db-port <port>` | FalkorDB port | `6379` |
 
-## Global Options
+## Provider configuration
 
-| Option | Description |
-|--------|-------------|
-| `-v, --verbose` | Enable verbose logging |
-| `-V, --version` | Show version |
-| `--help` | Show help |
-
-## Environment Variables
-
-The CLI connects to FalkorDB and uses embedding/reranking providers configured via environment:
-
-| Variable | Description |
-|----------|-------------|
-| `FALKORDB_HOST` | FalkorDB host (default: `localhost`) |
-| `FALKORDB_PORT` | FalkorDB port (default: `6379`) |
-| `FALKORDB_GRAPH` | Graph name (default: `codegraph`) |
-| `VOYAGE_API_KEY` | API key for Voyage embeddings (auto-detects provider) |
-| `OPENROUTER_API_KEY` | API key for OpenRouter embeddings (auto-detects provider) |
-| `JINA_API_KEY` | API key for Jina reranker (auto-detects provider) |
-| `CODEGRAPH_EMBEDDING_PROVIDER` | Optional override: `voyage`, `openrouter`, or `local` |
-| `CODEGRAPH_RERANK_PROVIDER` | Optional override: `jina` or `voyage` |
-| `LOG_LEVEL` | Log verbosity: `debug`, `info`, `warn`, `error` |
-
-## Dependencies
-
-- `@codegraph/core` -- indexing, search, graph client, service layer
-- `@codegraph/logger` -- structured logging
-- `@codegraph/plugin-nlp` -- entity linking (for `link` command)
-- `@codegraph/types` -- shared type definitions
-- `commander` -- CLI framework
+Embedding provider resolution is explicit configuration, then `CODEGRAPH_EMBEDDING_PROVIDER`, then `VOYAGE_API_KEY`, then `OPENROUTER_API_KEY`, then local. Valid explicit values are `local`, `voyage`, `openrouter`, and `none`. Voyage reranking is optional; without a supported key, search keeps fallback scores. Jina is not supported.

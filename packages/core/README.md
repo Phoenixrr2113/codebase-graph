@@ -1,88 +1,26 @@
 # @codegraph/core
 
-Main orchestrator for CodeGraph. Provides the service layer that ties together parsing, search, embedding, and graph operations into a unified API.
+Private workspace facade for CodeGraph indexing, search, project setup, source access, and git synchronization. The MCP server and REST API consume this package; it is not a separately published distribution.
 
-## Overview
+## Responsibilities
 
-The core package is the central hub of CodeGraph. It re-exports key interfaces from `@codegraph/graph`, `@codegraph/types`, and `@codegraph/plugin-typescript`, and provides the high-level services that the MCP server and API consume.
+- Register language plugins and parse supported source files.
+- Build and persist nodes and relationships through `@codegraph/graph`.
+- Coordinate full, incremental, and single-file indexing.
+- Resolve the embedding profile and block writes when a persisted profile requires migration.
+- Search by name or vector similarity, with optional reranking when a supported provider is configured.
+- Persist git history using a default initial window of 365 days and 10,000 commits. Later requests may widen, but do not narrow, the stored window.
+- Expose project configuration, setup status, source reading, file watching, and service facades.
 
-## Key Modules
+With no provider or cloud key configured, embeddings use the local `nomic-ai/nomic-embed-text-v1.5` profile at 768 dimensions. Explicit `none` mode disables semantic embeddings. Jina reranking is not supported.
 
-### Service Layer
+## Main exports
 
-- **`codeGraphService`** — Main service facade for search, graph traversal, entity access, project management
-  - `search()` — Vector retrieval + cross-encoder reranking (enrichedSearchV2)
-  - `getGraphStats()`, `getFullGraph()`, `getFileSubgraph()`, `getDependencyTree()`
-  - `buildFileTree()`, `getIndexSummary()`, `getProjects()`, `deleteProject()`
-  - `executeReadQuery()`, `getEntityWithConnections()`, `getNodesPaginated()`, `getNeighbors()`
-- **`knowledgeService`** — Knowledge graph facade for entity/relationship/fact operations
-  - `storeEntity()`, `storeRelationship()`, `storeFact()`, `recall()`
-  - `getMemoryStats()`, `decayRelevance()`, `pruneStaleEntities()`
+- `indexProject`, `indexSingleFile`, and embedding coordination
+- `codeGraphService` and `knowledgeService`
+- parsing and plugin registration helpers
+- `syncGitHistory` and repository metadata helpers
+- setup-status and embedding-migration helpers
+- configuration, source-reading, and watch services
 
-### Search
-
-- **`enrichedSearchV2`** — Vector retrieval + cross-encoder reranking (the only active search strategy)
-  - Pipeline: query → embed (Voyage code-3) → vector search → reranker (Jina reranker-v3) → graph enrichment
-
-### Indexing
-
-- **`indexProject`** — Full project indexing with incremental support, parallel processing, embeddings
-- **`indexSingleFile`** — Index a single file
-- **`isProjectIndexed`** — Check project indexing status
-
-### Embedding
-
-- **`embedParsedEntities`** — Embed newly parsed code entities during indexing
-- **`embedAllParsedEntities`** — Batch embed multiple parsed results
-- **`embedAllNodes`** — Retroactive bulk embedding for existing graph nodes
-
-### Parsing Pipeline
-
-- **`initParser` / `parseCode` / `parseFile` / `disposeParser`** — Tree-sitter parser lifecycle
-- **`getLanguageForExtension`** — Resolve language plugin by file extension
-- **`registerPlugins` / `registerTier2Languages`** — Register language plugins
-- **`extractEntitiesForFile` / `buildParsedFileEntities`** — Entity extraction pipeline
-
-### Configuration
-
-- **`loadConfig` / `saveConfig`** — Read/write `~/.codegraph/mcp-context.json`
-- **`getActiveProjectPaths`** — Manage which projects are indexed
-- **`needsSetup` / `isStale`** — Setup and staleness detection
-
-### Git Integration
-
-- **`syncGitHistory`** — Import git commit history linked to code entities
-- **`getRepoInfo`** — Repository metadata
-
-### Utilities
-
-- **`WatchService`** — File system watcher for live incremental updates
-- **`readSourceFile`** — Read file content with line slicing and path traversal protection
-
-## Usage
-
-```typescript
-import { codeGraphService, knowledgeService, indexProject } from '@codegraph/core';
-
-// Index a project
-await indexProject('/path/to/project', client);
-
-// Search (returns { hits, meta })
-const results = await codeGraphService.search('authentication');
-
-// Knowledge operations
-await knowledgeService.storeFact('The auth service uses OAuth2');
-const recall = await knowledgeService.recall('auth service');
-```
-
-## Tests
-
-3 test files:
-- `config.test.ts` — Config load/save, setup detection, staleness, atomic writes
-- `service.test.ts` — Service layer tests (needs update to match current API)
-- `complexity.test.ts` — Complexity metrics (needs import path fix)
-
-```bash
-cd packages/core
-pnpm exec vitest run
-```
+Build and tests are driven from the monorepo root through Turbo and the package scripts in `package.json`.
