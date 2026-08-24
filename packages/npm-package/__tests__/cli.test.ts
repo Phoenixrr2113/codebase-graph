@@ -25,7 +25,7 @@ describe('codegraph-mcp CLI', () => {
     );
     writeFileSync(
       join(fixtureDirectory, 'package.json'),
-      JSON.stringify({ name: 'codegraph-mcp', version: '9.8.7', type: 'module' }),
+      JSON.stringify({ name: '@codegraph/mcp', version: '9.8.7', type: 'module' }),
     );
 
     const result = spawnSync(
@@ -50,7 +50,7 @@ describe('codegraph-mcp CLI', () => {
     );
     writeFileSync(
       join(fixtureDirectory, 'package.json'),
-      JSON.stringify({ name: 'codegraph-mcp', version: '9.8.7', type: 'module' }),
+      JSON.stringify({ name: '@codegraph/mcp', version: '9.8.7', type: 'module' }),
     );
     writeFileSync(
       join(fixtureDirectory, 'server', 'index.mjs'),

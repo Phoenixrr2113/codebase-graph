@@ -1,6 +1,6 @@
 # Distribution and Release Setup
 
-This is the operator guide for the public `codegraph-mcp` npm package and the platform-local MCPB desktop extension. The canonical source is [Phoenixrr2113/codebase-graph](https://github.com/Phoenixrr2113/codebase-graph).
+This is the operator guide for the public `@codegraph/mcp` npm package and the platform-local MCPB desktop extension. The canonical source is [Phoenixrr2113/codebase-graph](https://github.com/Phoenixrr2113/codebase-graph).
 
 ## Release model
 
@@ -29,7 +29,7 @@ Use a clean checkout of the reviewed commit. Confirm authentication without disp
 git status --short
 git rev-parse HEAD
 npm whoami
-npm view codegraph-mcp version --json
+npm view @codegraph/mcp version --json
 ```
 
 The status output must be empty. Save the full 40-character commit SHA as `BOOTSTRAP_COMMIT`; it identifies the reviewed source used to build the registry package. An npm `E404` response is expected before the first publication. Then run the full local gate:
@@ -73,9 +73,9 @@ Installed runtime defaults are part of the package contract. `API_PORT` defaults
 From the repository root:
 
 ```bash
-npm view codegraph-mcp@0.1.0 name version license repository bin dist --json
+npm view @codegraph/mcp@0.1.0 name version license repository bin dist --json
 mkdir -p tmp/registry
-npm pack codegraph-mcp@0.1.0 --pack-destination tmp/registry
+npm pack @codegraph/mcp@0.1.0 --pack-destination tmp/registry
 node scripts/release/smoke-package.mjs \
   --tarball tmp/registry/codegraph-mcp-0.1.0.tgz \
   --version 0.1.0
@@ -91,7 +91,7 @@ Do not push `v0.1.0` yourself after the manual npm publication. A normal tag-tri
 
 ## Configure trusted publishing
 
-After `codegraph-mcp` exists on npm, open its package settings and add a GitHub Actions trusted publisher with:
+After `@codegraph/mcp` exists on npm, open its package settings and add a GitHub Actions trusted publisher with:
 
 | Field | Value |
 | --- | --- |
