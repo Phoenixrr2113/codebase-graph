@@ -3,6 +3,8 @@
 [![CI](https://github.com/Phoenixrr2113/codebase-graph/actions/workflows/ci.yml/badge.svg)](https://github.com/Phoenixrr2113/codebase-graph/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/Phoenixrr2113/codebase-graph/actions/workflows/codeql.yml/badge.svg)](https://github.com/Phoenixrr2113/codebase-graph/actions/workflows/codeql.yml)
 [![GitHub stars](https://img.shields.io/github/stars/Phoenixrr2113/codebase-graph?style=flat)](https://github.com/Phoenixrr2113/codebase-graph/stargazers)
+[![npm version](https://img.shields.io/npm/v/%40agntk%2Fcodegraph-mcp?style=flat)](https://www.npmjs.com/package/@agntk/codegraph-mcp)
+[![npm downloads](https://img.shields.io/npm/dw/%40agntk%2Fcodegraph-mcp?style=flat)](https://www.npmjs.com/package/@agntk/codegraph-mcp)
 [![MIT license](https://img.shields.io/github/license/Phoenixrr2113/codebase-graph)](LICENSE)
 
 CodeGraph turns source code and project knowledge into a searchable graph for AI agents and developers. It parses code with tree-sitter, stores structural and temporal relationships in FalkorDB, and exposes five focused tools through the Model Context Protocol (MCP).
@@ -10,6 +12,7 @@ CodeGraph turns source code and project knowledge into a searchable graph for AI
 ## Access the project
 
 - [Landing page](https://v0-landing-page-build-kappa-virid.vercel.app)
+- [npm package](https://www.npmjs.com/package/@agntk/codegraph-mcp)
 - [Source code](https://github.com/Phoenixrr2113/codebase-graph)
 - [Issues](https://github.com/Phoenixrr2113/codebase-graph/issues)
 - [Discussions](https://github.com/Phoenixrr2113/codebase-graph/discussions)
@@ -17,7 +20,7 @@ CodeGraph turns source code and project knowledge into a searchable graph for AI
 - [Security policy](SECURITY.md)
 - [MIT license](LICENSE)
 
-The public npm package is named `@agntk/codegraph-mcp`. Its npm link, version badge, and weekly-download badge will be added after the one-time `0.1.0` bootstrap publish is verified against the registry.
+The public npm package is `@agntk/codegraph-mcp`. Version `0.1.0` provides the `codegraph-mcp` and `codegraph-dashboard` bins.
 
 ## What it does
 
@@ -31,7 +34,7 @@ The public npm package is named `@agntk/codegraph-mcp`. Its npm link, version ba
 
 ## Choose how to start
 
-CodeGraph requires Node.js 20 or newer. The npm commands below apply after `@agntk/codegraph-mcp` is visible in the npm registry.
+CodeGraph requires Node.js 20 or newer. The npm commands below install the public `@agntk/codegraph-mcp` package from the registry.
 
 ### Agent-first with MCP
 
@@ -171,7 +174,7 @@ pnpm release:check
 
 The basic installed-tarball smoke proves the package installs in a clean consumer, both binaries start, all five MCP tools are present, a fresh database is setup-safe, Browse and indexing work, data survives restarts, the dashboard and MCP process share one embedded server, and the exact tarball hash is reported. The release CI runs that installed artifact with embedded storage on Linux x64 and Apple silicon, and checks external FalkorDB guidance on Windows x64. An opt-in local-provider lane proves cold model download progress and a usable 768-dimension vector index.
 
-A clean-consumer local tarball proof verifies that bare `npx -y @agntk/codegraph-mcp` selects the `codegraph-mcp` bin and that `npx -y -p @agntk/codegraph-mcp codegraph-dashboard` selects the dashboard bin. Repeat both commands against the package name after publication to verify npm registry resolution.
+A clean-consumer local tarball proof verifies that bare `npx -y @agntk/codegraph-mcp` selects the `codegraph-mcp` bin and that `npx -y -p @agntk/codegraph-mcp codegraph-dashboard` selects the dashboard bin. Both forms also resolve and boot from the public npm registry.
 
 ## Development
 

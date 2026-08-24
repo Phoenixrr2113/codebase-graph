@@ -21,7 +21,6 @@ const source = (await Promise.all(sourceFiles.map((path) => readFile(path, 'utf8
 
 const requiredClaims = [
   'Local-first code graph for AI agents and developers.',
-  'Not yet published',
   '25 actions',
   'ownership',
   '365 days',
@@ -47,6 +46,11 @@ const requiredClaims = [
 ]
 
 const forbiddenClaims = [
+  /not yet published/i,
+  /\bunpublished\b/i,
+  /after publication/i,
+  /activates? at publication/i,
+  /becomes? active only after publication/i,
   /Jina/i,
   /@codegraph\/mcp/,
   /npx(?:\s+-y)?\s+(?!@agntk\/codegraph-mcp(?:\s|<)|-p\s+@agntk\/codegraph-mcp\s+codegraph-dashboard(?:\s|<))codegraph-(?:mcp|dashboard)/,

@@ -22,6 +22,21 @@ The `codebase` `reindex` action accepts optional `historySince` and `historyMaxC
 
 Set `CODEGRAPH_RAW_TOOLS=true` using the literal string `true` to register lower-level handlers alongside the five grouped tools. Unset, `false`, and other values keep the grouped-only surface.
 
+## Public package configuration
+
+Add the published package to an MCP client:
+
+```json
+{
+  "mcpServers": {
+    "codegraph": {
+      "command": "npx",
+      "args": ["-y", "@agntk/codegraph-mcp"]
+    }
+  }
+}
+```
+
 ## Source-checkout configuration
 
 Build the workspace before pointing an MCP client at the compiled entry:
