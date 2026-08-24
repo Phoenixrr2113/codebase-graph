@@ -12,6 +12,8 @@ import type {
   HotspotsResult,
   ChangeCouplingInput,
   ChangeCouplingResult,
+  OwnershipInput,
+  OwnershipResult,
 } from '@codegraph/graph';
 import { getGraphClient } from '../graphClient';
 
@@ -41,4 +43,8 @@ export async function getChangeCouplingImpl(
   input: ChangeCouplingInput,
 ): Promise<ChangeCouplingResult> {
   return createAnalysisQueries(await getGraphClient()).getChangeCoupling(input);
+}
+
+export async function getOwnershipImpl(input: OwnershipInput): Promise<OwnershipResult> {
+  return createAnalysisQueries(await getGraphClient()).getOwnership(input);
 }

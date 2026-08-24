@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { createLogger } from '@codegraph/logger';
-import { indexProject, syncGitHistory } from '@codegraph/core';
+import { indexProject } from '@codegraph/core';
 import {
   initParser,
   parseFile,
@@ -19,6 +19,38 @@ import { resolve } from 'path';
 import { getGraphClient } from '@codegraph/core';
 
 const logger = createLogger({ namespace: 'cli:extract' });
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+
+function isValidIsoDateOrTimestamp(value: string): boolean {
+  if (!ISO_DATE_PATTERN.test(value) || !Number.isFinite(Date.parse(value))) return false;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const reconstructed = new Date(0);
+  reconstructed.setUTCHours(0, 0, 0, 0);
+  reconstructed.setUTCFullYear(year, month - 1, day);
+  return reconstructed.getUTCFullYear() === year
+    && reconstructed.getUTCMonth() === month - 1
+    && reconstructed.getUTCDate() === day;
+}
+
+function parseHistorySince(raw: unknown): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string') throw new Error('historySince must be a valid ISO 8601 date or timestamp');
+  if (!isValidIsoDateOrTimestamp(raw)) {
+    throw new Error('historySince must be a valid ISO 8601 date or timestamp');
+  }
+  return raw;
+}
+
+function parseHistoryMaxCommits(raw: unknown): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(value) || value < 1 || value > 100_000) {
+    throw new Error('historyMaxCommits must be a safe integer between 1 and 100000');
+  }
+  return value;
+}
 
 export const extractCommand = new Command('extract')
   .description('Parse source files and populate the code graph')
@@ -30,6 +62,8 @@ export const extractCommand = new Command('extract')
   .option('--exclude <patterns>', 'Exclude glob patterns (comma-separated)')
   .option('--deep', 'Enable deep analysis (call/render edges, complexity)')
   .option('--no-git', 'Skip git history sync')
+  .option('--history-since <iso>', 'Inclusive ISO 8601 cutoff for the persisted git history window')
+  .option('--history-max-commits <count>', 'Initial-backfill safety ceiling (1-100000)')
   .option('--dry-run', 'Parse without writing to database')
   .action(async (targetPath, options) => {
     const startTime = Date.now();
@@ -39,6 +73,8 @@ export const extractCommand = new Command('extract')
     logger.info(`Graph: ${options.graph} @ ${options.host}:${options.port}`);
 
     try {
+      const historySince = parseHistorySince(options.historySince);
+      const historyMaxCommits = parseHistoryMaxCommits(options.historyMaxCommits);
       // Ensure plugins are registered before querying extensions
       registerPlugins();
 
@@ -112,6 +148,9 @@ export const extractCommand = new Command('extract')
           deepAnalysis: !!options.deep,
           ignorePatterns: excludePatterns,
           client,
+          gitSync: options.git !== false,
+          ...(historySince !== undefined && { historySince }),
+          ...(historyMaxCommits !== undefined && { historyMaxCommits }),
         };
         if (options.include) {
           indexOpts!.includePatterns = includePatterns;
@@ -125,17 +164,12 @@ export const extractCommand = new Command('extract')
             console.log(`${result.stats.errors} files failed to parse`);
           }
 
-          // Sync git history (unless --no-git)
           if (options.git !== false) {
-            console.log('\nSyncing git history...');
-            const gitResult = await syncGitHistory(absPath, client);
-            if (gitResult.commitsProcessed > 0) {
-              console.log(`Git: ${gitResult.commitsProcessed} commits, ${gitResult.edgesCreated} file→commit edges`);
-            } else if (gitResult.errors.length > 0) {
-              console.log(`Git: ${gitResult.errors[0]}`);
-            } else {
-              console.log('Git: already up to date');
-            }
+            const commitsProcessed = result.stats.commitsProcessed ?? 0;
+            const gitEdges = result.stats.gitEdges ?? 0;
+            console.log(commitsProcessed > 0
+              ? `Git: ${commitsProcessed} commits, ${gitEdges} file→commit edges`
+              : 'Git: already up to date');
           }
         } else {
           console.error(`Indexing failed: ${result.errorMessages.join('; ')}`);

@@ -1,5 +1,5 @@
 /**
- * CodeGraphService — Thin Facade
+ * CodeGraphService: Thin Facade
  *
  * Delegates to:
  * - SearchService: search (enrichedSearchV2)
@@ -51,6 +51,7 @@ import {
   getUnreferencedExportsImpl,
   getHotspotsImpl,
   getChangeCouplingImpl,
+  getOwnershipImpl,
 } from './services/analysis-service';
 
 // Import types needed for method signatures
@@ -82,11 +83,13 @@ import type {
   HotspotsResult,
   ChangeCouplingInput,
   ChangeCouplingResult,
+  OwnershipInput,
+  OwnershipResult,
 } from '@codegraph/graph';
 import type { ProjectEntity } from '@codegraph/types';
 
 // ============================================================================
-// CodeGraphService — Thin Facade
+// CodeGraphService: Thin Facade
 // ============================================================================
 
 class CodeGraphServiceImpl {
@@ -147,6 +150,10 @@ class CodeGraphServiceImpl {
 
   async getChangeCoupling(input: ChangeCouplingInput): Promise<ChangeCouplingResult> {
     return getChangeCouplingImpl(input);
+  }
+
+  async getOwnership(input: OwnershipInput): Promise<OwnershipResult> {
+    return getOwnershipImpl(input);
   }
 
   // --- Context Building ---

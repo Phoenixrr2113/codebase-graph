@@ -6,8 +6,9 @@
  */
 
 import { stat } from 'node:fs/promises';
-import { indexProject, indexSingleFile, getActiveProjectPaths, syncGitHistory } from '@codegraph/core';
+import { indexProject, indexSingleFile, getActiveProjectPaths } from '@codegraph/core';
 import { getGraphClient } from '@codegraph/core';
+import type { GitSyncOptions } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
 import type { ToolDefinition } from './router';
 
@@ -27,7 +28,7 @@ async function getEmbeddedCount(): Promise<number> {
 const logger = createLogger({ namespace: 'MCP:Reindex' });
 
 // Input schema
-export interface ReindexInput {
+export interface ReindexInput extends Pick<GitSyncOptions, 'historySince' | 'historyMaxCommits'> {
   mode?: 'incremental' | 'full';
   scope?: string;
   concurrency?: number;
@@ -37,6 +38,36 @@ export interface ReindexInput {
    * search.find returns non-empty results immediately after this call.
    */
   deferEmbeddings?: boolean;
+}
+
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+
+function isValidIsoDateOrTimestamp(value: string): boolean {
+  if (!ISO_DATE_PATTERN.test(value) || !Number.isFinite(Date.parse(value))) return false;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const reconstructed = new Date(0);
+  reconstructed.setUTCHours(0, 0, 0, 0);
+  reconstructed.setUTCFullYear(year, month - 1, day);
+  return reconstructed.getUTCFullYear() === year
+    && reconstructed.getUTCMonth() === month - 1
+    && reconstructed.getUTCDate() === day;
+}
+
+function validateHistoryInput(input: ReindexInput): string | null {
+  if (input.historySince !== undefined) {
+    if (!isValidIsoDateOrTimestamp(input.historySince)) {
+      return 'historySince must be a valid ISO 8601 date or timestamp';
+    }
+  }
+  if (input.historyMaxCommits !== undefined
+    && (!Number.isSafeInteger(input.historyMaxCommits)
+      || input.historyMaxCommits < 1
+      || input.historyMaxCommits > 100_000)) {
+    return 'historyMaxCommits must be a safe integer between 1 and 100000';
+  }
+  return null;
 }
 
 // Output type
@@ -80,6 +111,16 @@ export const reindexToolDefinition: ToolDefinition = {
         default: false,
         description: 'When true, return immediately and run embeddings in background. Default false: block until embeddings complete.',
       },
+      historySince: {
+        type: 'string',
+        description: 'Inclusive ISO 8601 cutoff for the persisted git history window.',
+      },
+      historyMaxCommits: {
+        type: 'number',
+        minimum: 1,
+        maximum: 100000,
+        description: 'Initial-backfill safety ceiling. Incremental sync is not capped.',
+      },
     },
     required: [],
   },
@@ -95,6 +136,19 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
   let totalGitEdges = 0;
 
   try {
+    const validationError = validateHistoryInput(input);
+    if (validationError) {
+      return {
+        success: false,
+        filesProcessed: 0,
+        symbolsUpdated: 0,
+        gitCommitsSynced: 0,
+        gitEdgesCreated: 0,
+        duration: Date.now() - startTime,
+        errors: [validationError],
+      };
+    }
+
     // If scope is provided, determine if it's a file or directory
     if (input.scope) {
       const scopeStat = await stat(input.scope);
@@ -126,13 +180,12 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           force: input.mode === 'full',
           deepAnalysis: true,
           deferEmbeddings: input.deferEmbeddings ?? false,
+          ...(input.historySince !== undefined && { historySince: input.historySince }),
+          ...(input.historyMaxCommits !== undefined && { historyMaxCommits: input.historyMaxCommits }),
           ...(input.concurrency != null && { concurrency: input.concurrency }),
         });
-
-        // Sync git history after indexing
-        const gitResult = await syncGitAfterIndex(input.scope, errors);
-        totalGitCommits += gitResult.commits;
-        totalGitEdges += gitResult.edges;
+        totalGitCommits += result.stats.commitsProcessed ?? 0;
+        totalGitEdges += result.stats.gitEdges ?? 0;
 
         return {
           success: result.success,
@@ -185,16 +238,16 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
           force: input.mode === 'full',
           deepAnalysis: true,
           deferEmbeddings: input.deferEmbeddings ?? false,
+          ...(input.historySince !== undefined && { historySince: input.historySince }),
+          ...(input.historyMaxCommits !== undefined && { historyMaxCommits: input.historyMaxCommits }),
           ...(input.concurrency != null && { concurrency: input.concurrency }),
         });
         totalFiles += result.stats.files;
         totalEntities += result.stats.entities;
         errors.push(...result.errorMessages);
 
-        // Sync git history after each project
-        const gitResult = await syncGitAfterIndex(rootPath, errors);
-        totalGitCommits += gitResult.commits;
-        totalGitEdges += gitResult.edges;
+        totalGitCommits += result.stats.commitsProcessed ?? 0;
+        totalGitEdges += result.stats.gitEdges ?? 0;
       } catch (err) {
         const msg = `Failed to index ${rootPath}: ${err instanceof Error ? err.message : err}`;
         errors.push(msg);
@@ -226,30 +279,5 @@ export async function triggerReindex(input: ReindexInput): Promise<ReindexOutput
       duration: Date.now() - startTime,
       errors,
     };
-  }
-}
-
-/**
- * Run git sync after indexing a project. Non-fatal — errors are collected, not thrown.
- */
-async function syncGitAfterIndex(
-  rootPath: string,
-  errors: string[],
-): Promise<{ commits: number; edges: number }> {
-  try {
-    const client = await getGraphClient();
-    const gitResult = await syncGitHistory(rootPath, client);
-    if (gitResult.errors.length > 0) {
-      errors.push(...gitResult.errors);
-    }
-    if (gitResult.commitsProcessed > 0) {
-      logger.info(`Git sync: ${gitResult.commitsProcessed} commits, ${gitResult.edgesCreated} edges for ${rootPath}`);
-    }
-    return { commits: gitResult.commitsProcessed, edges: gitResult.edgesCreated };
-  } catch (err) {
-    const msg = `Git sync failed for ${rootPath}: ${err instanceof Error ? err.message : err}`;
-    logger.warn(msg);
-    errors.push(msg);
-    return { commits: 0, edges: 0 };
   }
 }

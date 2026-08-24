@@ -68,6 +68,9 @@ const gitSyncMock = vi.hoisted(() => vi.fn().mockResolvedValue({
   edgesCreated: 2,
   lastCommitHash: 'newest',
   totalCommits: 3,
+  historySince: '2024-01-01T00:00:00Z',
+  historyMaxCommits: 2,
+  earliestIndexedCommitDate: '2025-01-01T00:00:00Z',
   historyWindowSize: 2,
   historyTruncated: true,
   historyComplete: false,
@@ -79,7 +82,10 @@ vi.mock('@codegraph/graph', () => ({
   createOperations: vi.fn().mockReturnValue(opsMocks),
 }));
 
-vi.mock('../gitSync', () => ({ syncGitHistory: gitSyncMock }));
+vi.mock('../gitSync', () => ({
+  syncGitHistory: gitSyncMock,
+  validateHistoryWindowOptions: vi.fn().mockReturnValue(null),
+}));
 
 vi.mock('../pipeline', () => ({
   initParser: vi.fn().mockResolvedValue(undefined),
@@ -159,6 +165,7 @@ beforeEach(() => {
   opsMocks.upsertProject.mockClear();
   opsMocks.linkProjectFiles.mockClear();
   opsMocks.deleteProject.mockClear();
+  gitSyncMock.mockClear();
   vi.mocked(fakeClient.ensureIndexes).mockClear();
 });
 
@@ -284,9 +291,41 @@ describe('indexProject: Project node must exist before linkProjectFiles', () => 
     expect(result.success).toBe(true);
     expect(opsMocks.upsertProject).toHaveBeenLastCalledWith(expect.objectContaining({
       gitHistoryTotalCommits: 3,
+      gitHistorySince: '2024-01-01T00:00:00Z',
+      gitHistoryMaxCommits: 2,
       gitHistoryWindowSize: 2,
       gitHistoryTruncated: true,
       gitHistoryComplete: false,
     }));
+  });
+
+  it('forwards the history window and requests a replay for a forced existing-project reindex', async () => {
+    const existingProject: ProjectEntity = {
+      id: randomUUID(),
+      name: 'fixture',
+      rootPath: projectDir,
+      createdAt: new Date().toISOString(),
+      lastParsed: new Date().toISOString(),
+      gitHistorySince: '2025-01-01T00:00:00Z',
+      gitHistoryMaxCommits: 100,
+    };
+    opsMocks.getProjectByRoot.mockResolvedValue(existingProject);
+
+    await indexProject(projectDir, {
+      client: fakeClient,
+      includePatterns: ['*.ts'],
+      embeddings: false,
+      force: true,
+      historySince: '2024-01-01T00:00:00Z',
+      historyMaxCommits: 500,
+    });
+
+    expect(gitSyncMock).toHaveBeenCalledOnce();
+    expect(gitSyncMock).toHaveBeenCalledWith(projectDir, fakeClient, {
+      historySince: '2024-01-01T00:00:00Z',
+      historyMaxCommits: 500,
+      includeStats: true,
+      rebuildHistoryEdges: true,
+    });
   });
 });

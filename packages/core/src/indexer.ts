@@ -37,7 +37,7 @@ import {
 import { extractReExports, extractLocalExportedNames, type ReExportEntity } from '@codegraph/plugin-typescript';
 import { parseMarkdownContent } from '@codegraph/plugin-markdown';
 import { createOperations, type GraphClient } from '@codegraph/graph';
-import type { ProjectEntity, ExtractedDocumentEntities } from '@codegraph/types';
+import type { ProjectEntity, ExtractedDocumentEntities, HistoryWindowOptions } from '@codegraph/types';
 import { getEmbeddingProfile, type EmbeddingConfig } from '@codegraph/plugin-nlp';
 import { getGraphClient } from './graphClient';
 import { loadGitignorePatterns } from './watchService';
@@ -47,7 +47,7 @@ import {
   getEmbeddingPassState as getRemainingEmbeddingPassState,
   scheduleEmbeddingPass as scheduleRemainingEmbeddingPass,
 } from './embed-pass';
-import { syncGitHistory } from './gitSync';
+import { syncGitHistory, validateHistoryWindowOptions } from './gitSync';
 import { createLogger } from '@codegraph/logger';
 import { stat, readFile } from 'node:fs/promises';
 import { basename, extname, relative, resolve } from 'node:path';
@@ -199,6 +199,31 @@ export interface IndexResult {
   projectName: string;
   stats: IndexStats;
   errorMessages: string[];
+}
+
+export interface IndexProjectOptions extends HistoryWindowOptions {
+  /** Re-parse all files even if hashes match (default: false) */
+  force?: boolean;
+  /** Enable deep analysis for call/render edges (default: true) */
+  deepAnalysis?: boolean;
+  /** Include external library references (default: false) */
+  includeExternals?: boolean;
+  /** Additional ignore patterns (merged with DEFAULT_IGNORE_PATTERNS) */
+  ignorePatterns?: string[];
+  /** Custom include patterns (overrides supported-extension globs) */
+  includePatterns?: string[];
+  /** Use this client instead of the shared singleton */
+  client?: GraphClient;
+  /** Embedding configuration. Set to false to disable embedding generation. */
+  embeddings?: EmbeddingConfig | false;
+  /** Number of files to process in parallel. */
+  concurrency?: number;
+  /** Run embedding pass in background without blocking index return. */
+  deferEmbeddings?: boolean;
+  /** Sync git commit history into the graph. */
+  gitSync?: boolean;
+  /** Receives durable setup phases and item counts. */
+  onProgress?: (progress: IndexProgressState) => void;
 }
 
 export type IndexProgressPhase =
@@ -474,32 +499,19 @@ export async function buildBarrelResolutionIndexes(
  */
 export async function indexProject(
   rootPath: string,
-  options: {
-    /** Re-parse all files even if hashes match (default: false) */
-    force?: boolean;
-    /** Enable deep analysis for call/render edges (default: true) */
-    deepAnalysis?: boolean;
-    /** Include external library references (default: false) */
-    includeExternals?: boolean;
-    /** Additional ignore patterns (merged with DEFAULT_IGNORE_PATTERNS) */
-    ignorePatterns?: string[];
-    /** Custom include patterns (overrides SUPPORTED_EXTENSIONS-based globs) */
-    includePatterns?: string[];
-    /** Use this client instead of the shared singleton */
-    client?: GraphClient;
-    /** Embedding configuration. Set to false to disable embedding generation. */
-    embeddings?: EmbeddingConfig | false;
-    /** Number of files to process in parallel (default: 20) */
-    concurrency?: number;
-    /** Run embedding pass in background without blocking index return (default: false) */
-    deferEmbeddings?: boolean;
-    /** Sync git commit history into the graph (default: true). Set false for fixtures inside an unrelated repo. */
-    gitSync?: boolean;
-    /** Receives durable setup phases and item counts for UI polling or direct observation. */
-    onProgress?: (progress: IndexProgressState) => void;
-  } = {},
+  options: IndexProjectOptions = {},
 ): Promise<IndexResult> {
   const startTime = Date.now();
+  const historyValidationError = validateHistoryWindowOptions(options);
+  if (historyValidationError) {
+    return {
+      success: false,
+      projectId: '',
+      projectName: basename(rootPath),
+      stats: { files: 0, entities: 0, edges: 0, errors: 1, durationMs: Date.now() - startTime },
+      errorMessages: [historyValidationError],
+    };
+  }
   const progressId = randomUUID();
   const progressStartedAt = new Date().toISOString();
   const reportProgress = (
@@ -964,9 +976,21 @@ export async function indexProject(
     let commitsProcessed = 0;
     let gitEdges = 0;
     if (options.gitSync !== false) try {
+      const requestedSince = options.historySince;
+      const existingSince = existingProject?.gitHistorySince;
+      const historySince = requestedSince && existingSince
+        ? Date.parse(requestedSince) < Date.parse(existingSince) ? requestedSince : existingSince
+        : requestedSince ?? existingSince;
+      const requestedMax = options.historyMaxCommits;
+      const existingMax = existingProject?.gitHistoryMaxCommits ?? existingProject?.gitHistoryWindowSize;
+      const historyMaxCommits = requestedMax !== undefined && existingMax !== undefined
+        ? Math.max(requestedMax, existingMax)
+        : requestedMax ?? existingMax;
       const gitResult = await syncGitHistory(rootPath, graphClient, {
-        maxCommits: 200,
+        ...(historySince !== undefined && { historySince }),
+        ...(historyMaxCommits !== undefined && { historyMaxCommits }),
         includeStats: true,
+        rebuildHistoryEdges: force && existingProject !== null,
       });
       commitsProcessed = gitResult.commitsProcessed;
       gitEdges = gitResult.edgesCreated;
@@ -974,6 +998,8 @@ export async function indexProject(
         project.gitHistoryTotalCommits = gitResult.totalCommits;
       }
       project.gitHistoryWindowSize = gitResult.historyWindowSize;
+      project.gitHistorySince = gitResult.historySince;
+      project.gitHistoryMaxCommits = gitResult.historyMaxCommits;
       project.gitHistoryTruncated = gitResult.historyTruncated;
       project.gitHistoryComplete = gitResult.historyComplete;
       if (commitsProcessed > 0) {

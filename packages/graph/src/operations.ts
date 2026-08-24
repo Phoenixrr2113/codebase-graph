@@ -634,6 +634,8 @@ const CYPHER = {
         p.lastParsed = $lastParsed,
         p.fileCount = $fileCount,
         p.gitHistoryTotalCommits = $gitHistoryTotalCommits,
+        p.gitHistorySince = $gitHistorySince,
+        p.gitHistoryMaxCommits = $gitHistoryMaxCommits,
         p.gitHistoryWindowSize = $gitHistoryWindowSize,
         p.gitHistoryTruncated = $gitHistoryTruncated,
         p.gitHistoryComplete = $gitHistoryComplete,
@@ -2655,6 +2657,8 @@ class GraphOperationsImpl implements GraphOperations {
         lastParsed: project.lastParsed,
         fileCount: project.fileCount ?? 0,
         gitHistoryTotalCommits: project.gitHistoryTotalCommits ?? null,
+        gitHistorySince: project.gitHistorySince ?? null,
+        gitHistoryMaxCommits: project.gitHistoryMaxCommits ?? null,
         gitHistoryWindowSize: project.gitHistoryWindowSize ?? null,
         gitHistoryTruncated: project.gitHistoryTruncated ?? null,
         gitHistoryComplete: project.gitHistoryComplete ?? null,
@@ -2911,6 +2915,14 @@ class GraphOperationsImpl implements GraphOperations {
     const gitHistoryWindowSize = properties['gitHistoryWindowSize'];
     if (typeof gitHistoryWindowSize === 'number') {
       entity.gitHistoryWindowSize = gitHistoryWindowSize;
+    }
+    const gitHistorySince = properties['gitHistorySince'];
+    if (typeof gitHistorySince === 'string') {
+      entity.gitHistorySince = gitHistorySince;
+    }
+    const gitHistoryMaxCommits = properties['gitHistoryMaxCommits'];
+    if (typeof gitHistoryMaxCommits === 'number') {
+      entity.gitHistoryMaxCommits = gitHistoryMaxCommits;
     }
     const gitHistoryComplete = properties['gitHistoryComplete'];
     const gitHistoryTruncated = properties['gitHistoryTruncated'];

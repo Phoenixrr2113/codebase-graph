@@ -1,12 +1,12 @@
 import { codeGraphService } from '@codegraph/core';
 import { createLogger } from '@codegraph/logger';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, relative, resolve, win32 } from 'node:path';
 import type { ToolDefinition } from '../tools/router';
 import { validateFilePath } from './validation';
 
 const logger = createLogger({ namespace: 'MCP:Persona:Analyze' });
 const SYMBOL_ID_PATTERN = /^sym:v1:[a-f0-9]{64}$/;
-const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(?:Z|[+-]\d{2}:\d{2}))?$/;
 const ACTIONS = [
   'impact',
   'import_cycles',
@@ -14,6 +14,7 @@ const ACTIONS = [
   'dead_code',
   'hotspots',
   'change_coupling',
+  'ownership',
 ] as const;
 
 type AnalyzeAction = typeof ACTIONS[number];
@@ -34,6 +35,8 @@ export const analyzePersonaDefinition: ToolDefinition = {
   Params: projectPath (required, absolute), since, scoreBy, limit
 - **change_coupling**: Find file pairs that changed together within indexed history.
   Params: projectPath (required, absolute), since, minSupport, limit
+- **ownership**: Rank per-file authorship contributors from indexed git history.
+  Params: projectPath (required, absolute), since, pathPrefix, limit
 
 Every response includes display-ready caveats and truncation metadata from the analysis layer. Git-backed actions also include historyCoverage. Static results do not prove runtime behavior, and git-backed results cover indexed history only.
 
@@ -43,7 +46,8 @@ Every response includes display-ready caveats and truncation metadata from the a
 - Call hierarchy: { action: "call_hierarchy", id: "sym:v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", direction: "both", limit: 100 }
 - Unreferenced exports: { action: "dead_code", projectPath: "/workspace/project", limit: 100 }
 - Hotspots: { action: "hotspots", projectPath: "/workspace/project", since: "2026-01-01", scoreBy: "complexity", limit: 100 }
-- Change coupling: { action: "change_coupling", projectPath: "/workspace/project", since: "2026-01-01", minSupport: 2, limit: 100 }`,
+- Change coupling: { action: "change_coupling", projectPath: "/workspace/project", since: "2026-01-01", minSupport: 2, limit: 100 }
+- Ownership: { action: "ownership", projectPath: "/workspace/project", since: "2026-01-01", pathPrefix: "src", limit: 50 }`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -77,6 +81,10 @@ Every response includes display-ready caveats and truncation metadata from the a
         type: 'string',
         description: 'Optional ISO 8601 date or timestamp for git-backed actions',
       },
+      pathPrefix: {
+        type: 'string',
+        description: 'Optional project-relative file path prefix for ownership analysis',
+      },
       scoreBy: {
         type: 'string',
         enum: ['complexity', 'degree'],
@@ -88,7 +96,7 @@ Every response includes display-ready caveats and truncation metadata from the a
       },
       limit: {
         type: 'number',
-        description: 'Maximum results. Import cycles, hotspots, and change coupling allow 1 through 500 with default 50. Other actions allow 1 through 1000 with default 100.',
+        description: 'Maximum results. Import cycles, hotspots, change coupling, and ownership allow 1 through 500 with default 50. Other actions allow 1 through 1000 with default 100.',
       },
     },
     required: ['action'],
@@ -142,16 +150,43 @@ function enumValue<T extends string>(
   return { valid: true, value: raw as T };
 }
 
+function hasExactCalendarFields(raw: string): boolean {
+  const match = ISO_DATE_PATTERN.exec(raw);
+  if (match === null) return false;
+  const [, year, month, day, hour = '0', minute = '0', second = '0', fraction = '0'] = match;
+  const expected = {
+    year: Number(year),
+    month: Number(month),
+    day: Number(day),
+    hour: Number(hour),
+    minute: Number(minute),
+    second: Number(second),
+    millisecond: Number(fraction.padEnd(3, '0')),
+  };
+  const reconstructed = new Date(0);
+  reconstructed.setUTCFullYear(expected.year, expected.month - 1, expected.day);
+  reconstructed.setUTCHours(
+    expected.hour,
+    expected.minute,
+    expected.second,
+    expected.millisecond,
+  );
+  return reconstructed.getUTCFullYear() === expected.year
+    && reconstructed.getUTCMonth() === expected.month - 1
+    && reconstructed.getUTCDate() === expected.day
+    && reconstructed.getUTCHours() === expected.hour
+    && reconstructed.getUTCMinutes() === expected.minute
+    && reconstructed.getUTCSeconds() === expected.second
+    && reconstructed.getUTCMilliseconds() === expected.millisecond;
+}
+
 function sinceValue(raw: unknown): ValidationResult<string | undefined> {
   if (raw === undefined) return { valid: true, value: undefined };
   if (typeof raw !== 'string') {
     return { valid: false, error: 'since must be a valid ISO 8601 date or timestamp' };
   }
   const timestamp = Date.parse(raw);
-  if (!ISO_DATE_PATTERN.test(raw) || !Number.isFinite(timestamp)) {
-    return { valid: false, error: 'since must be a valid ISO 8601 date or timestamp' };
-  }
-  if (!raw.includes('T') && new Date(timestamp).toISOString().slice(0, 10) !== raw) {
+  if (!hasExactCalendarFields(raw) || !Number.isFinite(timestamp)) {
     return { valid: false, error: 'since must be a valid ISO 8601 date or timestamp' };
   }
   return { valid: true, value: raw };
@@ -168,6 +203,29 @@ async function projectRoot(raw: unknown, action: AnalyzeAction): Promise<Validat
   if (!checked.valid) return checked;
   const normalized = checked.resolved === '/' ? '/' : checked.resolved.replace(/\/+$/, '');
   return { valid: true, value: normalized };
+}
+
+function pathPrefixValue(raw: unknown, rootPath: string): ValidationResult<string | undefined> {
+  if (raw === undefined || raw === '') return { valid: true, value: undefined };
+  if (typeof raw !== 'string') {
+    return { valid: false, error: 'pathPrefix must be a string' };
+  }
+  const normalizedSeparators = raw.trim().replaceAll('\\', '/');
+  if (isAbsolute(normalizedSeparators) || win32.isAbsolute(raw)) {
+    return { valid: false, error: 'pathPrefix must be project-relative' };
+  }
+  if (normalizedSeparators.split('/').includes('..')) {
+    return { valid: false, error: 'pathPrefix must not contain .. traversal segments' };
+  }
+  const resolvedPrefix = resolve(rootPath, normalizedSeparators).replaceAll('\\', '/');
+  const relativePrefix = relative(rootPath, resolvedPrefix).replaceAll('\\', '/');
+  if (relativePrefix === '..' || relativePrefix.startsWith('../') || isAbsolute(relativePrefix)) {
+    return { valid: false, error: 'pathPrefix must resolve within projectPath' };
+  }
+  return {
+    valid: true,
+    value: relativePrefix === '' ? undefined : relativePrefix,
+  };
 }
 
 function withMeta(
@@ -302,6 +360,25 @@ export async function handleAnalyze(args: Record<string, unknown>): Promise<unkn
         limit: limit.value,
       });
       toolUsed = 'getChangeCoupling';
+      break;
+    }
+
+    case 'ownership': {
+      const limit = boundedInteger(args.limit, 'limit', 1, 500, 50);
+      if (!limit.valid) return { error: limit.error };
+      const rootPath = await projectRoot(args.projectPath, typedAction);
+      if (!rootPath.valid) return { error: rootPath.error };
+      const since = sinceValue(args.since);
+      if (!since.valid) return { error: since.error };
+      const pathPrefix = pathPrefixValue(args.pathPrefix, rootPath.value);
+      if (!pathPrefix.valid) return { error: pathPrefix.error };
+      result = await codeGraphService.getOwnership({
+        rootPath: rootPath.value,
+        ...(since.value === undefined ? {} : { since: since.value }),
+        ...(pathPrefix.value === undefined ? {} : { pathPrefix: pathPrefix.value }),
+        limit: limit.value,
+      });
+      toolUsed = 'getOwnership';
       break;
     }
   }

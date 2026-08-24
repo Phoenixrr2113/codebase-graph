@@ -32,7 +32,7 @@ export type { MCPContextConfig, ProjectInfo } from './config';
 
 // Indexer
 export { indexProject, indexSingleFile, isProjectIndexed, getIndexProgressState } from './indexer';
-export type { IndexStats, IndexResult, IndexProgressPhase, IndexProgressState } from './indexer';
+export type { IndexStats, IndexResult, IndexProgressPhase, IndexProgressState, IndexProjectOptions } from './indexer';
 
 // Embedding pass (generates + stores embeddings during indexing pipeline)
 export { embedParsedEntities, embedAllParsedEntities } from './embed-pass';
