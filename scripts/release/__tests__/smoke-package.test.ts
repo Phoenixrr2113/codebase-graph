@@ -188,6 +188,24 @@ describe('smokePackage', () => {
     }));
     expect(String(handshakeOptions.env?.CODEGRAPH_DB_PATH).length).toBeLessThan(90);
   });
+
+  it('boots both installed entry points from the scoped package directory', async () => {
+    const runner = successfulRunner();
+
+    await smokePackage({
+      verifyDashboard: async () => ({ port: 0, asset: '/assets/index-test.js' }),
+      tarballPath: createTarball(),
+      expectedVersion: '0.1.0',
+      runner,
+    });
+
+    expect(runner.run.mock.calls[1][1][0]).toMatch(
+      /node_modules[\\/]@codegraph[\\/]mcp[\\/]bin[\\/]codegraph-mcp\.mjs$/,
+    );
+    expect(runner.run.mock.calls[2][1][2]).toMatch(
+      /node_modules[\\/]@codegraph[\\/]mcp$/,
+    );
+  });
 });
 
 describe('smoke helpers', () => {

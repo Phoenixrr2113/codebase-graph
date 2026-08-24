@@ -1,5 +1,5 @@
 {
-  "name": "codegraph-mcp",
+  "name": "@codegraph/mcp",
   "version": "0.1.0",
   "description": "CodeGraph MCP Server: Index any codebase into a graph database. Search by meaning, trace relationships, and manage project knowledge.",
   "type": "module",

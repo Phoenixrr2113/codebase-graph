@@ -31,7 +31,7 @@ function readPackageVersion() {
   if (
     typeof manifest !== 'object' ||
     manifest === null ||
-    manifest.name !== 'codegraph-mcp' ||
+    manifest.name !== '@codegraph/mcp' ||
     typeof manifest.version !== 'string'
   ) {
     throw new Error('invalid package manifest');

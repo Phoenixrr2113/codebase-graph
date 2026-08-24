@@ -19,7 +19,7 @@ The maintainer will aim to acknowledge a report within 72 hours, provide status 
 
 ## Known advisories in the package dependency tree
 
-`npm audit` reports findings against `codegraph-mcp` that we cannot resolve from this
+`npm audit` reports findings against `@codegraph/mcp` that we cannot resolve from this
 repository. They are listed here rather than suppressed, and the release pipeline enforces
 the list: `pnpm audit:consumer` resolves the dependency tree an end user actually installs
 and fails on any unacknowledged advisory at high severity or above. An acknowledgement that
@@ -28,7 +28,7 @@ stops matching a real advisory also fails the build, so this list cannot go stal
 ### sharp (GHSA-f88m-g3jw-g9cj), high
 
 `sharp` versions below 0.35.0 inherit libvips vulnerabilities CVE-2026-33327, CVE-2026-33328,
-CVE-2026-35590 and CVE-2026-35591. `codegraph-mcp` does not depend on `sharp` directly. It
+CVE-2026-35590 and CVE-2026-35591. `@codegraph/mcp` does not depend on `sharp` directly. It
 arrives through `@huggingface/transformers`, which declares `sharp ^0.34.x` in every
 published release from 3.8.1 through 4.2.0, so no upstream version of that package resolves
 to a patched `sharp`.

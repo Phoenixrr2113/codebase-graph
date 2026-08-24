@@ -311,11 +311,11 @@ jobs:
           VERSION: ${{ steps.metadata.outputs.version }}
         run: |
           for attempt in 1 2 3 4 5 6; do
-            if [[ "$(npm view "codegraph-mcp@$VERSION" version --json 2>/dev/null)" == "\"$VERSION\"" ]]; then
+            if [[ "$(npm view "@codegraph/mcp@$VERSION" version --json 2>/dev/null)" == "\"$VERSION\"" ]]; then
               exit 0
             fi
             if [[ "$attempt" == "6" ]]; then
-              echo "codegraph-mcp@$VERSION did not become visible after six attempts" >&2
+              echo "@codegraph/mcp@$VERSION did not become visible after six attempts" >&2
               exit 1
             fi
             sleep 10
@@ -327,7 +327,7 @@ jobs:
           VERSION: ${{ steps.metadata.outputs.version }}
         run: |
           mkdir -p tmp/registry
-          npm pack "codegraph-mcp@$VERSION" --pack-destination tmp/registry
+          npm pack "@codegraph/mcp@$VERSION" --pack-destination tmp/registry
           node scripts/release/smoke-package.mjs \
             --tarball "tmp/registry/codegraph-mcp-$VERSION.tgz" \
             --version "$VERSION"
@@ -394,7 +394,7 @@ jobs:
           VERSION: ${{ steps.metadata.outputs.version }}
         run: |
           mkdir -p tmp/registry
-          npm pack "codegraph-mcp@$VERSION" --pack-destination tmp/registry
+          npm pack "@codegraph/mcp@$VERSION" --pack-destination tmp/registry
           if ! cmp -s "tmp/release/$FILENAME" "tmp/registry/$FILENAME"; then
             echo "Registry tarball does not match the artifact built from bootstrap_commit" >&2
             sha256sum "tmp/release/$FILENAME" "tmp/registry/$FILENAME" >&2

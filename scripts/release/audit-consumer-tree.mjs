@@ -5,7 +5,7 @@
  *
  * `pnpm audit --prod` audits this monorepo, where root `pnpm.overrides` can pin
  * a transitive dependency to a patched version. Those overrides are a property
- * of this workspace and do NOT travel to anyone who runs `npm i codegraph-mcp`.
+ * of this workspace and do NOT travel to anyone who runs `npm i @codegraph/mcp`.
  * Auditing only the workspace therefore reports "clean" while consumers install
  * something else. This script closes that gap by resolving the published
  * manifest's dependencies the way npm would for an end user.

@@ -93,8 +93,8 @@ export function createPublishedManifest({ packageManifest, dependencyManifests }
   }
 
   const name = requireString(source, 'name', 'packageManifest');
-  if (name !== 'codegraph-mcp') {
-    throw new TypeError('packageManifest.name must be codegraph-mcp');
+  if (name !== '@codegraph/mcp') {
+    throw new TypeError('packageManifest.name must be @codegraph/mcp');
   }
   const publishConfig = cloneRecord(source, 'publishConfig', 'packageManifest');
   if (publishConfig.access !== 'public') {
