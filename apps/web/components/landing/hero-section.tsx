@@ -76,7 +76,7 @@ export function HeroSection() {
             className="mx-auto mt-5 max-w-2xl rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-left text-xs leading-5 text-amber-100 sm:text-sm"
             aria-label="Package publication status"
           >
-            <strong>Not yet published to npm.</strong> The package is <code>@codegraph/mcp@0.1.0</code>. The <code>npx -y -p @codegraph/mcp codegraph-dashboard</code> and <code>npx -y -p @codegraph/mcp codegraph-mcp</code> commands activate at publication; use the source setup today.
+            <strong>Not yet published to npm.</strong> The package is <code>@agntk/codegraph-mcp@0.1.0</code>. The <code>npx -y @agntk/codegraph-mcp</code> and <code>npx -y -p @agntk/codegraph-mcp codegraph-dashboard</code> commands activate at publication; use the source setup today.
           </motion.aside>
         </div>
 

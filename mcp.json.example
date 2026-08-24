@@ -8,12 +8,12 @@
   }
 }
 
-// Post-publication, after @codegraph/mcp is verified in the npm registry
+// Post-publication, after @agntk/codegraph-mcp is verified in the npm registry
 {
   "mcpServers": {
     "codegraph": {
       "command": "npx",
-      "args": ["-y", "-p", "@codegraph/mcp", "codegraph-mcp"]
+      "args": ["-y", "@agntk/codegraph-mcp"]
     }
   }
 }

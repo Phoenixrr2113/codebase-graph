@@ -8,8 +8,8 @@ import {
 
 describe('verifyReleaseTag', () => {
   it('accepts the exact stable package tag', () => {
-    expect(verifyReleaseTag('refs/tags/v0.1.0', '@codegraph/mcp', '0.1.0')).toEqual({
-      packageName: '@codegraph/mcp',
+    expect(verifyReleaseTag('refs/tags/v0.1.0', '@agntk/codegraph-mcp', '0.1.0')).toEqual({
+      packageName: '@agntk/codegraph-mcp',
       version: '0.1.0',
     });
   });
@@ -17,7 +17,7 @@ describe('verifyReleaseTag', () => {
   it('rejects prerelease versions until a non-latest dist-tag policy exists', () => {
     expect(() => verifyReleaseTag(
       'refs/tags/v1.2.3-rc.1',
-      '@codegraph/mcp',
+      '@agntk/codegraph-mcp',
       '1.2.3-rc.1',
     )).toThrow('stable');
   });
@@ -25,7 +25,7 @@ describe('verifyReleaseTag', () => {
   it('rejects a tag without the v prefix', () => {
     expect(() => verifyReleaseTag(
       'refs/tags/0.1.0',
-      '@codegraph/mcp',
+      '@agntk/codegraph-mcp',
       '0.1.0',
     )).toThrow('refs/tags/v0.1.0');
   });
@@ -33,7 +33,7 @@ describe('verifyReleaseTag', () => {
   it('rejects a tag that does not match the package version', () => {
     expect(() => verifyReleaseTag(
       'refs/tags/v0.2.0',
-      '@codegraph/mcp',
+      '@agntk/codegraph-mcp',
       '0.1.0',
     )).toThrow(/v0\.1\.0/);
   });
@@ -41,9 +41,9 @@ describe('verifyReleaseTag', () => {
   it('rejects the wrong package name', () => {
     expect(() => verifyReleaseTag(
       'refs/tags/v0.1.0',
-      'codegraph-mcp',
+      '@codegraph/mcp',
       '0.1.0',
-    )).toThrow('@codegraph/mcp');
+    )).toThrow('@agntk/codegraph-mcp');
   });
 
   it.each([
@@ -55,7 +55,7 @@ describe('verifyReleaseTag', () => {
   ])('rejects invalid semantic version %s', (version) => {
     expect(() => verifyReleaseTag(
       `refs/tags/v${version}`,
-      '@codegraph/mcp',
+      '@agntk/codegraph-mcp',
       version,
     )).toThrow('valid semantic version');
   });
@@ -69,10 +69,10 @@ describe('verifyBootstrapRelease', () => {
       'refs/heads/main',
       '0.1.0',
       reviewedCommit,
-      '@codegraph/mcp',
+      '@agntk/codegraph-mcp',
       '0.1.0',
     )).toEqual({
-      packageName: '@codegraph/mcp',
+      packageName: '@agntk/codegraph-mcp',
       version: '0.1.0',
       reviewedCommit,
     });
@@ -83,7 +83,7 @@ describe('verifyBootstrapRelease', () => {
       'refs/heads/release',
       '0.1.0',
       reviewedCommit,
-      '@codegraph/mcp',
+      '@agntk/codegraph-mcp',
       '0.1.0',
     )).toThrow('main');
   });
@@ -93,7 +93,7 @@ describe('verifyBootstrapRelease', () => {
       'refs/heads/main',
       '0.2.0',
       reviewedCommit,
-      '@codegraph/mcp',
+      '@agntk/codegraph-mcp',
       '0.2.0',
     )).toThrow('0.1.0');
   });
@@ -103,7 +103,7 @@ describe('verifyBootstrapRelease', () => {
       'refs/heads/main',
       '0.1.0',
       reviewedCommit,
-      '@codegraph/mcp',
+      '@agntk/codegraph-mcp',
       '0.1.1',
     )).toThrow('match');
   });
@@ -113,7 +113,7 @@ describe('verifyBootstrapRelease', () => {
       'refs/heads/main',
       '0.1.0',
       '0123456',
-      '@codegraph/mcp',
+      '@agntk/codegraph-mcp',
       '0.1.0',
     )).toThrow('40-character');
   });
@@ -125,7 +125,7 @@ describe('verifyVersionIsUnpublished', () => {
       status: 1,
       stderr: 'npm error code E404\nnpm error 404 Not Found',
       stdout: '',
-    }, '@codegraph/mcp', '0.1.0')).not.toThrow();
+    }, '@agntk/codegraph-mcp', '0.1.0')).not.toThrow();
   });
 
   it('rejects a version that already exists', () => {
@@ -133,7 +133,7 @@ describe('verifyVersionIsUnpublished', () => {
       status: 0,
       stderr: '',
       stdout: '"0.1.0"\n',
-    }, '@codegraph/mcp', '0.1.0')).toThrow('already exists');
+    }, '@agntk/codegraph-mcp', '0.1.0')).toThrow('already exists');
   });
 
   it('does not treat authentication or network failures as availability', () => {
@@ -141,7 +141,7 @@ describe('verifyVersionIsUnpublished', () => {
       status: 1,
       stderr: 'npm error code E401',
       stdout: '',
-    }, '@codegraph/mcp', '0.1.0')).toThrow('Unable to verify');
+    }, '@agntk/codegraph-mcp', '0.1.0')).toThrow('Unable to verify');
   });
 });
 
@@ -151,7 +151,7 @@ describe('verifyVersionIsPublished', () => {
       status: 0,
       stderr: '',
       stdout: '"0.1.0"\n',
-    }, '@codegraph/mcp', '0.1.0')).not.toThrow();
+    }, '@agntk/codegraph-mcp', '0.1.0')).not.toThrow();
   });
 
   it('rejects a missing package version', () => {
@@ -159,7 +159,7 @@ describe('verifyVersionIsPublished', () => {
       status: 1,
       stderr: 'npm error code E404',
       stdout: '',
-    }, '@codegraph/mcp', '0.1.0')).toThrow('must already exist');
+    }, '@agntk/codegraph-mcp', '0.1.0')).toThrow('must already exist');
   });
 
   it('rejects an unexpected published version response', () => {
@@ -167,6 +167,6 @@ describe('verifyVersionIsPublished', () => {
       status: 0,
       stderr: '',
       stdout: '"0.1.1"\n',
-    }, '@codegraph/mcp', '0.1.0')).toThrow('expected 0.1.0');
+    }, '@agntk/codegraph-mcp', '0.1.0')).toThrow('expected 0.1.0');
   });
 });

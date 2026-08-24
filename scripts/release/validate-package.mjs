@@ -118,8 +118,8 @@ export async function validatePackageDirectory(directoryUrl) {
   if (workspaceLocation) {
     violations.push(`workspace: range found at ${workspaceLocation}`);
   }
-  if (manifest.name !== '@codegraph/mcp') {
-    violations.push('package.json name must be @codegraph/mcp');
+  if (manifest.name !== '@agntk/codegraph-mcp') {
+    violations.push('package.json name must be @agntk/codegraph-mcp');
   }
   if (typeof manifest.version !== 'string' || manifest.version.length === 0) {
     violations.push('package.json version must be a non-empty string');
@@ -226,14 +226,19 @@ export function validatePackReport(report) {
   }
   const item = requireRecord(report[0], 'npm pack report item', violations);
   const files = Array.isArray(item.files) ? item.files : [];
-  if (item.name !== '@codegraph/mcp') {
-    violations.push('packed package name must be @codegraph/mcp');
+  if (item.name !== '@agntk/codegraph-mcp') {
+    violations.push('packed package name must be @agntk/codegraph-mcp');
   }
   if (typeof item.version !== 'string' || item.version.length === 0) {
     violations.push('packed package version is missing');
   }
   if (typeof item.filename !== 'string' || item.filename.length === 0) {
     violations.push('packed package filename is missing');
+  } else if (
+    typeof item.version === 'string'
+    && item.filename !== `agntk-codegraph-mcp-${item.version}.tgz`
+  ) {
+    violations.push(`packed package filename must be agntk-codegraph-mcp-${item.version}.tgz`);
   }
   if (typeof item.size !== 'number' || !Number.isFinite(item.size)) {
     violations.push('packed package size is invalid');

@@ -436,7 +436,7 @@ export function SetupFlow({ apiUrl, status, onStatusRefresh, onProjectParsed, on
               <div className="mt-5 flex flex-wrap gap-2">
                 <Button onClick={onExplore}>Explore graph</Button>
                 <Button variant="outline" onClick={() => {
-                  void navigator.clipboard.writeText('npx -y -p @codegraph/mcp codegraph-mcp setup').catch((error: unknown) => {
+                  void navigator.clipboard.writeText('npx -y @agntk/codegraph-mcp setup').catch((error: unknown) => {
                     console.warn('Unable to copy the MCP setup command', error)
                   })
                 }}>Copy MCP setup command</Button>

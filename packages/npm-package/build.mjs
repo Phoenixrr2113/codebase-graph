@@ -141,7 +141,7 @@ Add this configuration to an MCP client after the package is visible in the npm 
   "mcpServers": {
     "codegraph": {
       "command": "npx",
-      "args": ["-y", "-p", "@codegraph/mcp", "codegraph-mcp"]
+      "args": ["-y", "@agntk/codegraph-mcp"]
     }
   }
 }
@@ -164,7 +164,7 @@ Configuration saves the project. Reindexing parses structure and finishes embedd
 Start the dashboard directly from this package:
 
 \`\`\`bash
-npx -y -p @codegraph/mcp codegraph-dashboard
+npx -y -p @agntk/codegraph-mcp codegraph-dashboard
 \`\`\`
 
 Open the URL printed by the process. A fresh database opens on setup. Confirm storage and embeddings, use Browse to choose a folder, then select Index project. The page shows download and indexing progress before opening the explorer.
@@ -225,5 +225,5 @@ MIT
 );
 
 const bundleBytes = readFileSync(resolve(outputDirectory, 'server/index.mjs')).byteLength;
-console.log(`Built @codegraph/mcp staging directory (${(bundleBytes / 1024 / 1024).toFixed(1)} MB bundle).`);
+console.log(`Built @agntk/codegraph-mcp staging directory (${(bundleBytes / 1024 / 1024).toFixed(1)} MB bundle).`);
 console.log('Canonical package command: pnpm pack:npm');

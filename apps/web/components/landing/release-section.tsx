@@ -58,7 +58,7 @@ export function ReleaseSection() {
         </div>
 
         <div className="mt-6 rounded-xl border border-amber-400/30 bg-amber-400/10 p-5 text-sm leading-6 text-amber-100">
-          <strong>Publication gate:</strong> <code>@codegraph/mcp@0.1.0</code> is not in the npm registry yet. The package defines both <code>codegraph-mcp</code> and <code>codegraph-dashboard</code> bins, but registry-based install copy becomes active only after publication is verified.
+          <strong>Publication gate:</strong> <code>@agntk/codegraph-mcp@0.1.0</code> is not in the npm registry yet. The package defines both <code>codegraph-mcp</code> and <code>codegraph-dashboard</code> bins, but registry-based install copy becomes active only after publication is verified.
         </div>
       </div>
     </section>

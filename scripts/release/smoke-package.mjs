@@ -157,8 +157,8 @@ export async function smokePackage({
     const binPath = join(
       consumerDirectory,
       'node_modules',
-      '@codegraph',
-      'mcp',
+      '@agntk',
+      'codegraph-mcp',
       'bin',
       'codegraph-mcp.mjs',
     );
@@ -199,7 +199,7 @@ export async function smokePackage({
       CODEGRAPH_DATA_DIR: dataDirectory,
       CODEGRAPH_DB_PATH: databaseDirectory,
     };
-    const packageDirectory = join(consumerDirectory, 'node_modules', '@codegraph', 'mcp');
+    const packageDirectory = join(consumerDirectory, 'node_modules', '@agntk', 'codegraph-mcp');
     const runtimeResult = runner.run(
       process.execPath,
       [

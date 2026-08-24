@@ -3,7 +3,7 @@ import { createPublishedManifest } from '../lib/package-metadata.mjs';
 import { canonicalPackCommand, rejectSourcePackagePack } from '../guard-pack.mjs';
 
 const packageManifest = {
-  name: '@codegraph/mcp',
+  name: '@agntk/codegraph-mcp',
   version: '0.1.0',
   description: 'CodeGraph MCP Server',
   type: 'module',
@@ -71,7 +71,7 @@ describe('createPublishedManifest', () => {
     const manifest = createPublishedManifest({ packageManifest, dependencyManifests });
 
     expect(manifest).toMatchObject({
-      name: '@codegraph/mcp',
+      name: '@agntk/codegraph-mcp',
       version: '0.1.0',
       description: 'CodeGraph MCP Server',
       license: 'MIT',

@@ -1,6 +1,6 @@
 # @codegraph/mcp-server
 
-Private workspace implementation of the CodeGraph Model Context Protocol server. The public `@codegraph/mcp` package stages this server with its runtime dependencies and dashboard.
+Private workspace implementation of the CodeGraph Model Context Protocol server. The public `@agntk/codegraph-mcp` package stages this server with its runtime dependencies and dashboard.
 
 ## Grouped tools
 
