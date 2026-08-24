@@ -1,6 +1,6 @@
 /**
  * @codegraph/graph
- * Graph database operations for CodeGraph — FalkorDB primary engine
+ * Graph database operations for CodeGraph: FalkorDB primary engine
  */
 
 // Client exports
@@ -26,10 +26,10 @@ export {
   type CypherDialect,
 } from './driver';
 
-// FalkorDB driver (primary — remote, Docker)
+// FalkorDB driver (primary: remote, Docker)
 export { FalkorDBDriver, falkorDialect } from './drivers/falkordb';
 
-// FalkorDBLite driver (embedded — no Docker needed)
+// FalkorDBLite driver (embedded: no Docker needed)
 export {
   FalkorDBLiteDriver,
   resolveEmbeddedBinaryPaths,
@@ -85,7 +85,6 @@ export {
   type NormalizedUnreferencedExportsInput,
   type UnreferencedExportItem,
   type UnreferencedExportsResult,
-  type HistoryCoverage,
   type HotspotScore,
   type HotspotsInput,
   type NormalizedHotspotsInput,
@@ -96,6 +95,7 @@ export {
   type ChangeCouplingItem,
   type ChangeCouplingResult,
 } from './analysis-queries';
+export { createOwnershipQuery, type OwnershipQuery } from './ownership-queries';
 
 // Knowledge graph exports (NLC merger)
 export {
@@ -169,4 +169,10 @@ export type {
   SubgraphData,
   GraphStats,
   SearchResult,
+  HistoryCoverage,
+  OwnershipInput,
+  NormalizedOwnershipInput,
+  OwnershipContributor,
+  FileOwnershipItem,
+  OwnershipResult,
 } from '@codegraph/types';

@@ -32,7 +32,7 @@ describe('public persona tools', () => {
       const actionSchema = tool.inputSchema.properties.action as { enum?: unknown[] } | undefined;
       return total + (actionSchema?.enum?.length ?? 1);
     }, 0);
-    expect(actionCount).toBe(24);
+    expect(actionCount).toBe(25);
   });
 });
 

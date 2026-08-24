@@ -53,6 +53,50 @@ test.describe('Parse API', () => {
     expect(data.error).toBeDefined();
   });
 
+  test('should reject invalid history window inputs', async ({ request }) => {
+    const response = await request.post(`${API_URL}/api/parse/project`, {
+      data: {
+        path: SAMPLE_PROJECT_PATH,
+        historySince: '2026-02-30',
+        historyMaxCommits: 0,
+      },
+    });
+
+    expect(response.status()).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: 'historySince must be a valid ISO 8601 date or timestamp',
+    });
+  });
+
+  for (const historySince of [
+    '2026-02-30T00:00:00Z',
+    '2026-04-31T12:00:00Z',
+    '2025-02-29T00:00:00Z',
+  ]) {
+    test(`should reject impossible history timestamp ${historySince}`, async ({ request }) => {
+      const response = await request.post(`${API_URL}/api/parse/project`, {
+        data: { path: SAMPLE_PROJECT_PATH, historySince },
+      });
+
+      expect(response.status()).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: 'historySince must be a valid ISO 8601 date or timestamp',
+      });
+    });
+  }
+
+  test('should accept an explicit history window', async ({ request }) => {
+    const response = await request.post(`${API_URL}/api/parse/project`, {
+      data: {
+        path: SAMPLE_PROJECT_PATH,
+        historySince: '2025-01-01T00:00:00Z',
+        historyMaxCommits: 2500,
+      },
+    });
+
+    expect(response.ok()).toBeTruthy();
+  });
+
   test('should return graph statistics after parsing', async ({ request }) => {
     // First parse the project
     await request.post(`${API_URL}/api/parse/project`, {

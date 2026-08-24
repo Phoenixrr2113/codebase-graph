@@ -19,10 +19,13 @@ vi.mock('@codegraph/core', () => ({
   getGraphClient: vi.fn(),
   getSetupStatus: vi.fn(),
   readSourceFile: vi.fn(),
+  indexProject: vi.fn(),
+  indexSingleFile: vi.fn(),
+  getActiveProjectPaths: vi.fn(),
 }));
 
-import { codeGraphService, getGraphClient, getSetupStatus } from '@codegraph/core';
-import { handleIndex } from '../personas/codebase';
+import { codeGraphService, getGraphClient, getSetupStatus, indexProject } from '@codegraph/core';
+import { handleIndex, indexPersonaDefinition } from '../personas/codebase';
 
 /**
  * The true File node property set, as upserted by packages/graph/src/schema.ts
@@ -46,6 +49,7 @@ const PHANTOM_FILE_PROPERTIES = ['f.path', 'f.language'];
 const mockGetGraphStats = vi.mocked(codeGraphService.getGraphStats);
 const mockGetGraphClient = vi.mocked(getGraphClient);
 const mockGetSetupStatus = vi.mocked(getSetupStatus);
+const mockIndexProject = vi.mocked(indexProject);
 
 function makeRoQuery() {
   return vi.fn().mockImplementation(async (cypher: string) => {
@@ -292,5 +296,80 @@ describe('codebase persona: profile action projectPath boundary safety', () => {
     expect(matchesFilter('/tmp/x/project/src/index.ts')).toBe(true);
     // The project root itself must match too.
     expect(matchesFilter('/tmp/x/project')).toBe(true);
+  });
+});
+
+describe('codebase persona: reindex history window', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIndexProject.mockResolvedValue({
+      success: true,
+      projectId: 'project',
+      projectName: 'repo',
+      stats: {
+        files: 2,
+        entities: 3,
+        edges: 4,
+        errors: 0,
+        durationMs: 5,
+        commitsProcessed: 7,
+        gitEdges: 8,
+        embedded: 0,
+      },
+      errorMessages: [],
+    });
+  });
+
+  it('declares both history inputs in the public schema', () => {
+    expect(indexPersonaDefinition.inputSchema.properties).toMatchObject({
+      historySince: { type: 'string' },
+      historyMaxCommits: { type: 'number', minimum: 1, maximum: 100000 },
+    });
+  });
+
+  it('forwards history options once and uses indexProject git counts as authoritative', async () => {
+    const result = await handleIndex({
+      action: 'reindex',
+      mode: 'full',
+      scope: '/tmp',
+      historySince: '2025-01-01T00:00:00Z',
+      historyMaxCommits: 2500,
+    }) as Record<string, unknown>;
+
+    expect(mockIndexProject).toHaveBeenCalledOnce();
+    expect(mockIndexProject).toHaveBeenCalledWith('/tmp', expect.objectContaining({
+      force: true,
+      historySince: '2025-01-01T00:00:00Z',
+      historyMaxCommits: 2500,
+    }));
+    expect(result['gitCommitsSynced']).toBe(7);
+    expect(result['gitEdgesCreated']).toBe(8);
+  });
+
+  it.each([
+    [{ historySince: '2026-02-30' }, 'historySince must be a valid ISO 8601 date or timestamp'],
+    [{ historySince: '2026-02-30T00:00:00Z' }, 'historySince must be a valid ISO 8601 date or timestamp'],
+    [{ historySince: '2026-04-31T12:00:00Z' }, 'historySince must be a valid ISO 8601 date or timestamp'],
+    [{ historySince: '2025-02-29T00:00:00Z' }, 'historySince must be a valid ISO 8601 date or timestamp'],
+    [{ historyMaxCommits: 0 }, 'historyMaxCommits must be a safe integer between 1 and 100000'],
+    [{ historyMaxCommits: 100001 }, 'historyMaxCommits must be a safe integer between 1 and 100000'],
+  ])('rejects invalid history input before indexing', async (extra, error) => {
+    const result = await handleIndex({ action: 'reindex', scope: '/tmp', ...extra }) as Record<string, unknown>;
+
+    expect(result['error']).toBe(error);
+    expect(mockIndexProject).not.toHaveBeenCalled();
+  });
+
+  it('accepts a valid leap-day history timestamp', async () => {
+    const result = await handleIndex({
+      action: 'reindex',
+      scope: '/tmp',
+      historySince: '2024-02-29T00:00:00Z',
+    }) as Record<string, unknown>;
+
+    expect(result['error']).toBeUndefined();
+    expect(mockIndexProject).toHaveBeenCalledWith('/tmp', expect.objectContaining({
+      historySince: '2024-02-29T00:00:00Z',
+    }));
   });
 });

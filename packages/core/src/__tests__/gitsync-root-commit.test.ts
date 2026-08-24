@@ -78,7 +78,7 @@ afterAll(() => {
 
 describe('syncGitHistory: root commit diffing', () => {
   it('produces MODIFIED_IN and INTRODUCED_IN edges for files added in the very first commit', async () => {
-    const result = await syncGitHistory(repoRoot, fakeClient, { maxCommits: 10, includeStats: true });
+    const result = await syncGitHistory(repoRoot, fakeClient, { historyMaxCommits: 10, includeStats: true });
 
     expect(result.commitsProcessed).toBe(1);
 

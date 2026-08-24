@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { GraphClient } from '../client';
-import { createAnalysisQueries } from '../analysis-queries';
+import { AnalysisQueryInputError, createAnalysisQueries } from '../analysis-queries';
 
 const dialect = {
   driverType: 'falkordb',
@@ -235,6 +235,8 @@ describe('analysis queries', () => {
             earliestCommitDate: '2025-01-02T00:00:00Z',
             latestCommitDate: '2025-02-01T00:00:00Z',
             totalCommitCount: 3,
+            historySince: '2024-01-01T00:00:00.000Z',
+            historyMaxCommits: 200,
             historyWindowSize: 200,
             historyTruncated: false,
             historyComplete: true,
@@ -246,7 +248,7 @@ describe('analysis queries', () => {
         rootPath: '/repo/',
         since: '2025-01-01T00:00:00-05:00',
         scoreBy: 'degree',
-        limit: 0,
+        limit: 1,
       });
 
       expect(client.roQuery).toHaveBeenCalledTimes(2);
@@ -272,11 +274,52 @@ describe('analysis queries', () => {
         earliestCommitDate: '2025-01-02T00:00:00Z',
         latestCommitDate: '2025-02-01T00:00:00Z',
         totalCommitCount: 3,
+        historySince: '2024-01-01T00:00:00.000Z',
+        historyMaxCommits: 200,
         historyWindowSize: 200,
         historyTruncated: false,
         historyComplete: true,
       });
       expect(result.caveats.some((caveat) => caveat.includes('200'))).toBe(false);
+    });
+
+    it.each([0, 501, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+      'rejects invalid limit %s before graph access',
+      async (limit) => {
+        const client = mockClient([]);
+
+        await expect(createAnalysisQueries(client).getHotspots({
+          rootPath: '/repo',
+          limit,
+        })).rejects.toBeInstanceOf(AnalysisQueryInputError);
+        expect(client.roQuery).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      '2026-02-30T00:00:00Z',
+      '2026-04-31T12:00:00Z',
+      '2025-02-29T00:00:00Z',
+      '2026-1-1',
+    ])('rejects invalid since %s before graph access', async (since) => {
+      const client = mockClient([]);
+
+      await expect(createAnalysisQueries(client).getHotspots({
+        rootPath: '/repo',
+        since,
+      })).rejects.toBeInstanceOf(AnalysisQueryInputError);
+      expect(client.roQuery).not.toHaveBeenCalled();
+    });
+
+    it('accepts a valid leap-day timestamp', async () => {
+      const client = mockClient([]);
+
+      const result = await createAnalysisQueries(client).getHotspots({
+        rootPath: '/repo',
+        since: '2024-02-29T00:00:00Z',
+      });
+
+      expect(result.input.since).toBe('2024-02-29T00:00:00.000Z');
     });
   });
 
@@ -304,6 +347,8 @@ describe('analysis queries', () => {
             earliestCommitDate: '2025-01-01T00:00:00Z',
             latestCommitDate: '2025-07-19T00:00:00Z',
             totalCommitCount: 240,
+            historySince: '2025-01-01T00:00:00.000Z',
+            historyMaxCommits: 200,
             historyWindowSize: 200,
             historyTruncated: true,
             historyComplete: false,
@@ -314,7 +359,7 @@ describe('analysis queries', () => {
       const result = await createAnalysisQueries(client).getChangeCoupling({
         rootPath: '/repo',
         minSupport: 500,
-        limit: 0,
+        limit: 1,
       });
 
       expect(client.roQuery).toHaveBeenCalledTimes(3);
@@ -345,12 +390,68 @@ describe('analysis queries', () => {
         earliestCommitDate: '2025-01-01T00:00:00Z',
         latestCommitDate: '2025-07-19T00:00:00Z',
         totalCommitCount: 240,
+        historySince: '2025-01-01T00:00:00.000Z',
+        historyMaxCommits: 200,
         historyWindowSize: 200,
         historyTruncated: true,
         historyComplete: false,
       });
       expect(result.caveats.join(' ')).toContain('correlation');
       expect(result.caveats.join(' ')).toContain('200');
+    });
+
+    it.each([0, 501, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+      'rejects invalid limit %s before graph access',
+      async (limit) => {
+        const client = mockClient([]);
+
+        await expect(createAnalysisQueries(client).getChangeCoupling({
+          rootPath: '/repo',
+          limit,
+        })).rejects.toBeInstanceOf(AnalysisQueryInputError);
+        expect(client.roQuery).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  describe('getOwnership', () => {
+    it('delegates to the ownership query and preserves the frozen result contract', async () => {
+      const client = mockClient([]);
+      vi.mocked(client.roQuery)
+        .mockResolvedValueOnce({ data: [], metadata: [] })
+        .mockResolvedValueOnce({
+          data: [{
+            commitCount: 0,
+            earliestCommitDate: null,
+            latestCommitDate: null,
+            totalCommitCount: null,
+            historySince: null,
+            historyMaxCommits: null,
+            historyWindowSize: null,
+            historyTruncated: false,
+            historyComplete: false,
+            unknownIdentityCommitCount: 0,
+          }],
+          metadata: [],
+        });
+
+      const result = await createAnalysisQueries(client).getOwnership({
+        rootPath: '/repo',
+        pathPrefix: 'src',
+      });
+
+      expect(result.input).toEqual({
+        rootPath: '/repo',
+        since: null,
+        pathPrefix: '/repo/src',
+        limit: 50,
+      });
+      expect(result.items).toEqual([]);
+      expect(result.historyCoverage).toMatchObject({
+        historySince: null,
+        historyMaxCommits: null,
+        historyWindowSize: null,
+      });
     });
   });
 });

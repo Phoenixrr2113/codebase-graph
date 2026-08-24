@@ -21,7 +21,7 @@ describeIfAvailable('analysis queries with FalkorDBLite', () => {
     queries = createAnalysisQueries(client);
 
     await client.query(`
-      CREATE (project:Project {id: 'project-repo', rootPath: '/repo', name: 'repo', gitHistoryTotalCommits: 3, gitHistoryWindowSize: 200, gitHistoryTruncated: false, gitHistoryComplete: true})
+      CREATE (project:Project {id: 'project-repo', rootPath: '/repo', name: 'repo', gitHistoryTotalCommits: 3, gitHistorySince: '2024-01-01T00:00:00.000Z', gitHistoryMaxCommits: 200, gitHistoryWindowSize: 200, gitHistoryTruncated: false, gitHistoryComplete: true})
       CREATE (siblingProject:Project {id: 'project-sibling', rootPath: '/repo2', name: 'repo2'})
 
       CREATE (targetFile:File {id: 'file-target', filePath: '/repo/target.ts', name: 'target.ts'})
@@ -167,6 +167,8 @@ describeIfAvailable('analysis queries with FalkorDBLite', () => {
       earliestCommitDate: '2025-01-01T00:00:00Z',
       latestCommitDate: '2025-01-03T00:00:00Z',
       totalCommitCount: 3,
+      historySince: '2024-01-01T00:00:00.000Z',
+      historyMaxCommits: 200,
       historyWindowSize: 200,
       historyTruncated: false,
       historyComplete: true,

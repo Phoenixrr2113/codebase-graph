@@ -7,6 +7,7 @@ const analysisMethods = vi.hoisted(() => ({
   getUnreferencedExports: vi.fn(),
   getHotspots: vi.fn(),
   getChangeCoupling: vi.fn(),
+  getOwnership: vi.fn(),
 }));
 
 const createAnalysisQueries = vi.hoisted(() => vi.fn(() => analysisMethods));
@@ -44,6 +45,7 @@ describe('core analysis service facade', () => {
     ['getUnreferencedExports', { rootPath: '/repo', limit: 10 }, { items: [] }],
     ['getHotspots', { rootPath: '/repo', scoreBy: 'degree', limit: 10 }, { items: [], historyCoverage: {} }],
     ['getChangeCoupling', { rootPath: '/repo', minSupport: 2, limit: 10 }, { items: [], historyCoverage: {} }],
+    ['getOwnership', { rootPath: '/repo', pathPrefix: '/repo/src', limit: 10 }, { items: [], historyCoverage: {} }],
   ] as const)('exposes %s with the frozen input object unchanged', async (methodName, input, expected) => {
     analysisMethods[methodName].mockResolvedValueOnce(expected);
 

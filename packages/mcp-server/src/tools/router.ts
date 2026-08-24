@@ -318,6 +318,8 @@ const rawHandlers: Record<string, ToolHandler> = {
       mode: (args.mode as 'incremental' | 'full') || 'incremental',
     } as ReindexInput;
     if (args.scope != null) input.scope = args.scope as string;
+    if (args.historySince != null) input.historySince = args.historySince as string;
+    if (args.historyMaxCommits != null) input.historyMaxCommits = args.historyMaxCommits as number;
     return triggerReindex(input);
   },
 

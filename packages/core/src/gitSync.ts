@@ -7,12 +7,30 @@
 
 import simpleGit, { type SimpleGit, type LogResult, type DefaultLogFields } from 'simple-git';
 import { createOperations, type GraphClient } from '@codegraph/graph';
-import type { CommitEntity } from '@codegraph/types';
+import type { CommitEntity, HistoryWindowOptions } from '@codegraph/types';
 import { createLogger } from '@codegraph/logger';
 import { relative, resolve, join } from 'node:path';
 import { realpath } from 'node:fs/promises';
 
 const logger = createLogger({ namespace: 'core:gitSync' });
+const DEFAULT_HISTORY_MAX_COMMITS = 10_000;
+const MAX_HISTORY_MAX_COMMITS = 100_000;
+const DEFAULT_HISTORY_DAYS = 365;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+
+function isValidIsoDateOrTimestamp(value: string): boolean {
+  if (!ISO_DATE_PATTERN.test(value) || !Number.isFinite(Date.parse(value))) return false;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const reconstructed = new Date(0);
+  reconstructed.setUTCHours(0, 0, 0, 0);
+  reconstructed.setUTCFullYear(year, month - 1, day);
+  return reconstructed.getUTCFullYear() === year
+    && reconstructed.getUTCMonth() === month - 1
+    && reconstructed.getUTCDate() === day;
+}
 
 // ============================================================================
 // Types
@@ -23,6 +41,10 @@ export interface GitSyncResult {
   edgesCreated: number;
   lastCommitHash: string | null;
   totalCommits: number | null;
+  historySince: string;
+  historyMaxCommits: number;
+  earliestIndexedCommitDate: string | null;
+  /** Deprecated compatibility alias for historyMaxCommits. */
   historyWindowSize: number;
   historyTruncated: boolean;
   historyComplete: boolean;
@@ -30,15 +52,40 @@ export interface GitSyncResult {
   errors: string[];
 }
 
-export interface GitSyncOptions {
-  /** Maximum number of commits to process (default: 100) */
-  maxCommits?: number;
+export interface GitSyncOptions extends HistoryWindowOptions {
   /** Only process commits after this hash */
   sinceCommit?: string;
+  /** Replay the effective persisted window after File nodes were recreated. */
+  rebuildHistoryEdges?: boolean;
   /** Include file change stats (linesAdded/linesRemoved) on MODIFIED_IN edges */
   includeStats?: boolean;
   /** GraphClient to use (uses default if not provided) */
   client?: GraphClient;
+}
+
+export function validateHistoryWindowOptions(options: HistoryWindowOptions): string | null {
+  if (options.historySince !== undefined) {
+    if (!isValidIsoDateOrTimestamp(options.historySince)) {
+      return 'historySince must be a valid ISO 8601 date or timestamp';
+    }
+  }
+  if (options.historyMaxCommits !== undefined
+    && (!Number.isSafeInteger(options.historyMaxCommits)
+      || options.historyMaxCommits < 1
+      || options.historyMaxCommits > MAX_HISTORY_MAX_COMMITS)) {
+    return 'historyMaxCommits must be a safe integer between 1 and 100000';
+  }
+  return null;
+}
+
+function earlierIso(left: string, right: string): string {
+  return Date.parse(left) <= Date.parse(right) ? left : right;
+}
+
+function parseStoredInteger(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 // ============================================================================
@@ -159,7 +206,10 @@ export async function syncGitHistory(
   options: GitSyncOptions = {},
 ): Promise<GitSyncResult> {
   const startTime = Date.now();
-  const { maxCommits = 100, sinceCommit, includeStats = true } = options;
+  const validationError = validateHistoryWindowOptions(options);
+  if (validationError) throw new RangeError(validationError);
+  const { sinceCommit, includeStats = true, rebuildHistoryEdges = false } = options;
+  const defaultHistorySince = new Date(startTime - DEFAULT_HISTORY_DAYS * DAY_MS).toISOString();
   const errors: string[] = [];
 
   try {
@@ -172,7 +222,10 @@ export async function syncGitHistory(
         edgesCreated: 0,
         lastCommitHash: null,
         totalCommits: null,
-        historyWindowSize: maxCommits,
+        historySince: options.historySince ?? defaultHistorySince,
+        historyMaxCommits: options.historyMaxCommits ?? DEFAULT_HISTORY_MAX_COMMITS,
+        earliestIndexedCommitDate: null,
+        historyWindowSize: options.historyMaxCommits ?? DEFAULT_HISTORY_MAX_COMMITS,
         historyTruncated: false,
         historyComplete: false,
         durationMs: Date.now() - startTime,
@@ -190,7 +243,12 @@ export async function syncGitHistory(
     // nodes, instead of naively joining repoPath with git's relative path.
     const repoRoot = (await git.revparse(['--show-toplevel'])).trim();
     const indexedRoot = resolve(repoPath);
-    const totalCommits = Number.parseInt((await git.raw(['rev-list', '--count', 'HEAD'])).trim(), 10);
+    const hasHead = await git.raw(['rev-parse', '--verify', 'HEAD'])
+      .then(() => true)
+      .catch(() => false);
+    const totalCommits = hasHead
+      ? Number.parseInt((await git.raw(['rev-list', '--count', 'HEAD'])).trim(), 10)
+      : 0;
 
     // `git rev-parse --show-toplevel` resolves symlinks. On macOS,
     // os.tmpdir() lives under /var/folders, itself a symlink to
@@ -212,44 +270,102 @@ export async function syncGitHistory(
       realIndexedRoot = indexedRoot;
     }
 
-    // Determine starting point for incremental sync
-    let fromCommit = sinceCommit;
-    if (!fromCommit) {
-      fromCommit = await getMetadata(client, `lastCommitSynced:${repoPath}`);
+    const metadataPrefix = (name: string): string => `${name}:${repoPath}`;
+    const [savedCheckpoint, storedHistorySince, storedHistoryMaxRaw, storedEarliestIndexedDate,
+      previousHistoryComplete, previousHistoryTruncated] = await Promise.all([
+      getMetadata(client, metadataPrefix('lastCommitSynced')),
+      getMetadata(client, metadataPrefix('historySince')),
+      getMetadata(client, metadataPrefix('historyMaxCommits')),
+      getMetadata(client, metadataPrefix('historyEarliestIndexedDate')),
+      getMetadata(client, metadataPrefix('historyComplete')),
+      getMetadata(client, metadataPrefix('historyTruncated')),
+    ]);
+    const storedHistoryMax = parseStoredInteger(storedHistoryMaxRaw);
+    const requestedHistorySince = options.historySince;
+    const historySince = storedHistorySince
+      ? requestedHistorySince ? earlierIso(storedHistorySince, requestedHistorySince) : storedHistorySince
+      : requestedHistorySince ?? defaultHistorySince;
+    const historyMaxCommits = Math.max(
+      storedHistoryMax ?? 0,
+      options.historyMaxCommits ?? (storedHistoryMax === undefined ? DEFAULT_HISTORY_MAX_COMMITS : 0),
+    );
+    const sinceWidened = storedHistorySince !== undefined && Date.parse(historySince) < Date.parse(storedHistorySince);
+    const maxWidened = storedHistoryMax !== undefined && historyMaxCommits > storedHistoryMax;
+    const establishingWindow = storedHistorySince === undefined || storedHistoryMax === undefined;
+    const replayWindow = rebuildHistoryEdges || !savedCheckpoint || establishingWindow || sinceWidened || maxWidened;
+    const fromCommit = sinceCommit !== undefined && !rebuildHistoryEdges
+      ? sinceCommit
+      : replayWindow ? undefined : savedCheckpoint;
+    const replaySince = rebuildHistoryEdges
+      ? storedEarliestIndexedDate ?? storedHistorySince ?? historySince
+      : historySince;
+
+    await Promise.all([
+      setMetadata(client, metadataPrefix('historySince'), historySince),
+      setMetadata(client, metadataPrefix('historyMaxCommits'), String(historyMaxCommits)),
+    ]);
+
+    if (!hasHead) {
+      await Promise.all([
+        setMetadata(client, metadataPrefix('historyComplete'), 'true'),
+        setMetadata(client, metadataPrefix('historyTruncated'), 'false'),
+      ]);
+      return {
+        commitsProcessed: 0,
+        edgesCreated: 0,
+        lastCommitHash: null,
+        totalCommits: 0,
+        historySince,
+        historyMaxCommits,
+        earliestIndexedCommitDate: storedEarliestIndexedDate ?? null,
+        historyWindowSize: historyMaxCommits,
+        historyTruncated: false,
+        historyComplete: true,
+        durationMs: Date.now() - startTime,
+        errors: [],
+      };
     }
-    const previousHistoryComplete = fromCommit
-      ? await getMetadata(client, `historyComplete:${repoPath}`)
-      : undefined;
-    const previousHistoryTruncated = fromCommit
-      ? await getMetadata(client, `historyTruncated:${repoPath}`)
-      : undefined;
+
     const commitsAvailable = fromCommit
       ? Number.parseInt((await git.raw(['rev-list', '--count', `${fromCommit}..HEAD`])).trim(), 10)
-      : totalCommits;
+      : Number.parseInt((await git.raw(['rev-list', '--count', `--since=${replaySince}`, 'HEAD'])).trim(), 10);
 
-    // Build git log options
-    const logOptions: Parameters<SimpleGit['log']>[0] = {
-      maxCount: maxCommits,
-      '--name-only': null,
-    };
-
-    if (fromCommit) {
-      logOptions.from = fromCommit;
-      logOptions.to = 'HEAD';
-    }
+    // The safety ceiling applies only when first backfilling a range that
+    // has not been indexed. Incremental runs must drain the checkpoint
+    // range, and a forced full reindex must replay every commit from the
+    // earliest date that was actually indexed so recreated File nodes get
+    // all of their previous history edges back.
+    const logOptions: Parameters<SimpleGit['log']>[0] = fromCommit
+      ? { from: fromCommit, to: 'HEAD', '--name-only': null }
+      : rebuildHistoryEdges
+        ? { '--since': replaySince, '--name-only': null }
+        : { maxCount: historyMaxCommits, '--since': replaySince, '--name-only': null };
 
     const log: LogResult<DefaultLogFields> = await git.log(logOptions);
 
     if (log.all.length === 0) {
       logger.info('No new commits to sync');
+      const historyTruncated = fromCommit
+        ? previousHistoryTruncated === 'true'
+        : totalCommits > 0;
+      const historyComplete = fromCommit
+        ? previousHistoryComplete === 'true'
+        : totalCommits === 0;
+      await Promise.all([
+        setMetadata(client, metadataPrefix('historyComplete'), String(historyComplete)),
+        setMetadata(client, metadataPrefix('historyTruncated'), String(historyTruncated)),
+      ]);
       return {
         commitsProcessed: 0,
         edgesCreated: 0,
         lastCommitHash: fromCommit ?? null,
         totalCommits,
-        historyWindowSize: maxCommits,
-        historyTruncated: previousHistoryTruncated === 'true',
-        historyComplete: fromCommit ? previousHistoryComplete === 'true' : commitsAvailable === 0,
+        historySince,
+        historyMaxCommits,
+        earliestIndexedCommitDate: storedEarliestIndexedDate ?? null,
+        historyWindowSize: historyMaxCommits,
+        historyTruncated,
+        historyComplete,
         durationMs: Date.now() - startTime,
         errors: [],
       };
@@ -259,7 +375,8 @@ export async function syncGitHistory(
 
     let commitsProcessed = 0;
     let edgesCreated = 0;
-    const newestCommitHash = log.all[0]?.hash ?? null;
+    let newestProcessedHash: string | null = null;
+    let earliestProcessedDate: string | null = null;
 
     // Process oldest first for proper ordering
     const commits = [...log.all].reverse();
@@ -276,6 +393,10 @@ export async function syncGitHistory(
 
         await ops.upsertCommit(commitEntity);
         commitsProcessed++;
+        newestProcessedHash = commit.hash;
+        earliestProcessedDate = earliestProcessedDate === null
+          ? commit.date
+          : earlierIso(earliestProcessedDate, commit.date);
 
         // Get files changed in this commit with status (A=added, M=modified, D=deleted).
         // diffBase is the commit's parent, or the empty tree for a root commit
@@ -369,29 +490,44 @@ export async function syncGitHistory(
         const errorMsg = `Error processing commit ${commit.hash}: ${commitError}`;
         logger.warn(errorMsg);
         errors.push(errorMsg);
+        break;
       }
     }
 
-    // Track last synced commit for incremental sync
-    if (newestCommitHash) {
-      await setMetadata(client, `lastCommitSynced:${repoPath}`, newestCommitHash);
+    // The checkpoint advances only through the contiguous successfully
+    // processed prefix. A failed commit stops the loop above.
+    if (newestProcessedHash) {
+      await setMetadata(client, metadataPrefix('lastCommitSynced'), newestProcessedHash);
+    }
+    const earliestIndexedCommitDate = earliestProcessedDate === null
+      ? storedEarliestIndexedDate ?? null
+      : storedEarliestIndexedDate
+        ? earlierIso(storedEarliestIndexedDate, earliestProcessedDate)
+        : earliestProcessedDate;
+    if (earliestIndexedCommitDate) {
+      await setMetadata(client, metadataPrefix('historyEarliestIndexedDate'), earliestIndexedCommitDate);
     }
     const coveredAvailableCommits = commitsProcessed === commitsAvailable && errors.length === 0;
-    const historyTruncated = previousHistoryTruncated === 'true' || commitsAvailable > maxCommits;
+    const historyTruncated = fromCommit
+      ? previousHistoryTruncated === 'true'
+      : totalCommits > commitsProcessed;
     const historyComplete = fromCommit
       ? previousHistoryComplete === 'true' && coveredAvailableCommits
-      : coveredAvailableCommits;
-    await setMetadata(client, `historyComplete:${repoPath}`, String(historyComplete));
-    await setMetadata(client, `historyTruncated:${repoPath}`, String(historyTruncated));
+      : totalCommits === commitsProcessed && errors.length === 0;
+    await setMetadata(client, metadataPrefix('historyComplete'), String(historyComplete));
+    await setMetadata(client, metadataPrefix('historyTruncated'), String(historyTruncated));
 
     logger.info(`Git sync complete: ${commitsProcessed} commits, ${edgesCreated} edges`);
 
     return {
       commitsProcessed,
       edgesCreated,
-      lastCommitHash: newestCommitHash,
+      lastCommitHash: newestProcessedHash,
       totalCommits,
-      historyWindowSize: maxCommits,
+      historySince,
+      historyMaxCommits,
+      earliestIndexedCommitDate,
+      historyWindowSize: historyMaxCommits,
       historyTruncated,
       historyComplete,
       durationMs: Date.now() - startTime,
@@ -406,7 +542,10 @@ export async function syncGitHistory(
       edgesCreated: 0,
       lastCommitHash: null,
       totalCommits: null,
-      historyWindowSize: options.maxCommits ?? 100,
+      historySince: options.historySince ?? defaultHistorySince,
+      historyMaxCommits: options.historyMaxCommits ?? DEFAULT_HISTORY_MAX_COMMITS,
+      earliestIndexedCommitDate: null,
+      historyWindowSize: options.historyMaxCommits ?? DEFAULT_HISTORY_MAX_COMMITS,
       historyTruncated: false,
       historyComplete: false,
       durationMs: Date.now() - startTime,

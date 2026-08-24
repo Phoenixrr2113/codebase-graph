@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handleToolCall } from '../tools/router';
 import { registerPlugins } from '@codegraph/core';
-import { triggerReindex } from '../tools/reindex';
+import { reindexToolDefinition, triggerReindex } from '../tools/reindex';
 import { teardownGraphClient, assertNoError } from './helpers';
 
 let fixtureDirectory: string;
@@ -92,6 +92,48 @@ describe('query (Cypher)', () => {
 // ─── trigger_reindex ─────────────────────────────────────────────────────────
 
 describe('trigger_reindex', () => {
+  it('exposes and validates the persisted history window inputs', async () => {
+    expect(reindexToolDefinition.inputSchema.properties).toHaveProperty('historySince');
+    expect(reindexToolDefinition.inputSchema.properties).toHaveProperty('historyMaxCommits');
+
+    const result = await triggerReindex({
+      mode: 'incremental',
+      scope: fixtureDirectory,
+      historySince: '2026-02-30',
+      historyMaxCommits: 0,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining('historySince'),
+    ]));
+  });
+
+  it.each([
+    '2026-02-30T00:00:00Z',
+    '2026-04-31T12:00:00Z',
+    '2025-02-29T00:00:00Z',
+  ])('rejects impossible raw history timestamp %s before indexing', async (historySince) => {
+    const result = await triggerReindex({
+      mode: 'incremental',
+      scope: fixtureDirectory,
+      historySince,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errors).toEqual(['historySince must be a valid ISO 8601 date or timestamp']);
+  });
+
+  it('accepts a valid leap-day raw history timestamp', async () => {
+    const result = await triggerReindex({
+      mode: 'incremental',
+      scope: fixtureDirectory,
+      historySince: '2024-02-29T00:00:00Z',
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('returns error for non-existent scope path', async () => {
     const result = (await handleToolCall('trigger_reindex', {
       mode: 'incremental',

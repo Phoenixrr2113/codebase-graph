@@ -99,7 +99,7 @@ beforeEach(() => {
 
 describe('syncGitHistory: joins git paths against the repo root, not the indexed subdirectory', () => {
   it('links MODIFIED_IN edges using the real absolute path of files under the indexed root', async () => {
-    const result = await syncGitHistory(indexedRoot, fakeClient, { maxCommits: 10, includeStats: true });
+    const result = await syncGitHistory(indexedRoot, fakeClient, { historyMaxCommits: 10, includeStats: true });
 
     expect(result.errors).toEqual([]);
     expect(result.commitsProcessed).toBe(2);
@@ -115,7 +115,7 @@ describe('syncGitHistory: joins git paths against the repo root, not the indexed
   });
 
   it('skips files outside the indexed root instead of mislinking them', async () => {
-    await syncGitHistory(indexedRoot, fakeClient, { maxCommits: 10, includeStats: true });
+    await syncGitHistory(indexedRoot, fakeClient, { historyMaxCommits: 10, includeStats: true });
 
     const modifiedPaths = opsMocks.createModifiedInEdge.mock.calls.map((call) => call[0] as string);
 

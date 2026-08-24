@@ -1,9 +1,10 @@
 import { AnalysisQueryInputError, codeGraphService } from '@codegraph/core';
 import { Hono } from 'hono';
+import { isAbsolute, relative, resolve, win32 } from 'node:path';
 import { safeErrorMessage } from '../safe-error.js';
 
 const SYMBOL_ID_PATTERN = /^sym:v1:[a-f0-9]{64}$/;
-const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(?:Z|[+-]\d{2}:\d{2}))?$/;
 const RESULT_LIMIT_MAX = 1000;
 
 function isNotFoundResult(result: object): boolean {
@@ -48,14 +49,40 @@ function parseEnum<T extends string>(
   return { valid: true, value: raw as T };
 }
 
+function hasExactCalendarFields(raw: string): boolean {
+  const match = ISO_DATE_PATTERN.exec(raw);
+  if (match === null) return false;
+  const [, year, month, day, hour = '0', minute = '0', second = '0', fraction = '0'] = match;
+  const expected = {
+    year: Number(year),
+    month: Number(month),
+    day: Number(day),
+    hour: Number(hour),
+    minute: Number(minute),
+    second: Number(second),
+    millisecond: Number(fraction.padEnd(3, '0')),
+  };
+  const reconstructed = new Date(0);
+  reconstructed.setUTCFullYear(expected.year, expected.month - 1, expected.day);
+  reconstructed.setUTCHours(
+    expected.hour,
+    expected.minute,
+    expected.second,
+    expected.millisecond,
+  );
+  return reconstructed.getUTCFullYear() === expected.year
+    && reconstructed.getUTCMonth() === expected.month - 1
+    && reconstructed.getUTCDate() === expected.day
+    && reconstructed.getUTCHours() === expected.hour
+    && reconstructed.getUTCMinutes() === expected.minute
+    && reconstructed.getUTCSeconds() === expected.second
+    && reconstructed.getUTCMilliseconds() === expected.millisecond;
+}
+
 function parseSince(raw: string | undefined): { valid: true; value?: string } | { valid: false; error: string } {
   if (raw === undefined) return { valid: true };
   const timestamp = Date.parse(raw);
-  if (!ISO_DATE_PATTERN.test(raw) || !Number.isFinite(timestamp)) {
-    return { valid: false, error: 'since must be a valid ISO 8601 date or timestamp' };
-  }
-  const dateOnlyIsExact = raw.includes('T') || new Date(timestamp).toISOString().slice(0, 10) === raw;
-  if (!dateOnlyIsExact) {
+  if (!hasExactCalendarFields(raw) || !Number.isFinite(timestamp)) {
     return { valid: false, error: 'since must be a valid ISO 8601 date or timestamp' };
   }
   return { valid: true, value: raw };
@@ -63,6 +90,29 @@ function parseSince(raw: string | undefined): { valid: true; value?: string } | 
 
 function normalizeRootPath(rootPath: string): string {
   return rootPath === '/' ? rootPath : rootPath.replace(/\/+$/, '');
+}
+
+function parsePathPrefix(
+  raw: string | undefined,
+  rootPath: string,
+): { valid: true; value?: string } | { valid: false; error: string } {
+  if (raw === undefined || raw === '') return { valid: true };
+  const normalizedSeparators = raw.trim().replaceAll('\\', '/');
+  if (isAbsolute(normalizedSeparators) || win32.isAbsolute(raw)) {
+    return { valid: false, error: 'pathPrefix must be project-relative' };
+  }
+  if (normalizedSeparators.split('/').includes('..')) {
+    return { valid: false, error: 'pathPrefix must not contain .. traversal segments' };
+  }
+  const resolvedPrefix = resolve(rootPath, normalizedSeparators).replaceAll('\\', '/');
+  const relativePrefix = relative(rootPath, resolvedPrefix).replaceAll('\\', '/');
+  if (relativePrefix === '..' || relativePrefix.startsWith('../') || isAbsolute(relativePrefix)) {
+    return { valid: false, error: 'pathPrefix must resolve within projectPath' };
+  }
+  return {
+    valid: true,
+    ...(relativePrefix === '' ? {} : { value: relativePrefix }),
+  };
 }
 
 export const analysisRoutes = new Hono();
@@ -250,6 +300,32 @@ analysisRoutes.get('/api/analysis/change-coupling', async (c) => {
         'GET /api/analysis/change-coupling',
         error,
         'Failed to analyze change coupling.',
+      ),
+    }, 500);
+  }
+});
+
+analysisRoutes.get('/api/analysis/ownership', async (c) => {
+  try {
+    const since = parseSince(c.req.query('since'));
+    if (!since.valid) return c.json({ error: since.error }, 400);
+    const project = await resolveProjectRequest(c.req.query('projectId'), c.req.query('limit'), 500);
+    if (!project.valid) return c.json({ error: project.error }, project.status);
+    const pathPrefix = parsePathPrefix(c.req.query('pathPrefix'), project.value.rootPath);
+    if (!pathPrefix.valid) return c.json({ error: pathPrefix.error }, 400);
+
+    return c.json(await codeGraphService.getOwnership({
+      ...project.value,
+      ...(since.value === undefined ? {} : { since: since.value }),
+      ...(pathPrefix.value === undefined ? {} : { pathPrefix: pathPrefix.value }),
+    }));
+  } catch (error) {
+    if (error instanceof AnalysisQueryInputError) return c.json({ error: error.message }, 400);
+    return c.json({
+      error: safeErrorMessage(
+        'GET /api/analysis/ownership',
+        error,
+        'Failed to analyze ownership.',
       ),
     }, 500);
   }

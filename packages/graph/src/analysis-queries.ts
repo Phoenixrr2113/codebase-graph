@@ -1,5 +1,13 @@
 import type { GraphClient } from './client';
+import type { HistoryCoverage, OwnershipInput, OwnershipResult } from '@codegraph/types';
 import { resolve } from 'node:path';
+import {
+  AnalysisQueryInputError,
+  createOwnershipQuery,
+  normalizeAnalysisSince,
+} from './ownership-queries';
+
+export { AnalysisQueryInputError } from './ownership-queries';
 
 const STATIC_ANALYSIS_CAVEATS = [
   'Results describe static graph relationships, not runtime behavior.',
@@ -53,6 +61,7 @@ export interface AnalysisQueries {
   getUnreferencedExports(input: UnreferencedExportsInput): Promise<UnreferencedExportsResult>;
   getHotspots(input: HotspotsInput): Promise<HotspotsResult>;
   getChangeCoupling(input: ChangeCouplingInput): Promise<ChangeCouplingResult>;
+  getOwnership(input: OwnershipInput): Promise<OwnershipResult>;
 }
 
 export interface ChangeCouplingInput {
@@ -60,7 +69,7 @@ export interface ChangeCouplingInput {
   since?: string;
   /** Minimum shared commits. Defaults to 2 and is clamped to 1 through 200. */
   minSupport?: number;
-  /** Maximum returned pairs. Defaults to 50 and is clamped to 1 through 500. */
+  /** Maximum returned pairs. Defaults to 50 and must be an integer from 1 through 500. */
   limit?: number;
 }
 
@@ -91,32 +100,13 @@ export interface ChangeCouplingResult {
   caveats: string[];
 }
 
-export class AnalysisQueryInputError extends Error {
-  readonly code = 'INVALID_ANALYSIS_INPUT';
-
-  constructor(message: string) {
-    super(message);
-    this.name = 'AnalysisQueryInputError';
-  }
-}
-
-export interface HistoryCoverage {
-  commitCount: number;
-  earliestCommitDate: string | null;
-  latestCommitDate: string | null;
-  totalCommitCount: number | null;
-  historyWindowSize: number | null;
-  historyTruncated: boolean;
-  historyComplete: boolean;
-}
-
 export type HotspotScore = 'complexity' | 'degree';
 
 export interface HotspotsInput {
   rootPath: string;
   since?: string;
   scoreBy?: HotspotScore;
-  /** Maximum returned files. Defaults to 50 and is clamped to 1 through 500. */
+  /** Maximum returned files. Defaults to 50 and must be an integer from 1 through 500. */
   limit?: number;
 }
 
@@ -270,6 +260,14 @@ function boundedInteger(value: number | undefined, fallback: number, minimum: nu
   return Math.min(Math.max(Math.trunc(value), minimum), maximum);
 }
 
+function strictLimit(value: number | undefined, fallback: number, maximum: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+    throw new AnalysisQueryInputError(`limit must be an integer between 1 and ${maximum}`);
+  }
+  return value;
+}
+
 function normalizeRootPath(rootPath: string): string {
   return resolve(rootPath);
 }
@@ -278,30 +276,26 @@ function rootPathPrefix(rootPath: string): string {
   return rootPath === '/' ? '/' : `${rootPath}/`;
 }
 
-function normalizeSince(since: string | undefined): string | null {
-  if (since === undefined || since.trim() === '') return null;
-  const date = new Date(since);
-  if (Number.isNaN(date.getTime())) {
-    throw new AnalysisQueryInputError('since must be a valid ISO 8601 date');
-  }
-  return date.toISOString();
-}
-
 function historyCoverage(row: {
   commitCount?: number;
   earliestCommitDate?: string | null;
   latestCommitDate?: string | null;
   totalCommitCount?: number | null;
+  historySince?: string | null;
+  historyMaxCommits?: number | null;
   historyWindowSize?: number | null;
   historyTruncated?: boolean | null;
   historyComplete?: boolean | null;
 } | undefined): HistoryCoverage {
+  const historyMaxCommits = row?.historyMaxCommits ?? row?.historyWindowSize ?? null;
   return {
     commitCount: row?.commitCount ?? 0,
     earliestCommitDate: row?.earliestCommitDate ?? null,
     latestCommitDate: row?.latestCommitDate ?? null,
     totalCommitCount: row?.totalCommitCount ?? null,
-    historyWindowSize: row?.historyWindowSize ?? null,
+    historySince: row?.historySince ?? null,
+    historyMaxCommits,
+    historyWindowSize: historyMaxCommits,
     historyTruncated: row?.historyTruncated === true,
     historyComplete: row?.historyComplete === true,
   };
@@ -642,9 +636,9 @@ class AnalysisQueriesImpl implements AnalysisQueries {
 
   async getHotspots(input: HotspotsInput): Promise<HotspotsResult> {
     const rootPath = normalizeRootPath(input.rootPath);
-    const since = normalizeSince(input.since);
+    const since = normalizeAnalysisSince(input.since);
     const scoreBy = input.scoreBy ?? 'complexity';
-    const limit = boundedInteger(input.limit, 50, 1, 500);
+    const limit = strictLimit(input.limit, 50, 500);
     const params = {
       rootPath,
       rootPathPrefix: rootPathPrefix(rootPath),
@@ -687,6 +681,8 @@ class AnalysisQueriesImpl implements AnalysisQueries {
         earliestCommitDate: string | null;
         latestCommitDate: string | null;
         totalCommitCount: number | null;
+        historySince: string | null;
+        historyMaxCommits: number | null;
         historyWindowSize: number | null;
         historyTruncated: boolean | null;
         historyComplete: boolean | null;
@@ -699,7 +695,9 @@ class AnalysisQueriesImpl implements AnalysisQueries {
                min(c.date) AS earliestCommitDate,
                max(c.date) AS latestCommitDate,
                project.gitHistoryTotalCommits AS totalCommitCount,
-               project.gitHistoryWindowSize AS historyWindowSize,
+               project.gitHistorySince AS historySince,
+               coalesce(project.gitHistoryMaxCommits, project.gitHistoryWindowSize) AS historyMaxCommits,
+               coalesce(project.gitHistoryMaxCommits, project.gitHistoryWindowSize) AS historyWindowSize,
                project.gitHistoryTruncated AS historyTruncated,
                project.gitHistoryComplete AS historyComplete
       `, { params }),
@@ -726,9 +724,9 @@ class AnalysisQueriesImpl implements AnalysisQueries {
 
   async getChangeCoupling(input: ChangeCouplingInput): Promise<ChangeCouplingResult> {
     const rootPath = normalizeRootPath(input.rootPath);
-    const since = normalizeSince(input.since);
+    const since = normalizeAnalysisSince(input.since);
     const minSupport = boundedInteger(input.minSupport, 2, 1, 200);
-    const limit = boundedInteger(input.limit, 50, 1, 500);
+    const limit = strictLimit(input.limit, 50, 500);
     const coverageParams = {
       rootPath,
       rootPathPrefix: rootPathPrefix(rootPath),
@@ -790,6 +788,8 @@ class AnalysisQueriesImpl implements AnalysisQueries {
         earliestCommitDate: string | null;
         latestCommitDate: string | null;
         totalCommitCount: number | null;
+        historySince: string | null;
+        historyMaxCommits: number | null;
         historyWindowSize: number | null;
         historyTruncated: boolean | null;
         historyComplete: boolean | null;
@@ -802,7 +802,9 @@ class AnalysisQueriesImpl implements AnalysisQueries {
                min(c.date) AS earliestCommitDate,
                max(c.date) AS latestCommitDate,
                project.gitHistoryTotalCommits AS totalCommitCount,
-               project.gitHistoryWindowSize AS historyWindowSize,
+               project.gitHistorySince AS historySince,
+               coalesce(project.gitHistoryMaxCommits, project.gitHistoryWindowSize) AS historyMaxCommits,
+               coalesce(project.gitHistoryMaxCommits, project.gitHistoryWindowSize) AS historyWindowSize,
                project.gitHistoryTruncated AS historyTruncated,
                project.gitHistoryComplete AS historyComplete
       `, { params: coverageParams }),
@@ -825,6 +827,10 @@ class AnalysisQueriesImpl implements AnalysisQueries {
         'Pair generation is bounded to the first 500 history-bearing files in normalized path order.',
       ],
     };
+  }
+
+  async getOwnership(input: OwnershipInput): Promise<OwnershipResult> {
+    return createOwnershipQuery(this.client)(input);
   }
 }
 

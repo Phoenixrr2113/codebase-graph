@@ -19,7 +19,7 @@ codebase({ action: "reindex", mode: "full", scope: "/path/to/project" })
 
 Configuration does not index the project. Reindexing parses structure first and finishes embeddings. With no provider or provider key set, local `nomic-ai/nomic-embed-text-v1.5` embeddings are the default. The first use downloads approximately 132 MiB and reports progress.
 
-## Tool Reference (5 tool groups, 24 actions)
+## Tool Reference (5 tool groups, 25 actions)
 
 ### 1. `search` — Find code and knowledge
 
@@ -89,12 +89,17 @@ knowledge({ action: "resolve_entities" })
 | Action | Use When | Required Params |
 |--------|----------|-----------------|
 | `configure` | Set up or change active projects | `projectAction` |
-| `reindex` | Refresh the index | (none, defaults to incremental) |
+| `reindex` | Refresh the index | (none, defaults to incremental; optional `historySince`, `historyMaxCommits`) |
 | `status` | Check indexing progress | (none) |
 | `stats` | Graph node/edge counts | (none) |
 | `source` | Read source code | `path` |
 | `ping` | Test connectivity | (none) |
 | `profile` | Get a fast static and dynamic project snapshot | (none) |
+
+Widen the persisted git history window during reindexing when deeper history is needed:
+```
+codebase({ action: "reindex", mode: "full", scope: "/path/to/project", historySince: "2024-01-01T00:00:00Z", historyMaxCommits: 20000 })
+```
 
 ### 4. `analyze`: Bounded repository analysis
 
@@ -108,6 +113,7 @@ Use purpose-built static and history analysis instead of hand-writing Cypher.
 | `dead_code` | Need unreferenced export candidates | `projectPath` |
 | `hotspots` | Need frequently changed files ranked by current complexity or degree | `projectPath` |
 | `change_coupling` | Need file pairs that change together | `projectPath` |
+| `ownership` | Need per-file authorship contributors ranked from indexed git history | `projectPath` |
 
 **Examples:**
 ```
@@ -117,9 +123,10 @@ analyze({ action: "call_hierarchy", id: "sym:v1:<64 lowercase hex characters>", 
 analyze({ action: "dead_code", projectPath: "/path/to/project", limit: 100 })
 analyze({ action: "hotspots", projectPath: "/path/to/project", since: "2026-01-01", scoreBy: "complexity", limit: 100 })
 analyze({ action: "change_coupling", projectPath: "/path/to/project", since: "2026-01-01", minSupport: 2, limit: 100 })
+analyze({ action: "ownership", projectPath: "/path/to/project", since: "2026-01-01", pathPrefix: "src", limit: 50 })
 ```
 
-Every result carries display-ready caveat strings and truncation metadata from the analysis layer. Hotspots and change coupling also report `historyCoverage`, including the observed commit count and date range. Impact, call hierarchy, import cycles, and unreferenced exports are static evidence, not proof of runtime behavior. Dead-code results are candidates and must never drive automated deletion. Git-backed results cover indexed history only.
+Every result carries display-ready caveat strings and truncation metadata from the analysis layer. Hotspots, change coupling, and ownership also report `historyCoverage`, including the observed commit count and date range. Ownership is inferred from authorship in indexed git history, not from CODEOWNERS, review activity, expertise, or current team assignment. Impact, call hierarchy, import cycles, and unreferenced exports are static evidence, not proof of runtime behavior. Dead-code results are candidates and must never drive automated deletion. Git-backed results cover indexed history only. Indexed history is bounded by the persisted history window (365 days and 10000 commits by default); widen it by reindexing with an earlier `historySince`.
 
 ### 5. `query`: Raw Cypher (power users)
 

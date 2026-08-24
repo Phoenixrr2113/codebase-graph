@@ -358,6 +358,10 @@ export interface ProjectEntity extends ProvenanceFields {
   gitHistoryTruncated?: boolean;
   /** Whether the indexed history covered every commit reachable from the synced branch */
   gitHistoryComplete?: boolean;
+  /** Persisted effective ISO 8601 lower bound for indexed git history. */
+  gitHistorySince?: string;
+  /** Persisted initial-backfill safety ceiling for indexed git history. */
+  gitHistoryMaxCommits?: number;
 }
 
 // ============================================================================

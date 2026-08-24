@@ -13,6 +13,20 @@ import { validateFilePath } from './validation';
 import { createLogger } from '@codegraph/logger';
 
 const logger = createLogger({ namespace: 'MCP:Persona:Index' });
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+
+function isValidIsoDateOrTimestamp(value: string): boolean {
+  if (!ISO_DATE_PATTERN.test(value) || !Number.isFinite(Date.parse(value))) return false;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const reconstructed = new Date(0);
+  reconstructed.setUTCHours(0, 0, 0, 0);
+  reconstructed.setUTCFullYear(year, month - 1, day);
+  return reconstructed.getUTCFullYear() === year
+    && reconstructed.getUTCMonth() === month - 1
+    && reconstructed.getUTCDate() === day;
+}
 
 async function getSettledSetupStatus(): Promise<Awaited<ReturnType<typeof getSetupStatus>>> {
   const setup = await getSetupStatus();
@@ -106,6 +120,25 @@ function validateProjectPath(
   return { valid: true };
 }
 
+function historySinceValue(raw: unknown): { valid: true; value?: string } | { valid: false; error: string } {
+  if (raw === undefined) return { valid: true };
+  if (typeof raw !== 'string') {
+    return { valid: false, error: 'historySince must be a valid ISO 8601 date or timestamp' };
+  }
+  if (!isValidIsoDateOrTimestamp(raw)) {
+    return { valid: false, error: 'historySince must be a valid ISO 8601 date or timestamp' };
+  }
+  return { valid: true, value: raw };
+}
+
+function historyMaxCommitsValue(raw: unknown): { valid: true; value?: number } | { valid: false; error: string } {
+  if (raw === undefined) return { valid: true };
+  if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < 1 || raw > 100_000) {
+    return { valid: false, error: 'historyMaxCommits must be a safe integer between 1 and 100000' };
+  }
+  return { valid: true, value: raw };
+}
+
 export const indexPersonaDefinition: ToolDefinition = {
   name: 'codebase',
   description: `Manage the codebase index — configure projects, trigger indexing, check status, read source.
@@ -114,7 +147,7 @@ export const indexPersonaDefinition: ToolDefinition = {
 - **configure**: View and manage active codebases. First-time setup.
   Params: projectAction (list|set|add|remove|status), projects (string[], auto-detected if omitted)
 - **reindex**: Re-index codebase (incremental or full).
-  Params: mode (incremental|full), scope (optional file/directory path)
+  Params: mode (incremental|full), scope (optional file/directory path), historySince (optional ISO 8601 cutoff), historyMaxCommits (optional initial-backfill ceiling)
 - **status**: Get current indexing status (file/function/class counts, last indexed).
   Params: repo (optional repository path)
 - **stats**: Get graph-wide statistics (node/edge counts, largest files, most connected).
@@ -129,7 +162,7 @@ export const indexPersonaDefinition: ToolDefinition = {
 **Examples:**
 - Check status: { action: "status" }
 - Configure projects: { action: "configure", projectAction: "status" }
-- Re-index: { action: "reindex", mode: "incremental" }
+- Re-index with wider history: { action: "reindex", mode: "full", historySince: "2024-01-01T00:00:00Z", historyMaxCommits: 20000 }
 - Read source: { action: "source", path: "/path/to/file.ts", startLine: 1, endLine: 50 }
 - Get profile: { action: "profile", projectPath: "/your/project", limit: 10 }`,
   inputSchema: {
@@ -160,6 +193,16 @@ export const indexPersonaDefinition: ToolDefinition = {
       scope: {
         type: 'string',
         description: 'File/directory path to scope reindex',
+      },
+      historySince: {
+        type: 'string',
+        description: 'Inclusive ISO 8601 cutoff for the persisted git history window',
+      },
+      historyMaxCommits: {
+        type: 'number',
+        minimum: 1,
+        maximum: 100000,
+        description: 'Initial-backfill safety ceiling; incremental sync is uncapped',
       },
       // status params
       repo: {
@@ -213,10 +256,16 @@ export async function handleIndex(args: Record<string, unknown>): Promise<unknow
     }
 
     case 'reindex': {
+      const historySince = historySinceValue(args.historySince);
+      if (!historySince.valid) return { error: historySince.error };
+      const historyMaxCommits = historyMaxCommitsValue(args.historyMaxCommits);
+      if (!historyMaxCommits.valid) return { error: historyMaxCommits.error };
       const input: ReindexInput = {
         mode: (args.mode as 'incremental' | 'full') || 'incremental',
       };
       if (args.scope) input.scope = args.scope as string;
+      if (historySince.value !== undefined) input.historySince = historySince.value;
+      if (historyMaxCommits.value !== undefined) input.historyMaxCommits = historyMaxCommits.value;
       result = await triggerReindex(input);
       toolUsed = 'trigger_reindex';
       break;

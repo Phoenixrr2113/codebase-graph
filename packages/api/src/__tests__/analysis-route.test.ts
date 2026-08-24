@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getUnreferencedExports: vi.fn(),
   getHotspots: vi.fn(),
   getChangeCoupling: vi.fn(),
+  getOwnership: vi.fn(),
 }));
 
 vi.mock('@codegraph/core', () => {
@@ -45,6 +46,7 @@ describe('analysis routes', () => {
       mocks.getUnreferencedExports,
       mocks.getHotspots,
       mocks.getChangeCoupling,
+      mocks.getOwnership,
     ]) {
       method.mockResolvedValue({
         caveats: ['Static analysis is incomplete.'],
@@ -160,6 +162,7 @@ describe('analysis routes', () => {
     '/api/analysis/dead-code',
     '/api/analysis/hotspots',
     '/api/analysis/change-coupling',
+    '/api/analysis/ownership',
   ])('requires projectId for project-wide route %s', async (path) => {
     const result = await request(path);
 
@@ -177,6 +180,15 @@ describe('analysis routes', () => {
 
     expect(result).toEqual({ status: 404, body: { error: 'Project not found' } });
     expect(mocks.getImportCycles).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for ownership when the project cannot be resolved', async () => {
+    mocks.resolveProjectRootPath.mockResolvedValue(undefined);
+
+    const result = await request('/api/analysis/ownership?projectId=missing');
+
+    expect(result).toEqual({ status: 404, body: { error: 'Project not found' } });
+    expect(mocks.getOwnership).not.toHaveBeenCalled();
   });
 
   it.each(['1', '26', '1.5', 'NaN', 'Infinity'])(
@@ -244,6 +256,35 @@ describe('analysis routes', () => {
       expect(mocks.getHotspots).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    '2026-02-30T00:00:00Z',
+    '2026-04-31T12:00:00Z',
+    '2025-02-29T00:00:00Z',
+  ])('rejects impossible ownership since=%s with 400', async (since) => {
+    const result = await request(
+      `/api/analysis/ownership?projectId=project&since=${encodeURIComponent(since)}`,
+    );
+
+    expect(result).toEqual({
+      status: 400,
+      body: { error: 'since must be a valid ISO 8601 date or timestamp' },
+    });
+    expect(mocks.resolveProjectRootPath).not.toHaveBeenCalled();
+    expect(mocks.getOwnership).not.toHaveBeenCalled();
+  });
+
+  it('accepts a valid ownership leap-day timestamp', async () => {
+    const result = await request(
+      '/api/analysis/ownership?projectId=project&since=2024-02-29T00%3A00%3A00Z',
+    );
+
+    expect(result.status).toBe(200);
+    expect(mocks.getOwnership).toHaveBeenCalledWith({
+      rootPath: '/repo/project',
+      since: '2024-02-29T00:00:00Z',
+    });
+  });
 
   it('rejects an invalid hotspot scoreBy with 400', async () => {
     const result = await request('/api/analysis/hotspots?projectId=project&scoreBy=magic');
@@ -321,6 +362,107 @@ describe('analysis routes', () => {
       minSupport: 3,
       limit: 15,
     });
+  });
+
+  it('maps ownership filters and passes through coverage and caveats', async () => {
+    mocks.getOwnership.mockResolvedValue({
+      input: {
+        rootPath: '/repo/project',
+        since: '2026-01-01T00:00:00.000Z',
+        pathPrefix: '/repo/project/src/features',
+        limit: 12,
+      },
+      projectRoot: '/repo/project',
+      items: [],
+      truncated: false,
+      unknownIdentityCommitCount: 0,
+      historyCoverage: {
+        commitCount: 8,
+        earliestCommitDate: '2026-01-01T00:00:00.000Z',
+        latestCommitDate: '2026-08-01T00:00:00.000Z',
+        totalCommitCount: 8,
+        historySince: null,
+        historyMaxCommits: 200,
+        historyWindowSize: 200,
+        historyTruncated: false,
+        historyComplete: true,
+      },
+      caveats: ['Ownership is inferred from authorship.'],
+    });
+
+    const result = await request(
+      '/api/analysis/ownership?projectId=project&since=2026-01-01&pathPrefix=src%5Cfeatures&limit=12',
+    );
+
+    expect(result.status).toBe(200);
+    expect(mocks.getOwnership).toHaveBeenCalledWith({
+      rootPath: '/repo/project',
+      since: '2026-01-01',
+      pathPrefix: 'src/features',
+      limit: 12,
+    });
+    expect(result.body.historyCoverage).toMatchObject({
+      historyMaxCommits: 200,
+      historyWindowSize: 200,
+      historyComplete: true,
+    });
+    expect(result.body.caveats).toEqual(['Ownership is inferred from authorship.']);
+  });
+
+  it.each(['yesterday', '2026-13-40', '2026-08-21T25:00:00Z'])(
+    'rejects ownership since=%s before service access',
+    async (since) => {
+      const result = await request(
+        `/api/analysis/ownership?projectId=project&since=${encodeURIComponent(since)}`,
+      );
+
+      expect(result).toEqual({
+        status: 400,
+        body: { error: 'since must be a valid ISO 8601 date or timestamp' },
+      });
+      expect(mocks.resolveProjectRootPath).not.toHaveBeenCalled();
+      expect(mocks.getOwnership).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['/absolute', 'pathPrefix must be project-relative'],
+    ['src/../secret', 'pathPrefix must not contain .. traversal segments'],
+    ['C:\\secret', 'pathPrefix must be project-relative'],
+  ])('rejects ownership pathPrefix %s with 400', async (pathPrefix, error) => {
+    const result = await request(
+      `/api/analysis/ownership?projectId=project&pathPrefix=${encodeURIComponent(pathPrefix)}`,
+    );
+
+    expect(result).toEqual({ status: 400, body: { error } });
+    expect(mocks.getOwnership).not.toHaveBeenCalled();
+  });
+
+  it.each(['0', '1.5', '501', 'NaN', 'Infinity'])(
+    'rejects ownership limit=%s with 400',
+    async (limit) => {
+      const result = await request(`/api/analysis/ownership?projectId=project&limit=${limit}`);
+
+      expect(result).toEqual({
+        status: 400,
+        body: { error: 'limit must be an integer between 1 and 500' },
+      });
+      expect(mocks.resolveProjectRootPath).not.toHaveBeenCalled();
+      expect(mocks.getOwnership).not.toHaveBeenCalled();
+    },
+  );
+
+  it('sanitizes ownership service errors at the REST boundary', async () => {
+    mocks.getOwnership.mockRejectedValue(
+      new Error('MATCH (secret) token=abc123 failed at /private/repo'),
+    );
+
+    const result = await request('/api/analysis/ownership?projectId=project');
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: 'Failed to analyze ownership.' });
+    expect(JSON.stringify(result.body)).not.toContain('MATCH');
+    expect(JSON.stringify(result.body)).not.toContain('abc123');
   });
 
   it('sanitizes service errors at the REST boundary', async () => {

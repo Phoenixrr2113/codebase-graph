@@ -94,7 +94,7 @@ afterAll(() => {
 
 describe('syncGitHistory: preserves the caller original path namespace', () => {
   it('creates MODIFIED_IN edges even when the indexed root sits under a symlink, using a filePath that matches File.filePath', async () => {
-    const result = await syncGitHistory(indexedRoot, fakeClient, { maxCommits: 10, includeStats: true });
+    const result = await syncGitHistory(indexedRoot, fakeClient, { historyMaxCommits: 10, includeStats: true });
 
     expect(result.commitsProcessed).toBe(2);
 
