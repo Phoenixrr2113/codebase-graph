@@ -32,7 +32,7 @@ function createValidFixture(): string {
   writeFileSync(join(directory, 'LICENSE'), 'MIT License\n');
   writeFileSync(join(directory, 'README.md'), '# CodeGraph\n');
   writeFileSync(join(directory, 'package.json'), JSON.stringify({
-    name: '@codegraph/mcp',
+    name: '@agntk/codegraph-mcp',
     version: '0.1.0',
     license: 'MIT',
     repository: {
@@ -57,7 +57,7 @@ describe('validatePackageDirectory', () => {
     const directory = createValidFixture();
 
     await expect(validatePackageDirectory(pathToFileURL(directory))).resolves.toMatchObject({
-      name: '@codegraph/mcp',
+      name: '@agntk/codegraph-mcp',
       version: '0.1.0',
       fileCount: 8,
     });
@@ -137,28 +137,40 @@ describe('validatePackageDirectory', () => {
 describe('validatePackReport', () => {
   it('returns package and size metadata for a valid npm report', () => {
     expect(validatePackReport([{
-      name: '@codegraph/mcp',
+      name: '@agntk/codegraph-mcp',
       version: '0.1.0',
-      filename: 'codegraph-mcp-0.1.0.tgz',
+      filename: 'agntk-codegraph-mcp-0.1.0.tgz',
       size: 1024,
       unpackedSize: 4096,
       entryCount: 5,
       files: [{ path: 'package/bin/codegraph-mcp.mjs', size: 20, mode: 493 }],
     }])).toEqual({
-      name: '@codegraph/mcp',
+      name: '@agntk/codegraph-mcp',
       version: '0.1.0',
-      filename: 'codegraph-mcp-0.1.0.tgz',
+      filename: 'agntk-codegraph-mcp-0.1.0.tgz',
       fileCount: 5,
       packedSize: 1024,
       unpackedSize: 4096,
     });
   });
 
-  it('rejects packed artifacts over 15 MB', () => {
+  it('rejects a tarball filename that does not match the scoped package name', () => {
     expect(() => validatePackReport([{
-      name: '@codegraph/mcp',
+      name: '@agntk/codegraph-mcp',
       version: '0.1.0',
       filename: 'codegraph-mcp-0.1.0.tgz',
+      size: 1024,
+      unpackedSize: 4096,
+      entryCount: 5,
+      files: [],
+    }])).toThrow('agntk-codegraph-mcp-0.1.0.tgz');
+  });
+
+  it('rejects packed artifacts over 15 MB', () => {
+    expect(() => validatePackReport([{
+      name: '@agntk/codegraph-mcp',
+      version: '0.1.0',
+      filename: 'agntk-codegraph-mcp-0.1.0.tgz',
       size: (15 * 1024 * 1024) + 1,
       unpackedSize: 20 * 1024 * 1024,
       entryCount: 5,

@@ -17,7 +17,7 @@ CodeGraph turns source code and project knowledge into a searchable graph for AI
 - [Security policy](SECURITY.md)
 - [MIT license](LICENSE)
 
-The public npm package is named `@codegraph/mcp`. Its npm link, version badge, and weekly-download badge will be added after the one-time `0.1.0` bootstrap publish is verified against the registry.
+The public npm package is named `@agntk/codegraph-mcp`. Its npm link, version badge, and weekly-download badge will be added after the one-time `0.1.0` bootstrap publish is verified against the registry.
 
 ## What it does
 
@@ -31,7 +31,7 @@ The public npm package is named `@codegraph/mcp`. Its npm link, version badge, a
 
 ## Choose how to start
 
-CodeGraph requires Node.js 20 or newer. The npm commands below apply after `@codegraph/mcp` is visible in the npm registry.
+CodeGraph requires Node.js 20 or newer. The npm commands below apply after `@agntk/codegraph-mcp` is visible in the npm registry.
 
 ### Agent-first with MCP
 
@@ -42,7 +42,7 @@ Add this server configuration to an MCP client:
   "mcpServers": {
     "codegraph": {
       "command": "npx",
-      "args": ["-y", "-p", "@codegraph/mcp", "codegraph-mcp"]
+      "args": ["-y", "@agntk/codegraph-mcp"]
     }
   }
 }
@@ -71,7 +71,7 @@ Configuration saves the project but does not index it. The full reindex parses s
 Start the dashboard directly from the package:
 
 ```bash
-npx -y -p @codegraph/mcp codegraph-dashboard
+npx -y -p @agntk/codegraph-mcp codegraph-dashboard
 ```
 
 Open the URL printed by the process. A fresh database opens on the setup flow. Confirm storage and embeddings, choose Browse to select a folder, then select Index project. The page shows model download and indexing progress, finishes remaining embeddings automatically, and reports file, symbol, edge, and embedding counts before opening the graph explorer.
@@ -171,7 +171,7 @@ pnpm release:check
 
 The basic installed-tarball smoke proves the package installs in a clean consumer, both binaries start, all five MCP tools are present, a fresh database is setup-safe, Browse and indexing work, data survives restarts, the dashboard and MCP process share one embedded server, and the exact tarball hash is reported. The release CI runs that installed artifact with embedded storage on Linux x64 and Apple silicon, and checks external FalkorDB guidance on Windows x64. An opt-in local-provider lane proves cold model download progress and a usable 768-dimension vector index.
 
-A local tarball cannot prove npm registry resolution. Verify `npx -y -p @codegraph/mcp codegraph-mcp` and `npx -y -p @codegraph/mcp codegraph-dashboard` only after publication.
+A clean-consumer local tarball proof verifies that bare `npx -y @agntk/codegraph-mcp` selects the `codegraph-mcp` bin and that `npx -y -p @agntk/codegraph-mcp codegraph-dashboard` selects the dashboard bin. Repeat both commands against the package name after publication to verify npm registry resolution.
 
 ## Development
 
@@ -201,7 +201,7 @@ FalkorDBLite's Linux x64 and Apple silicon macOS binaries are installed with the
 | [`@codegraph/plugin-nlp`](packages/plugin-nlp/) | Embeddings, reranking, entity resolution, and document ingestion |
 | [`@codegraph/mcp-server`](packages/mcp-server/) | MCP transport and the five public tool groups |
 | [`@codegraph/cli`](packages/cli/) | Source-checkout command-line tools |
-| [`@codegraph/mcp`](packages/npm-package/) | Public npm distribution staging and entry point |
+| [`@agntk/codegraph-mcp`](packages/npm-package/) | Public npm distribution staging and entry point |
 | [`@codegraph/mcpb`](packages/mcpb/) | Platform-local MCPB desktop extension build |
 | [`@codegraph/api`](packages/api/) | REST API consumed by the dashboard |
 | [`@codegraph/dashboard`](packages/dashboard/) | Static dashboard UI served by the API |

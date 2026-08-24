@@ -37,7 +37,7 @@ services:
   # The API and the dashboard now run as one process from a single binary:
   #
   #   pnpm dashboard            # from a checkout
-  #   npx -y -p @codegraph/mcp codegraph-dashboard   # from the published package
+  #   npx -y -p @agntk/codegraph-mcp codegraph-dashboard   # from the published package
   #
   # Both serve the UI and the REST API on http://localhost:3001. Point them at
   # this database with FALKORDB_HOST=localhost FALKORDB_PORT=6379, or omit those

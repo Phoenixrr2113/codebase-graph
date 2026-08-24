@@ -4,7 +4,7 @@
  *
  * Usage:
  *   codegraph-mcp                          # start MCP server (stdio transport)
- *   npx -y -p @codegraph/mcp codegraph-mcp # run without global install
+ *   npx -y @agntk/codegraph-mcp            # run without global install
  *
  * Environment:
  *   CODEGRAPH_EMBEDDING_PROVIDER  Embedding provider or "none" for offline mode
@@ -26,7 +26,7 @@ function readPackageVersion() {
   if (
     typeof manifest !== 'object' ||
     manifest === null ||
-    manifest.name !== '@codegraph/mcp' ||
+    manifest.name !== '@agntk/codegraph-mcp' ||
     typeof manifest.version !== 'string'
   ) {
     throw new Error('invalid package manifest');

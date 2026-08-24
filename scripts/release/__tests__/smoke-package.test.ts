@@ -43,7 +43,7 @@ function processResult(
 function createTarball(): string {
   const directory = mkdtempSync(join(tmpdir(), 'codegraph-smoke-test-'));
   temporaryDirectories.push(directory);
-  const tarballPath = join(directory, 'codegraph-mcp-0.1.0.tgz');
+  const tarballPath = join(directory, 'agntk-codegraph-mcp-0.1.0.tgz');
   writeFileSync(tarballPath, 'fixture');
   return tarballPath;
 }
@@ -200,10 +200,10 @@ describe('smokePackage', () => {
     });
 
     expect(runner.run.mock.calls[1][1][0]).toMatch(
-      /node_modules[\\/]@codegraph[\\/]mcp[\\/]bin[\\/]codegraph-mcp\.mjs$/,
+      /node_modules[\\/]@agntk[\\/]codegraph-mcp[\\/]bin[\\/]codegraph-mcp\.mjs$/,
     );
     expect(runner.run.mock.calls[2][1][2]).toMatch(
-      /node_modules[\\/]@codegraph[\\/]mcp$/,
+      /node_modules[\\/]@agntk[\\/]codegraph-mcp$/,
     );
   });
 });
@@ -344,12 +344,12 @@ describe('resolveSmokeInput', () => {
   it('accepts an exact tarball and version for downloaded CI artifacts', () => {
     expect(resolveSmokeInput([
       '--tarball',
-      '/repo/tmp/release/codegraph-mcp-0.1.0.tgz',
+      '/repo/tmp/release/agntk-codegraph-mcp-0.1.0.tgz',
       '--version',
       '0.1.0',
     ], '/repo/tmp/release/package-result.json')).toEqual({
       kind: 'tarball',
-      tarballPath: '/repo/tmp/release/codegraph-mcp-0.1.0.tgz',
+      tarballPath: '/repo/tmp/release/agntk-codegraph-mcp-0.1.0.tgz',
       expectedVersion: '0.1.0',
       mode: 'basic',
     });
@@ -371,7 +371,7 @@ describe('resolveSmokeInput', () => {
   it('rejects incomplete direct tarball input', () => {
     expect(() => resolveSmokeInput([
       '--tarball',
-      '/repo/tmp/release/codegraph-mcp-0.1.0.tgz',
+      '/repo/tmp/release/agntk-codegraph-mcp-0.1.0.tgz',
     ], '/repo/tmp/release/package-result.json')).toThrow('--version');
   });
 });
@@ -379,11 +379,11 @@ describe('resolveSmokeInput', () => {
 describe('resolveValidatedPackageInput', () => {
   it('relocates a downloaded artifact beside its validation result', () => {
     expect(resolveValidatedPackageInput({
-      tarballPath: '/home/runner/work/repo/tmp/release/codegraph-mcp-0.1.0.tgz',
-      filename: 'codegraph-mcp-0.1.0.tgz',
+      tarballPath: '/home/runner/work/repo/tmp/release/agntk-codegraph-mcp-0.1.0.tgz',
+      filename: 'agntk-codegraph-mcp-0.1.0.tgz',
       version: '0.1.0',
     }, '/different-runner/tmp/release/package-result.json')).toEqual({
-      tarballPath: '/different-runner/tmp/release/codegraph-mcp-0.1.0.tgz',
+      tarballPath: '/different-runner/tmp/release/agntk-codegraph-mcp-0.1.0.tgz',
       expectedVersion: '0.1.0',
     });
   });

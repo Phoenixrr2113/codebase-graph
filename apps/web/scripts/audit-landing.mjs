@@ -41,14 +41,15 @@ const requiredClaims = [
   'Load next',
   '59% smaller',
   '25 installed-package assertions',
-  '@codegraph/mcp@0.1.0',
-  'npx -y -p @codegraph/mcp codegraph-mcp',
-  'npx -y -p @codegraph/mcp codegraph-dashboard',
+  '@agntk/codegraph-mcp@0.1.0',
+  'npx -y @agntk/codegraph-mcp',
+  'npx -y -p @agntk/codegraph-mcp codegraph-dashboard',
 ]
 
 const forbiddenClaims = [
   /Jina/i,
-  /npx(?:\s+-y)?\s+(?!-p\s+@codegraph\/mcp\s+)codegraph-(?:mcp|dashboard)/,
+  /@codegraph\/mcp/,
+  /npx(?:\s+-y)?\s+(?!@agntk\/codegraph-mcp(?:\s|<)|-p\s+@agntk\/codegraph-mcp\s+codegraph-dashboard(?:\s|<))codegraph-(?:mcp|dashboard)/,
   /CODEGRAPH_DRIVER[^\n]*embedded/i,
   /0\.969/,
   /4 persona tools/i,
