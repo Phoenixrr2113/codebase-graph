@@ -1,6 +1,6 @@
 # @codegraph/plugin-languages
 
-Registry of 37 language configurations (3 tier-1 + 34 tier-2) for CodeGraph, using the `@codegraph/plugin-generic` factory. Grammars are lazily loaded from optional dependencies -- only installed grammars become available, missing ones are silently skipped.
+Registry of 37 language configurations (3 required entries and 34 optional entries) for CodeGraph, using the `@codegraph/plugin-generic` factory. Required grammars load directly. Optional grammars are attempted lazily and unavailable packages are reported in the skipped list.
 
 ## API
 
@@ -22,7 +22,7 @@ Low-level grammar loading with caching.
 
 ## Supported Languages
 
-### Tier-1 (required dependencies)
+### Required grammar entries
 
 | Language | ID | Extensions |
 |---|---|---|
@@ -96,7 +96,7 @@ Low-level grammar loading with caching.
 
 ## Lazy Loading
 
-Grammars are installed as optional dependencies (`optionalDependencies` in package.json). At registration time, each grammar package is dynamically imported. If the import fails (package not installed), the language is skipped without errors. This keeps the install size small -- users only pay for grammars they need.
+The Java, C#, and PHP entries use required grammar dependencies. The remaining entries declare optional grammar packages. At registration time, each optional package is dynamically imported; an unavailable grammar is skipped and returned in the registration result.
 
 ## Usage
 

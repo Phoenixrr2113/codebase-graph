@@ -1,37 +1,30 @@
-import { Navigation } from "@/components/landing/navigation"
-import { HeroSection } from "@/components/landing/hero-section"
-import { ProblemSection } from "@/components/landing/problem-section"
-import { HowItWorksSection } from "@/components/landing/how-it-works-section"
-import { FeaturesGridSection } from "@/components/landing/features-grid-section"
-import { features } from "@/components/landing/features-data"
-import { IntegrationsSection } from "@/components/landing/integrations-section"
-import { integrations } from "@/components/landing/integrations-data"
-import { ArchitectureSection } from "@/components/landing/architecture-section"
-import { TechCredibilityBar, Footer } from "@/components/landing/footer-section"
+import { AnalysisSection } from "@/components/landing/analysis-section"
 import { AuroraBackground } from "@/components/landing/aurora-background"
-import { highlight } from "@/lib/highlight"
+import { ExplorerSection } from "@/components/landing/explorer-section"
+import { Footer, TechnicalBar } from "@/components/landing/footer-section"
+import { HeroSection } from "@/components/landing/hero-section"
+import { KnowledgeSection } from "@/components/landing/knowledge-section"
+import { Navigation } from "@/components/landing/navigation"
+import { PlatformSection } from "@/components/landing/platform-section"
+import { ReleaseSection } from "@/components/landing/release-section"
+import { SetupSection } from "@/components/landing/setup-section"
 
-export default async function LandingPage() {
-  const featuresHighlighted = await Promise.all(
-    features.map((f) => highlight(f.snippet, "ts"))
-  )
-  const integrationsHighlightedEntries = await Promise.all(
-    integrations.map(async (i) => [i.id, await highlight(i.snippet, i.lang)] as const)
-  )
-  const integrationsHighlighted = Object.fromEntries(integrationsHighlightedEntries)
-
+export default function LandingPage() {
   return (
-    <main className="min-h-screen relative">
+    <div className="relative min-h-screen overflow-x-clip">
       <AuroraBackground />
       <Navigation />
-      <HeroSection />
-      <ProblemSection />
-      <HowItWorksSection />
-      <FeaturesGridSection highlighted={featuresHighlighted} />
-      <IntegrationsSection highlighted={integrationsHighlighted} />
-      <ArchitectureSection />
-      <TechCredibilityBar />
+      <main>
+        <HeroSection />
+        <SetupSection />
+        <ExplorerSection />
+        <AnalysisSection />
+        <KnowledgeSection />
+        <PlatformSection />
+        <ReleaseSection />
+      </main>
+      <TechnicalBar />
       <Footer />
-    </main>
+    </div>
   )
 }

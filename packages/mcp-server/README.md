@@ -1,121 +1,48 @@
 # @codegraph/mcp-server
 
-MCP (Model Context Protocol) server for CodeGraph. Provides **4 persona tools** that consolidate underlying capabilities into a simple interface for AI assistants (Claude, Cursor, etc.).
+Private workspace implementation of the CodeGraph Model Context Protocol server. The public `codegraph-mcp` package stages this server with its runtime dependencies and dashboard.
 
-## Persona Tools (Default)
+## Grouped tools
 
-By default, the server exposes 4 high-level persona tools. Each tool accepts an `action` parameter and routes internally to the appropriate underlying operations, with built-in input validation, result limits, and error handling.
+The default MCP surface contains five tools and 25 callable operations.
 
-### search
+| Tool | Operations | Actions |
+| --- | ---: | --- |
+| `search` | 2 | `find`, `context` |
+| `knowledge` | 8 | `store`, `add`, `recall`, `query_knowledge`, `ingest_conversation`, `resolve_entities`, `decay_and_prune`, `get_knowledge_stats` |
+| `codebase` | 7 | `configure`, `reindex`, `status`, `stats`, `source`, `ping`, `profile` |
+| `analyze` | 7 | `impact`, `import_cycles`, `call_hierarchy`, `dead_code`, `hotspots`, `change_coupling`, `ownership` |
+| `query` | 1 | A direct read-only `cypher` request with optional `params` |
 
-Find code, symbols, and understand structure across the codebase.
+`ownership` ranks per-file contributors from indexed git history. It accepts an absolute `projectPath` plus optional `since`, project-relative `pathPrefix`, and `limit`. Git-backed analysis is bounded by the persisted history window and returns `historyCoverage`; all analysis results include caveats and truncation metadata.
 
-| Action | Description |
-|--------|-------------|
-| `find` | Search for files, functions, classes by name or meaning (vector + reranking) |
-| `context` | Get detailed context for a file or symbol with relationships |
+The `codebase` `reindex` action accepts optional `historySince` and `historyMaxCommits` values. Dates use strict ISO calendar validation, and the commit ceiling must be a safe integer from 1 through 100000.
 
-### knowledge
+## Raw mode
 
-Store and recall domain knowledge with temporal memory.
+Set `CODEGRAPH_RAW_TOOLS=true` using the literal string `true` to register lower-level handlers alongside the five grouped tools. Unset, `false`, and other values keep the grouped-only surface.
 
-| Action | Description |
-|--------|-------------|
-| `store` | Auto-detects type and stores entity, relationship, fact, or conversation |
-| `recall` | Recall everything known about a topic |
+## Source-checkout configuration
 
-### codebase
-
-Manage and inspect the indexed codebase.
-
-| Action | Description |
-|--------|-------------|
-| `configure` | View and manage active codebases (list, set, add, remove, status) |
-| `reindex` | Trigger incremental or full reindex |
-| `status` | Get current index status (node/edge counts by type) |
-| `stats` | Get detailed graph statistics (counts, largest files, most connected) |
-| `source` | Read source code from a file with optional line range |
-| `ping` | Test connectivity |
-
-### query
-
-Execute read-only Cypher queries against the graph.
-
-| Action | Description |
-|--------|-------------|
-| `cypher` | Execute a validated, read-only Cypher query with params |
-
-## Raw Tools
-
-For power users, set `CODEGRAPH_RAW_TOOLS=true` to expose individual tools alongside persona tools:
-
-| Category | Tools |
-|----------|-------|
-| Core | `ping`, `configure_projects` |
-| Index | `trigger_reindex`, `get_stats` |
-| Search | `search_code`, `get_context`, `query_graph` |
-| Source | `get_source` |
-| Knowledge | `store_entity`, `store_relationship`, `store_fact`, `ingest_conversation`, `query_knowledge`, `recall`, `decay_and_prune`, `get_knowledge_stats` |
-
-## MCP Configuration
-
-Add to your MCP client config (Claude Desktop, Cursor, etc.):
+Build the workspace before pointing an MCP client at the compiled entry:
 
 ```json
 {
-  "codegraph": {
-    "command": "node",
-    "args": ["./packages/mcp-server/dist/index.js"]
+  "mcpServers": {
+    "codegraph": {
+      "command": "node",
+      "args": ["/absolute/path/to/codebase-graph/packages/mcp-server/dist/index.js"]
+    }
   }
 }
 ```
 
-The server auto-detects the database backend from `.codegraph/config.json` or environment variables. See the [root README](../../README.md) for configuration details.
+Driver and embedding defaults are resolved by the shared runtime. See the [root README](../../README.md) for platform, storage, and provider behavior.
 
-## Input Validation
+## Guardrails
 
-All persona tools enforce consistent guardrails:
-
-- **Path validation** — file paths restricted to active project directories (prevents path traversal)
-- **Query length** — max 10KB query strings
-- **Result limits** — clamped to 1,000 max, default 20
-- **Cypher safety** — read-only enforcement, label allowlists, parameterized queries
-
-## Testing
-
-```bash
-cd packages/mcp-server
-pnpm exec vitest run
-
-# Or from monorepo root
-pnpm test --filter=@codegraph/mcp-server
-```
-
-### Test Suite
-
-- **14 tests** — `consolidated.test.ts` (persona tools: ping, configure, search, context, query)
-- **6 tests** — `legacy.test.ts` (raw tool handlers: ping, search, query, reindex)
-- **20 tests** — `knowledge.test.ts` (knowledge graph tools: store, recall, decay)
-- **9 tests** — `e2e-knowledge.test.ts` (end-to-end knowledge pipeline)
-
-All tests run against real FalkorDB database with extracted data (no mocks).
-
-## Architecture
-
-```
-MCP Client (Claude, Cursor, etc.)
-  │ stdio
-  ▼
-CodeGraphMCPServer
-  ├── Persona Handlers (search, knowledge, codebase, query)
-  │     ├── Input Validation (validation.ts)
-  │     └── Action Routing → underlying tool implementations
-  ├── Raw Tool Registry (opt-in via CODEGRAPH_RAW_TOOLS=1)
-  └── Graceful Shutdown (SIGINT/SIGTERM)
-        │
-        ▼
-  @codegraph/core (service layer, search)
-        │
-        ▼
-  @codegraph/graph (database driver)
-```
+- Source paths are restricted to configured project roots.
+- Cypher is read-only and capped at 10 KB.
+- User-supplied limits are validated or bounded per action.
+- Repository-wide analysis requires an active absolute project path.
+- Ownership `pathPrefix` values must remain project-relative and cannot traverse with `..` segments.

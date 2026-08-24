@@ -1,90 +1,72 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { Github, FileText, GitGraph } from "lucide-react"
+import { FileText, Github, GitGraph, LockKeyhole, Scale, ShieldAlert } from "lucide-react"
 
-// source: MEMORY.md "v6 Chunk 1 baseline (2026-04-26)"; CLAUDE.md "5 tier-1 language plugins"
-const techStats = [
-  "5 tier-1 languages + ~30 via tree-sitter",
-  "MRR 0.969 on internal benchmark",
-  "Bitemporal knowledge graph",
-  "MCP App UI panel",
-  "Vercel AI SDK + Mastra middleware",
+const technicalDetails = [
+  "5 MCP tool groups",
+  "25 actions",
+  "TypeScript, Python, Go, Rust, Markdown",
+  "Generic tree-sitter coverage",
   "MIT licensed",
 ]
 
-
 const footerLinks = [
-  { label: "GitHub", href: "https://github.com/Phoenixrr2113/codebase-graph", icon: Github },
-  { label: "Docs (CLAUDE.md)", href: "https://github.com/Phoenixrr2113/codebase-graph/blob/main/CLAUDE.md", icon: FileText },
+  { label: "Source", href: "https://github.com/Phoenixrr2113/codebase-graph", icon: Github },
+  { label: "README", href: "https://github.com/Phoenixrr2113/codebase-graph/blob/main/README.md", icon: FileText },
+  { label: "Issues", href: "https://github.com/Phoenixrr2113/codebase-graph/issues", icon: ShieldAlert },
+  { label: "Security", href: "https://github.com/Phoenixrr2113/codebase-graph/blob/main/SECURITY.md", icon: LockKeyhole },
+  { label: "License", href: "https://github.com/Phoenixrr2113/codebase-graph/blob/main/LICENSE", icon: Scale },
 ]
 
-export function TechCredibilityBar() {
+export function TechnicalBar() {
   return (
-    <motion.section
-      initial={{ opacity: 0 }}
-      whileInView={{ opacity: 1 }}
-      viewport={{ once: true }}
-      transition={{ duration: 0.6 }}
-      className="py-4 sm:py-6 px-4 sm:px-6 border-y border-border bg-muted/30 overflow-hidden"
-    >
-      <div className="max-w-5xl mx-auto">
-        <div className="flex flex-wrap items-center justify-center gap-x-3 sm:gap-x-4 gap-y-1.5 sm:gap-y-2 text-[10px] sm:text-xs font-mono text-muted-foreground">
-          {techStats.map((stat, i) => (
-            <span key={stat} className="flex items-center gap-1.5 sm:gap-2">
-              {i > 0 && <span className="hidden sm:inline text-border">|</span>}
-              {stat}
-            </span>
-          ))}
-        </div>
+    <section className="border-y border-border bg-muted/30 px-4 py-5 sm:px-6" aria-label="Technical details">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-4 gap-y-2 font-mono text-[11px] text-muted-foreground sm:text-xs">
+        {technicalDetails.map((detail, index) => (
+          <span key={detail} className="flex items-center gap-4">
+            {index > 0 && <span className="hidden text-border sm:inline" aria-hidden="true">/</span>}
+            {detail}
+          </span>
+        ))}
       </div>
-    </motion.section>
+    </section>
   )
 }
 
 export function Footer() {
   return (
-    <footer className="py-8 sm:py-12 px-4 sm:px-6">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6">
-          {/* Logo */}
-          <motion.div 
-            whileHover={{ scale: 1.05 }}
-            className="flex items-center gap-2 sm:gap-2.5"
-          >
-            <div className="flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-accent/10 border border-accent/20">
-              <GitGraph className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-accent" />
-            </div>
-            <span className="font-semibold text-sm sm:text-base">CodeGraph</span>
-          </motion.div>
+    <footer className="px-4 py-10 sm:px-6 sm:py-14">
+      <div className="mx-auto max-w-6xl">
+        <div className="flex flex-col gap-8 sm:flex-row sm:items-center sm:justify-between">
+          <motion.a href="#product" whileHover={{ scale: 1.02 }} className="flex items-center gap-2.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            <span className="flex size-8 items-center justify-center rounded-lg border border-accent/20 bg-accent/10">
+              <GitGraph className="size-4 text-accent" aria-hidden="true" />
+            </span>
+            <span>
+              <span className="block font-semibold">CodeGraph</span>
+              <span className="block text-xs text-muted-foreground">Local-first code intelligence</span>
+            </span>
+          </motion.a>
 
-          {/* Links */}
-          <nav className="flex items-center gap-3 sm:gap-5" aria-label="Footer links">
+          <nav className="flex flex-wrap gap-x-5 gap-y-3" aria-label="Technical links">
             {footerLinks.map((link) => (
-              <motion.a
+              <a
                 key={link.label}
                 href={link.href}
-                target={link.href.startsWith("http") ? "_blank" : undefined}
-                rel={link.href.startsWith("http") ? "noopener noreferrer" : undefined}
-                whileHover={{ scale: 1.05, y: -1 }}
-                whileTap={{ scale: 0.95 }}
-                className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-md p-1 -m-1"
-                aria-label={link.label}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 rounded text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
-                <link.icon className="h-4 w-4 sm:h-4 sm:w-4" />
-                <span className="sr-only sm:not-sr-only">{link.label}</span>
-              </motion.a>
+                <link.icon className="size-4" aria-hidden="true" />
+                {link.label}
+              </a>
             ))}
           </nav>
         </div>
 
-        <div className="mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-border text-center">
-          <p className="text-xs sm:text-sm text-muted-foreground">
-            MIT licensed. Built in the open.
-          </p>
-          <p className="mt-1.5 sm:mt-2 text-[10px] sm:text-xs text-muted-foreground/70">
-            © 2026 CodeGraph contributors
-          </p>
+        <div className="mt-8 border-t border-border pt-6 text-xs text-muted-foreground">
+          <p>MIT licensed. Built in the open by CodeGraph contributors.</p>
         </div>
       </div>
     </footer>
