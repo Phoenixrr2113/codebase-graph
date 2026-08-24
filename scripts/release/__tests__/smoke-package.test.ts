@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { SpawnSyncReturns } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import {
   assertHttpJson,
   assertRequiredTools,
@@ -14,6 +14,7 @@ import {
   resolveValidatedPackageInput,
   smokePackage,
 } from '../smoke-package.mjs';
+import { createInstalledEnvironment } from '../installed-package-smoke.mjs';
 import { assertUnsupportedMcpStatus } from '../unsupported-storage-contract.mjs';
 
 const temporaryDirectories: string[] = [];
@@ -209,6 +210,46 @@ describe('smokePackage', () => {
 });
 
 describe('smoke helpers', () => {
+  it('executes the installed-package smoke main path when launched as a script', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'codegraph-installed-smoke-link-'));
+    temporaryDirectories.push(directory);
+    const scriptPath = join(directory, 'installed-package-smoke.mjs');
+    symlinkSync(
+      join(process.cwd(), 'scripts', 'release', 'installed-package-smoke.mjs'),
+      scriptPath,
+    );
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath],
+      { encoding: 'utf8' },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('installed smoke arguments are incomplete');
+  });
+
+  it('forces the embedded driver for a supported installed-package smoke despite ambient remote service variables', () => {
+    const { environment, expectsEmbeddedServer } = createInstalledEnvironment({
+      baseEnvironment: {
+        CODEGRAPH_DRIVER: 'falkordb',
+        FALKORDB_URL: 'redis://localhost:16379',
+        FALKORDB_HOST: 'localhost',
+        FALKORDB_PORT: '16379',
+      },
+      smokeMode: 'basic',
+      embeddedSupported: true,
+    });
+
+    expect(environment).toMatchObject({
+      CODEGRAPH_DRIVER: 'falkordblite',
+      CODEGRAPH_EMBEDDING_PROVIDER: 'none',
+    });
+    expect(environment).not.toHaveProperty('FALKORDB_URL');
+    expect(environment).not.toHaveProperty('FALKORDB_HOST');
+    expect(environment).not.toHaveProperty('FALKORDB_PORT');
+    expect(expectsEmbeddedServer).toBe(true);
+  });
+
   it('requires unsupported MCP status to expose the blocked setup contract', () => {
     const guidance =
       'Embedded FalkorDBLite is unavailable on this platform. Set CODEGRAPH_DRIVER=falkordb and FALKORDB_URL, or configure FALKORDB_HOST and FALKORDB_PORT.';
