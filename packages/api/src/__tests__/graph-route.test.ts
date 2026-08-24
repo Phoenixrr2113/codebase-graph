@@ -302,6 +302,32 @@ describe('GET /api/graph/full unavailable storage', () => {
       storage: blockedSetupStatus.storage,
     });
   });
+
+  it('preserves the requested compact edge format while storage is blocked', async () => {
+    mockedFullGraph.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:16379'));
+    mockedGetSetupStatus.mockResolvedValue(blockedSetupStatus);
+
+    const response = await graphRoutes.request('/api/graph/full?limit=100&edgeFormat=indexed-v1');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      nodes: [],
+      edgeFormat: 'indexed-v1',
+      edgeTypes: [],
+      edges: [],
+      totalNodes: 0,
+      totalEdges: 0,
+      windowOrder: 'degree-desc,id-asc',
+      degreeScope: 'global',
+      offset: 0,
+      limit: 100,
+      returned: 0,
+      hasMore: false,
+      nextOffset: null,
+      truncated: false,
+      storage: blockedSetupStatus.storage,
+    });
+  });
 });
 
 describe('GET /api/graph/files', () => {
@@ -351,7 +377,7 @@ describe('GET /api/graph/files', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(fileGraphResult);
-    expect(getFileGraph).toHaveBeenCalledWith(50, '/x', 0);
+    expect(getFileGraph).toHaveBeenCalledWith(50, '/x', 0, true);
   });
 
   it.each(['NaN', 'Infinity', '-1', '1.5'])(
@@ -367,7 +393,39 @@ describe('GET /api/graph/files', () => {
   it('forwards a positive file graph offset', async () => {
     await graphRoutes.request('/api/graph/files?limit=50&offset=3000');
 
-    expect(getFileGraph).toHaveBeenCalledWith(50, undefined, 3000);
+    expect(getFileGraph).toHaveBeenCalledWith(50, undefined, 3000, true);
+  });
+
+  it.each([
+    ['true', true],
+    ['false', false],
+  ])('forwards includeExternals=%s as %s', async (raw, expected) => {
+    const response = await graphRoutes.request(`/api/graph/files?includeExternals=${raw}`);
+
+    expect(response.status).toBe(200);
+    expect(getFileGraph).toHaveBeenCalledWith(100, undefined, 0, expected);
+  });
+
+  it('rejects repeated includeExternals values', async () => {
+    const result = await errorFor(
+      '/api/graph/files?includeExternals=true&includeExternals=true',
+    );
+
+    expect(result).toEqual({
+      status: 400,
+      error: 'includeExternals must be supplied once',
+    });
+    expect(getFileGraph).not.toHaveBeenCalled();
+  });
+
+  it.each(['TRUE', 'False', '1', '', 'yes'])('rejects includeExternals=%j', async (value) => {
+    const result = await errorFor(`/api/graph/files?includeExternals=${encodeURIComponent(value)}`);
+
+    expect(result).toEqual({
+      status: 400,
+      error: 'includeExternals must be true or false',
+    });
+    expect(getFileGraph).not.toHaveBeenCalled();
   });
 
   it('does not return the global file graph for an unknown projectId', async () => {
@@ -471,6 +529,174 @@ describe('POST /api/graph/induced-edges', () => {
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: 'Project not found' });
+    expect(getInducedEdges).not.toHaveBeenCalled();
+  });
+});
+
+describe('indexed-v1 edge transport', () => {
+  const fullGraphResult = {
+    nodes: [
+      { id: 'node-a', label: 'Function', displayName: 'a', degree: 2 },
+      { id: 'node-b', label: 'Function', displayName: 'b', degree: 2 },
+      { id: 'node-c', label: 'Function', displayName: 'c', degree: 1 },
+    ],
+    edges: [
+      { source: 'node-a', target: 'node-b', label: 'CALLS' },
+      { source: 'node-b', target: 'node-c', label: 'USES_TYPE' },
+      { source: 'node-a', target: 'node-c', label: 'CALLS' },
+    ],
+    totalNodes: 3,
+    totalEdges: 3,
+    windowOrder: 'degree-desc,id-asc' as const,
+    degreeScope: 'global' as const,
+    offset: 0,
+    limit: 100,
+    returned: 3,
+    hasMore: false,
+    nextOffset: null,
+    truncated: false,
+  };
+  const getFileGraph = vi.fn();
+  const getInducedEdges = vi.fn();
+  const getNodeNeighbors = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedFullGraph.mockResolvedValue(fullGraphResult as never);
+    mockedGetGraphClient.mockResolvedValue({} as never);
+    getFileGraph.mockResolvedValue({
+      ...fullGraphResult,
+      nodes: fullGraphResult.nodes.map((node) => ({
+        id: node.id,
+        displayName: node.displayName,
+        filePath: `/${node.id}.ts`,
+        symbolCount: 1,
+        label: 'File',
+      })),
+    });
+    getInducedEdges.mockResolvedValue(fullGraphResult.edges);
+    getNodeNeighbors.mockResolvedValue({
+      centerId: 'node-a',
+      nodes: fullGraphResult.nodes,
+      edges: fullGraphResult.edges,
+      incomingTruncated: false,
+      outgoingTruncated: false,
+      limit: 100,
+    });
+    mockedCreateQueries.mockReturnValue({ getFileGraph, getInducedEdges, getNodeNeighbors } as never);
+  });
+
+  it('compacts full graph edges against response nodes and first-seen edge types', async () => {
+    const legacy = await graphRoutes.request('/api/graph/full');
+    const compact = await graphRoutes.request('/api/graph/full?edgeFormat=indexed-v1');
+    const legacyBody = await legacy.json();
+    const compactBody = await compact.json();
+
+    expect(compactBody).toEqual({
+      ...fullGraphResult,
+      edgeFormat: 'indexed-v1',
+      edgeTypes: ['CALLS', 'USES_TYPE'],
+      edges: [[0, 1, 0], [1, 2, 1], [0, 2, 0]],
+    });
+    expect(JSON.stringify(compactBody).length).toBeLessThan(JSON.stringify(legacyBody).length);
+  });
+
+  it('compacts file graph edges without changing file metadata', async () => {
+    const response = await graphRoutes.request('/api/graph/files?edgeFormat=indexed-v1');
+    const body = await response.json();
+
+    expect(body).toMatchObject({
+      edgeFormat: 'indexed-v1',
+      edgeTypes: ['CALLS', 'USES_TYPE'],
+      edges: [[0, 1, 0], [1, 2, 1], [0, 2, 0]],
+      totalNodes: 3,
+      windowOrder: 'degree-desc,id-asc',
+    });
+    expect(getFileGraph).toHaveBeenCalledWith(100, undefined, 0, true);
+  });
+
+  it('compacts neighbor edges against the neighbor node table', async () => {
+    const response = await graphRoutes.request(
+      '/api/graph/neighbors?id=node-a&edgeFormat=indexed-v1',
+    );
+
+    expect(await response.json()).toEqual({
+      centerId: 'node-a',
+      nodes: fullGraphResult.nodes,
+      edgeFormat: 'indexed-v1',
+      edgeTypes: ['CALLS', 'USES_TYPE'],
+      edges: [[0, 1, 0], [1, 2, 1], [0, 2, 0]],
+      incomingTruncated: false,
+      outgoingTruncated: false,
+      limit: 100,
+    });
+  });
+
+  it('compacts induced edges using only first-seen returned endpoint ids', async () => {
+    const response = await graphRoutes.request('/api/graph/induced-edges', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ids: ['node-a', 'node-b', 'node-c', 'unknown'],
+        edgeFormat: 'indexed-v1',
+      }),
+    });
+
+    expect(await response.json()).toEqual({
+      edgeFormat: 'indexed-v1',
+      nodeIds: ['node-a', 'node-b', 'node-c'],
+      edgeTypes: ['CALLS', 'USES_TYPE'],
+      edges: [[0, 1, 0], [1, 2, 1], [0, 2, 0]],
+    });
+  });
+
+  it.each([
+    '/api/graph/full?edgeFormat=other',
+    '/api/graph/files?edgeFormat=other',
+    '/api/graph/neighbors?id=node-a&edgeFormat=other',
+  ])('rejects an unsupported edge format on %s', async (path) => {
+    const result = await errorFor(path);
+
+    expect(result).toEqual({ status: 400, error: 'edgeFormat must be indexed-v1' });
+  });
+
+  it.each([
+    [
+      'full graph',
+      '/api/graph/full?edgeFormat=indexed-v1',
+      '/api/graph/full?edgeFormat=indexed-v1&edgeFormat=indexed-v1',
+    ],
+    [
+      'file graph',
+      '/api/graph/files?edgeFormat=indexed-v1',
+      '/api/graph/files?edgeFormat=indexed-v1&edgeFormat=indexed-v1',
+    ],
+    [
+      'neighbors',
+      '/api/graph/neighbors?id=node-a&edgeFormat=indexed-v1',
+      '/api/graph/neighbors?id=node-a&edgeFormat=indexed-v1&edgeFormat=indexed-v1',
+    ],
+  ])('accepts one edgeFormat and rejects repeated values for %s', async (
+    _name,
+    singlePath,
+    repeatedPath,
+  ) => {
+    const single = await graphRoutes.request(singlePath);
+    const repeated = await errorFor(repeatedPath);
+
+    expect(single.status).toBe(200);
+    expect(repeated).toEqual({ status: 400, error: 'edgeFormat must be supplied once' });
+  });
+
+  it('rejects an unsupported induced edge format before querying', async () => {
+    const response = await graphRoutes.request('/api/graph/induced-edges', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: ['node-a'], edgeFormat: 'other' }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'edgeFormat must be indexed-v1' });
     expect(getInducedEdges).not.toHaveBeenCalled();
   });
 });

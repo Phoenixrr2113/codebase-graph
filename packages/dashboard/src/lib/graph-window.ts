@@ -77,6 +77,7 @@ interface GraphWindowRequest {
   mode: GraphViewMode
   limit: GraphWindowLimit
   offset?: number
+  includeExternals?: boolean
   projectId?: string | null
   fileScope?: GraphNodeData | null
   signal?: AbortSignal
@@ -86,6 +87,7 @@ interface GraphWindowRequest {
 const MODE_STORAGE_KEY = 'codegraph.graphMode'
 const LIMIT_STORAGE_KEY = 'codegraph.graphLimit'
 const OFFSET_STORAGE_KEY = 'codegraph.graphOffset'
+const EXTERNALS_STORAGE_KEY = 'codegraph.graphIncludeExternals'
 export const DEFAULT_GRAPH_VIEW: GraphViewState = { mode: 'symbols', limit: 300, offset: 0 }
 const VALID_LIMITS = new Set<GraphWindowLimit>([300, 500, 1000])
 
@@ -107,6 +109,12 @@ function parseOffset(value: string | null): number | null {
   if (value === null) return null
   const numeric = Number(value)
   return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : null
+}
+
+function parseBooleanLiteral(value: string | null): boolean | null {
+  if (value === 'true') return true
+  if (value === 'false') return false
+  return null
 }
 
 export function readGraphViewState(
@@ -141,6 +149,29 @@ export function persistGraphViewState(
   storage.setItem(MODE_STORAGE_KEY, state.mode)
   storage.setItem(LIMIT_STORAGE_KEY, String(state.limit))
   storage.setItem(OFFSET_STORAGE_KEY, String(state.offset))
+}
+
+export function readGraphExternalsState(
+  location: Pick<Location, 'href'>,
+  storage: Pick<Storage, 'getItem'>,
+): boolean {
+  const url = new URL(location.href)
+  return parseBooleanLiteral(url.searchParams.get('graphExternals'))
+    ?? parseBooleanLiteral(storage.getItem(EXTERNALS_STORAGE_KEY))
+    ?? true
+}
+
+export function persistGraphExternalsState(
+  value: boolean,
+  location: Pick<Location, 'href'>,
+  history: Pick<History, 'replaceState'>,
+  storage: Pick<Storage, 'setItem'>,
+): void {
+  const serialized = String(value)
+  const url = new URL(location.href)
+  url.searchParams.set('graphExternals', serialized)
+  history.replaceState(null, '', url.href)
+  storage.setItem(EXTERNALS_STORAGE_KEY, serialized)
 }
 
 function parseGraphNode(value: unknown): GraphNodeData {
@@ -193,11 +224,91 @@ function parseGraphEdge(value: unknown): GraphEdgeData {
   return {
     id: typeof value.id === 'string'
       ? value.id
-      : `${value.label}:${value.source}:${value.target}`,
+      : deriveGraphEdgeId(value.label, value.source, value.target),
     source: value.source,
     target: value.target,
     label: value.label,
   }
+}
+
+function deriveGraphEdgeId(label: string, source: string, target: string): string {
+  return `${label}:${source}:${target}`
+}
+
+function parseCompactGraphEdges(
+  value: Record<string, unknown>,
+  rawNodeIds: readonly unknown[],
+): GraphEdgeData[] {
+  if (
+    value.edgeFormat !== 'indexed-v1'
+    || !Array.isArray(value.edgeTypes)
+    || !Array.isArray(value.edges)
+  ) {
+    throw new Error('Invalid compact graph edges response')
+  }
+
+  const nodeIds: string[] = []
+  const seenNodeIds = new Set<string>()
+  for (const rawNodeId of rawNodeIds) {
+    if (
+      typeof rawNodeId !== 'string'
+      || rawNodeId.trim().length === 0
+      || seenNodeIds.has(rawNodeId)
+    ) {
+      throw new Error('Invalid compact graph edges response')
+    }
+    seenNodeIds.add(rawNodeId)
+    nodeIds.push(rawNodeId)
+  }
+
+  const edgeTypes: string[] = []
+  const seenEdgeTypes = new Set<string>()
+  for (const rawEdgeType of value.edgeTypes) {
+    if (
+      typeof rawEdgeType !== 'string'
+      || rawEdgeType.trim().length === 0
+      || seenEdgeTypes.has(rawEdgeType)
+    ) {
+      throw new Error('Invalid compact graph edges response')
+    }
+    seenEdgeTypes.add(rawEdgeType)
+    edgeTypes.push(rawEdgeType)
+  }
+
+  return value.edges.map((rawTuple): GraphEdgeData => {
+    if (
+      !Array.isArray(rawTuple)
+      || rawTuple.length !== 3
+      || !rawTuple.every(
+        (index) => Number.isSafeInteger(index) && index >= 0 && !Object.is(index, -0),
+      )
+    ) {
+      throw new Error('Invalid compact graph edges response')
+    }
+    const [sourceIndex, targetIndex, edgeTypeIndex] = rawTuple as [number, number, number]
+    const source = nodeIds[sourceIndex]
+    const target = nodeIds[targetIndex]
+    const label = edgeTypes[edgeTypeIndex]
+    if (source === undefined || target === undefined || label === undefined) {
+      throw new Error('Invalid compact graph edges response')
+    }
+    return {
+      id: deriveGraphEdgeId(label, source, target),
+      source,
+      target,
+      label,
+    }
+  })
+}
+
+function parseGraphEdges(
+  value: Record<string, unknown>,
+  rawNodeIds: readonly unknown[],
+  compactRequested: boolean,
+): GraphEdgeData[] {
+  if (compactRequested) return parseCompactGraphEdges(value, rawNodeIds)
+  if (!Array.isArray(value.edges)) throw new Error('Invalid graph edge response')
+  return value.edges.map(parseGraphEdge)
 }
 
 function parseTruncation(value: Record<string, unknown>): GraphTruncation {
@@ -216,8 +327,12 @@ function parseGraphWindow(
   if (!isRecord(value) || !Array.isArray(value.nodes) || !Array.isArray(value.edges)) {
     throw new Error('Invalid graph window response')
   }
+  const edges = parseGraphEdges(
+    value,
+    value.nodes.map((node) => isRecord(node) ? node.id : undefined),
+    true,
+  )
   const nodes = value.nodes.map(parseGraphNode)
-  const edges = value.edges.map(parseGraphEdge)
   if (
     value.totalNodes !== undefined && typeof value.totalNodes !== 'number'
     || value.totalEdges !== undefined && typeof value.totalEdges !== 'number'
@@ -255,10 +370,15 @@ function parseNeighborWindow(value: unknown): NeighborWindow {
   if (!isRecord(value) || !Array.isArray(value.nodes) || !Array.isArray(value.edges)) {
     throw new Error('Invalid graph neighbors response')
   }
+  const edges = parseGraphEdges(
+    value,
+    value.nodes.map((node) => isRecord(node) ? node.id : undefined),
+    true,
+  )
   const truncation = parseTruncation(value)
   return {
     nodes: value.nodes.map(parseGraphNode),
-    edges: value.edges.map(parseGraphEdge),
+    edges,
     incomingTruncated: truncation.incoming,
     outgoingTruncated: truncation.outgoing,
   }
@@ -281,7 +401,11 @@ export async function fetchNeighbors(
   signal?: AbortSignal,
   fetchImpl: typeof fetch = fetch,
 ): Promise<NeighborWindow> {
-  const params = new URLSearchParams({ id: nodeId, limit: String(limit) })
+  const params = new URLSearchParams({
+    id: nodeId,
+    limit: String(limit),
+    edgeFormat: 'indexed-v1',
+  })
   return parseNeighborWindow(await fetchJson(
     `${apiUrl}/api/graph/neighbors?${params.toString()}`,
     signal,
@@ -390,6 +514,10 @@ export async function fetchGraphWindow(request: GraphWindowRequest): Promise<Gra
   if (request.projectId) params.set('projectId', request.projectId)
   params.set('limit', String(request.limit))
   params.set('offset', String(request.offset ?? 0))
+  params.set('edgeFormat', 'indexed-v1')
+  if (request.mode === 'files') {
+    params.set('includeExternals', String(request.includeExternals ?? true))
+  }
   const endpoint = request.mode === 'files' ? 'files' : 'full'
   return parseGraphWindow(await fetchJson(
     `${request.apiUrl}/api/graph/${endpoint}?${params.toString()}`,
@@ -433,15 +561,19 @@ export async function fetchGraphInducedEdges(
     const response = await fetchImpl(`${apiUrl}/api/graph/induced-edges${query}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids, ...(projectId ? { projectId } : {}) }),
+      body: JSON.stringify({
+        ids,
+        ...(projectId ? { projectId } : {}),
+        edgeFormat: 'indexed-v1',
+      }),
       signal,
     })
     if (!response.ok) throw new Error(`Graph request failed with ${response.status}`)
     const value: unknown = await response.json()
-    if (!isRecord(value) || !Array.isArray(value.edges)) {
+    if (!isRecord(value) || !Array.isArray(value.nodeIds)) {
       throw new Error('Invalid induced graph edges response')
     }
-    return value.edges.map(parseGraphEdge)
+    return parseGraphEdges(value, value.nodeIds, true)
   }))
   const edges = new Map<string, GraphEdgeData>()
   responses.flat().forEach((edge) => edges.set(edge.id, edges.get(edge.id) ?? edge))
