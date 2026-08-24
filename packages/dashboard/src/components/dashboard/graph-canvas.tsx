@@ -111,10 +111,12 @@ interface GraphCanvasProps {
   hiddenNodeTypes: Set<string>
   projectId?: string | null
   mode?: GraphViewMode
+  includeExternals?: boolean
   windowLimit?: GraphWindowLimit
   pageOffset?: number
   fileScope?: GraphNode | null
   onModeChange?: (mode: GraphViewMode) => void
+  onIncludeExternalsChange?: (value: boolean) => void
   onWindowLimitChange?: (limit: GraphWindowLimit) => void
   onPageChange?: (offset: number) => void
   expansionRequest?: { node: GraphNode; sequence: number } | null
@@ -133,10 +135,12 @@ export function GraphCanvas({
   hiddenNodeTypes,
   projectId,
   mode = 'symbols',
+  includeExternals = true,
   windowLimit = 300,
   pageOffset = 0,
   fileScope = null,
   onModeChange,
+  onIncludeExternalsChange,
   onWindowLimitChange,
   onPageChange,
   expansionRequest = null,
@@ -233,6 +237,7 @@ export function GraphCanvas({
           mode,
           limit: windowLimit,
           offset: pageOffset,
+          includeExternals,
           projectId,
           fileScope,
         })
@@ -362,7 +367,7 @@ export function GraphCanvas({
       graphWindowRef.current = null
       baseWindowRef.current = null
     }
-  }, [apiUrl, fileScope, mode, onNodeSelect, pageOffset, projectId, windowLimit])
+  }, [apiUrl, fileScope, includeExternals, mode, onNodeSelect, pageOffset, projectId, windowLimit])
 
   useEffect(() => {
     if (
@@ -606,6 +611,7 @@ export function GraphCanvas({
         mode,
         limit: windowLimit,
         offset: current.nextOffset,
+        includeExternals,
         projectId,
         signal: controller.signal,
       })
@@ -649,7 +655,7 @@ export function GraphCanvas({
         setLoadingMore(false)
       }
     }
-  }, [apiUrl, fileScope, mode, projectId, windowLimit])
+  }, [apiUrl, fileScope, includeExternals, mode, projectId, windowLimit])
 
   const handleRelayout = useCallback((newLayout?: LayoutName) => {
     const l = newLayout ?? layout
@@ -755,6 +761,8 @@ export function GraphCanvas({
         onWindowLimitChange={onWindowLimitChange}
         mode={mode}
         onModeChange={onModeChange}
+        includeExternals={includeExternals}
+        onIncludeExternalsChange={onIncludeExternalsChange}
         canReset={graphWindow !== null && baseWindow !== null && (graphWindow !== baseWindow || pageOffset > 0)}
         pageOffset={graphWindow?.offset ?? pageOffset}
         pageReturned={graphWindow?.returned ?? nodeCount}
