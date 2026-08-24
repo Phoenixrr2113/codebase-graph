@@ -19,7 +19,7 @@ The maintainer will aim to acknowledge a report within 72 hours, provide status 
 
 ## Known advisories in the package dependency tree
 
-`npm audit` reports findings against `@agntk/codegraph-mcp` that we cannot resolve from this
+`npm audit` reports findings against the published `@agntk/codegraph-mcp` package that we cannot resolve from this
 repository. They are listed here rather than suppressed, and the release pipeline enforces
 the list: `pnpm audit:consumer` resolves the dependency tree an end user actually installs
 and fails on any unacknowledged advisory at high severity or above. An acknowledgement that

@@ -1,19 +1,19 @@
+// Public npm package
+{
+  "mcpServers": {
+    "codegraph": {
+      "command": "npx",
+      "args": ["-y", "@agntk/codegraph-mcp"]
+    }
+  }
+}
+
 // Source checkout after building packages/mcp-server/dist/index.js
 {
   "mcpServers": {
     "codegraph": {
       "command": "node",
       "args": ["/absolute/path/to/codebase-graph/packages/mcp-server/dist/index.js"]
-    }
-  }
-}
-
-// Post-publication, after @agntk/codegraph-mcp is verified in the npm registry
-{
-  "mcpServers": {
-    "codegraph": {
-      "command": "npx",
-      "args": ["-y", "@agntk/codegraph-mcp"]
     }
   }
 }

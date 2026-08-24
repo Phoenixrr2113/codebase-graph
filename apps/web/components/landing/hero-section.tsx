@@ -73,10 +73,10 @@ export function HeroSection() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.35 }}
-            className="mx-auto mt-5 max-w-2xl rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-left text-xs leading-5 text-amber-100 sm:text-sm"
+            className="mx-auto mt-5 max-w-2xl rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-left text-xs leading-5 text-emerald-100 sm:text-sm"
             aria-label="Package publication status"
           >
-            <strong>Not yet published to npm.</strong> The package is <code>@agntk/codegraph-mcp@0.1.0</code>. The <code>npx -y @agntk/codegraph-mcp</code> and <code>npx -y -p @agntk/codegraph-mcp codegraph-dashboard</code> commands activate at publication; use the source setup today.
+            <strong>Available on npm.</strong> Install <code>@agntk/codegraph-mcp@0.1.0</code> with <code>npx -y @agntk/codegraph-mcp</code>, or launch the dashboard with <code>npx -y -p @agntk/codegraph-mcp codegraph-dashboard</code>.
           </motion.aside>
         </div>
 
