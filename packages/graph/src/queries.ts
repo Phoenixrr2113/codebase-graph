@@ -23,11 +23,24 @@ import type {
 // Type Guards and Helpers
 // ============================================================================
 
-type DashboardNodeLabel = NodeLabel | 'Entity';
+type DashboardNodeLabel = NodeLabel | 'Entity' | 'TypeRef';
+
+type FileSubgraphIdentityError = {
+  labels: string[];
+  edgeType: string;
+  message: string;
+};
+
+type FileSubgraphResult = SubgraphData & {
+  identityErrors?: FileSubgraphIdentityError[];
+};
 
 function getLabelFromLabels(labels: string[]): DashboardNodeLabel {
   if (labels.includes('Entity')) {
     return 'Entity';
+  }
+  if (labels.includes('TypeRef')) {
+    return 'TypeRef';
   }
 
   // resolveNodeLabel is the shared classifier (packages/types/src/labels.ts):
@@ -101,6 +114,10 @@ function persistedNodeId(props: Record<string, unknown>, label?: DashboardNodeLa
     const filePath = typeof props['filePath'] === 'string' ? props['filePath'] : '';
     return `File:${filePath}`;
   }
+  if (label === 'Commit') {
+    const hash = typeof props['hash'] === 'string' ? props['hash'] : '';
+    if (hash.length > 0) return `Commit:${hash}`;
+  }
   const id = props['id'];
   if (typeof id === 'string' && id.length > 0) {
     return id;
@@ -113,6 +130,10 @@ function persistedNodeId(props: Record<string, unknown>, label?: DashboardNodeLa
   throw new Error('Graph node is missing a persisted id');
 }
 
+function isMissingPersistedNodeIdError(error: unknown): error is Error {
+  return error instanceof Error && error.message === 'Graph node is missing a persisted id';
+}
+
 function nodeToGraphNode(node: Record<string, unknown>, labels: string[], dialect?: CypherDialect): GraphNode {
   const actualLabels = extractLabels(node, labels, dialect);
   const props = extractNodeProps(node, dialect);
@@ -123,7 +144,7 @@ function nodeToGraphNode(node: Record<string, unknown>, labels: string[], dialec
   return {
     id,
     label,
-    displayName: (props['name'] as string) ?? (props['filePath'] as string) ?? (props['text'] as string) ?? 'unknown',
+    displayName: (props['name'] as string) ?? (props['filePath'] as string) ?? (props['text'] as string) ?? (props['hash'] as string) ?? 'unknown',
     filePath: (props['filePath'] as string),
     data: dashboardProps,
   } as unknown as GraphNode;
@@ -1159,10 +1180,11 @@ class GraphQueriesImpl implements GraphQueries {
   }
 
   @trace()
-  async getFileSubgraph(filePath: string): Promise<SubgraphData> {
+  async getFileSubgraph(filePath: string): Promise<FileSubgraphResult> {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
     const nodeIds = new Set<string>();
+    const identityErrors: FileSubgraphIdentityError[] = [];
 
     const result = await this.client.roQuery<{
       f: Record<string, unknown>;
@@ -1187,7 +1209,18 @@ class GraphQueriesImpl implements GraphQueries {
 
       // Add contained entity
       if (row.e) {
-        const entityNode = nodeToGraphNode(row.e, row.labels, this.dialect);
+        let entityNode: GraphNode;
+        try {
+          entityNode = nodeToGraphNode(row.e, row.labels, this.dialect);
+        } catch (error) {
+          if (!isMissingPersistedNodeIdError(error)) throw error;
+          identityErrors.push({
+            labels: row.labels,
+            edgeType: 'CONTAINS',
+            message: error.message,
+          });
+          continue;
+        }
         if (!nodeIds.has(entityNode.id)) {
           nodes.push(entityNode);
           nodeIds.add(entityNode.id);
@@ -1205,7 +1238,18 @@ class GraphQueriesImpl implements GraphQueries {
 
       // Add related entities and edges
       if (row.related && row.relatedLabels && row.edgeType && row.r) {
-        const relatedNode = nodeToGraphNode(row.related, row.relatedLabels, this.dialect);
+        let relatedNode: GraphNode;
+        try {
+          relatedNode = nodeToGraphNode(row.related, row.relatedLabels, this.dialect);
+        } catch (error) {
+          if (!isMissingPersistedNodeIdError(error)) throw error;
+          identityErrors.push({
+            labels: row.relatedLabels,
+            edgeType: row.edgeType,
+            message: error.message,
+          });
+          continue;
+        }
         if (!nodeIds.has(relatedNode.id)) {
           nodes.push(relatedNode);
           nodeIds.add(relatedNode.id);
@@ -1230,9 +1274,18 @@ class GraphQueriesImpl implements GraphQueries {
     }
 
     if (centerId !== undefined) {
-      return { nodes, edges, centerId };
+      return {
+        nodes,
+        edges,
+        centerId,
+        ...(identityErrors.length > 0 ? { identityErrors } : {}),
+      };
     }
-    return { nodes, edges };
+    return {
+      nodes,
+      edges,
+      ...(identityErrors.length > 0 ? { identityErrors } : {}),
+    };
   }
 
   @trace()
