@@ -9,7 +9,7 @@ CodeGraph turns source code and project knowledge into a searchable graph for AI
 
 ## Access the project
 
-- [Live application](https://v0-landing-page-build-kappa-virid.vercel.app)
+- [Landing page](https://v0-landing-page-build-kappa-virid.vercel.app)
 - [Source code](https://github.com/Phoenixrr2113/codebase-graph)
 - [Issues](https://github.com/Phoenixrr2113/codebase-graph/issues)
 - [Discussions](https://github.com/Phoenixrr2113/codebase-graph/discussions)
@@ -26,6 +26,7 @@ The public npm package is named `codegraph-mcp`. Its npm link, version badge, an
 - Stores project facts with `valid_at` and `invalid_at` timestamps for point-in-time queries.
 - Supports first-class TypeScript, JavaScript, Python, Go, Rust, and Markdown parsing, with generic tree-sitter support for additional languages.
 - Runs with embedded FalkorDBLite on Linux x64 and Apple silicon macOS, or an external FalkorDB service on any supported Node.js platform. Apple silicon requires Homebrew `libomp` and `openssl@3` runtime libraries.
+- Explores exact graph totals in Files or Symbols view with most-connected-first windows, Previous/Next paging, append-style loading, in-place neighbor expansion, and a Files-view toggle for unresolved external modules.
 - Exposes `analyze`, `codebase`, `knowledge`, `query`, and `search` MCP tools.
 
 ## Choose how to start
@@ -50,17 +51,17 @@ Add this server configuration to an MCP client:
 In the first conversation, ask the agent to check CodeGraph status:
 
 ```json
-{"action":"status"}
+{"method":"tools/call","params":{"name":"codebase","arguments":{"action":"status"}}}
 ```
 
 On a fresh install, `codebase` status returns `configured: false` and `setupRequired: true`. An empty database is a valid first run. Configure one absolute project path, then start a full index:
 
 ```json
-{"action":"configure","projectAction":"set","projects":["/absolute/path/to/project"]}
+{"method":"tools/call","params":{"name":"codebase","arguments":{"action":"configure","projectAction":"set","projects":["/absolute/path/to/project"]}}}
 ```
 
 ```json
-{"action":"reindex","mode":"full","scope":"/absolute/path/to/project"}
+{"method":"tools/call","params":{"name":"codebase","arguments":{"action":"reindex","mode":"full","scope":"/absolute/path/to/project"}}}
 ```
 
 Configuration saves the project but does not index it. The full reindex parses structure first and then finishes embeddings. With the local provider, `codebase` status includes model load and indexing state while work is running.
@@ -73,7 +74,7 @@ Start the dashboard directly from the package:
 npx -y --package codegraph-mcp codegraph-dashboard
 ```
 
-Open the URL printed by the process. A fresh database opens on the setup flow. Confirm storage and embeddings, use Browse to choose a folder, then select Index project. The page shows model download and indexing progress, finishes remaining embeddings automatically, and reports file, symbol, edge, and embedding counts before opening the graph explorer.
+Open the URL printed by the process. A fresh database opens on the setup flow. Confirm storage and embeddings, choose Browse to select a folder, then select Index project. The page shows model download and indexing progress, finishes remaining embeddings automatically, and reports file, symbol, edge, and embedding counts before opening the graph explorer.
 
 The dashboard and MCP server are separate entry points. They can run at the same time against the same data path.
 
@@ -125,13 +126,13 @@ Provider, model, and dimension are stored with the graph. If any of them changes
 
 | Tool | Purpose |
 | --- | --- |
-| `analyze` | Inspect impact, call hierarchy, cycles, dead-code candidates, hotspots, and change coupling |
+| `analyze` | Inspect impact, call hierarchy, cycles, dead-code candidates, hotspots, change coupling, and ownership inferred from indexed git history |
 | `search` | Find code and project knowledge by name, structure, or meaning |
 | `knowledge` | Store and recall entities, relationships, facts, and documents |
 | `codebase` | Configure projects, index code, inspect status, and read source |
 | `query` | Run read-only Cypher queries against the graph |
 
-Set `CODEGRAPH_RAW_TOOLS=1` to expose lower-level handlers instead of the five grouped tools.
+Set `CODEGRAPH_RAW_TOOLS=true` to expose lower-level handlers alongside the five grouped tools.
 
 ## Configuration
 
@@ -150,6 +151,7 @@ Set `CODEGRAPH_RAW_TOOLS=1` to expose lower-level handlers instead of the five g
 | `CEREBRAS_API_KEY` | Optional LLM-backed knowledge extraction |
 | `API_PORT` | Dashboard and REST API port, default `3001`; use the printed URL |
 | `CODEGRAPH_BROWSE_ROOTS` | Additional absolute dashboard Browse roots, separated by commas |
+| `CODEGRAPH_RAW_TOOLS` | Set to the literal value `true` to expose raw handlers alongside the five grouped MCP tools |
 
 Never commit provider keys. Put secrets in the MCP client's protected environment configuration or a local ignored `.env` file.
 

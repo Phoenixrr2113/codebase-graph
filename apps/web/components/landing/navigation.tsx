@@ -1,180 +1,124 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { motion, AnimatePresence } from "framer-motion"
-import { Menu, X, GitGraph } from "lucide-react"
+import { useEffect, useState } from "react"
+import { AnimatePresence, motion } from "framer-motion"
+import { Github, GitGraph, Menu, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 const navLinks = [
-  { label: "Features", href: "#features" },
-  { label: "Integrations", href: "#integrations" },
-  { label: "Architecture", href: "#architecture" },
-  { label: "GitHub", href: "https://github.com/Phoenixrr2113/codebase-graph", external: true },
+  { label: "Product", href: "#product" },
+  { label: "Setup", href: "#setup" },
+  { label: "Explorer", href: "#explorer" },
+  { label: "Analysis", href: "#analysis" },
+  { label: "Platform", href: "#platform" },
 ]
 
 export function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const [activeSection, setActiveSection] = useState("")
+  const [activeSection, setActiveSection] = useState("product")
 
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20)
-      
-      // Update active section based on scroll position
-      const sections = navLinks.map(link => link.href.slice(1))
-      for (const section of sections.reverse()) {
-        const element = document.getElementById(section)
-        if (element) {
-          const rect = element.getBoundingClientRect()
-          if (rect.top <= 150) {
-            setActiveSection(section)
-            break
-          }
+      for (const link of [...navLinks].reverse()) {
+        const section = document.getElementById(link.href.slice(1))
+        const sectionTop = section?.getBoundingClientRect().top
+        if (sectionTop !== undefined && sectionTop <= 160) {
+          setActiveSection(link.href.slice(1))
+          return
         }
       }
     }
-    window.addEventListener("scroll", handleScroll)
+    handleScroll()
+    window.addEventListener("scroll", handleScroll, { passive: true })
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
   return (
-    <header
-      className={cn(
-        "fixed top-0 left-0 right-0 z-50 transition-all duration-300",
-        isScrolled ? "bg-background/80 backdrop-blur-lg border-b border-border" : "bg-transparent"
-      )}
-    >
-      <nav className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-        {/* Logo */}
-        <motion.a 
-          href="#" 
-          className="flex items-center gap-2.5 group"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-        >
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 group-hover:bg-accent/20 transition-colors">
-            <GitGraph className="w-4 h-4 text-accent" />
-          </div>
-          <span className="font-semibold text-lg">CodeGraph</span>
-        </motion.a>
+    <header className={cn(
+      "fixed inset-x-0 top-0 z-50 border-b border-transparent transition-colors",
+      isScrolled && "border-border bg-background/90 backdrop-blur-xl",
+    )}>
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
+        <a href="#product" className="flex items-center gap-2.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" aria-label="CodeGraph home">
+          <span className="flex size-8 items-center justify-center rounded-lg border border-accent/20 bg-accent/10">
+            <GitGraph className="size-4 text-accent" aria-hidden="true" />
+          </span>
+          <span className="font-semibold">CodeGraph</span>
+        </a>
 
-        {/* Desktop Nav with animated indicator */}
-        <nav className="hidden md:flex items-center gap-1 p-1 rounded-full bg-muted/50 border border-border" aria-label="Main navigation">
+        <nav className="hidden items-center gap-1 rounded-full border border-border bg-card/70 p-1 md:flex" aria-label="Main navigation">
           {navLinks.map((link) => {
-            const isExternal = 'external' in link && link.external
-            const isActive = !isExternal && activeSection === link.href.slice(1)
+            const isActive = activeSection === link.href.slice(1)
             return (
               <a
                 key={link.label}
                 href={link.href}
-                {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                aria-current={isActive ? "page" : undefined}
+                aria-current={isActive ? "location" : undefined}
                 className={cn(
-                  "relative px-4 py-1.5 text-sm rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                  isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                  "rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:px-4 lg:text-sm",
+                  isActive ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                {isActive && (
-                  <motion.div
-                    layoutId="nav-indicator"
-                    className="absolute inset-0 bg-background border border-border rounded-full shadow-sm"
-                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                  />
-                )}
-                <span className="relative z-10">{link.label}</span>
+                {link.label}
               </a>
             )
           })}
         </nav>
 
-        {/* CTA Buttons */}
-        <div className="hidden md:flex items-center gap-3">
-          <Button variant="ghost" size="sm" asChild>
-            <a href="https://github.com/Phoenixrr2113/codebase-graph" target="_blank" rel="noopener noreferrer">
-              Star on GitHub
-            </a>
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" className="hidden md:inline-flex" asChild>
+          <a href="https://github.com/Phoenixrr2113/codebase-graph" target="_blank" rel="noopener noreferrer">
+            <Github className="mr-2 size-4" aria-hidden="true" />
+            GitHub
+          </a>
+        </Button>
 
-        {/* Mobile Menu Button */}
-        <motion.button
-          whileTap={{ scale: 0.95 }}
-          className="md:hidden p-2 text-muted-foreground hover:text-foreground transition-colors"
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          aria-label="Toggle menu"
+        <button
+          type="button"
+          className="rounded-md p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md:hidden"
+          onClick={() => setIsMobileMenuOpen((open) => !open)}
+          aria-expanded={isMobileMenuOpen}
+          aria-controls="mobile-navigation"
+          aria-label={isMobileMenuOpen ? "Close navigation" : "Open navigation"}
         >
-          <AnimatePresence mode="wait">
-            {isMobileMenuOpen ? (
-              <motion.div
-                key="close"
-                initial={{ rotate: -90, opacity: 0 }}
-                animate={{ rotate: 0, opacity: 1 }}
-                exit={{ rotate: 90, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                <X className="h-5 w-5" />
-              </motion.div>
-            ) : (
-              <motion.div
-                key="menu"
-                initial={{ rotate: 90, opacity: 0 }}
-                animate={{ rotate: 0, opacity: 1 }}
-                exit={{ rotate: -90, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                <Menu className="h-5 w-5" />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.button>
-      </nav>
+          {isMobileMenuOpen ? <X className="size-5" aria-hidden="true" /> : <Menu className="size-5" aria-hidden="true" />}
+        </button>
+      </div>
 
-      {/* Mobile Menu */}
       <AnimatePresence>
         {isMobileMenuOpen && (
-          <motion.div
+          <motion.nav
+            id="mobile-navigation"
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden border-b border-border bg-background/95 backdrop-blur-lg overflow-hidden"
+            className="overflow-hidden border-t border-border bg-background/95 px-4 py-3 backdrop-blur-xl md:hidden"
+            aria-label="Mobile navigation"
           >
-            <div className="px-4 py-4 space-y-1">
-              {navLinks.map((link, i) => {
-                const isExternal = 'external' in link && link.external
-                return (
-                  <motion.a
-                    key={link.label}
-                    href={link.href}
-                    {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.2, delay: i * 0.05 }}
-                    className={cn(
-                      "block py-3 px-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors",
-                      !isExternal && activeSection === link.href.slice(1) && "text-foreground bg-muted/50"
-                    )}
-                  >
-                    {link.label}
-                  </motion.a>
-                )
-              })}
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: 0.2 }}
-                className="flex flex-col gap-2 pt-4 mt-2 border-t border-border"
+            <div className="mx-auto grid max-w-6xl gap-1">
+              {navLinks.map((link) => (
+                <a
+                  key={link.label}
+                  href={link.href}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="rounded-md px-3 py-3 text-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {link.label}
+                </a>
+              ))}
+              <a
+                href="https://github.com/Phoenixrr2113/codebase-graph"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 flex items-center gap-2 rounded-md border border-border px-3 py-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
-                <Button variant="outline" size="sm" asChild>
-                  <a href="https://github.com/Phoenixrr2113/codebase-graph" target="_blank" rel="noopener noreferrer">
-                    Star on GitHub
-                  </a>
-                </Button>
-              </motion.div>
+                <Github className="size-4" aria-hidden="true" />
+                GitHub
+              </a>
             </div>
-          </motion.div>
+          </motion.nav>
         )}
       </AnimatePresence>
     </header>

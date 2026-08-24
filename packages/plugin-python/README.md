@@ -8,30 +8,30 @@ Python language plugin for CodeGraph. Extracts code entities from Python source 
 
 ## Extracted Entities
 
-- **Functions** -- `def` and `async def` declarations with:
+- **Functions**: `def` and `async def` declarations with:
   - Type annotations (parameters and return types)
   - Docstrings (triple-quoted strings as first body statement)
   - Async detection
   - Method detection (inside class bodies)
   - Complexity metrics (cyclomatic, cognitive, nesting depth)
   - `self`/`cls` parameters filtered out automatically
-- **Classes** -- `class` declarations with:
+- **Classes**: `class` declarations with:
   - Superclass extraction from argument list
   - Docstrings
   - Method enumeration
   - Export detection via `_` prefix convention
-- **Variables** -- Top-level assignments with:
+- **Variables**: Top-level assignments with:
   - Constant detection (`UPPER_CASE` naming)
   - Basic type inference from right-hand side
-- **Imports** -- `import` and `from ... import` statements with:
+- **Imports**: `import` and `from ... import` statements with:
   - Named specifiers and aliases (`import X as Y`)
   - Namespace vs named import distinction
   - Python import path resolution (relative and absolute)
 
 ## Extracted Relationships
 
-- **CALLS** -- Function-to-function call references (filters Python builtins: `print`, `len`, `range`, `isinstance`, etc.)
-- **Inheritance** -- Derived from class `extends` fields
+- **CALLS**: Function-to-function call references, including resolvable cross-file calls through relative and absolute project imports. Python builtins are filtered. Calls whose target file cannot be resolved are intentionally omitted.
+- **Inheritance**: Derived from class `extends` fields
 
 ## Architecture
 

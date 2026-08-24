@@ -51,6 +51,7 @@ Include the commands and results in the pull request. CI repeats the repository 
 - Keep public functions typed and validate data at system boundaries.
 - Add tests for new behavior and regressions.
 - Update user-facing documentation when commands, configuration, or behavior changes.
+- For documentation and landing-page changes, avoid the em dash character U+2014 and verify links and factual copy against merged source.
 - Call out security, compatibility, migration, and release effects.
 - Never commit generated `dist` directories, secrets, `.env` files, local `.codegraph` data, or benchmark output containing local paths.
 

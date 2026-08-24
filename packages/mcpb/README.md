@@ -1,55 +1,11 @@
 # @codegraph/mcpb
 
-MCP Bundle (MCPB) for the CodeGraph server in Claude Desktop and other compatible MCP clients.
+Private workspace builder for the platform-local CodeGraph MCPB desktop extension. It is an artifact-staging package, not a registry distribution.
 
-This is a **build artifact**, not a development package. It bundles the MCP server and all dependencies into a single deployable unit.
+The build bundles the compiled MCP server, copies its locked native parser dependencies, and produces `packages/mcpb/dist.mcpb`. Because native dependencies are copied from the current workspace, an artifact must be built and tested on the platform where it will be installed.
 
-## What It Produces
+The server currently exposes five grouped tools: `analyze`, `codebase`, `knowledge`, `query`, and `search`. Raw handlers remain opt-in through `CODEGRAPH_RAW_TOOLS=true`.
 
-The `build.mjs` script generates a `dist/` directory containing:
+The desktop bundle uses structural-only embeddings and an external FalkorDB connection by default. It does not package the local Transformer model or embedded FalkorDBLite platform binaries.
 
-```
-dist/
-  manifest.json          # MCPB manifest with tool definitions and user config schema
-  package.json           # ESM package metadata
-  icon.png               # Extension icon
-  server/
-    index.mjs            # esbuild-bundled MCP server (single file)
-    node_modules/        # Locked tree-sitter and MCP SDK runtime packages
-```
-
-## Build Process
-
-1. **esbuild** bundles `packages/mcp-server/dist/index.js` into a single ESM file targeting Node 20
-2. `tree-sitter`, grammar packages, the MCP SDK, and their runtime dependency closures are copied from the frozen pnpm workspace install.
-3. MCP SDK imports in the bundle are patched to add `.js` extensions for Node ESM resolution.
-4. `manifest.json` and `icon.png` are copied into the output.
-
-The desktop bundle defaults to structural search with an external FalkorDB service. It does not package optional local Transformer models or embedded FalkorDBLite. Configure the FalkorDB host and port when installing the extension.
-
-## manifest.json
-
-Defines the extension metadata, tools, user configuration, and server entry point. Key sections:
-
-- **tools**: `search`, `codebase`, `knowledge`, `query`
-- **user_config**: Prompts for project paths and optional external FalkorDB host/port
-- **server.mcp_config**: The `node` command and environment variables used to launch the server
-- **compatibility**: Node >= 20 and the platform where the bundle was built
-
-The generated bundle defaults to `CODEGRAPH_EMBEDDING_PROVIDER=none`, so API keys are not required for structural search. Its FalkorDB host and port settings point the bundle at an external service.
-
-## How to Build
-
-```bash
-# From the monorepo root: build the MCP server first, then the bundle
-pnpm --filter @codegraph/mcpb build
-```
-
-## How to Pack
-
-```bash
-pnpm exec mcpb pack packages/mcpb/dist
-# Produces codegraph-0.1.0.mcpb
-```
-
-The `.mcpb` file can be distributed to users and installed in Claude Desktop.
+The root `build:mcpb` script builds the server and bundle, validates the generated directory, and packs the extension.

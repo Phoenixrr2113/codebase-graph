@@ -1,14 +1,22 @@
+// Source checkout after building packages/mcp-server/dist/index.js
+{
+  "mcpServers": {
+    "codegraph": {
+      "command": "node",
+      "args": ["/absolute/path/to/codebase-graph/packages/mcp-server/dist/index.js"]
+    }
+  }
+}
+
+// Post-publication, after codegraph-mcp is verified in the npm registry
 {
   "mcpServers": {
     "codegraph": {
       "command": "npx",
-      "args": ["tsx", "/path/to/codebase-graph/packages/mcp-server/src/index.ts"],
-      "env": {
-        "CODEGRAPH_DRIVER": "falkordblite",
-        "CODEGRAPH_DB_PATH": ".codegraph/falkordb",
-        "VOYAGE_API_KEY": "YOUR_VOYAGE_API_KEY",
-        "JINA_API_KEY": "YOUR_JINA_API_KEY"
-      }
+      "args": ["-y", "codegraph-mcp"]
     }
   }
 }
+
+// No provider key is required. Local embeddings are selected automatically.
+// To opt into a cloud provider, add VOYAGE_API_KEY or OPENROUTER_API_KEY to the selected server's env object through your MCP client's protected secret configuration.

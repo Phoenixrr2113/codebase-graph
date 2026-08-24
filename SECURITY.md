@@ -17,7 +17,7 @@ Include affected versions, impact, reproduction steps, and any suggested mitigat
 
 The maintainer will aim to acknowledge a report within 72 hours, provide status updates while it is investigated, and coordinate disclosure after a fix is available. Response and remediation timing depend on severity and reproducibility.
 
-## Known advisories in the published package
+## Known advisories in the package dependency tree
 
 `npm audit` reports findings against `codegraph-mcp` that we cannot resolve from this
 repository. They are listed here rather than suppressed, and the release pipeline enforces

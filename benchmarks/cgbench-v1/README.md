@@ -1,118 +1,45 @@
 # CGBench v1
 
-CodeGraph public benchmark — measures retrieval quality, latency, ingestion speed, and resource footprint across multiple code-knowledge systems on a uniform task battery.
+CGBench is the repository's reproducible TypeScript harness for measuring retrieval quality, latency, ingestion, and resource use across code-knowledge systems.
 
-**Status:** Plan 1 of 4 (foundations + CodeGraph adapter). Plans 2-4 add questions, competitor adapters, and the public publish workflow.
+## Current committed results
 
-## Capabilities measured per task
+Start with [BENCHMARKS.md](BENCHMARKS.md) for methodology, caveats, system status, and the smoke comparison. The committed result directories preserve the source reports and machine-readable summaries for later runs.
 
-CodeGraph is a vector-search-with-graph-enrichment system. The adapter routes
-each task to the production MCP path that exists for that capability:
+- [`results/v0.1.4-final/`](results/v0.1.4-final/) is the four-corpus CodeGraph baseline with 112 completed question dispatches across TypeScript zod, Python requests, Go chi, and Rust clap.
+- [`results/v0.1.5-glm51/`](results/v0.1.5-glm51/) repeats that four-corpus method with a different entity-extraction LLM. Its report records one dropped knowledge-ingest dispatch and 111 successful dispatches.
+- [`results/v0.1.0-smoke/`](results/v0.1.0-smoke/) contains the small cross-system smoke fixture. Its sample size is not a production ranking.
 
-| Task | Adapter path | What it tests |
-|------|--------------|---------------|
-| A — NL→code | `search.find` | semantic code retrieval |
-| B — multi-hop | `search.find` | partial recall via vector similarity (see note) |
-| C — dependency Cypher | `search.find` | partial recall via vector similarity (see note) |
-| D — temporal | `query_knowledge` (semanticQuery + at) | bitemporal recall |
-| E — cross-modal | `search.find` (searchScope='all') | RRF fusion of code + knowledge |
-| F — document | `query_knowledge` (semanticQuery) | document retrieval |
+Read the report inside a result directory before comparing numbers. Several runs are single-system, task sample sizes are small, and LLM-backed ingestion introduces run-to-run variance.
 
-**Note on B and C:** These are inherently graph-traversal questions. CodeGraph
-does not claim NL→Cypher capability — structural traversal is exposed via the
-`query` MCP tool with hand-written Cypher. CGBench does not invoke that path;
-B and C measure the partial recall that vector similarity gives. Lower scores
-on B and C are expected and honest.
+## Task battery
 
-## Prereqs
+| Task | Production adapter path | Measurement |
+| --- | --- | --- |
+| A, natural language to code | `search.find` | Symbol retrieval |
+| B, multi-hop | `search.find` | Partial vector recall |
+| C, dependency | `search.find` | Partial vector recall |
+| D, temporal | `knowledge.query_knowledge` | Point-in-time and range recall |
+| E, cross-modal | `search.find` with `searchScope=all` | Code and knowledge fusion |
+| F, document | `knowledge.query_knowledge` | Document retrieval |
 
-- Node 20 or later
-- `redis-server` (for FalkorDBLite): `brew install redis` on macOS
-- `pandoc` (for document rendering, used by Plan 2): `brew install pandoc` on macOS
-- `git` (for cloning OSS code corpora)
+Tasks B and C deliberately do not synthesize Cypher. Structural traversal is available through the `query` MCP tool, while these benchmark tasks measure what the production search path retrieves without a hand-written graph query.
 
-## Setup
+## Requirements
 
-```bash
-pnpm install
-pnpm --filter @codegraph/cgbench-v1 bench:clone-corpora
-```
+- Node.js 20 or newer
+- Workspace dependencies installed from the repository root
+- Git for cloning pinned code corpora
+- Provider credentials or local services required by the particular adapter being run
 
-The first command installs workspace deps. The second clones the 4 pinned OSS code corpora into `corpora/code/` (`psf-requests`, `colinhacks-zod`, `go-chi-chi`, `clap-rs-clap`). The script is idempotent — re-running it skips corpora already at the pinned SHA.
+FalkorDBLite uses the platform binaries installed with the workspace. It does not require a separate `redis-server` installation. Keep temporary result paths short on macOS because embedded storage uses a Unix socket; `/tmp/cgbench-results` is a suitable location.
 
-## Run a single-system benchmark
+## Validate the harness
+
+From the repository root:
 
 ```bash
-# Run CodeGraph against the tiny-ts fixture (sanity check)
-cd benchmarks/cgbench-v1
-npx tsx src/cli.ts run \
-  --system codegraph \
-  --corpus fixtures/code/tiny-ts \
-  --questions fixtures/questions/smoke.jsonl \
-  --results-dir /tmp/cgbench-results
+pnpm --filter @codegraph/cgbench-v1 test
 ```
 
-Output: `/tmp/cgbench-results/<iso-timestamp>/per-system/codegraph.json`.
-
-Expected smoke result on the fixture: 3 questions, Task A MRR ≈ 0.83, Recall@10 = 1.0.
-
-The JSON contains:
-- `system`, `questionCount`
-- `tasks.<A-F>` — per-task `count`, `mrr`, `recallAt10`
-- `latency` — cold/warm/all buckets with count, p50/p95/p99, mean, min, max
-- `ingestion` — `durationMs`, `totalDocs`, `totalTokens`, `diskBytesAfter`, `tokensPerSecond`
-
-**macOS note:** `--results-dir` paths under `/Users/...` may exceed the FalkorDBLite Unix-socket limit (104 bytes). Prefer a short path like `/tmp/cgbench-results`.
-
-## What's in this plan
-
-| Phase | Tasks | Status |
-|---|---|---|
-| Workspace scaffolding | 1-3 | Plan 1 |
-| Corpus assembly | 4-6 | Plan 1 |
-| Scoring engine | 7-12 | Plan 1 |
-| CodeGraph adapter | 13-15 | Plan 1 |
-| Runner + CLI | 16-17 | Plan 1 |
-| Question authoring (~210-300 hand-labeled) | — | Plan 2 |
-| Competitor adapters (×7) | — | Plan 3 |
-| Public results + landing-page link | — | Plan 4 |
-
-## Architecture
-
-- `src/adapter.ts` — `BenchmarkAdapter` interface (every system implements this).
-- `src/types.ts` — zod schemas for corpora, questions, ranked results, manifest.
-- `src/score/` — pure functions: MRR, Recall@k, Precision@k, F1, EM.
-- `src/metrics/` — latency aggregation (p50/p95/p99 cold/warm), RSS sampling, disk measurement, ingestion throughput.
-- `src/adapters/codegraph.ts` — native adapter wrapping `@codegraph/core`'s indexer + production vector+reranker search (`enrichedSearchV2`). Falls back to lexical Cypher when `embeddingProvider: 'none'`.
-- `src/runner.ts` — ingest → query loop → score → return `RunResult`.
-- `src/cli.ts` — `bench run --system <name>` writes `RunResult` to `results/<timestamp>/per-system/<system>.json`.
-- `fixtures/` — tiny in-repo corpus + smoke questions for integration tests. Real corpora live in `corpora/`.
-
-## Embedding providers
-
-The CodeGraph adapter supports three embedding providers for vector search:
-
-| Provider | Env | Notes |
-|---|---|---|
-| `local` | (none required) | `nomic-ai/nomic-embed-text-v1.5` via `@huggingface/transformers`. Downloads ~140MB model on first run. ~10ms/embedding on CPU. Default when no API key is set. |
-| `voyage` | `VOYAGE_API_KEY` | `voyage-code-3` (1024-dim, code-optimized). Auto-selected when key is present. |
-| `openrouter` | `OPENROUTER_API_KEY` | `text-embedding-3-small` (1536-dim). Auto-selected when key is present. |
-| `none` | (none) | Lexical fallback only (name+filePath Cypher). Use for offline/CI environments. |
-
-Set `CODEGRAPH_EMBEDDING_PROVIDER=<provider>` to override auto-detection.
-
-The reranker (cross-encoder) is auto-detected from `JINA_API_KEY` / `VOYAGE_API_KEY`. Without a key, the adapter uses raw vector similarity scores. Set `CODEGRAPH_RERANK_PROVIDER=none` to disable explicitly.
-
-### Lexical fallback
-
-When `embeddingProvider: 'none'` (or `CODEGRAPH_EMBEDDING_PROVIDER=none`), the adapter falls back to direct Cypher name-match with 4-char-prefix stem expansion — no API key or model required. This mode is suitable for CI and offline testing but produces lower MRR (~0.21 on the smoke fixture).
-
-## Plan 1 limitations
-
-- **`tokensPerSecond` is approximated** as `diskBytesAfter / 4 / durationMs`. Replace with real token counts when `indexProject` exposes them.
-- **Path-length constraint** on FalkorDBLite Unix socket: keep `--results-dir` short on macOS.
-
-## Spec
-
-`docs/superpowers/specs/2026-04-27-codegraph-benchmark-design.md` (gitignored, local-only).
-`docs/superpowers/plans/2026-04-27-cgbench-v1-plan1-foundations.md` — this plan.
+The package scripts also expose corpus cloning, document rendering, integration tests, competitor tests, type checking, and the `bench` CLI. Real-corpus reports record their exact adapter, corpus, model, provider, source revision, command, and caveats inside the corresponding result directory.
