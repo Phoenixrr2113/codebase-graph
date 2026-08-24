@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process';
+import { existsSync, realpathSync } from 'node:fs';
 import { readdir, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { fileURLToPath } from 'node:url';
 import {
   assertBlockedStorage,
   assertUnsupportedMcpStatus,
@@ -12,12 +12,50 @@ import {
 
 const expectedTools = ['analyze', 'codebase', 'knowledge', 'query', 'search'];
 const mode = process.argv[2] ?? 'basic';
-const packageDirectory = process.argv[3];
-const fixtureDirectory = process.argv[4];
-const dataDirectory = process.argv[5];
-const databaseDirectory = process.argv[6];
+const packageDirectory = process.argv[3] ?? '';
+const fixtureDirectory = process.argv[4] ?? '';
+const dataDirectory = process.argv[5] ?? '';
+const databaseDirectory = process.argv[6] ?? '';
 const mcpBin = join(packageDirectory, 'bin', 'codegraph-mcp.mjs');
 const dashboardBin = join(packageDirectory, 'bin', 'codegraph-dashboard.mjs');
+
+export function supportsInstalledEmbeddedPlatform({
+  platform = process.platform,
+  architecture = process.arch,
+  fileExists = existsSync,
+} = {}) {
+  if (platform === 'linux' && architecture === 'x64') return true;
+  if (platform !== 'darwin' || architecture !== 'arm64') return false;
+  return [
+    '/opt/homebrew/opt/libomp/lib/libomp.dylib',
+    '/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib',
+    '/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib',
+  ].every(fileExists);
+}
+
+export function createInstalledEnvironment({
+  baseEnvironment = process.env,
+  smokeMode = mode,
+  embeddedSupported = supportsInstalledEmbeddedPlatform(),
+} = {}) {
+  const environment = {
+    ...baseEnvironment,
+    CODEGRAPH_DATA_DIR: dataDirectory,
+    CODEGRAPH_DB_PATH: databaseDirectory,
+    CODEGRAPH_EMBEDDING_PROVIDER: smokeMode === 'local' ? 'local' : 'none',
+    CODEGRAPH_BROWSE_ROOTS: fixtureDirectory,
+    CODEGRAPH_LOG_STDERR: 'true',
+  };
+  delete environment.CODEGRAPH_DRIVER;
+  const expectsEmbeddedServer = embeddedSupported && smokeMode !== 'unsupported';
+  if (expectsEmbeddedServer) {
+    environment.CODEGRAPH_DRIVER = 'falkordblite';
+    delete environment.FALKORDB_URL;
+    delete environment.FALKORDB_HOST;
+    delete environment.FALKORDB_PORT;
+  }
+  return { environment, expectsEmbeddedServer };
+}
 
 function pass(label) {
   process.stdout.write(`PASS ${label}\n`);
@@ -118,6 +156,10 @@ async function startDashboard(environment) {
 }
 
 async function startMcp(environment) {
+  const [{ Client }, { StdioClientTransport }] = await Promise.all([
+    import('@modelcontextprotocol/sdk/client/index.js'),
+    import('@modelcontextprotocol/sdk/client/stdio.js'),
+  ]);
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [mcpBin],
@@ -219,7 +261,7 @@ async function runUnsupported(environment) {
   }
 }
 
-async function runBasic(environment) {
+async function runBasic(environment, expectsEmbeddedServer) {
   let dashboard = await startDashboard(environment);
   try {
     const health = await requestJson(dashboard.baseUrl, '/health');
@@ -330,8 +372,10 @@ async function runBasic(environment) {
       await assertMcpQuery(mcp);
       requireCondition(await graphNodeCount(dashboard.baseUrl) > 0, 'dashboard could not read data while MCP was attached');
       pass('dashboard and MCP concurrently read the same indexed data');
-      requireCondition(await socketCount(databaseDirectory) === 1, 'concurrent binaries did not share exactly one embedded server socket');
-      pass('concurrent binaries use exactly one embedded server');
+      if (expectsEmbeddedServer) {
+        requireCondition(await socketCount(databaseDirectory) === 1, 'concurrent binaries did not share exactly one embedded server socket');
+        pass('concurrent binaries use exactly one embedded server');
+      }
     } finally {
       await closeMcp(mcp);
     }
@@ -403,24 +447,22 @@ async function main() {
   ].join('\n'));
   await writeFile(join(fixtureDirectory, 'package.json'), '{"name":"codegraph-release-smoke","private":true,"type":"module"}\n');
 
-  const environment = {
-    ...process.env,
-    CODEGRAPH_DATA_DIR: dataDirectory,
-    CODEGRAPH_DB_PATH: databaseDirectory,
-    CODEGRAPH_EMBEDDING_PROVIDER: mode === 'local' ? 'local' : 'none',
-    CODEGRAPH_BROWSE_ROOTS: fixtureDirectory,
-    CODEGRAPH_LOG_STDERR: 'true',
-  };
-  delete environment.CODEGRAPH_DRIVER;
+  const { environment, expectsEmbeddedServer } = createInstalledEnvironment();
 
   if (mode === 'unsupported') await runUnsupported(environment);
   else if (mode === 'local') await runLocal(environment);
-  else if (mode === 'basic') await runBasic(environment);
+  else if (mode === 'basic') await runBasic(environment, expectsEmbeddedServer);
   else throw new Error(`unknown installed smoke mode: ${mode}`);
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stdout.write(`FAIL installed package ${mode} smoke: ${message}\n`);
-  process.exitCode = 1;
-});
+const launchedScriptPath = process.argv[1];
+const launchedDirectly = launchedScriptPath !== undefined
+  && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(launchedScriptPath);
+
+if (launchedDirectly) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stdout.write(`FAIL installed package ${mode} smoke: ${message}\n`);
+    process.exitCode = 1;
+  });
+}
