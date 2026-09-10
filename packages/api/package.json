@@ -26,7 +26,7 @@
     "@codegraph/logger": "workspace:*",
     "@codegraph/types": "workspace:*",
     "@hono/node-server": "^1.19.14",
-    "hono": "^4.12.23"
+    "hono": "^4.13.5"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
