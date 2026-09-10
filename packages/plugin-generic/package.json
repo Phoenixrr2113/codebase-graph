@@ -26,6 +26,6 @@
     "typescript": "^5.9.3",
     "tree-sitter": "^0.22.4",
     "tree-sitter-python": "^0.21.0",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.11"
   }
 }
