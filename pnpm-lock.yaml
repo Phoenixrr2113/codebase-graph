@@ -287,10 +287,10 @@ importers:
         version: link:../types
       '@hono/node-server':
         specifier: 1.19.15
-        version: 1.19.15(hono@4.12.34)
+        version: 1.19.15(hono@4.13.11)
       hono:
-        specifier: 4.12.34
-        version: 4.12.34
+        specifier: ^4.13.11
+        version: 4.13.11
     devDependencies:
       '@types/node':
         specifier: ^22.19.19
@@ -4378,6 +4378,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -4748,6 +4749,10 @@ packages:
 
   hono@4.12.34:
     resolution: {integrity: sha512-GqXJqY/xJkJmuloTrnV1ZEXG3fqte+VjkUqoRNZXcrUidiUOP4fMSIHHY4tsqZBK++kVyWmt/AAfSUuy57/eSA==}
+    engines: {node: '>=16.9.0'}
+
+  hono@4.13.11:
+    resolution: {integrity: sha512-/SMX/RQNJn7oNmFwH6DtwDqcrzZU2otm1FD6OJe2cWF6cfy/F8hq0XVBv7xW3FTJshRQwuBnXHDq2kNsdZnshg==}
     engines: {node: '>=16.9.0'}
 
   html-void-elements@3.0.0:
@@ -7322,6 +7327,10 @@ snapshots:
   '@hono/node-server@1.19.15(hono@4.12.34)':
     dependencies:
       hono: 4.12.34
+
+  '@hono/node-server@1.19.15(hono@4.13.11)':
+    dependencies:
+      hono: 4.13.11
 
   '@hookform/resolvers@3.10.0(react-hook-form@7.76.1(react@19.2.8))':
     dependencies:
@@ -10606,6 +10615,8 @@ snapshots:
       hermes-estree: 0.25.1
 
   hono@4.12.34: {}
+
+  hono@4.13.11: {}
 
   html-void-elements@3.0.0: {}
 
